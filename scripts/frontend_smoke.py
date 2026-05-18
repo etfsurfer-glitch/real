@@ -16,7 +16,7 @@ except Exception:
 
 from playwright.sync_api import sync_playwright
 
-BASE = "http://localhost:5173"
+BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:5173"
 SNAP = Path(__file__).resolve().parent.parent / "data" / "snapshots" / "frontend_smoke"
 SNAP.mkdir(parents=True, exist_ok=True)
 
@@ -29,8 +29,28 @@ def main() -> int:
         page.set_default_timeout(20000)
 
         print(f"[1] GET {BASE}/")
+        console_msgs: list[str] = []
+        failed_reqs: list[str] = []
+        page.on("console", lambda m: console_msgs.append(f"[{m.type}] {m.text}"))
+        page.on("pageerror", lambda e: console_msgs.append(f"[pageerror] {e}"))
+        page.on("requestfailed", lambda r: failed_reqs.append(
+            f"{r.method} {r.url} -> {r.failure}"))
         page.goto(BASE + "/", wait_until="networkidle")
-        page.wait_for_selector(".cards .card", timeout=15000)
+        try:
+            page.wait_for_selector(".cards .card", timeout=15000)
+        except Exception as e:  # noqa: BLE001
+            print(f"    cards not found: {e}")
+            print(f"    url: {page.url}")
+            body_text = (page.locator("body").text_content() or "")[:800]
+            print(f"    body text: {body_text!r}")
+            print(f"    console msgs ({len(console_msgs)}):")
+            for m in console_msgs[-20:]:
+                print(f"      {m}")
+            print(f"    failed requests ({len(failed_reqs)}):")
+            for r in failed_reqs[-10:]:
+                print(f"      {r}")
+            page.screenshot(path=str(SNAP / "00_overview_fail.png"), full_page=True)
+            raise
         page.wait_for_selector("table tbody tr", timeout=15000)
 
         cards = page.locator(".cards .card .num").all_text_contents()

@@ -37,14 +37,31 @@ def _jitter() -> None:
     time.sleep(random.uniform(0, settings.naver_delay_ms / 1000.0))
 
 
+def _refresh_creds_inplace(creds: dict) -> bool:
+    """Recapture Bearer/cookie, mutating creds dict in place. Returns success."""
+    from . import creds as creds_mod  # local import: avoids cycle at module load
+
+    try:
+        new = creds_mod.capture(max_attempts=2)
+    except Exception:  # noqa: BLE001
+        return False
+    creds.update(new)
+    return True
+
+
 def get_json(
     url: str,
     creds: dict,
     params: dict[str, Any] | None = None,
     max_retries: int = 3,
 ) -> tuple[int, Any]:
-    """GET with jitter + 429 exponential backoff. Returns (status, parsed_json_or_text)."""
+    """GET with jitter + 429 backoff + one-shot 401 recapture.
+
+    creds is mutated in-place on 401 so subsequent calls reuse the fresh token.
+    Returns (status, parsed_json_or_text).
+    """
     last_status = 0
+    refreshed_once = False
     for attempt in range(max_retries):
         _jitter()
         r = creq.get(
@@ -58,6 +75,10 @@ def get_json(
         if r.status_code == 429:
             time.sleep(2 ** attempt + 1)
             continue
+        if r.status_code in (401, 403) and not refreshed_once:
+            refreshed_once = True
+            if _refresh_creds_inplace(creds):
+                continue
         try:
             return r.status_code, r.json()
         except Exception:  # noqa: BLE001

@@ -89,8 +89,13 @@ def upsert_complexes(conn: sqlite3.Connection, supa: Client) -> int:
 
 
 def replace_listings_current(
-    conn: sqlite3.Connection, supa: Client, snapshot_date: str
+    conn: sqlite3.Connection, supa: Client, snapshot_date: str, skip_raw: bool = False
 ) -> int:
+    """Replace today's listings_current on Supabase.
+
+    skip_raw=True drops the JSONB raw column from the payload — useful for
+    fitting nationwide volume in Supabase's free-tier 500 MB DB.
+    """
     supa.table("listings_current").delete().eq("snapshot_date", snapshot_date).execute()
 
     cur = conn.execute(
@@ -117,7 +122,7 @@ def replace_listings_current(
             "tag_list": _maybe_json(r[18]),
             "same_addr_cnt": r[19],
             "latitude": r[20], "longitude": r[21],
-            "raw": _maybe_json(r[22]),
+            "raw": None if skip_raw else _maybe_json(r[22]),
             "snapshot_date": r[23],
         })
     n = 0

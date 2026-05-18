@@ -24,6 +24,12 @@ class Settings:
 
     @classmethod
     def load(cls) -> "Settings":
+        # Resolve data paths relative to project ROOT, not CWD — collector
+        # scripts may be launched from any directory.
+        def _resolve(env_name: str, default: str) -> Path:
+            p = Path(os.getenv(env_name, default))
+            return p.resolve() if p.is_absolute() else (ROOT / p).resolve()
+
         return cls(
             supabase_url=os.getenv("SUPABASE_URL", ""),
             supabase_secret_key=os.getenv("SUPABASE_SECRET_KEY", ""),
@@ -36,8 +42,8 @@ class Settings:
                 "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
             ),
-            local_db_path=Path(os.getenv("LOCAL_DB_PATH", "./data/naverreal.sqlite")).resolve(),
-            snapshot_dir=Path(os.getenv("SNAPSHOT_DIR", "./data/snapshots")).resolve(),
+            local_db_path=_resolve("LOCAL_DB_PATH", "./data/naverreal.sqlite"),
+            snapshot_dir=_resolve("SNAPSHOT_DIR", "./data/snapshots"),
         )
 
 

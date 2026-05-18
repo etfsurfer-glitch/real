@@ -107,8 +107,16 @@ export default function Overview() {
   }, []);
 
   const totals = useMemo(() => {
-    const map: Record<string, RegionAgg> = {};
-    for (const r of regionAgg) map[r.trade_type] = r;
+    const map: Record<string, { listing_count: number; complex_count: number }> = {
+      A1: { listing_count: 0, complex_count: 0 },
+      B1: { listing_count: 0, complex_count: 0 },
+      B2: { listing_count: 0, complex_count: 0 },
+    };
+    for (const r of regionAgg) {
+      if (!map[r.trade_type]) continue;
+      map[r.trade_type].listing_count += r.listing_count;
+      map[r.trade_type].complex_count += r.complex_count;
+    }
     return map;
   }, [regionAgg]);
 
@@ -125,7 +133,9 @@ export default function Overview() {
   return (
     <>
       <div className="muted" style={{ marginBottom: 12 }}>
-        스냅샷 {snapshotDate} · 서초동(1165010800)
+        스냅샷 {snapshotDate} · 수집된 지역 {regionAgg.length > 0
+          ? new Set(regionAgg.map((r) => r.cortar_no)).size
+          : 0}개 동
       </div>
       <div className="cards">
         {["A1", "B1", "B2"].map((t) => {
