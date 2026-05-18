@@ -109,6 +109,63 @@ CREATE TABLE IF NOT EXISTS collection_log (
     completed_at TEXT,
     PRIMARY KEY (run_date, complex_no, trade_type)
 );
+
+CREATE TABLE IF NOT EXISTS articles (
+    article_no TEXT PRIMARY KEY,
+    complex_no TEXT,
+    trade_type TEXT NOT NULL,
+    real_estate_type TEXT,
+    area_name TEXT,
+    area1_m2 REAL,
+    area2_m2 REAL,
+    floor_info TEXT,
+    direction TEXT,
+    building_name TEXT,
+    realtor_name TEXT,
+    realtor_id TEXT,
+    cp_name TEXT,
+    cp_pc_article_url TEXT,
+    verification_type TEXT,
+    latitude REAL,
+    longitude REAL,
+    tag_list_json TEXT,
+    same_addr_cnt INTEGER,
+    same_addr_min_price INTEGER,
+    same_addr_max_price INTEGER,
+    deal_or_warrant_price INTEGER,
+    deal_or_warrant_price_text TEXT,
+    rent_price INTEGER,
+    rent_price_text TEXT,
+    price_change_state TEXT,
+    is_price_modification INTEGER,
+    article_status TEXT,
+    article_feature_desc TEXT,
+    article_confirm_ymd TEXT,
+    first_seen_date TEXT NOT NULL,
+    last_seen_date TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS articles_complex_trade_idx ON articles(complex_no, trade_type);
+CREATE INDEX IF NOT EXISTS articles_active_idx        ON articles(is_active);
+CREATE INDEX IF NOT EXISTS articles_last_seen_idx     ON articles(last_seen_date);
+
+CREATE TABLE IF NOT EXISTS article_events (
+    event_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_date TEXT NOT NULL,
+    article_no TEXT NOT NULL,
+    complex_no TEXT,
+    trade_type TEXT,
+    event_type TEXT NOT NULL,
+    old_price  INTEGER,
+    new_price  INTEGER,
+    old_rent   INTEGER,
+    new_rent   INTEGER,
+    details    TEXT
+);
+CREATE INDEX IF NOT EXISTS article_events_date_idx         ON article_events(event_date);
+CREATE INDEX IF NOT EXISTS article_events_complex_date_idx ON article_events(complex_no, event_date);
+CREATE INDEX IF NOT EXISTS article_events_article_idx      ON article_events(article_no);
+CREATE INDEX IF NOT EXISTS article_events_type_date_idx    ON article_events(event_type, event_date);
 """
 
 _LOCK = threading.Lock()
@@ -148,7 +205,258 @@ def init_schema(conn: sqlite3.Connection) -> None:
         # Migrate older DBs to the B-field layout.
         for col, ddl in _B_FIELDS:
             _add_column_if_missing(conn, "listings_current", col, ddl)
+        # Seed articles from listings_current on first run with new schema
+        # (one-shot migration; subsequent runs are no-ops because articles
+        # already contains the matching rows).
+        cur = conn.execute("SELECT COUNT(*) FROM articles")
+        if cur.fetchone()[0] == 0:
+            cur = conn.execute("SELECT COUNT(*) FROM listings_current")
+            n_lc = cur.fetchone()[0]
+            if n_lc > 0:
+                print(f"  [storage] seeding articles from listings_current ({n_lc} rows)")
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO articles(
+                        article_no, complex_no, trade_type, real_estate_type,
+                        area_name, area1_m2, area2_m2, floor_info, direction,
+                        building_name, realtor_name, realtor_id, cp_name,
+                        cp_pc_article_url, verification_type,
+                        latitude, longitude, tag_list_json, same_addr_cnt,
+                        same_addr_min_price, same_addr_max_price,
+                        deal_or_warrant_price, deal_or_warrant_price_text,
+                        rent_price, rent_price_text,
+                        price_change_state, is_price_modification,
+                        article_status, article_feature_desc, article_confirm_ymd,
+                        first_seen_date, last_seen_date, is_active
+                    )
+                    SELECT
+                        article_no, complex_no, trade_type, real_estate_type,
+                        area_name, area1_m2, area2_m2, floor_info, direction,
+                        building_name, realtor_name, realtor_id, cp_name,
+                        cp_pc_article_url, verification_type,
+                        latitude, longitude, tag_list_json, same_addr_cnt,
+                        same_addr_min_price, same_addr_max_price,
+                        deal_or_warrant_price, deal_or_warrant_price_text,
+                        rent_price, rent_price_text,
+                        price_change_state, is_price_modification,
+                        article_status, article_feature_desc, article_confirm_ymd,
+                        snapshot_date, snapshot_date, 1
+                    FROM listings_current
+                    """
+                )
         conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# articles + article_events helpers (new accumulating schema)
+# ---------------------------------------------------------------------------
+
+_ARTICLE_COLS = (
+    "article_no, complex_no, trade_type, real_estate_type, "
+    "area_name, area1_m2, area2_m2, floor_info, direction, building_name, "
+    "realtor_name, realtor_id, cp_name, cp_pc_article_url, verification_type, "
+    "latitude, longitude, tag_list_json, same_addr_cnt, "
+    "same_addr_min_price, same_addr_max_price, "
+    "deal_or_warrant_price, deal_or_warrant_price_text, "
+    "rent_price, rent_price_text, "
+    "price_change_state, is_price_modification, "
+    "article_status, article_feature_desc, article_confirm_ymd, "
+    "first_seen_date, last_seen_date, is_active"
+)
+
+
+def _article_state_row(complex_no: str, trade: str, snapshot_date: str, it: dict) -> tuple:
+    deal_txt = it.get("dealOrWarrantPrc")
+    rent_txt = it.get("rentPrc")
+    deal_v = parse_price_text(deal_txt)
+    rent_v_a, rent_v_b = parse_rent_pair(rent_txt)
+    rent_v = rent_v_b if rent_v_b is not None else rent_v_a
+    feat = (it.get("articleFeatureDesc") or "").strip()
+    return (
+        str(it["articleNo"]), complex_no, trade,
+        it.get("realEstateTypeCode"),
+        it.get("areaName"), it.get("area1"), it.get("area2"),
+        it.get("floorInfo"), it.get("direction"), it.get("buildingName"),
+        it.get("realtorName"), it.get("realtorId"), it.get("cpName"),
+        it.get("cpPcArticleUrl"), it.get("verificationTypeCode"),
+        float(it["latitude"]) if it.get("latitude") else None,
+        float(it["longitude"]) if it.get("longitude") else None,
+        json.dumps(it.get("tagList") or [], ensure_ascii=False),
+        it.get("sameAddrCnt"),
+        parse_price_text(it.get("sameAddrMinPrc")),
+        parse_price_text(it.get("sameAddrMaxPrc")),
+        deal_v, deal_txt, rent_v, rent_txt,
+        it.get("priceChangeState"),
+        1 if it.get("isPriceModification") else 0,
+        it.get("articleStatus"),
+        feat[:500] if feat else None,
+        it.get("articleConfirmYmd"),
+        snapshot_date,  # first_seen_date (kept on conflict)
+        snapshot_date,  # last_seen_date
+        1,              # is_active
+    )
+
+
+def save_article_states(
+    conn: sqlite3.Connection,
+    complex_no: str,
+    trade: str,
+    items: list[dict],
+    snapshot_date: str,
+) -> dict[str, int]:
+    """Upsert into articles + emit NEW/RELISTED/PRICE_CHANGE events.
+
+    DELISTED is handled separately in finalize_deletions, after the full run.
+    Returns event counts.
+    """
+    counts = {"NEW": 0, "RELISTED": 0, "PRICE_CHANGE": 0}
+    if not items:
+        return counts
+
+    rows = [_article_state_row(complex_no, trade, snapshot_date, it) for it in items]
+    article_nos = [r[0] for r in rows]
+
+    with _LOCK:
+        # Look up existing state for this batch
+        ph = ",".join("?" * len(article_nos))
+        cur = conn.execute(
+            f"SELECT article_no, deal_or_warrant_price, rent_price, is_active "
+            f"FROM articles WHERE article_no IN ({ph})",
+            article_nos,
+        )
+        existing = {r[0]: r for r in cur.fetchall()}
+
+        events: list[tuple] = []
+        for r in rows:
+            article_no = r[0]
+            new_price = r[21]
+            new_rent = r[23]
+            prev = existing.get(article_no)
+            if prev is None:
+                events.append((snapshot_date, article_no, complex_no, trade,
+                               "NEW", None, new_price, None, new_rent, None))
+                counts["NEW"] += 1
+            else:
+                _, prev_price, prev_rent, prev_active = prev
+                if not prev_active:
+                    events.append((snapshot_date, article_no, complex_no, trade,
+                                   "RELISTED", None, new_price, None, new_rent, None))
+                    counts["RELISTED"] += 1
+                elif new_price != prev_price:
+                    events.append((snapshot_date, article_no, complex_no, trade,
+                                   "PRICE_CHANGE", prev_price, new_price,
+                                   prev_rent, new_rent, None))
+                    counts["PRICE_CHANGE"] += 1
+
+        # Upsert: keep first_seen_date stable, refresh everything else.
+        placeholders = ",".join(["(" + ",".join(["?"] * 33) + ")"] * len(rows))
+        flat = [v for row in rows for v in row]
+        conn.execute(
+            f"""
+            INSERT INTO articles({_ARTICLE_COLS})
+            VALUES {placeholders}
+            ON CONFLICT(article_no) DO UPDATE SET
+                complex_no = excluded.complex_no,
+                trade_type = excluded.trade_type,
+                real_estate_type = excluded.real_estate_type,
+                area_name = excluded.area_name,
+                area1_m2 = excluded.area1_m2,
+                area2_m2 = excluded.area2_m2,
+                floor_info = excluded.floor_info,
+                direction = excluded.direction,
+                building_name = excluded.building_name,
+                realtor_name = excluded.realtor_name,
+                realtor_id = excluded.realtor_id,
+                cp_name = excluded.cp_name,
+                cp_pc_article_url = excluded.cp_pc_article_url,
+                verification_type = excluded.verification_type,
+                latitude = excluded.latitude,
+                longitude = excluded.longitude,
+                tag_list_json = excluded.tag_list_json,
+                same_addr_cnt = excluded.same_addr_cnt,
+                same_addr_min_price = excluded.same_addr_min_price,
+                same_addr_max_price = excluded.same_addr_max_price,
+                deal_or_warrant_price = excluded.deal_or_warrant_price,
+                deal_or_warrant_price_text = excluded.deal_or_warrant_price_text,
+                rent_price = excluded.rent_price,
+                rent_price_text = excluded.rent_price_text,
+                price_change_state = excluded.price_change_state,
+                is_price_modification = excluded.is_price_modification,
+                article_status = excluded.article_status,
+                article_feature_desc = excluded.article_feature_desc,
+                article_confirm_ymd = excluded.article_confirm_ymd,
+                last_seen_date = excluded.last_seen_date,
+                is_active = 1
+            """,
+            flat,
+        )
+
+        if events:
+            conn.executemany(
+                """
+                INSERT INTO article_events(
+                    event_date, article_no, complex_no, trade_type, event_type,
+                    old_price, new_price, old_rent, new_rent, details
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                events,
+            )
+        conn.commit()
+    return counts
+
+
+def finalize_deletions(conn: sqlite3.Connection, snapshot_date: str) -> int:
+    """Mark articles in successfully-collected (complex, trade) pairs that
+    weren't seen today as inactive, and emit DELISTED events.
+    Returns the number of articles delisted.
+    """
+    with _LOCK:
+        # For each (complex, trade) successfully collected today, find articles
+        # whose last_seen_date < today (so they weren't in today's response)
+        # that are still marked active. Emit DELISTED, flip is_active=0.
+        cur = conn.execute(
+            """
+            SELECT a.article_no, a.complex_no, a.trade_type, a.deal_or_warrant_price, a.rent_price
+            FROM articles a
+            INNER JOIN collection_log cl
+              ON cl.complex_no = a.complex_no
+             AND cl.trade_type = a.trade_type
+             AND cl.run_date = ?
+             AND cl.status = 'success'
+            WHERE a.is_active = 1 AND a.last_seen_date < ?
+            """,
+            (snapshot_date, snapshot_date),
+        )
+        delisted = cur.fetchall()
+        if not delisted:
+            return 0
+
+        # Bulk insert events
+        events = [
+            (snapshot_date, r[0], r[1], r[2], "DELISTED", r[3], None, r[4], None, None)
+            for r in delisted
+        ]
+        conn.executemany(
+            """
+            INSERT INTO article_events(
+                event_date, article_no, complex_no, trade_type, event_type,
+                old_price, new_price, old_rent, new_rent, details
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            events,
+        )
+        # Mark inactive
+        article_nos = [r[0] for r in delisted]
+        BATCH = 500
+        for i in range(0, len(article_nos), BATCH):
+            chunk = article_nos[i:i + BATCH]
+            ph = ",".join("?" * len(chunk))
+            conn.execute(
+                f"UPDATE articles SET is_active = 0 WHERE article_no IN ({ph})",
+                chunk,
+            )
+        conn.commit()
+        return len(delisted)
 
 
 def upsert_region(conn: sqlite3.Connection, region_obj: dict, parent: str | None) -> None:
@@ -274,6 +582,10 @@ def save_articles(
     items: list[dict],
     snapshot_date: str,
 ) -> None:
+    """Persist a (complex, trade) batch. Writes to listings_current (current
+    snapshot, used by uploader/frontend) AND the accumulating articles +
+    article_events tables.
+    """
     rows = [_article_row(complex_no, trade, snapshot_date, it) for it in items]
     with _LOCK:
         conn.execute(
@@ -299,6 +611,8 @@ def save_articles(
                 rows,
             )
         conn.commit()
+    # Accumulating writes happen outside the listings_current lock-region.
+    save_article_states(conn, complex_no, trade, items, snapshot_date)
 
 
 def log_completion(

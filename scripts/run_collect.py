@@ -214,8 +214,10 @@ def main() -> int:
                         line += f"  ({rate:.1f}/s  items={prog['items']}  errs={prog['errs']})"
                         print(line)
 
-    # Phase 3 — aggregates
-    print("\n[3/3] aggregates")
+    # Phase 3 — DELISTED detection + aggregates
+    print("\n[3/3] aggregates + deletions")
+    n_delisted = storage.finalize_deletions(conn, run_date)
+    print(f"  articles delisted today: {n_delisted}")
     n_complex = storage.compute_complex_daily_agg(conn, run_date)
     n_region = storage.compute_region_daily_agg(conn, run_date)
     print(f"  complex_daily_agg rows: {n_complex}")
