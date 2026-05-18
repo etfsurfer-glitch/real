@@ -10,8 +10,17 @@ Examples:
     # 시도 전체 (서울)
     python scripts/run_collect.py --ancestor 1100000000
 
-    # 전국
+    # 전국 (default: Phase 1 cached up to 14 days)
     python scripts/run_collect.py --all
+
+    # 전국 — force a fresh Phase 1 (use weekly)
+    python scripts/run_collect.py --all --listing-max-age 0
+
+Phase 1 (Naver region→complex listing) is skipped automatically when the
+cached complex list is younger than --listing-max-age days (default 14).
+Single-Naver-API-call-per-dong adds up to ~55 min for nationwide, so
+skipping it on regular daily runs is the default; the listing self-
+refreshes every ~14 days inside an otherwise normal daily run.
 
 Resumable: re-running on the same day skips (complex, trade) pairs already
 logged as successful. Use --reset-today to force re-collection.
@@ -55,6 +64,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--shuffle", action="store_true", help="randomize 동 order")
     p.add_argument("--reset-today", action="store_true",
                    help="ignore today's collection_log and re-collect everything")
+    p.add_argument("--listing-max-age", type=int, default=14,
+                   help="skip Phase 1 if cached complex listing is younger than N days "
+                        "(default 14; 0 forces refresh)")
     return p.parse_args()
 
 
@@ -64,6 +76,42 @@ def resolve_dongs(conn, args) -> list[str]:
     if args.ancestor:
         return regions.dong_cortar_nos_under(conn, args.ancestor)
     return regions.dong_cortar_nos(conn)
+
+
+def _should_refresh_listing(conn, max_age_days: int) -> tuple[bool, str]:
+    """Decide whether to run Phase 1 (Naver listing) vs use cached complexes."""
+    if max_age_days <= 0:
+        return True, "max_age=0 forces refresh"
+    cur = conn.execute("SELECT MAX(last_seen_date) FROM complexes")
+    row = cur.fetchone()
+    if not row or not row[0]:
+        return True, "no cached complexes in DB"
+    from datetime import date as _date, datetime as _dt
+    try:
+        last = _dt.strptime(row[0], "%Y-%m-%d").date()
+    except ValueError:
+        return True, f"cannot parse last_seen_date={row[0]!r}"
+    age = (_date.today() - last).days
+    if age > max_age_days:
+        return True, f"cache age {age}d > max_age {max_age_days}d"
+    return False, f"cache age {age}d ≤ {max_age_days}d"
+
+
+def _cached_complex_nos(conn, dongs: list[str]) -> list[str]:
+    """Load complex_no list for the given dongs from the local complexes table."""
+    if not dongs:
+        return []
+    BATCH = 500  # below SQLite SQLITE_MAX_VARIABLE_NUMBER on any modern build
+    out: list[str] = []
+    for i in range(0, len(dongs), BATCH):
+        chunk = dongs[i:i + BATCH]
+        ph = ",".join("?" * len(chunk))
+        cur = conn.execute(
+            f"SELECT complex_no FROM complexes WHERE cortar_no IN ({ph})",
+            chunk,
+        )
+        out.extend(r[0] for r in cur.fetchall())
+    return out
 
 
 def main() -> int:
@@ -81,30 +129,42 @@ def main() -> int:
     if args.limit:
         dongs = dongs[: args.limit]
 
+    refresh_listing, refresh_reason = _should_refresh_listing(conn, args.listing_max_age)
     print(f"[*] run_date={run_date}  dongs={len(dongs)}  "
           f"concurrency={settings.naver_concurrency}  jitter≤{settings.naver_delay_ms}ms")
+    print(f"[*] Phase 1: {'REFRESH' if refresh_listing else 'SKIP (use cache)'} ({refresh_reason})")
     if not dongs:
         print("[!] no dongs to process — did you run build_region_tree.py?")
         return 1
 
-    # Phase 1 — list complexes per dong (sequential, fast)
-    print("\n[1/3] complex listing per dong")
     all_tasks: list[tuple[str, str]] = []
     list_errors = 0
-    for i, dno in enumerate(dongs, 1):
-        try:
-            cps = complexes_in_region(dno, creds)
-        except Exception as e:  # noqa: BLE001
-            print(f"  [{i}/{len(dongs)}] {dno} LIST_ERR: {str(e)[:80]}")
-            list_errors += 1
-            continue
-        for c in cps:
-            storage.upsert_complex(conn, c)
-            for trade in TRADE_TYPES:
-                all_tasks.append((str(c["complexNo"]), trade))
-        if i % 100 == 0 or i == len(dongs):
-            elapsed = time.time() - t_start
-            print(f"  [{i}/{len(dongs)}] tasks={len(all_tasks)}  list_err={list_errors}  ({elapsed:.0f}s)")
+
+    if refresh_listing:
+        # Phase 1 — list complexes per dong via Naver API (sequential, ~1 req/dong)
+        print("\n[1/3] complex listing per dong (Naver API)")
+        for i, dno in enumerate(dongs, 1):
+            try:
+                cps = complexes_in_region(dno, creds)
+            except Exception as e:  # noqa: BLE001
+                print(f"  [{i}/{len(dongs)}] {dno} LIST_ERR: {str(e)[:80]}")
+                list_errors += 1
+                continue
+            for c in cps:
+                storage.upsert_complex(conn, c)
+                for trade in TRADE_TYPES:
+                    all_tasks.append((str(c["complexNo"]), trade))
+            if i % 100 == 0 or i == len(dongs):
+                elapsed = time.time() - t_start
+                print(f"  [{i}/{len(dongs)}] tasks={len(all_tasks)}  "
+                      f"list_err={list_errors}  ({elapsed:.0f}s)")
+    else:
+        # Phase 1 skipped — load cached complex list from local DB
+        print("\n[1/3] complex listing — using cached complexes from DB")
+        cnos = _cached_complex_nos(conn, dongs)
+        all_tasks = [(cno, t) for cno in cnos for t in TRADE_TYPES]
+        elapsed = time.time() - t_start
+        print(f"  cached complexes: {len(cnos)}  tasks={len(all_tasks)}  ({elapsed:.1f}s)")
 
     # Resume support
     if args.reset_today:
