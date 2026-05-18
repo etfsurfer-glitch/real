@@ -679,6 +679,25 @@ def get_completed_for_run(conn: sqlite3.Connection, run_date: str) -> set[tuple[
         return {(r[0], r[1]) for r in cur.fetchall()}
 
 
+def trim_collection_log(conn: sqlite3.Connection, keep_success_days: int = 7) -> int:
+    """Trim collection_log: drop success rows older than N days. Error rows
+    are kept indefinitely (they're tiny and useful for diagnostics).
+
+    Daily success rows are ~146k for the nationwide run — without trimming
+    the table grows ~50M rows/year.
+    """
+    from datetime import date as _date, timedelta as _td
+    cutoff = (_date.today() - _td(days=keep_success_days)).isoformat()
+    with _LOCK:
+        cur = conn.execute(
+            "DELETE FROM collection_log WHERE run_date < ? AND status='success'",
+            (cutoff,),
+        )
+        n = cur.rowcount
+        conn.commit()
+    return n
+
+
 def compute_complex_daily_agg(conn: sqlite3.Connection, snapshot_date: str) -> int:
     with _LOCK:
         conn.execute("DELETE FROM complex_daily_agg WHERE snapshot_date=?", (snapshot_date,))

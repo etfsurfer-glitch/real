@@ -55,22 +55,33 @@ def get_json(
     params: dict[str, Any] | None = None,
     max_retries: int = 3,
 ) -> tuple[int, Any]:
-    """GET with jitter + 429 backoff + one-shot 401 recapture.
+    """GET with jitter + retry on network/timeout + 429 backoff + 401 recapture.
 
-    creds is mutated in-place on 401 so subsequent calls reuse the fresh token.
-    Returns (status, parsed_json_or_text).
+    Retry policy per attempt:
+      - 429              → sleep 2^attempt + 1
+      - 401/403          → recapture creds once, retry
+      - curl exceptions  → sleep 2*(attempt+1) seconds, retry
+      - other status     → return immediately
+    creds dict is mutated in-place on recapture so subsequent calls share the
+    fresh token. Returns (status, parsed_json_or_text).
     """
     last_status = 0
     refreshed_once = False
     for attempt in range(max_retries):
         _jitter()
-        r = creq.get(
-            url,
-            params=params,
-            headers=build_headers(creds),
-            impersonate="chrome120",
-            timeout=settings.naver_timeout_sec,
-        )
+        try:
+            r = creq.get(
+                url,
+                params=params,
+                headers=build_headers(creds),
+                impersonate="chrome120",
+                timeout=settings.naver_timeout_sec,
+            )
+        except Exception:  # noqa: BLE001 — curl_cffi raises CurlError on timeout/conn
+            if attempt < max_retries - 1:
+                time.sleep(2 * (attempt + 1))  # 2s, 4s, ...
+                continue
+            raise
         last_status = r.status_code
         if r.status_code == 429:
             time.sleep(2 ** attempt + 1)

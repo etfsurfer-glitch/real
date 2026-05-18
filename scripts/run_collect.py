@@ -67,6 +67,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--listing-max-age", type=int, default=14,
                    help="skip Phase 1 if cached complex listing is younger than N days "
                         "(default 14; 0 forces refresh)")
+    p.add_argument("--keep-log-days", type=int, default=7,
+                   help="retain success rows in collection_log for N days "
+                        "(errors kept indefinitely; default 7)")
     return p.parse_args()
 
 
@@ -214,7 +217,7 @@ def main() -> int:
                         line += f"  ({rate:.1f}/s  items={prog['items']}  errs={prog['errs']})"
                         print(line)
 
-    # Phase 3 — DELISTED detection + aggregates
+    # Phase 3 — DELISTED detection + aggregates + log trim
     print("\n[3/3] aggregates + deletions")
     n_delisted = storage.finalize_deletions(conn, run_date)
     print(f"  articles delisted today: {n_delisted}")
@@ -222,6 +225,9 @@ def main() -> int:
     n_region = storage.compute_region_daily_agg(conn, run_date)
     print(f"  complex_daily_agg rows: {n_complex}")
     print(f"  region_daily_agg rows: {n_region}")
+    n_trimmed = storage.trim_collection_log(conn, keep_success_days=args.keep_log_days)
+    print(f"  collection_log trimmed: {n_trimmed} old success rows "
+          f"(keep_success_days={args.keep_log_days}, errors retained)")
 
     elapsed = time.time() - t_start
     print(f"\n[done] {elapsed:.0f}s  list_err={list_errors}  "
