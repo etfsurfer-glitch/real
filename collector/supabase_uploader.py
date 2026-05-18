@@ -89,13 +89,9 @@ def upsert_complexes(conn: sqlite3.Connection, supa: Client) -> int:
 
 
 def replace_listings_current(
-    conn: sqlite3.Connection, supa: Client, snapshot_date: str, skip_raw: bool = False
+    conn: sqlite3.Connection, supa: Client, snapshot_date: str
 ) -> int:
-    """Replace today's listings_current on Supabase.
-
-    skip_raw=True drops the JSONB raw column from the payload — useful for
-    fitting nationwide volume in Supabase's free-tier 500 MB DB.
-    """
+    """Replace today's listings_current on Supabase. No raw column anymore."""
     supa.table("listings_current").delete().eq("snapshot_date", snapshot_date).execute()
 
     cur = conn.execute(
@@ -104,7 +100,10 @@ def replace_listings_current(
                   deal_or_warrant_price_text, deal_or_warrant_price,
                   rent_price, article_confirm_ymd, realtor_name, realtor_id,
                   cp_name, verification_type, building_name, tag_list_json,
-                  same_addr_cnt, latitude, longitude, raw, snapshot_date
+                  same_addr_cnt, same_addr_min_price, same_addr_max_price,
+                  price_change_state, is_price_modification,
+                  article_status, article_feature_desc, cp_pc_article_url,
+                  latitude, longitude, snapshot_date
            FROM listings_current WHERE snapshot_date=?""",
         (snapshot_date,),
     )
@@ -121,9 +120,13 @@ def replace_listings_current(
             "verification_type": r[16], "building_name": r[17],
             "tag_list": _maybe_json(r[18]),
             "same_addr_cnt": r[19],
-            "latitude": r[20], "longitude": r[21],
-            "raw": None if skip_raw else _maybe_json(r[22]),
-            "snapshot_date": r[23],
+            "same_addr_min_price": r[20], "same_addr_max_price": r[21],
+            "price_change_state": r[22],
+            "is_price_modification": bool(r[23]) if r[23] is not None else None,
+            "article_status": r[24], "article_feature_desc": r[25],
+            "cp_pc_article_url": r[26],
+            "latitude": r[27], "longitude": r[28],
+            "snapshot_date": r[29],
         })
     n = 0
     for chunk in _chunked(rows, BATCH):

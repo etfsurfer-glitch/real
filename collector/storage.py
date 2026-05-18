@@ -64,9 +64,15 @@ CREATE TABLE IF NOT EXISTS listings_current (
     building_name TEXT,
     tag_list_json TEXT,
     same_addr_cnt INTEGER,
+    same_addr_min_price INTEGER,
+    same_addr_max_price INTEGER,
+    price_change_state TEXT,
+    is_price_modification INTEGER,
+    article_status TEXT,
+    article_feature_desc TEXT,
+    cp_pc_article_url TEXT,
     latitude REAL,
     longitude REAL,
-    raw TEXT,
     snapshot_date TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS listings_complex_trade_idx ON listings_current(complex_no, trade_type);
@@ -116,9 +122,32 @@ def open_db(path: Path) -> sqlite3.Connection:
     return conn
 
 
+_B_FIELDS = [
+    ("same_addr_min_price", "INTEGER"),
+    ("same_addr_max_price", "INTEGER"),
+    ("price_change_state", "TEXT"),
+    ("is_price_modification", "INTEGER"),
+    ("article_status", "TEXT"),
+    ("article_feature_desc", "TEXT"),
+    ("cp_pc_article_url", "TEXT"),
+]
+
+
+def _add_column_if_missing(
+    conn: sqlite3.Connection, table: str, column: str, type_ddl: str
+) -> None:
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    existing = {r[1] for r in cur.fetchall()}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_ddl}")
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
     with _LOCK:
         conn.executescript(SCHEMA)
+        # Migrate older DBs to the B-field layout.
+        for col, ddl in _B_FIELDS:
+            _add_column_if_missing(conn, "listings_current", col, ddl)
         conn.commit()
 
 
@@ -200,9 +229,9 @@ def _article_row(complex_no: str, trade: str, snapshot_date: str, it: dict) -> t
     deal_txt = it.get("dealOrWarrantPrc")
     rent_txt = it.get("rentPrc")
     deal_v = parse_price_text(deal_txt)
-    # Some rentPrc come as 'deposit/monthly' but typically just monthly. Handle both.
     rent_v_a, rent_v_b = parse_rent_pair(rent_txt)
     rent_v = rent_v_b if rent_v_b is not None else rent_v_a
+    feat = (it.get("articleFeatureDesc") or "").strip()
     return (
         str(it["articleNo"]),
         complex_no,
@@ -225,9 +254,15 @@ def _article_row(complex_no: str, trade: str, snapshot_date: str, it: dict) -> t
         it.get("buildingName"),
         json.dumps(it.get("tagList") or [], ensure_ascii=False),
         it.get("sameAddrCnt"),
+        parse_price_text(it.get("sameAddrMinPrc")),
+        parse_price_text(it.get("sameAddrMaxPrc")),
+        it.get("priceChangeState"),
+        1 if it.get("isPriceModification") else 0,
+        it.get("articleStatus"),
+        feat[:500] if feat else None,
+        it.get("cpPcArticleUrl"),
         float(it["latitude"]) if it.get("latitude") else None,
         float(it["longitude"]) if it.get("longitude") else None,
-        json.dumps(it, ensure_ascii=False),
         snapshot_date,
     )
 
@@ -254,9 +289,12 @@ def save_articles(
                     deal_or_warrant_price_text, deal_or_warrant_price,
                     rent_price_text, rent_price,
                     article_confirm_ymd, realtor_name, realtor_id, cp_name,
-                    verification_type, building_name, tag_list_json, same_addr_cnt,
-                    latitude, longitude, raw, snapshot_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    verification_type, building_name, tag_list_json,
+                    same_addr_cnt, same_addr_min_price, same_addr_max_price,
+                    price_change_state, is_price_modification,
+                    article_status, article_feature_desc, cp_pc_article_url,
+                    latitude, longitude, snapshot_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )

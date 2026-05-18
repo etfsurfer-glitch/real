@@ -1,8 +1,5 @@
 """Push today's SQLite snapshot to Supabase Postgres.
 
-Flags:
-  --skip-raw       Drop the JSONB raw column from listings_current upload to
-                   fit Supabase free-tier (recommended for nationwide scale).
   --date YYYY-MM-DD  Upload a specific snapshot date (defaults to today).
 """
 from __future__ import annotations
@@ -27,14 +24,12 @@ from collector.config import settings  # noqa: E402
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--skip-raw", action="store_true",
-                   help="drop raw JSONB from listings_current (saves ~70%% payload)")
     p.add_argument("--date", default=date.today().isoformat(),
                    help="snapshot_date to upload (YYYY-MM-DD)")
     args = p.parse_args()
 
     print(f"[*] target: {settings.supabase_url}")
-    print(f"[*] snapshot_date={args.date}  skip_raw={args.skip_raw}")
+    print(f"[*] snapshot_date={args.date}")
     print(f"[*] sqlite={settings.local_db_path}")
 
     conn = storage.open_db(settings.local_db_path)
@@ -49,7 +44,7 @@ def main() -> int:
     n = supabase_uploader.upsert_complexes(conn, supa)
     print(f"  complexes:             {n:>6}  ({time.time()-t0:.1f}s)")
 
-    n = supabase_uploader.replace_listings_current(conn, supa, args.date, skip_raw=args.skip_raw)
+    n = supabase_uploader.replace_listings_current(conn, supa, args.date)
     print(f"  listings_current:      {n:>6}  ({time.time()-t0:.1f}s)")
 
     n = supabase_uploader.replace_complex_daily_agg(conn, supa, args.date)
