@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { supabase, TRADE_LABEL } from "../supabase";
 
@@ -32,7 +32,17 @@ type Listing = {
   rent_price: number | null;
   realtor_name: string | null;
   article_confirm_ymd: string | null;
+  price_change_state: string | null;
+  article_feature_desc: string | null;
 };
+
+function changeBadge(state: string | null): React.ReactNode {
+  if (state === "INCREASE")
+    return <span style={{ color: "#c0392b", fontWeight: 600 }}>▲</span>;
+  if (state === "DECREASE")
+    return <span style={{ color: "#1e6fd6", fontWeight: 600 }}>▼</span>;
+  return <span style={{ color: "#bbb" }}>—</span>;
+}
 
 function formatWon(v: number | null | undefined): string {
   if (v == null) return "-";
@@ -105,7 +115,8 @@ export default function ComplexDetail() {
           .from("listings_current")
           .select(
             "article_no, trade_type, area_name, floor_info, direction, " +
-              "deal_or_warrant_price_text, rent_price, realtor_name, article_confirm_ymd",
+              "deal_or_warrant_price_text, rent_price, realtor_name, " +
+              "article_confirm_ymd, price_change_state, article_feature_desc",
           )
           .eq("complex_no", complexNo)
           .order("article_confirm_ymd", { ascending: false });
@@ -216,7 +227,8 @@ export default function ComplexDetail() {
             <th>방향</th>
             <th className="num">가격</th>
             {tradeFilter === "B2" && <th className="num">월세</th>}
-            <th>중개사</th>
+            <th style={{ textAlign: "center" }}>변동</th>
+            <th>특징</th>
             <th>등록</th>
           </tr>
         </thead>
@@ -228,7 +240,11 @@ export default function ComplexDetail() {
               <td>{l.direction ?? "-"}</td>
               <td className="num">{l.deal_or_warrant_price_text ?? "-"}</td>
               {tradeFilter === "B2" && <td className="num">{formatWon(l.rent_price)}</td>}
-              <td>{l.realtor_name ?? "-"}</td>
+              <td style={{ textAlign: "center" }}>{changeBadge(l.price_change_state)}</td>
+              <td style={{ fontSize: 12, color: "#555", maxWidth: 280, overflow: "hidden",
+                          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {l.article_feature_desc ?? ""}
+              </td>
               <td>{l.article_confirm_ymd ?? "-"}</td>
             </tr>
           ))}
