@@ -306,10 +306,14 @@ def save_article_states(
 ) -> dict[str, int]:
     """Upsert into articles + emit NEW/RELISTED/PRICE_CHANGE events.
 
+    Optimization: for articles whose price and rent are unchanged from the
+    previous snapshot, skip the full-row upsert and only bump last_seen_date
+    in a batch UPDATE. With ~10% daily churn, this cuts write volume ~90%.
+
     DELISTED is handled separately in finalize_deletions, after the full run.
-    Returns event counts.
+    Returns event counts including TOUCHED (unchanged + light-touched).
     """
-    counts = {"NEW": 0, "RELISTED": 0, "PRICE_CHANGE": 0}
+    counts = {"NEW": 0, "RELISTED": 0, "PRICE_CHANGE": 0, "TOUCHED": 0}
     if not items:
         return counts
 
@@ -327,69 +331,93 @@ def save_article_states(
         existing = {r[0]: r for r in cur.fetchall()}
 
         events: list[tuple] = []
+        upsert_rows: list[tuple] = []
+        touch_only: list[str] = []  # article_no list — last_seen_date bump only
+
         for r in rows:
             article_no = r[0]
             new_price = r[21]
             new_rent = r[23]
             prev = existing.get(article_no)
             if prev is None:
+                upsert_rows.append(r)
                 events.append((snapshot_date, article_no, complex_no, trade,
                                "NEW", None, new_price, None, new_rent, None))
                 counts["NEW"] += 1
             else:
                 _, prev_price, prev_rent, prev_active = prev
                 if not prev_active:
+                    upsert_rows.append(r)
                     events.append((snapshot_date, article_no, complex_no, trade,
                                    "RELISTED", None, new_price, None, new_rent, None))
                     counts["RELISTED"] += 1
-                elif new_price != prev_price:
+                elif new_price != prev_price or new_rent != prev_rent:
+                    upsert_rows.append(r)
                     events.append((snapshot_date, article_no, complex_no, trade,
                                    "PRICE_CHANGE", prev_price, new_price,
                                    prev_rent, new_rent, None))
                     counts["PRICE_CHANGE"] += 1
+                else:
+                    # Unchanged — just bump last_seen_date.
+                    touch_only.append(article_no)
+                    counts["TOUCHED"] += 1
 
-        # Upsert: keep first_seen_date stable, refresh everything else.
-        placeholders = ",".join(["(" + ",".join(["?"] * 33) + ")"] * len(rows))
-        flat = [v for row in rows for v in row]
-        conn.execute(
-            f"""
-            INSERT INTO articles({_ARTICLE_COLS})
-            VALUES {placeholders}
-            ON CONFLICT(article_no) DO UPDATE SET
-                complex_no = excluded.complex_no,
-                trade_type = excluded.trade_type,
-                real_estate_type = excluded.real_estate_type,
-                area_name = excluded.area_name,
-                area1_m2 = excluded.area1_m2,
-                area2_m2 = excluded.area2_m2,
-                floor_info = excluded.floor_info,
-                direction = excluded.direction,
-                building_name = excluded.building_name,
-                realtor_name = excluded.realtor_name,
-                realtor_id = excluded.realtor_id,
-                cp_name = excluded.cp_name,
-                cp_pc_article_url = excluded.cp_pc_article_url,
-                verification_type = excluded.verification_type,
-                latitude = excluded.latitude,
-                longitude = excluded.longitude,
-                tag_list_json = excluded.tag_list_json,
-                same_addr_cnt = excluded.same_addr_cnt,
-                same_addr_min_price = excluded.same_addr_min_price,
-                same_addr_max_price = excluded.same_addr_max_price,
-                deal_or_warrant_price = excluded.deal_or_warrant_price,
-                deal_or_warrant_price_text = excluded.deal_or_warrant_price_text,
-                rent_price = excluded.rent_price,
-                rent_price_text = excluded.rent_price_text,
-                price_change_state = excluded.price_change_state,
-                is_price_modification = excluded.is_price_modification,
-                article_status = excluded.article_status,
-                article_feature_desc = excluded.article_feature_desc,
-                article_confirm_ymd = excluded.article_confirm_ymd,
-                last_seen_date = excluded.last_seen_date,
-                is_active = 1
-            """,
-            flat,
-        )
+        # Light path: batch UPDATE last_seen_date for unchanged articles.
+        if touch_only:
+            BATCH = 500
+            for i in range(0, len(touch_only), BATCH):
+                chunk = touch_only[i:i + BATCH]
+                ph2 = ",".join("?" * len(chunk))
+                conn.execute(
+                    f"UPDATE articles SET last_seen_date=? WHERE article_no IN ({ph2})",
+                    [snapshot_date, *chunk],
+                )
+
+        # Full path: upsert only the rows that actually changed.
+        if upsert_rows:
+            placeholders = ",".join(
+                ["(" + ",".join(["?"] * 33) + ")"] * len(upsert_rows)
+            )
+            flat = [v for row in upsert_rows for v in row]
+            conn.execute(
+                f"""
+                INSERT INTO articles({_ARTICLE_COLS})
+                VALUES {placeholders}
+                ON CONFLICT(article_no) DO UPDATE SET
+                    complex_no = excluded.complex_no,
+                    trade_type = excluded.trade_type,
+                    real_estate_type = excluded.real_estate_type,
+                    area_name = excluded.area_name,
+                    area1_m2 = excluded.area1_m2,
+                    area2_m2 = excluded.area2_m2,
+                    floor_info = excluded.floor_info,
+                    direction = excluded.direction,
+                    building_name = excluded.building_name,
+                    realtor_name = excluded.realtor_name,
+                    realtor_id = excluded.realtor_id,
+                    cp_name = excluded.cp_name,
+                    cp_pc_article_url = excluded.cp_pc_article_url,
+                    verification_type = excluded.verification_type,
+                    latitude = excluded.latitude,
+                    longitude = excluded.longitude,
+                    tag_list_json = excluded.tag_list_json,
+                    same_addr_cnt = excluded.same_addr_cnt,
+                    same_addr_min_price = excluded.same_addr_min_price,
+                    same_addr_max_price = excluded.same_addr_max_price,
+                    deal_or_warrant_price = excluded.deal_or_warrant_price,
+                    deal_or_warrant_price_text = excluded.deal_or_warrant_price_text,
+                    rent_price = excluded.rent_price,
+                    rent_price_text = excluded.rent_price_text,
+                    price_change_state = excluded.price_change_state,
+                    is_price_modification = excluded.is_price_modification,
+                    article_status = excluded.article_status,
+                    article_feature_desc = excluded.article_feature_desc,
+                    article_confirm_ymd = excluded.article_confirm_ymd,
+                    last_seen_date = excluded.last_seen_date,
+                    is_active = 1
+                """,
+                flat,
+            )
 
         if events:
             conn.executemany(
