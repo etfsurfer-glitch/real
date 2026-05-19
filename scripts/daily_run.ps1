@@ -43,10 +43,18 @@ Log "step 2/3: upload_to_supabase.py"
 $upload_exit = $LASTEXITCODE
 Log "step 2/3: exit=$upload_exit"
 
-Log "step 3/3: archive_listings.py (parquet 백업)"
+Log "step 3/4: archive_listings.py (parquet 백업)"
 & $py -u (Join-Path $root "scripts\archive_listings.py") 2>&1 |
     Out-File -FilePath $log -Append -Encoding utf8
 $archive_exit = $LASTEXITCODE
-Log "step 3/3: exit=$archive_exit"
+Log "step 3/4: exit=$archive_exit"
 
-Log "daily run done  collect=$collect_exit  upload=$upload_exit  archive=$archive_exit"
+Log "step 4/4: backfill_realprice.py --all --months 6 (실거래 incremental)"
+# 거래 취소 신고가 늦게 처리될 수 있어 최근 6개월 매일 refresh. deal_id 자연키로 dedup.
+# 약 1,530 calls (10k 한도의 15%) / ~5분 소요.
+& $py -u (Join-Path $root "scripts\backfill_realprice.py") --all --months 6 --apply 2>&1 |
+    Out-File -FilePath $log -Append -Encoding utf8
+$realprice_exit = $LASTEXITCODE
+Log "step 4/4: exit=$realprice_exit"
+
+Log "daily run done  collect=$collect_exit  upload=$upload_exit  archive=$archive_exit  realprice=$realprice_exit"
