@@ -143,8 +143,21 @@ def lookup_match(
             if _names_compatible(apt_nm, c.get("complexName") or "")
         ]
         if compat:
+            chosen = compat[0]
+            chosen_name = chosen.get("complexName") or ""
+            # Boost to 0.90 if it's a pure token-order swap (same chars).
+            # E.g., 삼주용산타운 ↔ 용산삼주타운 / 거성수락산 ↔ 수락산거성.
+            tx_chars = sorted(_ALNUM_RE.sub("", apt_nm).lower())
+            cn_chars = sorted(_ALNUM_RE.sub("", chosen_name).lower())
+            if tx_chars == cn_chars and tx_chars:
+                return (
+                    str(chosen["complexNo"]),
+                    "naver_search+swap",
+                    0.90,
+                    debug,
+                )
             return (
-                str(compat[0]["complexNo"]),
+                str(chosen["complexNo"]),
                 f"naver_search via {v!r}",
                 0.75,
                 debug,

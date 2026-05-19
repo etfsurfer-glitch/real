@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from collector.config import settings  # noqa: E402
 from collector.creds import ensure_creds  # noqa: E402
-from collector.realprice import naver_lookup  # noqa: E402
+from collector.realprice import naver_lookup, storage as rp_storage  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,6 +42,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--limit", type=int, default=0,
                    help="처리할 unique (aptNm,sgg) 쌍 수 제한 (debug)")
     p.add_argument("--concurrency", type=int, default=4)
+    p.add_argument("--min-score", type=float, default=0.0,
+                   help="이 score 이상인 매칭만 apply (의심 매칭 제외용; 권장 0.85)")
     return p.parse_args()
 
 
@@ -51,6 +53,8 @@ def main() -> int:
     conn = sqlite3.connect(str(settings.local_db_path), check_same_thread=False,
                            timeout=30)
     conn.row_factory = sqlite3.Row
+    # Ensure match_suggestions table exists
+    rp_storage.init_schema(conn)
 
     # 1. unmatched 그룹화 (aptNm, sgg_cd, umd_nm) 단위
     print("[1] loading unmatched transactions ...")
@@ -138,9 +142,25 @@ def main() -> int:
     print(f"  still unmatched:      {stats['still_unmatched']:,}")
     print(f"  errors:               {stats['errors']:,}")
 
+    # 4. Save ALL resolved suggestions (for admin review tab) — both modes.
+    print(f"\n[3a] saving {stats['resolved']} suggestions to match_suggestions ...")
+    for (apt_nm, sgg), res in resolutions.items():
+        if not res.get("complex_no"):
+            continue
+        rp_storage.save_suggestion(
+            conn,
+            apt_nm=apt_nm,
+            sgg_cd=sgg,
+            umd_nm=res.get("umd_nm"),
+            tx_count=res["tx_count"],
+            suggested_complex_no=res["complex_no"],
+            suggested_method=res["method"],
+            suggested_score=res["score"],
+            details=res.get("debug") or {},
+        )
+    print("    saved.")
+
     if not args.apply:
-        # Show a few example resolutions — display the ACTUAL chosen complex,
-        # not just the first sgg-filtered hit.
         print("\n[sample resolutions] (--apply 안 함, dry-run)")
         for i, (key, res) in enumerate(list(resolutions.items())[:15]):
             chosen_cno = res.get("complex_no")
@@ -151,14 +171,20 @@ def main() -> int:
                     break
             print(f"  {key[0]!r} (sgg={key[1]}, n={res['tx_count']})")
             print(f"    → {chosen_name!r}  ({res['method']}, score {res['score']})")
-        print("\n실제 적용하려면 --apply 추가")
+        print("\n실제 적용하려면 --apply 추가 (suggestions 저장은 이미 완료)")
         return 0
 
-    # 5. Apply
-    print("\n[3] updating transactions ...")
+    # 5. Apply (only --apply path)
+    print(f"\n[3b] updating transactions (min_score={args.min_score}) ...")
     n_updated = 0
+    n_skipped_low_score = 0
+    skipped_tx = 0
     for (apt_nm, sgg), res in resolutions.items():
         if not res.get("complex_no"):
+            continue
+        if res["score"] < args.min_score:
+            n_skipped_low_score += 1
+            skipped_tx += res["tx_count"]
             continue
         # Build match_details for stored trace
         md = {
@@ -189,7 +215,9 @@ def main() -> int:
         )
         n_updated += conn.total_changes  # cumulative
     conn.commit()
-    print(f"    applied to ~{stats['resolved_tx_count']:,} tx rows")
+    applied_tx = stats['resolved_tx_count'] - skipped_tx
+    print(f"    applied to ~{applied_tx:,} tx rows "
+          f"(skipped {n_skipped_low_score} low-score groups = {skipped_tx:,} tx)")
 
     print(f"\n[done] {time.time() - t_start:.0f}s")
     return 0

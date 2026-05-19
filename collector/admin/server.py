@@ -19,11 +19,21 @@ app = FastAPI(title="naverreal admin")
 
 
 def get_db():
-    """One connection per request — avoids threadpool contention on a shared
-    sqlite3.Connection object."""
+    """Read-only connection per request — avoids threadpool contention."""
     c = sqlite3.connect(str(settings.local_db_path), check_same_thread=False)
     c.row_factory = sqlite3.Row
-    c.execute("PRAGMA query_only=1")  # admin UI is read-only
+    c.execute("PRAGMA query_only=1")
+    try:
+        yield c
+    finally:
+        c.close()
+
+
+def get_write_db():
+    """Read-write connection for admin actions (accept/reject suggestions)."""
+    c = sqlite3.connect(str(settings.local_db_path), check_same_thread=False,
+                        timeout=30)
+    c.row_factory = sqlite3.Row
     try:
         yield c
     finally:
@@ -98,6 +108,76 @@ def api_transactions(
     return {"total": total, "limit": limit, "offset": offset, "rows": rows}
 
 
+@app.get("/api/suggestions")
+def api_suggestions(
+    status: str = Query("pending", pattern="^(pending|accepted|rejected|all)$"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    c: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    where = ""
+    params: list = []
+    if status != "all":
+        where = "WHERE s.status = ?"
+        params.append(status)
+    total = c.execute(
+        f"SELECT COUNT(*) FROM match_suggestions s {where}", params
+    ).fetchone()[0]
+    rows = c.execute(
+        f"""
+        SELECT s.suggestion_id, s.apt_nm, s.sgg_cd, s.umd_nm, s.tx_count,
+               s.suggested_complex_no, s.suggested_method, s.suggested_score,
+               s.details, s.status, s.reviewed_at, s.created_at,
+               x.complex_name AS suggested_complex_name,
+               x.detail_address AS suggested_address,
+               r.cortar_name AS suggested_dong
+        FROM match_suggestions s
+        LEFT JOIN complexes x ON x.complex_no = s.suggested_complex_no
+        LEFT JOIN regions r ON r.cortar_no = x.cortar_no
+        {where}
+        ORDER BY s.tx_count DESC, s.suggestion_id
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if d.get("details"):
+            try:
+                d["details"] = json.loads(d["details"])
+            except Exception:  # noqa: BLE001
+                pass
+        out.append(d)
+    # status counts (always, for tab badges)
+    counts = {
+        row[0]: row[1]
+        for row in c.execute(
+            "SELECT status, COUNT(*) FROM match_suggestions GROUP BY status"
+        ).fetchall()
+    }
+    return {"total": total, "rows": out, "counts": counts}
+
+
+@app.post("/api/suggestions/{sid}/accept")
+def api_accept(sid: int, c: sqlite3.Connection = Depends(get_write_db)) -> dict:
+    from ..realprice.storage import accept_suggestion
+    n = accept_suggestion(c, sid)
+    return {"updated_tx": n}
+
+
+@app.post("/api/suggestions/{sid}/reject")
+def api_reject(sid: int, c: sqlite3.Connection = Depends(get_write_db)) -> dict:
+    from ..realprice.storage import reject_suggestion
+    return {"ok": reject_suggestion(c, sid)}
+
+
+@app.post("/api/suggestions/{sid}/reset")
+def api_reset(sid: int, c: sqlite3.Connection = Depends(get_write_db)) -> dict:
+    from ..realprice.storage import reset_suggestion
+    return {"ok": reset_suggestion(c, sid)}
+
+
 @app.get("/api/transactions/{deal_id}")
 def api_transaction_detail(deal_id: str, c: sqlite3.Connection = Depends(get_db)) -> dict:
     r = c.execute(
@@ -159,7 +239,19 @@ _HTML = """<!doctype html>
   .b-substr { background: #fff3b0; color: #6a4d00; }
   .b-fuzzy { background: #ffe0b0; color: #803000; }
   .b-unmatched { background: #ffd0d0; color: #800000; }
+  .b-naver { background: #e8d8ff; color: #4a1080; }
   .muted { color: #888; }
+  nav.tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  nav.tabs button { padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px 4px 0 0;
+    background: #f5f5f5; cursor: pointer; font-size: 13px; }
+  nav.tabs button.active { background: white; border-bottom-color: white; font-weight: 600; }
+  .btn-accept { padding: 3px 10px; border: 1px solid #2e8b57; border-radius: 3px;
+    background: #2e8b57; color: white; cursor: pointer; font-size: 11px; margin-right: 3px; }
+  .btn-reject { padding: 3px 10px; border: 1px solid #c0392b; border-radius: 3px;
+    background: white; color: #c0392b; cursor: pointer; font-size: 11px; margin-right: 3px; }
+  .btn-reset { padding: 3px 10px; border: 1px solid #888; border-radius: 3px;
+    background: white; color: #555; cursor: pointer; font-size: 11px; }
+  tr.processed td { opacity: 0.5; }
   .pager { margin-top: 12px; display: flex; gap: 8px; align-items: center; font-size: 13px; }
   .pager button { padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px;
     background: white; cursor: pointer; }
@@ -178,8 +270,14 @@ _HTML = """<!doctype html>
 <header>
   <h1>naverreal admin · 실거래 매칭 검토</h1>
   <div class="stats" id="stats">loading...</div>
+  <nav class="tabs">
+    <button id="tab-tx" class="active" onclick="switchTab('tx')">거래</button>
+    <button id="tab-sug" onclick="switchTab('sug')">의심 매칭 <span id="sug-badge"></span></button>
+  </nav>
 </header>
-<div class="layout">
+
+<!-- TAB: TRANSACTIONS -->
+<div id="view-tx" class="layout">
   <div class="left">
     <div class="filters" id="method-chips"></div>
     <div class="filters">
@@ -205,6 +303,35 @@ _HTML = """<!doctype html>
   </div>
   <div class="right" id="detail">
     <div class="muted">왼쪽 표에서 행을 선택하세요.</div>
+  </div>
+</div>
+
+<!-- TAB: SUGGESTIONS -->
+<div id="view-sug" style="display:none; padding: 16px;">
+  <div class="filters" id="sug-chips"></div>
+  <div class="muted" style="margin-bottom: 10px;">
+    낮은 confidence(0.75) 의심 매칭. 확인 후 Accept / Reject. Accept하면 해당 거래 묶음의 매칭이 업데이트됩니다.
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>거래 단지명 (raw)</th>
+        <th>시군구</th>
+        <th>제안 단지</th>
+        <th>지번</th>
+        <th>동</th>
+        <th>방법</th>
+        <th class="num">score</th>
+        <th class="num">tx</th>
+        <th>액션</th>
+      </tr>
+    </thead>
+    <tbody id="sug-tbody"></tbody>
+  </table>
+  <div class="pager">
+    <button id="sug-prev" onclick="sugPage(-1)">‹</button>
+    <span id="sug-page-info"></span>
+    <button id="sug-next" onclick="sugPage(1)">›</button>
   </div>
 </div>
 <script>
@@ -343,10 +470,108 @@ function renderDetail(d) {
   `;
 }
 
+// -------- TAB SWITCHING --------
+function switchTab(t) {
+  document.getElementById('view-tx').style.display = (t === 'tx') ? '' : 'none';
+  document.getElementById('view-sug').style.display = (t === 'sug') ? '' : 'none';
+  document.getElementById('tab-tx').classList.toggle('active', t === 'tx');
+  document.getElementById('tab-sug').classList.toggle('active', t === 'sug');
+  if (t === 'sug' && sugState.rows.length === 0) sugReload();
+}
+
+// -------- SUGGESTIONS TAB --------
+let sugState = { status: 'pending', offset: 0, limit: 100, total: 0, rows: [], counts: {} };
+
+async function loadSugStats() {
+  // counts come bundled with /api/suggestions response
+  const badge = document.getElementById('sug-badge');
+  const n = sugState.counts.pending || 0;
+  badge.textContent = n > 0 ? `(${n.toLocaleString()})` : '';
+  const chips = document.getElementById('sug-chips');
+  chips.innerHTML = '';
+  for (const s of ['pending', 'accepted', 'rejected', 'all']) {
+    const c = document.createElement('span');
+    c.className = 'chip' + (sugState.status === s ? ' active' : '');
+    const cnt = s === 'all'
+      ? Object.values(sugState.counts).reduce((a,b)=>a+b, 0)
+      : (sugState.counts[s] || 0);
+    c.textContent = `${s} (${cnt.toLocaleString()})`;
+    c.onclick = () => { sugState.status = s; sugState.offset = 0; sugReload(); };
+    chips.appendChild(c);
+  }
+}
+
+async function sugReload() {
+  const params = new URLSearchParams();
+  params.set('status', sugState.status);
+  params.set('limit', sugState.limit);
+  params.set('offset', sugState.offset);
+  const r = await fetch('/api/suggestions?' + params).then(r => r.json());
+  sugState.total = r.total;
+  sugState.rows = r.rows;
+  sugState.counts = r.counts || {};
+  await loadSugStats();
+  renderSugTable();
+}
+
+function renderSugTable() {
+  const tb = document.getElementById('sug-tbody');
+  tb.innerHTML = '';
+  for (const s of sugState.rows) {
+    const tr = document.createElement('tr');
+    tr.id = `sug-${s.suggestion_id}`;
+    const actions = s.status === 'pending'
+      ? `<button class="btn-accept" onclick="actSug(${s.suggestion_id}, 'accept')">Accept</button>
+         <button class="btn-reject" onclick="actSug(${s.suggestion_id}, 'reject')">Reject</button>`
+      : `<button class="btn-reset" onclick="actSug(${s.suggestion_id}, 'reset')">↶ pending</button>
+         <span class="muted" style="font-size:11px">${s.status}</span>`;
+    tr.innerHTML = `
+      <td><strong>${s.apt_nm}</strong> ${s.umd_nm ? `<span class="muted">(${s.umd_nm})</span>` : ''}</td>
+      <td>${s.sgg_cd}</td>
+      <td>${s.suggested_complex_name ?? '<span class="muted">—</span>'}</td>
+      <td>${s.suggested_address ?? '-'}</td>
+      <td>${s.suggested_dong ?? '-'}</td>
+      <td><span class="badge b-naver">${s.suggested_method}</span></td>
+      <td class="num">${s.suggested_score}</td>
+      <td class="num">${s.tx_count}</td>
+      <td>${actions}</td>
+    `;
+    tb.appendChild(tr);
+  }
+  const start = sugState.offset + 1;
+  const end = sugState.offset + sugState.rows.length;
+  document.getElementById('sug-page-info').textContent =
+    sugState.total ? `${start.toLocaleString()}–${end.toLocaleString()} / ${sugState.total.toLocaleString()}` : '0';
+  document.getElementById('sug-prev').disabled = sugState.offset === 0;
+  document.getElementById('sug-next').disabled = sugState.offset + sugState.rows.length >= sugState.total;
+}
+
+function sugPage(delta) {
+  sugState.offset = Math.max(0, sugState.offset + delta * sugState.limit);
+  sugReload();
+}
+
+async function actSug(sid, action) {
+  const tr = document.getElementById(`sug-${sid}`);
+  if (tr) tr.classList.add('processed');
+  const r = await fetch(`/api/suggestions/${sid}/${action}`, { method: 'POST' })
+    .then(r => r.json());
+  if (action === 'accept') {
+    alert(`${r.updated_tx} 건의 거래에 매칭 적용됨`);
+  }
+  sugReload();
+}
+
 loadStats();
 reload();
 document.getElementById('search').addEventListener('keydown', e => { if (e.key === 'Enter') { state.offset = 0; reload(); } });
 document.getElementById('sgg').addEventListener('keydown', e => { if (e.key === 'Enter') { state.offset = 0; reload(); } });
+
+// Pre-load suggestion count for the tab badge
+fetch('/api/suggestions?status=pending&limit=1').then(r => r.json()).then(r => {
+  sugState.counts = r.counts || {};
+  loadSugStats();
+});
 </script>
 </body>
 </html>

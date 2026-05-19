@@ -53,6 +53,28 @@ CREATE INDEX IF NOT EXISTS transactions_unmatched_idx ON transactions(matched_co
     WHERE matched_complex_no IS NULL;
 CREATE INDEX IF NOT EXISTS transactions_ymd_idx ON transactions(deal_ymd DESC);
 CREATE INDEX IF NOT EXISTS transactions_amount_idx ON transactions(deal_amount DESC);
+
+-- match_suggestions: naver_lookup이 찾았지만 자동 적용에는 confidence가
+-- 부족한 후보들 (score < 0.85). 관리자가 admin UI에서 검토 후 accept/reject.
+CREATE TABLE IF NOT EXISTS match_suggestions (
+    suggestion_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    apt_nm                  TEXT NOT NULL,
+    sgg_cd                  TEXT NOT NULL,
+    umd_nm                  TEXT,
+    tx_count                INTEGER,
+    suggested_complex_no    TEXT NOT NULL,
+    suggested_method        TEXT,
+    suggested_score         REAL,
+    details                 TEXT,         -- JSON: lookup debug + candidates
+    status                  TEXT NOT NULL DEFAULT 'pending',  -- pending|accepted|rejected
+    reviewed_at             TEXT,
+    created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(apt_nm, sgg_cd, suggested_complex_no)
+);
+CREATE INDEX IF NOT EXISTS suggestions_status_idx
+    ON match_suggestions(status, suggested_score DESC);
+CREATE INDEX IF NOT EXISTS suggestions_tx_count_idx
+    ON match_suggestions(status, tx_count DESC);
 """
 
 _LOCK = threading.Lock()
@@ -190,6 +212,127 @@ def upsert_transactions(
         counts["inserted"] = len(rows)
         conn.commit()
     return counts
+
+
+def save_suggestion(
+    conn: sqlite3.Connection,
+    apt_nm: str,
+    sgg_cd: str,
+    umd_nm: str | None,
+    tx_count: int,
+    suggested_complex_no: str,
+    suggested_method: str,
+    suggested_score: float,
+    details: dict,
+) -> None:
+    """Upsert a suggestion. Re-running relink refreshes details + score
+    but preserves admin's accept/reject decision."""
+    with _LOCK:
+        conn.execute(
+            """
+            INSERT INTO match_suggestions(
+                apt_nm, sgg_cd, umd_nm, tx_count,
+                suggested_complex_no, suggested_method, suggested_score, details
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(apt_nm, sgg_cd, suggested_complex_no) DO UPDATE SET
+                umd_nm           = excluded.umd_nm,
+                tx_count         = excluded.tx_count,
+                suggested_method = excluded.suggested_method,
+                suggested_score  = excluded.suggested_score,
+                details          = excluded.details
+            WHERE match_suggestions.status = 'pending'
+            """,
+            (apt_nm, sgg_cd, umd_nm, tx_count,
+             suggested_complex_no, suggested_method, suggested_score,
+             json.dumps(details, ensure_ascii=False)),
+        )
+        conn.commit()
+
+
+def accept_suggestion(conn: sqlite3.Connection, suggestion_id: int) -> int:
+    """Accept a suggestion: apply the match to all unmatched transactions
+    sharing the (apt_nm, sgg_cd), then mark the suggestion 'accepted'.
+    Returns number of transactions updated.
+    """
+    from datetime import datetime
+    with _LOCK:
+        row = conn.execute(
+            "SELECT apt_nm, sgg_cd, suggested_complex_no, suggested_method, "
+            "       suggested_score, details "
+            "FROM match_suggestions WHERE suggestion_id = ? AND status = 'pending'",
+            (suggestion_id,),
+        ).fetchone()
+        if not row:
+            return 0
+        apt_nm, sgg_cd, complex_no, method, score, details_json = row
+        try:
+            details = json.loads(details_json) if details_json else {}
+        except Exception:  # noqa: BLE001
+            details = {}
+        # Build match_details for transactions
+        md = {
+            "tx": {"aptNm": apt_nm, "sggCd": sgg_cd},
+            "method": method,
+            "score": score,
+            "naver_lookup_debug": details,
+            "manual_accepted": True,
+            "chosen": {
+                "complex_no": complex_no,
+                "method": method,
+                "score": score,
+            },
+        }
+        cur = conn.execute(
+            """
+            UPDATE transactions
+            SET matched_complex_no = ?,
+                matched_method     = ?,
+                matched_score      = ?,
+                match_details      = ?,
+                matched_at         = ?,
+                manual_override    = 1
+            WHERE apt_nm = ? AND sgg_cd = ?
+              AND matched_complex_no IS NULL
+            """,
+            (complex_no, method, score,
+             json.dumps(md, ensure_ascii=False),
+             datetime.now().isoformat(timespec="seconds"),
+             apt_nm, sgg_cd),
+        )
+        n = cur.rowcount
+        conn.execute(
+            "UPDATE match_suggestions SET status='accepted', reviewed_at=? "
+            "WHERE suggestion_id = ?",
+            (datetime.now().isoformat(timespec="seconds"), suggestion_id),
+        )
+        conn.commit()
+        return n
+
+
+def reject_suggestion(conn: sqlite3.Connection, suggestion_id: int) -> bool:
+    from datetime import datetime
+    with _LOCK:
+        cur = conn.execute(
+            "UPDATE match_suggestions SET status='rejected', reviewed_at=? "
+            "WHERE suggestion_id = ? AND status = 'pending'",
+            (datetime.now().isoformat(timespec="seconds"), suggestion_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def reset_suggestion(conn: sqlite3.Connection, suggestion_id: int) -> bool:
+    """Revert accept/reject back to pending. Does NOT undo the transaction
+    updates from a prior accept — those stay with manual_override=1."""
+    from datetime import datetime
+    with _LOCK:
+        cur = conn.execute(
+            "UPDATE match_suggestions SET status='pending', reviewed_at=? "
+            "WHERE suggestion_id = ?",
+            (datetime.now().isoformat(timespec="seconds"), suggestion_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def stats(conn: sqlite3.Connection) -> dict:
