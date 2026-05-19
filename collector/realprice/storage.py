@@ -51,6 +51,8 @@ CREATE INDEX IF NOT EXISTS transactions_complex_idx   ON transactions(matched_co
 CREATE INDEX IF NOT EXISTS transactions_method_idx    ON transactions(matched_method);
 CREATE INDEX IF NOT EXISTS transactions_unmatched_idx ON transactions(matched_complex_no)
     WHERE matched_complex_no IS NULL;
+CREATE INDEX IF NOT EXISTS transactions_ymd_idx ON transactions(deal_ymd DESC);
+CREATE INDEX IF NOT EXISTS transactions_amount_idx ON transactions(deal_amount DESC);
 """
 
 _LOCK = threading.Lock()
