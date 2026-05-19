@@ -21,6 +21,7 @@ class Settings:
     naver_user_agent: str
     local_db_path: Path
     snapshot_dir: Path
+    data_go_kr_service_key: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -44,6 +45,7 @@ class Settings:
             ),
             local_db_path=_resolve("LOCAL_DB_PATH", "./data/naverreal.sqlite"),
             snapshot_dir=_resolve("SNAPSHOT_DIR", "./data/snapshots"),
+            data_go_kr_service_key=os.getenv("DATA_GO_KR_SERVICE_KEY", ""),
         )
 
 
