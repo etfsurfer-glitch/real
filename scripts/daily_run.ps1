@@ -37,10 +37,16 @@ Log "step 1/2: run_collect.py --all"
 $collect_exit = $LASTEXITCODE
 Log "step 1/2: exit=$collect_exit"
 
-Log "step 2/2: upload_to_supabase.py"
+Log "step 2/3: upload_to_supabase.py"
 & $py -u (Join-Path $root "scripts\upload_to_supabase.py") 2>&1 |
     Out-File -FilePath $log -Append -Encoding utf8
 $upload_exit = $LASTEXITCODE
-Log "step 2/2: exit=$upload_exit"
+Log "step 2/3: exit=$upload_exit"
 
-Log "daily run done  collect=$collect_exit  upload=$upload_exit"
+Log "step 3/3: archive_listings.py (parquet 백업)"
+& $py -u (Join-Path $root "scripts\archive_listings.py") 2>&1 |
+    Out-File -FilePath $log -Append -Encoding utf8
+$archive_exit = $LASTEXITCODE
+Log "step 3/3: exit=$archive_exit"
+
+Log "daily run done  collect=$collect_exit  upload=$upload_exit  archive=$archive_exit"
