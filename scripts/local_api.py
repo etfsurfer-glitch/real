@@ -5088,7 +5088,7 @@ def admin_data_sources(_admin: dict = Depends(admin_user)):
         ("complex_daily_agg", "단지별 일일 매물 집계",   "매물",           "내부 집계 (매물 보관)",       "매일",            2,  "MAX(snapshot_date)",     "MAX(snapshot_date)"),
         ("naver_realtors",    "중개사무소 정보",         "단지·중개사",    "부동산 매물 플랫폼",         "매일 (신규 보강)", 3,  "MAX(date(fetched_at))",  None),
         ("vworld_brokers",    "공인중개사 공식 등록",    "단지·중개사",    "브이월드 (국토교통부)",      "월 1회",          35, "MAX(date(list_fetched_at))", None),
-        ("complexes",         "아파트·오피 단지 정보",   "단지·중개사",    "부동산 매물 플랫폼",         "수시 (신규 발견)",  30, None,                     None),
+        ("complexes",         "아파트·오피 단지 정보",   "단지·중개사",    "부동산 매물 플랫폼",         "매일 (매물과 함께)",  2, "_listings_snap",         None),
     ]
     out = []
     with _open_db() as c:
@@ -5097,7 +5097,13 @@ def admin_data_sources(_admin: dict = Depends(admin_user)):
             if table not in existing:
                 continue
             n = c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            last = c.execute(f"SELECT {fexpr} FROM {table}").fetchone()[0] if fexpr else None
+            # complexes는 자체 타임스탬프가 없음 — 매물 수집(listings snapshot)과 함께 갱신되므로 이를 신선도 proxy로 사용.
+            if fexpr == "_listings_snap":
+                last = c.execute("SELECT MAX(snapshot_date) FROM listings_current").fetchone()[0]
+            elif fexpr:
+                last = c.execute(f"SELECT {fexpr} FROM {table}").fetchone()[0]
+            else:
+                last = None
             latest = c.execute(f"SELECT {dexpr} FROM {table}").fetchone()[0] if dexpr else None
             da = days_since(last)
             if da is None:
