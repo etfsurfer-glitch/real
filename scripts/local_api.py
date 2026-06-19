@@ -1629,13 +1629,20 @@ def complex_summary(complex_no: str):
             "LEFT JOIN regions rdo ON rdo.cortar_no=cx.cortar_no WHERE cx.complex_no=?", (complex_no,)).fetchone()
         region = " ".join(x for x in [
             (_SIDO_SHORT.get(reg[0], reg[0]) if reg else None), (reg[1] if reg else None), (reg[2] if reg else None)] if x)
+        # 역대 최고가 = 매매계열(매매+분양권)만. 전세/월세 record 혼입 방지.
         rec = d.execute("SELECT area_key, record_price, record_date, prev_high FROM tx_record_rollup "
-                        "WHERE complex_no=? ORDER BY record_price DESC LIMIT 1", (complex_no,)).fetchone()
+                        "WHERE complex_no=? AND kind IN ('sale','silv','offi_sale') ORDER BY record_price DESC LIMIT 1",
+                        (complex_no,)).fetchone()
         record_high = {"area_key": rec[0], "price": rec[1], "date": rec[2], "prev_high": rec[3]} if rec else None
-        rtx = d.execute("SELECT deal_ymd, deal_amount, excl_use_ar, floor FROM transactions "
-                        "WHERE matched_complex_no=? AND is_cancelled=0 ORDER BY deal_ymd DESC, deal_id DESC LIMIT 8",
-                        (complex_no,)).fetchall()
-        recent_tx = [{"date": r[0], "price": r[1], "area": r[2], "floor": r[3]} for r in rtx]
+        # 최근 실거래 = 매매 + 분양권 통합(신축 분양권 단지는 매매가 없어 비어 보이던 문제 수정).
+        rtx = d.execute(
+            "SELECT deal_ymd, deal_amount, excl_use_ar, floor, 0 AS is_silv FROM transactions "
+            "WHERE matched_complex_no=? AND is_cancelled=0 "
+            "UNION ALL "
+            "SELECT deal_ymd, deal_amount, excl_use_ar, floor, 1 AS is_silv FROM silv_transactions "
+            "WHERE matched_complex_no=? AND is_cancelled=0 "
+            "ORDER BY deal_ymd DESC LIMIT 8", (complex_no, complex_no)).fetchall()
+        recent_tx = [{"date": r[0], "price": r[1], "area": r[2], "floor": r[3], "is_silv": bool(r[4])} for r in rtx]
         cnt = {"A1": 0, "B1": 0, "B2": 0}
         for t, n in d.execute("SELECT trade_type, COUNT(*) FROM listings_current WHERE complex_no=? GROUP BY trade_type", (complex_no,)):
             if t in cnt:
