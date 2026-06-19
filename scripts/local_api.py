@@ -2093,6 +2093,16 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
                 )
                 params.extend(ac_params)
                 if days > 0: params.append(cutoff)
+            # 분양권(silv): 매매 최고가와 통합(거래총액=실거래총액). 거래방식 필터 시 제외.
+            if asset in ("apt", "all") and dealing == "all" and "silv_transactions" in existing:
+                unions.append(
+                    "SELECT deal_ymd, deal_amount AS price, NULL AS monthly_rent, "
+                    "excl_use_ar, floor, NULL AS build_year, matched_complex_no, dealing_gbn, 'silv' AS asset "
+                    "FROM silv_transactions WHERE matched_complex_no IS NOT NULL AND is_cancelled=0" + ac_filter
+                    + (f" AND deal_ymd >= date('now', ?)" if days > 0 else "")
+                )
+                params.extend(ac_params)
+                if days > 0: params.append(cutoff)
             if asset in ("offi", "all") and "offi_transactions" in existing:
                 unions.append(
                     "SELECT deal_ymd, deal_amount AS price, NULL AS monthly_rent, "
@@ -2228,6 +2238,7 @@ def tx_record_high(days: int = 90, trade: str = "A1", asset: str = "all",
     # trade → 롤업 kind(매매/전세/월세) + floor 룩업용 라이브 소스(테이블·가격컬럼·조건).
     if trade == "A1":
         cand = [("transactions", "deal_amount", "is_cancelled=0", "apt", "sale"),
+                ("silv_transactions", "deal_amount", "is_cancelled=0", "apt", "silv"),
                 ("offi_transactions", "deal_amount", "is_cancelled=0", "offi", "offi_sale")]
     elif trade == "B1":
         cand = [("rentals", "deposit", "monthly_rent=0", "apt", "jeonse"),
@@ -2277,7 +2288,7 @@ def tx_record_high(days: int = 90, trade: str = "A1", asset: str = "all",
         sql = f"""
         SELECT base.*, {floor_expr} AS floor, {prev_floor_expr} AS prev_floor FROM (
           SELECT rr.complex_no AS cno, rr.area_key, rr.record_price, rr.record_date, rr.n_total,
-                 rr.prev_high, rr.n_prior, rr.prev_date,
+                 rr.prev_high, rr.n_prior, rr.prev_date, rr.kind AS rec_kind,
                  (rr.record_price - rr.prev_high) * 1.0 / rr.prev_high AS premium,
                  (julianday(rr.record_date) - julianday(rr.prev_date)) AS days_since,
                  cx.complex_name, cx.cortar_no, cx.total_household_count,
@@ -2312,6 +2323,7 @@ def tx_record_high(days: int = 90, trade: str = "A1", asset: str = "all",
             "region_name": r["region_name"],
             "households": r["total_household_count"],
             "area_key": r["area_key"],
+            "asset": "silv" if r["rec_kind"] == "silv" else ("offi" if str(r["rec_kind"]).startswith("offi") else "apt"),
             "floor": r["floor"],
             "prev_floor": r["prev_floor"],
             "record_price": r["record_price"],
@@ -2367,6 +2379,9 @@ def tx_top_volume(days: int = 30, trade: str = "A1", asset: str = "all",
             sale_extra = "is_cancelled=0" + (f" AND {dg_extra}" if dg_extra else "")
             if asset in ("apt", "all") and "transactions" in existing:
                 s, p = _src("transactions", "apt", sale_extra); unions.append(s); params.extend(p)
+            # 분양권(silv): 매매 실거래와 통합 집계(사용자 멘탈모델). 거래방식 필터 시엔 제외(분양권엔 무의미).
+            if asset in ("apt", "all") and dealing == "all" and "silv_transactions" in existing:
+                s, p = _src("silv_transactions", "silv", "is_cancelled=0"); unions.append(s); params.extend(p)
             if asset in ("offi", "all") and "offi_transactions" in existing:
                 s, p = _src("offi_transactions", "offi", sale_extra); unions.append(s); params.extend(p)
         elif trade == "B1":
@@ -2385,10 +2400,11 @@ def tx_top_volume(days: int = 30, trade: str = "A1", asset: str = "all",
             return {"items": []}
 
         sql = (
-            "WITH agg AS (SELECT matched_complex_no AS cno, COUNT(*) AS n "
+            "WITH agg AS (SELECT matched_complex_no AS cno, COUNT(*) AS n, "
+            "SUM(CASE WHEN asset='silv' THEN 1 ELSE 0 END) AS silv_n "
             "FROM (" + " UNION ALL ".join(unions) + ") "
             "GROUP BY matched_complex_no) "
-            "SELECT agg.cno, agg.n, cx.complex_name, cx.cortar_no, cx.total_household_count, "
+            "SELECT agg.cno, agg.n, agg.silv_n, cx.complex_name, cx.cortar_no, cx.total_household_count, "
             + _REGION_NAME_COL +
             " FROM agg LEFT JOIN complexes cx ON cx.complex_no = agg.cno"
             + _REGION_JOINS +
@@ -2406,6 +2422,7 @@ def tx_top_volume(days: int = 30, trade: str = "A1", asset: str = "all",
                 "region_name": r["region_name"],
                 "households": r["total_household_count"],
                 "count": r["n"],
+                "silv_count": r["silv_n"] or 0,   # 이 중 분양권 건수(투명 표기용)
             }
             for r in rows
         ],
@@ -2440,6 +2457,11 @@ def tx_low_price(days: int = 180, discount: float = 0.20, min_samples: int = 3,
         if asset in ("apt", "all") and "transactions" in existing:
             unions.append("SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, "
                           "matched_complex_no, 'apt' AS asset FROM transactions "
+                          "WHERE matched_complex_no IS NOT NULL AND is_cancelled=0 AND deal_ymd >= date('now', ?)" + ac_cond + reg_cond)
+            params.append(cutoff); params.extend(ac_params); params.extend(reg_params)
+        if asset in ("apt", "all") and "silv_transactions" in existing:
+            unions.append("SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, "
+                          "matched_complex_no, 'silv' AS asset FROM silv_transactions "
                           "WHERE matched_complex_no IS NOT NULL AND is_cancelled=0 AND deal_ymd >= date('now', ?)" + ac_cond + reg_cond)
             params.append(cutoff); params.extend(ac_params); params.extend(reg_params)
         if asset in ("offi", "all") and "offi_transactions" in existing:
@@ -2681,7 +2703,8 @@ def tx_price_change(window_days: int = 90, asset: str = "apt", min_samples: int 
         raise HTTPException(400, "window_days out of range")
     if not _area_rollup_ready():
         raise HTTPException(503, "tx_area_rollup 미빌드 — build_tx_rollups.py 실행 필요")
-    sk = "offi_sale" if asset == "offi" else "sale"
+    sks = _sale_kinds(asset)
+    kph = ",".join("?" * len(sks))
     direction = "ASC" if order == "asc" else "DESC"
     recent_cutoff = f"-{window_days} days"
     prev_cutoff = f"-{window_days * 2} days"
@@ -2696,14 +2719,14 @@ def tx_price_change(window_days: int = 90, asset: str = "apt", min_samples: int 
               SELECT complex_no AS cno, area_key,
                      SUM(sum_amt)*1.0/SUM(n) AS recent_avg, SUM(n) AS n_recent
               FROM tx_area_rollup
-              WHERE kind=? AND deal_ymd >= date('now', ?){cte}
+              WHERE kind IN ({kph}) AND deal_ymd >= date('now', ?){cte}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             ),
             prev AS (
               SELECT complex_no AS cno, area_key,
                      SUM(sum_amt)*1.0/SUM(n) AS prev_avg, SUM(n) AS n_prev
               FROM tx_area_rollup
-              WHERE kind=? AND deal_ymd >= date('now', ?) AND deal_ymd < date('now', ?){cte}
+              WHERE kind IN ({kph}) AND deal_ymd >= date('now', ?) AND deal_ymd < date('now', ?){cte}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             )
             SELECT r.cno, r.area_key, r.recent_avg, p.prev_avg,
@@ -2715,7 +2738,7 @@ def tx_price_change(window_days: int = 90, asset: str = "apt", min_samples: int 
             WHERE p.prev_avg > 0
             ORDER BY change_rate {direction} LIMIT ?
             """,
-            (sk, recent_cutoff, *cte_p, min_samples, sk, prev_cutoff, recent_cutoff, *cte_p, min_samples, limit),
+            (*sks, recent_cutoff, *cte_p, min_samples, *sks, prev_cutoff, recent_cutoff, *cte_p, min_samples, limit),
         ).fetchall()
     return {
         "window_days": window_days, "asset": asset, "order": order,
@@ -2781,6 +2804,12 @@ def tx_asking_vs_real(days: int = 90, min_samples: int = 3, area_class: str = "a
     }
 
 
+def _sale_kinds(asset: str) -> list[str]:
+    """매매 통계 = 일반매매(sale) + 분양권(silv) 통합(사용자 멘탈모델). 분양권 거래금액은
+    실거래 총액이라 매매와 같은 scale. 오피스텔은 분양권 분리 데이터 없어 offi_sale만."""
+    return ["offi_sale"] if asset == "offi" else ["sale", "silv"]
+
+
 @app.get("/stats/tx-pyeong-price")
 def tx_pyeong_price(days: int = 365, asset: str = "apt", min_samples: int = 3,
                     area_class: str = "all", sido: str | None = None,
@@ -2790,7 +2819,8 @@ def tx_pyeong_price(days: int = 365, asset: str = "apt", min_samples: int = 3,
     if not _area_rollup_ready():
         raise HTTPException(503, "tx_area_rollup 미빌드 — build_tx_rollups.py 실행 필요")
     cutoff = f"-{days} days"
-    sk = "offi_sale" if asset == "offi" else "sale"
+    sks = _sale_kinds(asset)
+    kph = ",".join("?" * len(sks))
     direction = "ASC" if order == "asc" else "DESC"
     ac_cond, ac_params = _area_cond_key(area_class)
     reg_cond, reg_params = _roll_region_clause(sido, sigungu, dong)
@@ -2808,14 +2838,14 @@ def tx_pyeong_price(days: int = 365, asset: str = "apt", min_samples: int = 3,
                      SUM(sum_amt) * 3.3058 / SUM(sum_excl) AS pyeong_price,
                      SUM(n) AS n
               FROM tx_area_rollup
-              WHERE kind=? AND deal_ymd >= date('now', ?){cte_filter}
+              WHERE kind IN ({kph}) AND deal_ymd >= date('now', ?){cte_filter}
               GROUP BY complex_no, area_key HAVING SUM(n) >= ?
             ) t
             LEFT JOIN complexes cx ON cx.complex_no = t.cno{_REGION_JOINS}
             ORDER BY pyeong_price {direction}
             LIMIT ?
             """,
-            (sk, cutoff, *reg_params, *ac_params, min_samples, limit),
+            (*sks, cutoff, *reg_params, *ac_params, min_samples, limit),
         ).fetchall()
     return {
         "days": days, "asset": asset, "order": order,
@@ -2836,15 +2866,16 @@ def tx_turnover(days: int = 365, trade: str = "A1", asset: str = "apt",
         raise HTTPException(503, "tx_area_rollup 미빌드 — build_tx_rollups.py 실행 필요")
     cutoff = f"-{days} days"
     if trade == "A1":
-        kind = "offi_sale" if asset == "offi" else "sale"
+        kinds = _sale_kinds(asset)   # 매매+분양권 통합
     elif trade == "B1":
-        kind = "offi_jeonse" if asset == "offi" else "jeonse"
+        kinds = ["offi_jeonse" if asset == "offi" else "jeonse"]
     else:
         raise HTTPException(400, "trade must be A1 or B1")
+    kph = ",".join("?" * len(kinds))
     ac_cond, ac_params = _area_cond_key(area_class)
     reg_cond, reg_params = _roll_region_clause(sido, sigungu, dong)
     src = (f"SELECT complex_no AS cno, SUM(n) AS n FROM tx_area_rollup "
-           f"WHERE kind=? AND deal_ymd >= date('now', ?){reg_cond}{ac_cond} GROUP BY complex_no")
+           f"WHERE kind IN ({kph}) AND deal_ymd >= date('now', ?){reg_cond}{ac_cond} GROUP BY complex_no")
     with _open_db() as c:
         rows = c.execute(
             f"""
@@ -2858,7 +2889,7 @@ def tx_turnover(days: int = 365, trade: str = "A1", asset: str = "apt",
             WHERE cx.total_household_count >= ?
             ORDER BY turnover_rate DESC LIMIT ?
             """,
-            (kind, cutoff, *reg_params, *ac_params, min_households, limit),
+            (*kinds, cutoff, *reg_params, *ac_params, min_households, limit),
         ).fetchall()
     return {
         "days": days, "trade": trade, "asset": asset,
