@@ -9,3 +9,7 @@ supabase>=2.7
 fastapi>=0.115
 uvicorn[standard]>=0.30
 pyarrow>=17.0
+google-genai>=0.3
+
+beautifulsoup4>=4.12
+lxml>=5.0
