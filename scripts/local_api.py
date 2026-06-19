@@ -5062,6 +5062,58 @@ def admin_logs_stats(_admin: dict = Depends(admin_user), days: int = 7):
             "top_complex": top_complex, "top_realtor": top_realtor}
 
 
+@app.get("/admin/data-sources")
+def admin_data_sources(_admin: dict = Depends(admin_user)):
+    """수집 데이터 소스 현황 — 소스별 행수·최신 데이터·마지막 수집·신선도 상태. 관리자 전용.
+    신선도 신호: 실거래=inserted_at(수집시각), 매물=snapshot_date, 중개사=fetched_at, vworld=list_fetched_at."""
+    from datetime import datetime as _dt, timezone as _tz
+    today = _dt.now(_tz.utc).date()
+
+    def days_since(s):
+        if not s:
+            return None
+        try:
+            return (today - _dt.strptime(str(s)[:10], "%Y-%m-%d").date()).days
+        except Exception:
+            return None
+
+    # (table, 친화이름, 분류, 출처, 수집주기, 정상주기일수, 마지막수집표현, 최신데이터표현)
+    SRC = [
+        ("transactions",      "아파트 매매 실거래",     "실거래 (국토부)", "국토교통부 실거래가",        "매일",            2,  "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("offi_transactions", "오피스텔 매매 실거래",   "실거래 (국토부)", "국토교통부 실거래가",        "매일",            2,  "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("rentals",           "아파트 전·월세 실거래",  "실거래 (국토부)", "국토교통부 실거래가",        "매일",            2,  "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("offi_rentals",      "오피스텔 전·월세 실거래", "실거래 (국토부)", "국토교통부 실거래가",        "매일",            2,  "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("silv_transactions", "분양권·입주권 전매 실거래", "실거래 (국토부)", "국토교통부 실거래가",      "매일",            2,  "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("listings_current",  "현재 매물 (호가)",       "매물",           "부동산 매물 플랫폼",         "매일",            2,  "MAX(snapshot_date)",     "MAX(snapshot_date)"),
+        ("complex_daily_agg", "단지별 일일 매물 집계",   "매물",           "내부 집계 (매물 보관)",       "매일",            2,  "MAX(snapshot_date)",     "MAX(snapshot_date)"),
+        ("naver_realtors",    "중개사무소 정보",         "단지·중개사",    "부동산 매물 플랫폼",         "매일 (신규 보강)", 3,  "MAX(date(fetched_at))",  None),
+        ("vworld_brokers",    "공인중개사 공식 등록",    "단지·중개사",    "브이월드 (국토교통부)",      "월 1회",          35, "MAX(date(list_fetched_at))", None),
+        ("complexes",         "아파트·오피 단지 정보",   "단지·중개사",    "부동산 매물 플랫폼",         "수시 (신규 발견)",  30, None,                     None),
+    ]
+    out = []
+    with _open_db() as c:
+        existing = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        for table, name, cat, source, cycle, cyd, fexpr, dexpr in SRC:
+            if table not in existing:
+                continue
+            n = c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            last = c.execute(f"SELECT {fexpr} FROM {table}").fetchone()[0] if fexpr else None
+            latest = c.execute(f"SELECT {dexpr} FROM {table}").fetchone()[0] if dexpr else None
+            da = days_since(last)
+            if da is None:
+                status = "unknown"
+            elif da <= cyd:
+                status = "ok"
+            elif da <= cyd * 2:
+                status = "delay"
+            else:
+                status = "stale"
+            out.append({"key": table, "name": name, "category": cat, "source": source,
+                        "cycle": cycle, "rows": n, "last_collected": last, "days_ago": da,
+                        "latest_data": latest, "status": status})
+    return {"checked_at": _dt.now(_tz.utc).isoformat(), "sources": out}
+
+
 @app.get("/admin/overview")
 def admin_overview(_admin: dict = Depends(admin_user)):
     """관리자 대시보드 종합 지표 — 회원·활동·검수대기·콘텐츠·스냅샷을 한 번에.
