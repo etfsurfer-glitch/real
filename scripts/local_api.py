@@ -2556,23 +2556,32 @@ def tx_inventory_pressure(trade: str = "A1", min_listings: int = 10,
                 if hi is not None:
                     ac_cond += " AND l.area1_m2 < ?"
                     params.append(hi)
+        # 성능: ①매물수를 먼저 단지별 집계(lc) ②세대수·비율로 top N 컷(ranked) ③region join은
+        # 최종 N행에만 적용. (기존엔 전체 단지에 region join을 걸고 정렬 → 전국 17s)
         sql = (
-            "SELECT c.complex_no, c.complex_name, c.total_household_count AS households, "
-            "COUNT(l.article_no) AS listings, "
-            "COUNT(l.article_no) * 1.0 / c.total_household_count AS ratio, "
+            "WITH lc AS ("
+            "  SELECT l.complex_no AS cno, COUNT(l.article_no) AS n "
+            "  FROM listings_current l "
+            f"  WHERE 1=1 {trade_cond} {ac_cond} "
+            "  GROUP BY l.complex_no HAVING COUNT(l.article_no) >= ? "
+            "), ranked AS ("
+            "  SELECT c.complex_no, c.complex_name, c.cortar_no, "
+            "         c.total_household_count AS households, lc.n AS listings, "
+            "         lc.n * 1.0 / c.total_household_count AS ratio "
+            "  FROM lc JOIN complexes c ON c.complex_no = lc.cno "
+            "  WHERE c.total_household_count >= ? "
+            "  ORDER BY ratio DESC LIMIT ? "
+            ") "
+            "SELECT ranked.complex_no, ranked.complex_name, ranked.households, ranked.listings, ranked.ratio, "
             "TRIM(COALESCE(rs.cortar_name,'')||' '||COALESCE(rg.cortar_name,'')"
             "||' '||COALESCE(rd.cortar_name,'')) AS region_name "
-            "FROM complexes c "
-            "JOIN listings_current l ON l.complex_no = c.complex_no "
-            "LEFT JOIN regions rs ON rs.cortar_no = substr(c.cortar_no,1,2)||'00000000' "
-            "LEFT JOIN regions rg ON rg.cortar_no = substr(c.cortar_no,1,5)||'00000' "
-            "LEFT JOIN regions rd ON rd.cortar_no = c.cortar_no "
-            f"WHERE c.total_household_count >= ? {trade_cond} {ac_cond} "
-            "GROUP BY c.complex_no "
-            "HAVING COUNT(l.article_no) >= ? "
-            "ORDER BY ratio DESC LIMIT ?"
+            "FROM ranked "
+            "LEFT JOIN regions rs ON rs.cortar_no = substr(ranked.cortar_no,1,2)||'00000000' "
+            "LEFT JOIN regions rg ON rg.cortar_no = substr(ranked.cortar_no,1,5)||'00000' "
+            "LEFT JOIN regions rd ON rd.cortar_no = ranked.cortar_no "
+            "ORDER BY ranked.ratio DESC"
         )
-        rows = c.execute(sql, [min_households, *params, min_listings, limit]).fetchall()
+        rows = c.execute(sql, [*params, min_listings, min_households, limit]).fetchall()
     return {
         "trade": trade,
         "items": [
