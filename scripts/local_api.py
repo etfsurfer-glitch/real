@@ -2082,7 +2082,7 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
     elif dealing == "direct":
         dg_filter = " AND dealing_gbn='직거래'"
     # area_class 공급면적 평형 필터
-    ac_filter, ac_params = _area_cond("excl_use_ar", area_class)
+    ac_filter, ac_params = _area_cond("excl_use_ar", area_class, col_supply=None)  # silv union 호환
 
     with _open_db() as c:
         existing = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -2362,7 +2362,7 @@ def tx_top_volume(days: int = 30, trade: str = "A1", asset: str = "all",
         dg_extra = "dealing_gbn='중개거래'"
     elif dealing == "direct":
         dg_extra = "dealing_gbn='직거래'"
-    ac_cond, ac_params = _area_cond("excl_use_ar", area_class)
+    ac_cond, ac_params = _area_cond("excl_use_ar", area_class, col_supply=None)  # silv union 호환(전용*1.33로 평형필터)
 
     with _open_db() as c:
         existing = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -2454,7 +2454,7 @@ def tx_low_price(days: int = 180, discount: float = 0.20, min_samples: int = 3,
     if limit < 1 or limit > 1000:
         raise HTTPException(400, "limit out of range")
     cutoff = f"-{days} days"
-    ac_cond, ac_params = _area_cond("excl_use_ar", area_class)
+    ac_cond, ac_params = _area_cond("excl_use_ar", area_class, col_supply=None)  # silv union 호환(전용*1.33로 평형필터)
     reg_cond, reg_params = _mcn_region_clause(sido, sigungu, dong)   # 지역 좁힘(동필터 시 빠름)
 
     with _open_db() as c:
