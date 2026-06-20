@@ -6014,6 +6014,40 @@ def admin_push_send(req: PushSendBody, _admin: dict = Depends(admin_user)):
     return {"targets": len(ids), **res}
 
 
+@app.get("/me/favorites")
+def my_favorites(user: dict = Depends(current_user)):
+    """내 관심단지 목록(일반 사용자 — 멤버십 불필요). 16시 알림 대상."""
+    with _reviews_db() as c:
+        rows = c.execute("SELECT complex_no, complex_name FROM realtor_fav_complexes "
+                         "WHERE user_id=? ORDER BY created_at", (user["id"],)).fetchall()
+    return {"items": [{"complex_no": r[0], "complex_name": r[1]} for r in rows]}
+
+
+@app.post("/me/favorites")
+def my_favorite_add(body: dict, user: dict = Depends(current_user)):
+    cno = (body.get("complex_no") or "").strip()
+    cname = (body.get("complex_name") or "").strip()
+    if not cno:
+        raise HTTPException(400, "complex_no required")
+    with _reviews_db() as c:
+        n = c.execute("SELECT COUNT(*) FROM realtor_fav_complexes WHERE user_id=?", (user["id"],)).fetchone()[0]
+        exists = c.execute("SELECT 1 FROM realtor_fav_complexes WHERE user_id=? AND complex_no=?",
+                           (user["id"], cno)).fetchone()
+        if not exists and n >= 20:
+            raise HTTPException(400, "관심단지는 최대 20개까지 등록할 수 있어요")
+        c.execute("INSERT OR IGNORE INTO realtor_fav_complexes(user_id,complex_no,complex_name) VALUES(?,?,?)",
+                  (user["id"], cno, cname or None))
+    return {"ok": True}
+
+
+@app.delete("/me/favorites/{complex_no}")
+def my_favorite_remove(complex_no: str, user: dict = Depends(current_user)):
+    with _reviews_db() as c:
+        c.execute("DELETE FROM realtor_fav_complexes WHERE user_id=? AND complex_no=?",
+                  (user["id"], complex_no))
+    return {"ok": True}
+
+
 @app.get("/admin/push/stats")
 def admin_push_stats(_admin: dict = Depends(admin_user)):
     with _reviews_db() as c:

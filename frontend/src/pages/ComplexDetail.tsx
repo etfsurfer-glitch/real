@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import ComplexDashboard from "./ComplexDashboard";
 import { usePageMeta } from "../lib/pageMeta";
 import ComplexReviews from "../components/ComplexReviews";
+import FavButton from "../components/FavButton";
 import {
   CartesianGrid, Legend, ResponsiveContainer, Scatter, ScatterChart,
   Tooltip, XAxis, YAxis,
@@ -323,7 +324,10 @@ export default function ComplexDetail() {
   return (
     <>
       <Link to="/overview" className="back">← 전국현황</Link>
-      <h2 style={{ margin: "0 0 4px" }}>{complex.complex_name}</h2>
+      <div className="cx-title-row">
+        <h2 style={{ margin: "0 0 4px" }}>{complex.complex_name}</h2>
+        {complexNo && <FavButton complexNo={complexNo} complexName={complex.complex_name} />}
+      </div>
       <div className="muted" style={{ marginBottom: 14 }}>
         {(complex.road_address
           || [complex.dong_name, complex.detail_address].filter(Boolean).join(" ")
