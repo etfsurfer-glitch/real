@@ -7749,6 +7749,17 @@ def public_homepage_lead(slug: str, body: dict):
         c.execute("INSERT INTO consultation_leads(realtor_id,name,phone,message,source) "
                   "VALUES(?,?,?,?,?)", (r[0], name or None, phone or None, message or None, "homepage"))
         c.commit()
+        # 상담신청 즉시 알림 — 이 사무소에 연결된 계정(들)에 푸시
+        owner_ids = [m[0] for m in c.execute(
+            "SELECT user_id FROM realtor_members WHERE realtor_id=?", (r[0],)).fetchall()]
+    if owner_ids:
+        who = name or phone or "고객"
+        try:
+            _send_web_push(owner_ids, "새 상담 신청 📩",
+                           f"{who}님이 상담을 신청했어요. 라운지에서 확인하세요.",
+                           url="/lounge", tag="lead")
+        except Exception:
+            pass
     return {"ok": True}
 
 
