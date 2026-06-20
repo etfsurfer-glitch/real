@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- House (pentagon: square body + roof peak) -->
+  <path d="M 50 10 L 92 46 L 92 92 L 8 92 L 8 46 Z" fill="#1268d3"/>
+  <!-- Check mark inside (white) -->
+  <path d="M 28 58 L 44 73 L 74 42"
+        stroke="#ffffff"
+        stroke-width="10"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        fill="none"/>
+</svg>
