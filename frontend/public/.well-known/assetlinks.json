@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.koczip.app",
+      "sha256_cert_fingerprints": [
+        "32:16:BC:5A:77:A7:9E:11:25:4B:8E:DC:51:E2:10:FE:D7:BC:33:B9:84:22:E6:20:A5:19:1F:D1:C9:3B:6D:0E"
+      ]
+    }
+  }
+]
