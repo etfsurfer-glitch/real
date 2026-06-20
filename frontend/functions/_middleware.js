@@ -44,6 +44,8 @@ function page(title, desc, canonical, h1, bodyHtml) {
 <meta property="og:description" content="${esc(desc)}"/>
 <meta property="og:url" content="${esc(canonical)}"/>
 <meta property="og:image" content="${OG_IMG}"/>
+<meta name="naver-site-verification" content="3f4e9fd612c3c9dff35fd9a54c6689636326e375"/>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"콕집","alternateName":"koczip","url":"https://koczip.com/","inLanguage":"ko-KR","publisher":{"@type":"Organization","name":"콕집","alternateName":"koczip","url":"https://koczip.com/","logo":"https://koczip.com/icon-512.png"}}</script>
 </head><body>
 <h1>${esc(h1)}</h1>
 ${bodyHtml}
