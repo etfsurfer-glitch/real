@@ -14,6 +14,7 @@ Run:
 """
 from __future__ import annotations
 
+import os
 import pickle
 import sqlite3
 import sys
@@ -5652,6 +5653,16 @@ def _init_reviews_db() -> None:
               created_at   TEXT NOT NULL DEFAULT (datetime('now')),
               PRIMARY KEY (user_id, realtor_id)
             );
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+              user_id     TEXT NOT NULL,
+              endpoint    TEXT NOT NULL,
+              p256dh      TEXT NOT NULL,
+              auth        TEXT NOT NULL,
+              ua          TEXT,
+              created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+              PRIMARY KEY (endpoint)
+            );
+            CREATE INDEX IF NOT EXISTS push_user_idx ON push_subscriptions(user_id);
             """
         )
         # 기존 테이블에 신규 컬럼 보강(있으면 무시) — 전화번호=유니크 비즈니스키, 회원번호=내부키
@@ -5895,6 +5906,120 @@ def _reviews_db() -> sqlite3.Connection:
     c = sqlite3.connect(REVIEWS_DB)
     c.row_factory = sqlite3.Row
     return c
+
+
+# ─── 웹 푸시 알림 (TWA/PWA — VAPID) ─────────────────────────────────
+def _vapid():
+    """(private, public, subject) — env. 미설정이면 None."""
+    priv = os.getenv("VAPID_PRIVATE_KEY")
+    pub = os.getenv("VAPID_PUBLIC_KEY")
+    if not priv or not pub:
+        return None
+    return priv, pub, os.getenv("VAPID_SUBJECT", "mailto:admin@koczip.com")
+
+
+def _send_web_push(user_ids, title: str, body: str, url: str = "/", tag: str = "koczip",
+                   icon: str = "https://koczip.com/icon-192.png") -> dict:
+    """user_ids(list) 의 모든 구독에 웹푸시 발송. 죽은 구독(404/410)은 삭제. 발송 통계 반환."""
+    v = _vapid()
+    if not v:
+        return {"sent": 0, "error": "VAPID not configured"}
+    from pywebpush import webpush, WebPushException
+    priv, _pub, subject = v
+    payload = _json.dumps({"title": title, "body": body, "url": url, "tag": tag, "icon": icon},
+                          ensure_ascii=False)
+    sent = failed = 0
+    dead = []
+    ids = [user_ids] if isinstance(user_ids, str) else list(user_ids)
+    if not ids:
+        return {"sent": 0}
+    ph = ",".join("?" * len(ids))
+    with _reviews_db() as c:
+        subs = c.execute(
+            f"SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id IN ({ph})",
+            ids).fetchall()
+        for s in subs:
+            try:
+                webpush(
+                    subscription_info={"endpoint": s["endpoint"],
+                                       "keys": {"p256dh": s["p256dh"], "auth": s["auth"]}},
+                    data=payload,
+                    vapid_private_key=priv,
+                    vapid_claims={"sub": subject},
+                    timeout=10)
+                sent += 1
+            except WebPushException as e:
+                failed += 1
+                code = getattr(getattr(e, "response", None), "status_code", None)
+                if code in (404, 410):       # 만료/해지 구독 → 정리
+                    dead.append(s["endpoint"])
+            except Exception:
+                failed += 1
+        for ep in dead:
+            c.execute("DELETE FROM push_subscriptions WHERE endpoint=?", (ep,))
+    return {"sent": sent, "failed": failed, "pruned": len(dead)}
+
+
+@app.get("/push/vapid-public-key")
+def push_vapid_public_key():
+    v = _vapid()
+    return {"key": v[1] if v else None}
+
+
+@app.post("/push/subscribe")
+def push_subscribe(body: dict, request: Request, user: dict = Depends(current_user)):
+    """브라우저 PushSubscription 저장(로그인 필요)."""
+    sub = body.get("subscription") or body
+    ep = sub.get("endpoint")
+    keys = sub.get("keys") or {}
+    if not ep or not keys.get("p256dh") or not keys.get("auth"):
+        raise HTTPException(400, "invalid subscription")
+    with _reviews_db() as c:
+        c.execute(
+            "INSERT INTO push_subscriptions(user_id,endpoint,p256dh,auth,ua) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, "
+            "auth=excluded.auth",
+            (user["id"], ep, keys["p256dh"], keys["auth"],
+             (request.headers.get("user-agent") or "")[:200]))
+    return {"ok": True}
+
+
+@app.post("/push/unsubscribe")
+def push_unsubscribe(body: dict, user: dict = Depends(current_user)):
+    ep = (body.get("endpoint") or "").strip()
+    with _reviews_db() as c:
+        if ep:
+            c.execute("DELETE FROM push_subscriptions WHERE endpoint=? AND user_id=?", (ep, user["id"]))
+        else:
+            c.execute("DELETE FROM push_subscriptions WHERE user_id=?", (user["id"],))
+    return {"ok": True}
+
+
+class PushSendBody(BaseModel):
+    title: str
+    body: str
+    url: str = "/"
+    target: str = "all"      # all | user:<uid>
+
+
+@app.post("/admin/push/send")
+def admin_push_send(req: PushSendBody, _admin: dict = Depends(admin_user)):
+    """관리자 수동 푸시 발송. target=all(구독 전체) 또는 user:<uid>."""
+    if req.target.startswith("user:"):
+        ids = [req.target.split(":", 1)[1]]
+    else:
+        with _reviews_db() as c:
+            ids = [r[0] for r in c.execute("SELECT DISTINCT user_id FROM push_subscriptions").fetchall()]
+    res = _send_web_push(ids, req.title.strip(), req.body.strip(), req.url or "/", tag="admin")
+    return {"targets": len(ids), **res}
+
+
+@app.get("/admin/push/stats")
+def admin_push_stats(_admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        subs = c.execute("SELECT COUNT(*) FROM push_subscriptions").fetchone()[0]
+        users = c.execute("SELECT COUNT(DISTINCT user_id) FROM push_subscriptions").fetchone()[0]
+    return {"subscriptions": subs, "users": users, "configured": _vapid() is not None}
 
 
 # ─── 닉네임 (글·리뷰·AI 호칭) ───────────────────────────────────
