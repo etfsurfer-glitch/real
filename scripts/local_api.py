@@ -7554,7 +7554,8 @@ def _homepage_listings(realtor_id: str, limit: int = 1000) -> list[dict]:
     with _open_db() as c:
         rows = c.execute(
             "SELECT l.complex_no, cx.complex_name, l.trade_type, "
-            "MIN(l.deal_or_warrant_price), l.area2_m2, l.area_name, COUNT(*), l.real_estate_type "
+            "MIN(l.deal_or_warrant_price), l.area2_m2, l.area_name, COUNT(*), l.real_estate_type, "
+            "MAX(l.rent_price) "   # ★월세 매물의 월세금액 — 누락 시 '월세 0'으로 표기되던 버그 수정
             "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
             "WHERE l.realtor_id=? AND l.deal_or_warrant_price>0 "
             "GROUP BY l.complex_no, l.trade_type, ROUND(l.area2_m2) "
@@ -7563,6 +7564,7 @@ def _homepage_listings(realtor_id: str, limit: int = 1000) -> list[dict]:
         cat = "오피스텔" if r[7] in ("OPST", "OBYG") else "아파트"
         items.append({"category": cat, "complex_no": r[0], "complex_name": r[1],
                       "trade_type": tt.get(r[2], r[2]), "price": r[3],
+                      "rent_price": r[8] or None,
                       "excl_use_ar": round(r[4]) if r[4] else None,
                       "area_name": r[5], "count": r[6], "article_no": None})
     # 2) 비단지(상가·사무실·빌라/연립·단독/다가구) — realtor 귀속분만, 별도 DB(읽기전용)
