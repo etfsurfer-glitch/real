@@ -1265,6 +1265,55 @@ def realtors_by_tenure(limit: int = 20, region: str = ""):
     return out
 
 
+@app.get("/stats/realtors/by-dong")
+def realtors_by_dong(cortar: str, sort: str = "listings", limit: int = 20):
+    """우리동네(동) 중개사 랭킹 — 사무소가 그 동에 소재한 중개사(realtor_dong 기준).
+    매물수(전체 보유)·직원수·업력을 한눈에. sort=listings|staff|tenure."""
+    if not cortar:
+        raise HTTPException(400, "cortar required")
+    if limit < 1 or limit > 100:
+        limit = 20
+    ck = f"realtor_dong:{cortar}:{sort}:{limit}"
+    cached = _cache_get(ck)
+    if cached is not None:
+        return cached
+    import datetime as _dt
+    cur_year = _dt.date.today().year
+    with _open_db() as c:
+        dn = c.execute("SELECT cortar_name FROM regions WHERE cortar_no=? LIMIT 1", (cortar,)).fetchone()
+        rows = c.execute(
+            """
+            SELECT rd.realtor_id,
+                   COALESCE(vb.business_name, m.naver_name, m.vworld_name) AS name,
+                   m.total_listings,
+                   (SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=m.sys_regno) AS staff,
+                   substr(vb.registered_ymd,1,4) AS est_yr,
+                   vb.phone, rd.source
+            FROM realtor_dong rd
+            JOIN realtor_match m ON m.realtor_id = rd.realtor_id
+            LEFT JOIN vworld_brokers vb ON vb.sys_regno = m.sys_regno
+            WHERE rd.cortar_no = ?
+            """, (cortar,)).fetchall()
+    items = []
+    for r in rows:
+        est = int(r[4]) if (r[4] and r[4].isdigit()) else None
+        items.append({
+            "realtor_id": r[0], "realtor_name": r[1] or "공인중개사",
+            "listings": r[2] or 0, "staff_count": r[3] or None,
+            "established_year": est, "tenure_years": (cur_year - est) if est else None,
+            "phone": r[5], "verified_office": r[6] == "vworld",
+        })
+    key = {"staff": lambda x: x["staff_count"] or 0,
+           "tenure": lambda x: x["tenure_years"] or 0}.get(sort, lambda x: x["listings"])
+    items.sort(key=key, reverse=True)
+    items = items[:limit]
+    out = {"cortar_no": cortar, "dong_name": (dn[0] if dn else None),
+           "sort": sort, "count": len(items),
+           "top": (items[0] if items else None), "items": items}
+    _cache_put(ck, out)
+    return out
+
+
 @app.get("/stats/realtors/by-sido")
 def realtors_by_sido(limit: int = 10):
     """시도별 상위 N개 중개사. 단지 cortar_no 앞 2자리로 시도 묶음."""
