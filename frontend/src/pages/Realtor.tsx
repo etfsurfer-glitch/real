@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { MapPin, Phone, Smartphone, MessageSquare } from "lucide-react";
 import { Loading } from "../components/Loading";
-import { RealtorReviews } from "../components/RealtorReviews";
+import { RealtorReviews, type ReviewSummary } from "../components/RealtorReviews";
 import { Link, useParams } from "react-router-dom";
 
 type SidoRank = {
@@ -77,7 +77,7 @@ export default function Realtor() {
   const [data, setData] = useState<RealtorDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reviewCount, setReviewCount] = useState<number | null>(null);
+  const [reviewSummary, setReviewSummary] = useState<ReviewSummary | null>(null);
 
   const scrollToReviews = () => {
     document.getElementById("realtor-reviews")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -141,10 +141,6 @@ export default function Realtor() {
           <div style={{ minWidth: 0, flex: 1 }}>
             <div className="realtor-name-row">
               <h2 className="realtor-name">{data.realtor_name ?? data.realtor_id}</h2>
-              <button type="button" className="review-jump-btn" onClick={scrollToReviews}>
-                <MessageSquare size={13} strokeWidth={2.3} aria-hidden /> 리뷰
-                <span className="review-jump-count">{reviewCount ?? 0}</span>
-              </button>
             </div>
             <div className="realtor-sub">
               {rep && <span>대표 <b>{rep}</b></span>}
@@ -162,6 +158,31 @@ export default function Realtor() {
                 <MapPin size={13} strokeWidth={2.2} aria-hidden /> {address}
               </div>
             )}
+            <button type="button" className={`realtor-rating${reviewSummary && reviewSummary.total_count > 0 ? "" : " empty"}`} onClick={scrollToReviews}>
+              {reviewSummary && reviewSummary.total_count > 0 ? (
+                <>
+                  {reviewSummary.avg_rating != null && (
+                    <span className="rr-stars">
+                      <span className="stars" aria-hidden>
+                        {[1, 2, 3, 4, 5].map((n) => <span key={n} className={n <= Math.round(reviewSummary.avg_rating!) ? "on" : ""}>★</span>)}
+                      </span>
+                      <b>{reviewSummary.avg_rating.toFixed(1)}</b>
+                    </span>
+                  )}
+                  <span className="rr-meta">
+                    리뷰 <b>{reviewSummary.total_count}</b>
+                    {reviewSummary.verified_count > 0 && <> · 거래인증 <b>{reviewSummary.verified_count}</b></>}
+                  </span>
+                  <span className="rr-go">보기 ›</span>
+                </>
+              ) : (
+                <>
+                  <MessageSquare size={14} strokeWidth={2.3} aria-hidden />
+                  <span className="rr-meta">아직 리뷰가 없어요</span>
+                  <span className="rr-go">첫 리뷰 남기기 ›</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -281,7 +302,7 @@ export default function Realtor() {
       </table>
 
       {/* ── 중개사무소 리뷰 ── */}
-      <RealtorReviews realtorId={data.realtor_id} onSummary={setReviewCount} />
+      <RealtorReviews realtorId={data.realtor_id} onSummary={setReviewSummary} />
 
       {/* ── 데이터 출처 ── */}
       <div className="muted" style={{ marginTop: 16, fontSize: 11 }}>

@@ -54,8 +54,10 @@ function fmtDate(s: string): string {
   return (s || "").slice(0, 10);
 }
 
+export type ReviewSummary = { avg_rating: number | null; verified_count: number; total_count: number };
+
 export function RealtorReviews(
-  { realtorId, onSummary }: { realtorId: string; onSummary?: (total: number) => void },
+  { realtorId, onSummary }: { realtorId: string; onSummary?: (s: ReviewSummary) => void },
 ) {
   const [data, setData] = useState<ReviewsResp | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,7 +73,7 @@ export function RealtorReviews(
         if (!cancelled) {
           setData(j);
           setLoading(false);
-          if (j?.summary && typeof j.summary.total_count === "number") onSummary?.(j.summary.total_count);
+          if (j?.summary && typeof j.summary.total_count === "number") onSummary?.(j.summary);
         }
       })
       .catch(() => { if (!cancelled) setLoading(false); });

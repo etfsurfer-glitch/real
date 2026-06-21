@@ -2223,3 +2223,17 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .drow-metrics span{display:inline-flex;align-items:center;gap:3px}
 .drow-metrics svg{color:#b3bdcc}
 .drow-metrics b{color:#13294b;font-size:13px;font-weight:800}
+
+/* 중개사 상세 — 헤더 평점 부각 */
+.realtor-rating{display:inline-flex;align-items:center;gap:10px;margin-top:10px;background:linear-gradient(100deg,#fff7e6,#fffdf8);border:1px solid #ffe2a8;border-radius:12px;padding:9px 14px;cursor:pointer;width:100%;text-align:left}
+.realtor-rating.empty{background:#f5f8fc;border-color:#e0e7f0}
+.realtor-rating .rr-stars{display:inline-flex;align-items:center;gap:6px}
+.realtor-rating .stars{font-size:16px;letter-spacing:1px;color:#e0e0e0;line-height:1}
+.realtor-rating .stars .on{color:#f7b500}
+.realtor-rating .rr-stars b{font-size:17px;font-weight:800;color:#13294b}
+.realtor-rating .rr-meta{font-size:13px;color:#7a6a3a;font-weight:600}
+.realtor-rating.empty .rr-meta{color:#5a6b80}
+.realtor-rating .rr-meta b{color:#13294b;font-weight:800}
+.realtor-rating .rr-go{margin-left:auto;font-size:12.5px;font-weight:800;color:#d6920a;white-space:nowrap}
+.realtor-rating.empty .rr-go{color:#1268d3}
+.realtor-rating.empty svg{color:#1268d3}
