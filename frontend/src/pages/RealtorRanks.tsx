@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loading } from "../components/Loading";
 import { Link, Outlet, useOutletContext } from "react-router-dom";
-import { Crown } from "lucide-react";
+import { Crown, MapPin, X, Building2, Users, CalendarClock } from "lucide-react";
 import { SubNav } from "../components/SubNav";
 import ShareBar from "../components/ShareBar";
 import { useRegionFilter } from "../components/RegionSelect";
@@ -15,23 +15,93 @@ type DongRealtor = {
 type DongResp = { cortar_no: string; dong_name: string | null; sort: string; count: number; top: DongRealtor | null; items: DongRealtor[] };
 
 // 우리동네 중개사 — 사무소 소재 동 기준. 매물수·직원수·업력을 한눈에.
+// 중개사 1명 카드 — 매물/직원/업력을 한눈에(대시보드).
+function DongCard({ r, rank }: { r: DongRealtor; rank: number }) {
+  return (
+    <Link to={`/realtor/${r.realtor_id}`} className="dcard">
+      <div className="dcard-top">
+        <span className={`dcard-rank r${rank <= 3 ? rank : 0}`}>{rank === 1 ? <Crown size={13} strokeWidth={2.5} /> : rank}</span>
+        <span className="dcard-name">{r.realtor_name}{r.verified_office && <span className="dong-vf">인증</span>}</span>
+      </div>
+      <div className="dcard-metrics">
+        <div><Building2 size={14} aria-hidden /><b>{r.listings.toLocaleString()}</b><span>매물</span></div>
+        <div><Users size={14} aria-hidden /><b>{r.staff_count ?? "-"}</b><span>직원</span></div>
+        <div><CalendarClock size={14} aria-hidden /><b>{r.tenure_years ?? "-"}</b><span>년차</span></div>
+      </div>
+    </Link>
+  );
+}
+
+const SORTS: [string, string][] = [["listings", "매물순"], ["staff", "직원순"], ["tenure", "업력순"]];
+
+// 더보기 모달 — 페이지 안에 전체 랭킹 창.
+function DongModal({ data, sort, setSort, onClose }: { data: DongResp; sort: string; setSort: (s: string) => void; onClose: () => void }) {
+  return (
+    <div className="dmodal-bg" onClick={onClose}>
+      <div className="dmodal" onClick={(e) => e.stopPropagation()}>
+        <div className="dmodal-head">
+          <h3>{data.dong_name} 중개사 전체 ({data.count}곳)</h3>
+          <button className="dmodal-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
+        </div>
+        <div className="dong-sort">
+          {SORTS.map(([k, label]) => (
+            <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{label}</button>
+          ))}
+        </div>
+        <div className="dmodal-list">
+          {data.items.map((r, i) => (
+            <Link key={r.realtor_id} to={`/realtor/${r.realtor_id}`} className="dong-row">
+              <span className="dong-rank">{i + 1}</span>
+              <span className="dong-name">{r.realtor_name}{r.verified_office && <span className="dong-vf">인증</span>}</span>
+              <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
+              <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
+              <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function RealtorByDong() {
   const { sidos, sigungus, dongs, sido, setSido, sigungu, setSigungu, dong, setDong } = useRegionFilter();
+  const [autoLoc, setAutoLoc] = useState<{ cortar: string; name: string } | null>(null);
   const [data, setData] = useState<DongResp | null>(null);
   const [sort, setSort] = useState("listings");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(false);
+
+  // 진입 시 접속 위치(CF IP) → 가장 가까운 동을 기본값으로(허전함 방지). 사용자가 드롭다운으로 수정 가능.
+  useEffect(() => {
+    if (!API_BASE) return;
+    fetch("/geo").then((r) => r.json()).then((g) => {
+      if (g && g.lat && g.lng) {
+        return fetch(`${API_BASE}/stats/nearest-dong?lat=${g.lat}&lng=${g.lng}`)
+          .then((r) => r.json()).then((d) => {
+            if (d.found) setAutoLoc({ cortar: d.cortar_no, name: d.region_name || d.dong_name });
+          });
+      }
+    }).catch(() => {});
+  }, []);
+
+  const activeCortar = dong || autoLoc?.cortar || "";
 
   useEffect(() => {
-    if (!dong || !API_BASE) { setData(null); return; }
+    if (!activeCortar || !API_BASE) { setData(null); setLoading(false); return; }
     setLoading(true);
-    fetch(`${API_BASE}/stats/realtors/by-dong?cortar=${dong}&sort=${sort}&limit=30`)
+    fetch(`${API_BASE}/stats/realtors/by-dong?cortar=${activeCortar}&sort=${sort}&limit=30`)
       .then((r) => r.json()).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-  }, [dong, sort]);
+  }, [activeCortar, sort]);
+
+  const cards = data?.items.slice(0, 6) ?? [];
 
   return (
     <>
       <div className="section-title">우리동네 중개사 찾기</div>
-      <p className="muted" style={{ margin: "2px 0 10px" }}>사무소가 있는 동을 고르면, 그 동네 중개사를 <b>매물수·직원수·업력</b>으로 한눈에 비교하세요.</p>
+      {autoLoc && !dong && (
+        <div className="dong-loc"><MapPin size={14} aria-hidden /> 내 위치 <b>{autoLoc.name}</b> 기준이에요. 아래에서 다른 동으로 바꿀 수 있어요.</div>
+      )}
       <div className="dong-pick">
         <select value={sido} onChange={(e) => setSido(e.target.value)}>
           <option value="">시·도</option>
@@ -47,19 +117,13 @@ export function RealtorByDong() {
         </select>
       </div>
 
-      {!dong && <div className="dong-empty">위에서 동을 선택하면 우리동네 중개사 랭킹이 나옵니다.</div>}
       {loading && <Loading />}
-      {data && !loading && (
+      {!loading && data && (
         <>
-          <div className="dong-sort">
-            {[["listings", "매물 많은순"], ["staff", "직원 많은순"], ["tenure", "업력순"]].map(([k, label]) => (
-              <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{label}</button>
-            ))}
-          </div>
           {data.top && (
             <div className="dong-top">
-              <div className="dong-top-badge"><Crown size={16} aria-hidden /> {data.dong_name} 1등</div>
-              <div className="dong-top-name">{data.top.realtor_name}</div>
+              <div className="dong-top-badge"><Crown size={16} aria-hidden /> {data.dong_name} 1등 중개사</div>
+              <div className="dong-top-name">{data.top.realtor_name}{data.top.verified_office && <span className="dong-vf" style={{ verticalAlign: "middle" }}>인증</span>}</div>
               <div className="dong-top-stats">
                 <span>매물 <b>{data.top.listings.toLocaleString()}</b></span>
                 <span>직원 <b>{data.top.staff_count ?? "-"}</b></span>
@@ -67,20 +131,22 @@ export function RealtorByDong() {
               </div>
             </div>
           )}
-          {data.items.length === 0 && <div className="dong-empty">이 동에 등록된 중개사 정보가 아직 없어요.</div>}
-          <div className="dong-list">
-            {data.items.map((r, i) => (
-              <Link key={r.realtor_id} to={`/realtor/${r.realtor_id}`} className="dong-row">
-                <span className="dong-rank">{i + 1}</span>
-                <span className="dong-name">{r.realtor_name}{r.verified_office && <span className="dong-vf">인증</span>}</span>
-                <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
-                <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
-                <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
-              </Link>
+          <div className="dong-sort">
+            {SORTS.map(([k, label]) => (
+              <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{label}</button>
             ))}
           </div>
+          {data.items.length === 0 && <div className="dong-empty">이 동에 등록된 중개사 정보가 아직 없어요. 다른 동을 골라보세요.</div>}
+          <div className="dcards">
+            {cards.map((r, i) => <DongCard key={r.realtor_id} r={r} rank={i + 1} />)}
+          </div>
+          {data.items.length > 6 && (
+            <button className="dong-more" onClick={() => setModal(true)}>전체 {data.count}곳 더보기 →</button>
+          )}
         </>
       )}
+      {!loading && !data && <div className="dong-empty">위에서 동을 선택하면 우리동네 중개사가 나옵니다.</div>}
+      {modal && data && <DongModal data={data} sort={sort} setSort={setSort} onClose={() => setModal(false)} />}
     </>
   );
 }

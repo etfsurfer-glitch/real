@@ -1265,6 +1265,30 @@ def realtors_by_tenure(limit: int = 20, region: str = ""):
     return out
 
 
+@app.get("/stats/nearest-dong")
+def nearest_dong(lat: float, lng: float):
+    """접속 위치(위경도) → 가장 가까운 동(cortar_no). 우리동네 기본값용. 가장 가까운 단지의 동."""
+    if not (33 < lat < 39 and 124 < lng < 132):   # 대한민국 대략 범위 밖이면 미해결
+        return {"found": False}
+    with _open_db() as c:
+        row = c.execute(
+            "SELECT cortar_no, dong_name, "
+            "(latitude-?)*(latitude-?)+(longitude-?)*(longitude-?) AS d2 "
+            "FROM complexes WHERE latitude IS NOT NULL AND cortar_no IS NOT NULL "
+            "AND latitude BETWEEN ?-0.15 AND ?+0.15 AND longitude BETWEEN ?-0.15 AND ?+0.15 "
+            "ORDER BY d2 LIMIT 1",
+            (lat, lat, lng, lng, lat, lat, lng, lng)).fetchone()
+        if not row:
+            return {"found": False}
+        cortar = row[0]
+        sgg = c.execute("SELECT cortar_name FROM regions WHERE cortar_type='dvsn' "
+                        "AND substr(cortar_no,1,5)=? LIMIT 1", (cortar[:5],)).fetchone()
+        sido = c.execute("SELECT cortar_name FROM regions WHERE cortar_type='city' "
+                         "AND substr(cortar_no,1,2)=? LIMIT 1", (cortar[:2],)).fetchone()
+    region_name = " ".join([x[0] for x in (sido, sgg) if x] + [row[1] or ""]).strip()
+    return {"found": True, "cortar_no": cortar, "dong_name": row[1], "region_name": region_name}
+
+
 @app.get("/stats/realtors/by-dong")
 def realtors_by_dong(cortar: str, sort: str = "listings", limit: int = 20):
     """우리동네(동) 중개사 랭킹 — 사무소가 그 동에 소재한 중개사(realtor_dong 기준).

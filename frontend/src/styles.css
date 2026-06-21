@@ -2154,3 +2154,29 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .dong-vf{margin-left:6px;font-size:10.5px;font-weight:700;color:#1a7f4b;background:#e6f7ed;padding:1px 6px;border-radius:6px}
 .dong-m{color:#5a6b80;white-space:nowrap;font-size:12px}
 @media(max-width:560px){.dong-row{grid-template-columns:24px 1fr;row-gap:3px}.dong-row .dong-m{grid-column:2;display:inline}}
+
+/* 우리동네 — IP위치·대시보드 카드·더보기 모달 */
+.dong-loc{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#1268d3;background:#eef5fe;border-radius:9px;padding:8px 12px;margin-bottom:10px}
+.dcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:4px}
+.dcard{background:#fff;border:1px solid #e6eaf0;border-radius:13px;padding:12px 13px;text-decoration:none;color:#1d2b44;display:block;transition:.12s}
+.dcard:hover{border-color:#9cc2f0;box-shadow:0 3px 10px rgba(30,96,176,.1)}
+.dcard-top{display:flex;align-items:center;gap:7px;margin-bottom:10px}
+.dcard-rank{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#eef1f5;color:#7a8aa0;font-size:12px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}
+.dcard-rank.r1{background:#f7c948;color:#7a5a00}.dcard-rank.r2{background:#cdd6e0;color:#3a4656}.dcard-rank.r3{background:#e6b88a;color:#6b3e15}
+.dcard-name{font-size:13.5px;font-weight:700;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.dcard-metrics{display:flex;justify-content:space-between;border-top:1px solid #f0f2f6;padding-top:9px}
+.dcard-metrics>div{display:flex;flex-direction:column;align-items:center;gap:1px;color:#9aa7b8;flex:1}
+.dcard-metrics b{font-size:15px;color:#13294b;font-weight:800}
+.dcard-metrics span{font-size:10.5px}
+.dcard-metrics svg{color:#b3bdcc;margin-bottom:1px}
+.dong-more{width:100%;margin-top:12px;border:1px solid #d4dbe6;background:#fff;color:#33425a;font-size:13.5px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer}
+.dong-more:hover{background:#f7f9fc}
+.dmodal-bg{position:fixed;inset:0;background:rgba(15,25,45,.5);z-index:1000;display:flex;align-items:flex-end;justify-content:center;padding:0}
+.dmodal{background:#fff;width:100%;max-width:560px;max-height:85vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;animation:dmup .2s ease}
+@keyframes dmup{from{transform:translateY(30px);opacity:.6}to{transform:none;opacity:1}}
+.dmodal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 8px}
+.dmodal-head h3{margin:0;font-size:16px;font-weight:800;color:#13294b}
+.dmodal-x{border:none;background:#eef1f5;border-radius:50%;width:32px;height:32px;cursor:pointer;color:#5a6b80;display:inline-flex;align-items:center;justify-content:center}
+.dmodal-list{overflow-y:auto;padding:4px 14px 18px}
+.dmodal .dong-sort{padding:0 14px 8px}
+@media(min-width:600px){.dmodal-bg{align-items:center}.dmodal{border-radius:18px}}
