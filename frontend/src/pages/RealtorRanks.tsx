@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loading } from "../components/Loading";
 import { Link, Outlet, useOutletContext } from "react-router-dom";
-import { Crown, MapPin, X, Building2, Users, CalendarClock } from "lucide-react";
+import { Crown, MapPin, X, Building2, Users, CalendarClock, Sparkles } from "lucide-react";
 import { SubNav } from "../components/SubNav";
 import ShareBar from "../components/ShareBar";
 import { useRegionFilter } from "../components/RegionSelect";
@@ -21,23 +21,31 @@ function RealtorRowLink({ r, className, children }: { r: DongRealtor; className:
     : <div className={className}>{children}</div>;
 }
 
-// 우리동네 중개사 — 사무소 소재 동 기준. 매물수·직원수·업력을 한눈에.
-// 분야별 랭킹 컬럼 — 매물/직원/업력을 동등하게 나란히. 어느 한 기준도 '기본'으로 밀지 않음.
-function RankColumn({ title, icon, items, val, unit }:
-  { title: string; icon: JSX.Element; items: DongRealtor[]; val: (r: DongRealtor) => number | null; unit: string }) {
+// 분야별 랭크카드 — TODAY 우리동네 스타일(메달+막대바+값). 세 기준 동등.
+function RealtorRankCard({ title, sub, icon, accent, items, val, valText }: {
+  title: string; sub: string; icon: JSX.Element; accent: "blue" | "red" | "gold";
+  items: DongRealtor[]; val: (r: DongRealtor) => number | null; valText: (r: DongRealtor) => string;
+}) {
+  const rows = topBy(items, val, 5);
+  const max = Math.max(1, ...rows.map((r) => _num(val(r))));
   return (
-    <div className="rcol">
-      <div className="rcol-head">{icon} {title}</div>
-      <div className="rcol-list">
-        {items.map((r, i) => (
-          <RealtorRowLink r={r} className="rcol-row" key={r.realtor_id || r.sys_regno}>
-            <span className={`rcol-rank ${i === 0 ? "r1" : ""}`}>{i + 1}</span>
-            <span className="rcol-name">{r.realtor_name}</span>
-            <span className="rcol-val">{val(r)?.toLocaleString() ?? "-"}<em>{unit}</em></span>
+    <section className={`rank-card a-${accent}`}>
+      <div className="rank-h">
+        <span className="rank-t"><span className="ic">{icon}</span>{title}<em>{sub}</em></span>
+      </div>
+      <div className="rank-rows">
+        {rows.map((r, i) => (
+          <RealtorRowLink r={r} className="rank-row" key={r.realtor_id || r.sys_regno}>
+            <span className={`medal m${i < 3 ? i + 1 : 0}`}>{i + 1}</span>
+            <span className="rank-body">
+              <span className="rank-name">{r.realtor_name}</span>
+              <span className="rank-bar"><i style={{ width: `${Math.max(6, (_num(val(r)) / max) * 100)}%` }} /></span>
+            </span>
+            <span className="rank-val">{valText(r)}</span>
           </RealtorRowLink>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -88,6 +96,7 @@ export function RealtorByDong() {
   const [data, setData] = useState<DongResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
+  const shareRef = useRef<HTMLDivElement>(null);
 
   // 진입 시 접속 위치(CF IP) → 가장 가까운 동을 기본값으로(허전함 방지). 사용자가 드롭다운으로 수정 가능.
   useEffect(() => {
@@ -113,53 +122,62 @@ export function RealtorByDong() {
   }, [activeCortar]);
 
   const items = data?.items ?? [];
+  const topL = items.length ? [...items].sort((a, b) => b.listings - a.listings)[0] : null;
+  const locName = (autoLoc && !dong) ? autoLoc.name : (data?.dong_name || "");
+  const scope = data?.dong_name || "우리동네";
 
   return (
-    <>
-      <div className="section-title">우리동네 중개사 찾기</div>
-      {autoLoc && !dong && (
-        <div className="dong-loc"><MapPin size={14} aria-hidden /> 내 위치 <b>{autoLoc.name}</b> 기준이에요. 아래에서 다른 동으로 바꿀 수 있어요.</div>
-      )}
-      <div className="dong-pick">
-        <select value={sido} onChange={(e) => setSido(e.target.value)}>
-          <option value="">시·도</option>
-          {sidos.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
-        </select>
-        <select value={sigungu} onChange={(e) => setSigungu(e.target.value)} disabled={!sido}>
-          <option value="">시·군·구</option>
-          {sigungus.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
-        </select>
-        <select value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sigungu}>
-          <option value="">읍·면·동</option>
-          {dongs.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
-        </select>
+    <div className="hood share-target" ref={shareRef}>
+      <div className="hood-hero">
+        <div className="hood-hero-top">
+          <span className="hood-loc"><MapPin size={15} strokeWidth={2.5} aria-hidden /> {locName || "동네 선택"}</span>
+        </div>
+        <h1 className="hood-h1">우리동네 좋은 중개사를<br />콕집이 찾아드립니다</h1>
+        <div className="hood-region">
+          <select value={sido} onChange={(e) => setSido(e.target.value)}>
+            <option value="">시·도</option>
+            {sidos.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+          </select>
+          <select value={sigungu} onChange={(e) => setSigungu(e.target.value)} disabled={!sido}>
+            <option value="">시·군·구</option>
+            {sigungus.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+          </select>
+          <select value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sigungu}>
+            <option value="">읍·면·동</option>
+            {dongs.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
+          </select>
+        </div>
+        {autoLoc && !dong && <div className="hood-hint">접속 위치 기준이에요 · 동을 바꾸면 그 동네로 기억해 드려요</div>}
       </div>
 
-      {loading && <Loading />}
-      {!loading && data && (
+      {loading ? <div className="hood-loading"><Loading /></div> : data && items.length > 0 ? (
         <>
-          {items.length === 0 && <div className="dong-empty">이 동에 등록된 중개사 정보가 아직 없어요. 다른 동을 골라보세요.</div>}
-          {items.length > 0 && (
-            <>
-              <p className="muted" style={{ margin: "0 0 10px", fontSize: 12.5 }}>
-                {data.dong_name} 중개사를 <b>매물·직원·업력</b> 세 기준으로 나란히 — 무엇이 중요한지는 직접 정하세요.
-              </p>
-              <div className="rcols">
-                <RankColumn title="매물 많은 곳" icon={<Building2 size={15} aria-hidden />}
-                  items={topBy(items, (r) => r.listings)} val={(r) => r.listings} unit="개" />
-                <RankColumn title="직원 많은 곳" icon={<Users size={15} aria-hidden />}
-                  items={topBy(items, (r) => r.staff_count)} val={(r) => r.staff_count} unit="명" />
-                <RankColumn title="업력 깊은 곳" icon={<CalendarClock size={15} aria-hidden />}
-                  items={topBy(items, (r) => r.tenure_years)} val={(r) => r.tenure_years} unit="년" />
-              </div>
-              <button className="dong-more" onClick={() => setModal(true)}>전체 {data.count}곳 자세히 보기 →</button>
-            </>
-          )}
+          <div className="hood-digest">
+            <span className="hood-digest-ic"><Sparkles size={16} strokeWidth={2.4} aria-hidden /></span>
+            <span className="hood-digest-tx">
+              <b className="scope">{scope}</b>엔 등록 중개사 <b>{data.count.toLocaleString()}곳</b>
+              {topL && <> · 매물이 가장 많은 곳은 <b>{topL.realtor_name}</b> <b className="hot">{topL.listings.toLocaleString()}개</b>예요</>}
+            </span>
+          </div>
+          <div className="hood-share"><ShareBar targetRef={shareRef} title={`${scope} 우리동네 중개사`} fileName={`콕집_우리동네중개사_${scope}`} /></div>
+          <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>매물·직원·업력 세 기준을 나란히 — 무엇이 중요한지는 직접 정하세요.</p>
+          <div className="rank-wrap">
+            <RealtorRankCard title="매물 많은 곳" sub="현재 보유" icon={<Building2 size={16} strokeWidth={2.3} />} accent="blue"
+              items={items} val={(r) => r.listings} valText={(r) => `${r.listings.toLocaleString()}개`} />
+            <RealtorRankCard title="직원 많은 곳" sub="소속 인원" icon={<Users size={16} strokeWidth={2.3} />} accent="red"
+              items={items} val={(r) => r.staff_count} valText={(r) => `${r.staff_count ?? "-"}명`} />
+            <RealtorRankCard title="업력 깊은 곳" sub="개설 등록" icon={<CalendarClock size={16} strokeWidth={2.3} />} accent="gold"
+              items={items} val={(r) => r.tenure_years} valText={(r) => `${r.tenure_years ?? "-"}년`} />
+          </div>
+          <button className="dong-more" onClick={() => setModal(true)}>전체 {data.count.toLocaleString()}곳 자세히 보기 →</button>
         </>
+      ) : data ? (
+        <div className="dong-empty">이 동에 등록된 중개사가 아직 없어요. 다른 동을 골라보세요.</div>
+      ) : (
+        <div className="dong-empty">동네를 선택하면 우리동네 중개사가 나옵니다.</div>
       )}
-      {!loading && !data && <div className="dong-empty">위에서 동을 선택하면 우리동네 중개사가 나옵니다.</div>}
       {modal && data && <DongModal data={data} onClose={() => setModal(false)} />}
-    </>
+    </div>
   );
 }
 
