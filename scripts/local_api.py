@@ -7581,9 +7581,11 @@ def _homepage_listings(realtor_id: str, limit: int = 1000) -> list[dict]:
                     "GROUP BY COALESCE(building_name,''), trade_type, ROUND(area1_m2) "
                     "ORDER BY deal_or_warrant_price DESC LIMIT ?", (realtor_id, limit)).fetchall()
             for r in rows:
+                # 비단지 DB는 만원 단위 저장 → 아파트(원)·프런트 won()과 맞추려 ×10000(원으로 통일).
                 items.append({"category": cat, "complex_no": None,
                               "complex_name": r[0] or r[5], "trade_type": tt.get(r[1], r[1]),
-                              "price": r[2], "rent_price": r[3],
+                              "price": (r[2] or 0) * 10000,
+                              "rent_price": (r[3] * 10000) if r[3] else None,
                               "excl_use_ar": round(r[4]) if r[4] else None,
                               "area_name": r[5], "count": r[6],
                               "article_no": r[7]})  # 네이버 딥링크용
