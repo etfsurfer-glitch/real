@@ -76,12 +76,16 @@ function DongModal({ data, onClose }: { data: DongResp; onClose: () => void }) {
         </div>
         <div className="dmodal-list">
           {rows.map((r, i) => (
-            <RealtorRowLink key={r.sys_regno} r={r} className="dong-row">
-              <span className="dong-rank">{i + 1}</span>
-              <span className="dong-name">{r.realtor_name}</span>
-              <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
-              <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
-              <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
+            <RealtorRowLink key={r.sys_regno} r={r} className="drow">
+              <span className={`medal m${i < 3 ? i + 1 : 0}`}>{i < 3 ? (i === 0 ? <Crown size={13} strokeWidth={2.6} /> : i + 1) : i + 1}</span>
+              <span className="drow-main">
+                <span className="drow-name">{r.realtor_name}{r.realtor_id && <span className="drow-go">매물보기 ›</span>}</span>
+                <span className="drow-metrics">
+                  <span><Building2 size={12.5} aria-hidden /> 매물 <b>{r.listings.toLocaleString()}</b></span>
+                  <span><Users size={12.5} aria-hidden /> 직원 <b>{r.staff_count ?? "-"}</b></span>
+                  <span><CalendarClock size={12.5} aria-hidden /> 업력 <b>{r.tenure_years ?? "-"}</b>년</span>
+                </span>
+              </span>
             </RealtorRowLink>
           ))}
         </div>

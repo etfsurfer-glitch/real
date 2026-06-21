@@ -2210,3 +2210,16 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .hood-modes{display:flex;gap:6px;margin-bottom:12px;background:rgba(255,255,255,.14);padding:4px;border-radius:12px;position:relative;z-index:1}
 .hood-modes button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:none;background:transparent;color:rgba(255,255,255,.85);font-size:13.5px;font-weight:700;padding:9px;border-radius:9px;cursor:pointer;transition:.12s}
 .hood-modes button.on{background:#fff;color:#15315e;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+
+/* 자세히 보기 모달 — 통일감 있는 중개사 행(메달+아이콘 지표) */
+.drow{display:flex;align-items:center;gap:11px;padding:11px 12px;text-decoration:none;color:#1d2b44;border-bottom:1px solid #f2f4f8}
+.drow:last-child{border-bottom:none}
+.drow:hover{background:#f7f9fc}
+.drow .medal{flex-shrink:0}
+.drow-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.drow-name{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drow-go{flex-shrink:0;font-size:10.5px;font-weight:700;color:#1268d3;background:#eef5fe;padding:1px 7px;border-radius:6px}
+.drow-metrics{display:flex;gap:13px;font-size:11.5px;color:#7a8aa0;flex-wrap:wrap}
+.drow-metrics span{display:inline-flex;align-items:center;gap:3px}
+.drow-metrics svg{color:#b3bdcc}
+.drow-metrics b{color:#13294b;font-size:13px;font-weight:800}
