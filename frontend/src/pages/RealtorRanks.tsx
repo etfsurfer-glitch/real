@@ -15,27 +15,38 @@ type DongRealtor = {
 type DongResp = { cortar_no: string; dong_name: string | null; sort: string; count: number; top: DongRealtor | null; items: DongRealtor[] };
 
 // 우리동네 중개사 — 사무소 소재 동 기준. 매물수·직원수·업력을 한눈에.
-// 중개사 1명 카드 — 매물/직원/업력을 한눈에(대시보드).
-function DongCard({ r, rank }: { r: DongRealtor; rank: number }) {
+// 분야별 랭킹 컬럼 — 매물/직원/업력을 동등하게 나란히. 어느 한 기준도 '기본'으로 밀지 않음.
+function RankColumn({ title, icon, items, val, unit }:
+  { title: string; icon: JSX.Element; items: DongRealtor[]; val: (r: DongRealtor) => number | null; unit: string }) {
   return (
-    <Link to={`/realtor/${r.realtor_id}`} className="dcard">
-      <div className="dcard-top">
-        <span className={`dcard-rank r${rank <= 3 ? rank : 0}`}>{rank === 1 ? <Crown size={13} strokeWidth={2.5} /> : rank}</span>
-        <span className="dcard-name">{r.realtor_name}{r.verified_office && <span className="dong-vf">인증</span>}</span>
+    <div className="rcol">
+      <div className="rcol-head">{icon} {title}</div>
+      <div className="rcol-list">
+        {items.map((r, i) => (
+          <Link to={`/realtor/${r.realtor_id}`} className="rcol-row" key={r.realtor_id}>
+            <span className={`rcol-rank ${i === 0 ? "r1" : ""}`}>{i + 1}</span>
+            <span className="rcol-name">{r.realtor_name}{r.verified_office && <span className="dong-vf">인증</span>}</span>
+            <span className="rcol-val">{val(r)?.toLocaleString() ?? "-"}<em>{unit}</em></span>
+          </Link>
+        ))}
       </div>
-      <div className="dcard-metrics">
-        <div><Building2 size={14} aria-hidden /><b>{r.listings.toLocaleString()}</b><span>매물</span></div>
-        <div><Users size={14} aria-hidden /><b>{r.staff_count ?? "-"}</b><span>직원</span></div>
-        <div><CalendarClock size={14} aria-hidden /><b>{r.tenure_years ?? "-"}</b><span>년차</span></div>
-      </div>
-    </Link>
+    </div>
   );
 }
 
 const SORTS: [string, string][] = [["listings", "매물순"], ["staff", "직원순"], ["tenure", "업력순"]];
+const _num = (v: number | null | undefined) => (v == null ? -1 : v);
+function topBy(items: DongRealtor[], k: (r: DongRealtor) => number | null, n = 5): DongRealtor[] {
+  return [...items].sort((a, b) => _num(k(b)) - _num(k(a))).slice(0, n);
+}
 
-// 더보기 모달 — 페이지 안에 전체 랭킹 창.
-function DongModal({ data, sort, setSort, onClose }: { data: DongResp; sort: string; setSort: (s: string) => void; onClose: () => void }) {
+// 더보기 모달 — 페이지 안 전체 랭킹 창. 정렬은 사용자가 직접(기본 강제 없음, 매물순으로 보기 시작).
+function DongModal({ data, onClose }: { data: DongResp; onClose: () => void }) {
+  const [sort, setSort] = useState("listings");
+  const k = sort === "staff" ? (r: DongRealtor) => r.staff_count
+    : sort === "tenure" ? (r: DongRealtor) => r.tenure_years
+    : (r: DongRealtor) => r.listings;
+  const rows = [...data.items].sort((a, b) => _num(k(b)) - _num(k(a)));
   return (
     <div className="dmodal-bg" onClick={onClose}>
       <div className="dmodal" onClick={(e) => e.stopPropagation()}>
@@ -44,12 +55,12 @@ function DongModal({ data, sort, setSort, onClose }: { data: DongResp; sort: str
           <button className="dmodal-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
         </div>
         <div className="dong-sort">
-          {SORTS.map(([k, label]) => (
-            <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{label}</button>
+          {SORTS.map(([sk, label]) => (
+            <button key={sk} className={sort === sk ? "on" : ""} onClick={() => setSort(sk)}>{label}</button>
           ))}
         </div>
         <div className="dmodal-list">
-          {data.items.map((r, i) => (
+          {rows.map((r, i) => (
             <Link key={r.realtor_id} to={`/realtor/${r.realtor_id}`} className="dong-row">
               <span className="dong-rank">{i + 1}</span>
               <span className="dong-name">{r.realtor_name}{r.verified_office && <span className="dong-vf">인증</span>}</span>
@@ -68,7 +79,6 @@ export function RealtorByDong() {
   const { sidos, sigungus, dongs, sido, setSido, sigungu, setSigungu, dong, setDong } = useRegionFilter();
   const [autoLoc, setAutoLoc] = useState<{ cortar: string; name: string } | null>(null);
   const [data, setData] = useState<DongResp | null>(null);
-  const [sort, setSort] = useState("listings");
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
 
@@ -87,14 +97,15 @@ export function RealtorByDong() {
 
   const activeCortar = dong || autoLoc?.cortar || "";
 
+  // 한 번만 받아서 세 기준으로 클라이언트 정렬(서버 기본정렬 없음 = 어느 기준도 안 밀어줌).
   useEffect(() => {
     if (!activeCortar || !API_BASE) { setData(null); setLoading(false); return; }
     setLoading(true);
-    fetch(`${API_BASE}/stats/realtors/by-dong?cortar=${activeCortar}&sort=${sort}&limit=30`)
+    fetch(`${API_BASE}/stats/realtors/by-dong?cortar=${activeCortar}&limit=100`)
       .then((r) => r.json()).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-  }, [activeCortar, sort]);
+  }, [activeCortar]);
 
-  const cards = data?.items.slice(0, 6) ?? [];
+  const items = data?.items ?? [];
 
   return (
     <>
@@ -120,33 +131,27 @@ export function RealtorByDong() {
       {loading && <Loading />}
       {!loading && data && (
         <>
-          {data.top && (
-            <div className="dong-top">
-              <div className="dong-top-badge"><Crown size={16} aria-hidden /> {data.dong_name} 1등 중개사</div>
-              <div className="dong-top-name">{data.top.realtor_name}{data.top.verified_office && <span className="dong-vf" style={{ verticalAlign: "middle" }}>인증</span>}</div>
-              <div className="dong-top-stats">
-                <span>매물 <b>{data.top.listings.toLocaleString()}</b></span>
-                <span>직원 <b>{data.top.staff_count ?? "-"}</b></span>
-                <span>업력 <b>{data.top.tenure_years ?? "-"}년</b></span>
+          {items.length === 0 && <div className="dong-empty">이 동에 등록된 중개사 정보가 아직 없어요. 다른 동을 골라보세요.</div>}
+          {items.length > 0 && (
+            <>
+              <p className="muted" style={{ margin: "0 0 10px", fontSize: 12.5 }}>
+                {data.dong_name} 중개사를 <b>매물·직원·업력</b> 세 기준으로 나란히 — 무엇이 중요한지는 직접 정하세요.
+              </p>
+              <div className="rcols">
+                <RankColumn title="매물 많은 곳" icon={<Building2 size={15} aria-hidden />}
+                  items={topBy(items, (r) => r.listings)} val={(r) => r.listings} unit="개" />
+                <RankColumn title="직원 많은 곳" icon={<Users size={15} aria-hidden />}
+                  items={topBy(items, (r) => r.staff_count)} val={(r) => r.staff_count} unit="명" />
+                <RankColumn title="업력 깊은 곳" icon={<CalendarClock size={15} aria-hidden />}
+                  items={topBy(items, (r) => r.tenure_years)} val={(r) => r.tenure_years} unit="년" />
               </div>
-            </div>
-          )}
-          <div className="dong-sort">
-            {SORTS.map(([k, label]) => (
-              <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{label}</button>
-            ))}
-          </div>
-          {data.items.length === 0 && <div className="dong-empty">이 동에 등록된 중개사 정보가 아직 없어요. 다른 동을 골라보세요.</div>}
-          <div className="dcards">
-            {cards.map((r, i) => <DongCard key={r.realtor_id} r={r} rank={i + 1} />)}
-          </div>
-          {data.items.length > 6 && (
-            <button className="dong-more" onClick={() => setModal(true)}>전체 {data.count}곳 더보기 →</button>
+              <button className="dong-more" onClick={() => setModal(true)}>전체 {data.count}곳 자세히 보기 →</button>
+            </>
           )}
         </>
       )}
       {!loading && !data && <div className="dong-empty">위에서 동을 선택하면 우리동네 중개사가 나옵니다.</div>}
-      {modal && data && <DongModal data={data} sort={sort} setSort={setSort} onClose={() => setModal(false)} />}
+      {modal && data && <DongModal data={data} onClose={() => setModal(false)} />}
     </>
   );
 }

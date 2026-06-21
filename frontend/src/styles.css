@@ -2180,3 +2180,20 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .dmodal-list{overflow-y:auto;padding:4px 14px 18px}
 .dmodal .dong-sort{padding:0 14px 8px}
 @media(min-width:600px){.dmodal-bg{align-items:center}.dmodal{border-radius:18px}}
+
+/* 우리동네 — 3기준 동등 컬럼 */
+.rcols{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.rcol{background:#fff;border:1px solid #e6eaf0;border-radius:13px;overflow:hidden}
+.rcol-head{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:#13294b;background:#f5f8fc;padding:9px 11px;border-bottom:1px solid #eef1f5}
+.rcol-head svg{color:#1268d3}
+.rcol-list{display:flex;flex-direction:column}
+.rcol-row{display:grid;grid-template-columns:18px 1fr auto;gap:7px;align-items:center;padding:8px 10px;text-decoration:none;color:#23324a;border-bottom:1px solid #f4f6f9}
+.rcol-row:last-child{border-bottom:none}
+.rcol-row:hover{background:#f7f9fc}
+.rcol-rank{font-size:11px;font-weight:800;color:#aeb9c8;text-align:center}
+.rcol-rank.r1{color:#e8a300}
+.rcol-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rcol-name .dong-vf{margin-left:4px;padding:0 4px;font-size:9px}
+.rcol-val{font-size:13px;font-weight:800;color:#13294b;white-space:nowrap}
+.rcol-val em{font-size:10px;font-weight:600;color:#9aa7b8;font-style:normal;margin-left:1px}
+@media(max-width:620px){.rcols{grid-template-columns:1fr;gap:8px}.rcol-row{padding:9px 12px}.rcol-name{font-size:13px}}
