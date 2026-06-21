@@ -1436,6 +1436,7 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
     items = items[:limit]
     # 동명 중개사무소가 많아 이름만으론 구분 불가 → 소재지(주소)·대표자명을 함께 준다.
     info: dict = {}
+    meta: dict = {}   # rid -> (staff_count, established_year) — 우리동네와 같은 톤으로 직원·업력 보강
     ids = [rid for rid, _n, _c in items]
     if ids:
         with _open_db() as c:
@@ -1444,6 +1445,13 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
                 f"SELECT realtor_id, representative_name, address "
                 f"FROM naver_realtors WHERE realtor_id IN ({qm})", ids):
                 info[rid] = (rep, addr)
+            for rid, staff, est in c.execute(
+                f"SELECT m.realtor_id, "
+                f"(SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=m.sys_regno), "
+                f"substr(vb.registered_ymd,1,4) "
+                f"FROM realtor_match m LEFT JOIN vworld_brokers vb ON vb.sys_regno=m.sys_regno "
+                f"WHERE m.realtor_id IN ({qm})", ids):
+                meta[rid] = (staff or None, int(est) if (est and est.isdigit()) else None)
 
     def _loc(addr: str | None) -> str | None:
         if not addr:
@@ -1457,7 +1465,9 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
             {"realtor_id": rid, "realtor_name": name, "count": n,
              "representative": (info.get(rid) or (None, None))[0],
              "location": _loc((info.get(rid) or (None, None))[1]),
-             "address": (info.get(rid) or (None, None))[1]}
+             "address": (info.get(rid) or (None, None))[1],
+             "staff_count": (meta.get(rid) or (None, None))[0],
+             "established_year": (meta.get(rid) or (None, None))[1]}
             for rid, name, n in items
         ],
     }
