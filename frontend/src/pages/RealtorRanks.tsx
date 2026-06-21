@@ -98,6 +98,7 @@ export function RealtorByDong() {
   const [modal, setModal] = useState(false);
   const [q, setQ] = useState("");
   const [qRes, setQRes] = useState<DongRealtor[] | null>(null);
+  const [mode, setMode] = useState<"dong" | "name">("dong");  // 찾는 방법 — 둘을 한 덩어리로 안 쌓고 토글
   const shareRef = useRef<HTMLDivElement>(null);
 
   // 이름 검색 — 동네 찾기와 한 화면에서. 결과도 매물·직원·업력 같은 카드 톤.
@@ -159,47 +160,62 @@ export function RealtorByDong() {
           <span className="hood-loc"><MapPin size={15} strokeWidth={2.5} aria-hidden /> {locName || "동네 선택"}</span>
         </div>
         <h1 className="hood-h1">우리동네 좋은 중개사를<br />콕집이 찾아드립니다</h1>
-        <div className="hood-region">
-          <select value={sido} onChange={(e) => setSido(e.target.value)}>
-            <option value="">시·도</option>
-            {sidos.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
-          </select>
-          <select value={sigungu} onChange={(e) => setSigungu(e.target.value)} disabled={!sido}>
-            <option value="">시·군·구</option>
-            {sigungus.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
-          </select>
-          <select value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sigungu}>
-            <option value="">읍·면·동</option>
-            {dongs.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
-          </select>
+        <div className="hood-modes">
+          <button className={mode === "dong" ? "on" : ""} onClick={() => { setMode("dong"); setQ(""); }}>
+            <MapPin size={14} strokeWidth={2.4} /> 우리 동네로
+          </button>
+          <button className={mode === "name" ? "on" : ""} onClick={() => setMode("name")}>
+            <Search size={14} strokeWidth={2.4} /> 이름으로 찾기
+          </button>
         </div>
-        <div className="hood-namesearch">
-          <Search size={15} aria-hidden />
-          <input value={q} onChange={(e) => setQ(e.target.value)}
-            placeholder="또는 중개사무소 이름으로 검색 (예: 래미안, 자이…)" />
-          {q && <button onClick={() => setQ("")} aria-label="지우기"><X size={14} /></button>}
-        </div>
-        {autoLoc && !dong && !q && <div className="hood-hint">접속 위치 기준이에요 · 동을 바꾸면 그 동네로 기억해 드려요</div>}
+        {mode === "dong" ? (
+          <div className="hood-region">
+            <select value={sido} onChange={(e) => setSido(e.target.value)}>
+              <option value="">시·도</option>
+              {sidos.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+            </select>
+            <select value={sigungu} onChange={(e) => setSigungu(e.target.value)} disabled={!sido}>
+              <option value="">시·군·구</option>
+              {sigungus.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+            </select>
+            <select value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sigungu}>
+              <option value="">읍·면·동</option>
+              {dongs.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
+            </select>
+          </div>
+        ) : (
+          <div className="hood-namesearch">
+            <Search size={15} aria-hidden />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)}
+              placeholder="중개사무소 이름 (예: 래미안, 자이…)" />
+            {q && <button onClick={() => setQ("")} aria-label="지우기"><X size={14} /></button>}
+          </div>
+        )}
+        {mode === "dong" && autoLoc && !dong && <div className="hood-hint">접속 위치 기준이에요 · 동을 바꾸면 그 동네로 기억해 드려요</div>}
       </div>
 
-      {q.trim() ? (
-        <div className="qres">
-          <p className="muted" style={{ margin: "2px 0 8px", fontSize: 12.5 }}>
-            <b>'{q.trim()}'</b> 검색 결과 {qRes?.length ?? 0}곳
-          </p>
-          {qRes && qRes.length === 0 && <div className="dong-empty">일치하는 중개사무소가 없어요.</div>}
-          <div className="dong-list">
-            {(qRes ?? []).map((r, i) => (
-              <RealtorRowLink key={r.sys_regno} r={r} className="dong-row">
-                <span className="dong-rank">{i + 1}</span>
-                <span className="dong-name">{r.realtor_name}{r.sido && <em style={{ color: "#9aa7b8", fontWeight: 400 }}> {r.sido}</em>}</span>
-                <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
-                <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
-                <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
-              </RealtorRowLink>
-            ))}
+      {mode === "name" ? (
+        !q.trim() ? (
+          <div className="dong-empty">중개사무소 이름을 입력하면 결과가 나와요.</div>
+        ) : (
+          <div className="qres">
+            <p className="muted" style={{ margin: "2px 0 8px", fontSize: 12.5 }}>
+              <b>'{q.trim()}'</b> 검색 결과 {qRes?.length ?? 0}곳
+            </p>
+            {qRes && qRes.length === 0 && <div className="dong-empty">일치하는 중개사무소가 없어요.</div>}
+            <div className="dong-list">
+              {(qRes ?? []).map((r, i) => (
+                <RealtorRowLink key={r.sys_regno} r={r} className="dong-row">
+                  <span className="dong-rank">{i + 1}</span>
+                  <span className="dong-name">{r.realtor_name}{r.sido && <em style={{ color: "#9aa7b8", fontWeight: 400 }}> {r.sido}</em>}</span>
+                  <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
+                  <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
+                  <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
+                </RealtorRowLink>
+              ))}
+            </div>
           </div>
-        </div>
+        )
       ) : loading ? <div className="hood-loading"><Loading /></div> : data && items.length > 0 ? (
         <>
           <div className="hood-digest">

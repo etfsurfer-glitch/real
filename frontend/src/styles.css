@@ -2205,3 +2205,8 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .hood-namesearch input::placeholder{color:#9aa7b8;font-weight:500}
 .hood-namesearch button{border:none;background:#eef1f5;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#7a8aa0;flex-shrink:0}
 .qres{margin-top:14px}
+
+/* 우리동네 히어로 — 찾는 방법 토글(동네/이름) */
+.hood-modes{display:flex;gap:6px;margin-bottom:12px;background:rgba(255,255,255,.14);padding:4px;border-radius:12px;position:relative;z-index:1}
+.hood-modes button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:none;background:transparent;color:rgba(255,255,255,.85);font-size:13.5px;font-weight:700;padding:9px;border-radius:9px;cursor:pointer;transition:.12s}
+.hood-modes button.on{background:#fff;color:#15315e;box-shadow:0 2px 6px rgba(0,0,0,.12)}
