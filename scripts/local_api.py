@@ -1271,11 +1271,13 @@ def nearest_dong(lat: float, lng: float):
     if not (33 < lat < 39 and 124 < lng < 132):   # 대한민국 대략 범위 밖이면 미해결
         return {"found": False}
     with _open_db() as c:
+        # 중개사가 실제로 있는(realtor_dong) 가장 가까운 동 — 빈 동에 떨어져 허전해지는 것 방지.
         row = c.execute(
-            "SELECT cortar_no, dong_name, "
-            "(latitude-?)*(latitude-?)+(longitude-?)*(longitude-?) AS d2 "
-            "FROM complexes WHERE latitude IS NOT NULL AND cortar_no IS NOT NULL "
-            "AND latitude BETWEEN ?-0.15 AND ?+0.15 AND longitude BETWEEN ?-0.15 AND ?+0.15 "
+            "SELECT cx.cortar_no, cx.dong_name, "
+            "(cx.latitude-?)*(cx.latitude-?)+(cx.longitude-?)*(cx.longitude-?) AS d2 "
+            "FROM complexes cx WHERE cx.latitude IS NOT NULL AND cx.cortar_no IS NOT NULL "
+            "AND cx.latitude BETWEEN ?-0.2 AND ?+0.2 AND cx.longitude BETWEEN ?-0.2 AND ?+0.2 "
+            "AND EXISTS (SELECT 1 FROM realtor_dong rd WHERE rd.cortar_no=cx.cortar_no) "
             "ORDER BY d2 LIMIT 1",
             (lat, lat, lng, lng, lat, lat, lng, lng)).fetchone()
         if not row:
