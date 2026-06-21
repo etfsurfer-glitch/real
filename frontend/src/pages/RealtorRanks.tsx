@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loading } from "../components/Loading";
 import { Link, Outlet, useOutletContext } from "react-router-dom";
 import { Crown, MapPin, X, Building2, Users, CalendarClock } from "lucide-react";
@@ -8,11 +8,18 @@ import { useRegionFilter } from "../components/RegionSelect";
 import { supabase } from "../supabase";
 
 type DongRealtor = {
-  realtor_id: string; realtor_name: string; listings: number;
+  realtor_id: string | null; sys_regno: string; realtor_name: string; listings: number;
   staff_count: number | null; established_year: number | null;
-  tenure_years: number | null; phone: string | null; verified_office: boolean;
+  tenure_years: number | null; phone: string | null; naver_linked: boolean;
 };
 type DongResp = { cortar_no: string; dong_name: string | null; sort: string; count: number; top: DongRealtor | null; items: DongRealtor[] };
+
+// 매물 상세가 있는(naver 매칭) 곳만 링크, 아니면 일반 행.
+function RealtorRowLink({ r, className, children }: { r: DongRealtor; className: string; children: ReactNode }) {
+  return r.realtor_id
+    ? <Link to={`/realtor/${r.realtor_id}`} className={className}>{children}</Link>
+    : <div className={className}>{children}</div>;
+}
 
 // 우리동네 중개사 — 사무소 소재 동 기준. 매물수·직원수·업력을 한눈에.
 // 분야별 랭킹 컬럼 — 매물/직원/업력을 동등하게 나란히. 어느 한 기준도 '기본'으로 밀지 않음.
@@ -23,11 +30,11 @@ function RankColumn({ title, icon, items, val, unit }:
       <div className="rcol-head">{icon} {title}</div>
       <div className="rcol-list">
         {items.map((r, i) => (
-          <Link to={`/realtor/${r.realtor_id}`} className="rcol-row" key={r.realtor_id}>
+          <RealtorRowLink r={r} className="rcol-row" key={r.realtor_id || r.sys_regno}>
             <span className={`rcol-rank ${i === 0 ? "r1" : ""}`}>{i + 1}</span>
-            <span className="rcol-name">{r.realtor_name}{r.verified_office && <span className="dong-vf">인증</span>}</span>
+            <span className="rcol-name">{r.realtor_name}</span>
             <span className="rcol-val">{val(r)?.toLocaleString() ?? "-"}<em>{unit}</em></span>
-          </Link>
+          </RealtorRowLink>
         ))}
       </div>
     </div>
@@ -61,13 +68,13 @@ function DongModal({ data, onClose }: { data: DongResp; onClose: () => void }) {
         </div>
         <div className="dmodal-list">
           {rows.map((r, i) => (
-            <Link key={r.realtor_id} to={`/realtor/${r.realtor_id}`} className="dong-row">
+            <RealtorRowLink key={r.realtor_id || r.sys_regno} r={r} className="dong-row">
               <span className="dong-rank">{i + 1}</span>
-              <span className="dong-name">{r.realtor_name}{r.verified_office && <span className="dong-vf">인증</span>}</span>
+              <span className="dong-name">{r.realtor_name}</span>
               <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
               <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
               <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
-            </Link>
+            </RealtorRowLink>
           ))}
         </div>
       </div>

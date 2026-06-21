@@ -1307,27 +1307,28 @@ def realtors_by_dong(cortar: str, sort: str = "listings", limit: int = 20):
     cur_year = _dt.date.today().year
     with _open_db() as c:
         dn = c.execute("SELECT cortar_name FROM regions WHERE cortar_no=? LIMIT 1", (cortar,)).fetchone()
+        # vworld 등록 중개사 전체(사무소 소재 동). naver 매칭분은 매물수·상세링크 포함.
         rows = c.execute(
             """
-            SELECT rd.realtor_id,
-                   COALESCE(vb.business_name, m.naver_name, m.vworld_name) AS name,
-                   m.total_listings,
-                   (SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=m.sys_regno) AS staff,
-                   substr(vb.registered_ymd,1,4) AS est_yr,
-                   vb.phone, rd.source
+            SELECT rd.realtor_id, rd.sys_regno,
+                   COALESCE(v.business_name, m.naver_name) AS name,
+                   COALESCE(m.total_listings, 0) AS listings,
+                   (SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=rd.sys_regno) AS staff,
+                   substr(v.registered_ymd,1,4) AS est_yr,
+                   v.phone
             FROM realtor_dong rd
-            JOIN realtor_match m ON m.realtor_id = rd.realtor_id
-            LEFT JOIN vworld_brokers vb ON vb.sys_regno = m.sys_regno
+            JOIN vworld_brokers v ON v.sys_regno = rd.sys_regno
+            LEFT JOIN realtor_match m ON m.sys_regno = rd.sys_regno
             WHERE rd.cortar_no = ?
             """, (cortar,)).fetchall()
     items = []
     for r in rows:
-        est = int(r[4]) if (r[4] and r[4].isdigit()) else None
+        est = int(r[5]) if (r[5] and r[5].isdigit()) else None
         items.append({
-            "realtor_id": r[0], "realtor_name": r[1] or "공인중개사",
-            "listings": r[2] or 0, "staff_count": r[3] or None,
+            "realtor_id": r[0], "sys_regno": r[1], "realtor_name": r[2] or "공인중개사",
+            "listings": r[3] or 0, "staff_count": r[4] or None,
             "established_year": est, "tenure_years": (cur_year - est) if est else None,
-            "phone": r[5], "verified_office": r[6] == "vworld",
+            "phone": r[6], "naver_linked": r[0] is not None,
         })
     key = {"staff": lambda x: x["staff_count"] or 0,
            "tenure": lambda x: x["tenure_years"] or 0}.get(sort, lambda x: x["listings"])
