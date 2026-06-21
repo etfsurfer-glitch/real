@@ -19,7 +19,7 @@ import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import { ChangesLayout, ChangesTrend, ChangesRegion, ChangesMovers } from "./pages/Changes";
 import QuickDeals from "./pages/QuickDeals";
-import RealtorRanks, { RealtorNational, RealtorBySido, RealtorByTenure, RealtorByStaff } from "./pages/RealtorRanks";
+import RealtorRanks, { RealtorNational, RealtorBySido, RealtorByTenure, RealtorByStaff, RealtorByDong } from "./pages/RealtorRanks";
 import Realtor from "./pages/Realtor";
 import SuspiciousRealtors from "./pages/SuspiciousRealtors";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -268,7 +268,8 @@ function AppShell() {
         </Route>
         <Route path="/quick-deals" element={<QuickDeals />} />
         <Route path="/realtors" element={<RealtorRanks />}>
-          <Route index element={<Navigate to="national" replace />} />
+          <Route index element={<Navigate to="dong" replace />} />
+          <Route path="dong" element={<RealtorByDong />} />
           <Route path="national" element={<RealtorNational />} />
           <Route path="region" element={<RealtorBySido />} />
           <Route path="tenure" element={<RealtorByTenure />} />

@@ -4,7 +4,86 @@ import { Link, Outlet, useOutletContext } from "react-router-dom";
 import { Crown } from "lucide-react";
 import { SubNav } from "../components/SubNav";
 import ShareBar from "../components/ShareBar";
+import { useRegionFilter } from "../components/RegionSelect";
 import { supabase } from "../supabase";
+
+type DongRealtor = {
+  realtor_id: string; realtor_name: string; listings: number;
+  staff_count: number | null; established_year: number | null;
+  tenure_years: number | null; phone: string | null; verified_office: boolean;
+};
+type DongResp = { cortar_no: string; dong_name: string | null; sort: string; count: number; top: DongRealtor | null; items: DongRealtor[] };
+
+// 우리동네 중개사 — 사무소 소재 동 기준. 매물수·직원수·업력을 한눈에.
+export function RealtorByDong() {
+  const { sidos, sigungus, dongs, sido, setSido, sigungu, setSigungu, dong, setDong } = useRegionFilter();
+  const [data, setData] = useState<DongResp | null>(null);
+  const [sort, setSort] = useState("listings");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!dong || !API_BASE) { setData(null); return; }
+    setLoading(true);
+    fetch(`${API_BASE}/stats/realtors/by-dong?cortar=${dong}&sort=${sort}&limit=30`)
+      .then((r) => r.json()).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
+  }, [dong, sort]);
+
+  return (
+    <>
+      <div className="section-title">우리동네 중개사 찾기</div>
+      <p className="muted" style={{ margin: "2px 0 10px" }}>사무소가 있는 동을 고르면, 그 동네 중개사를 <b>매물수·직원수·업력</b>으로 한눈에 비교하세요.</p>
+      <div className="dong-pick">
+        <select value={sido} onChange={(e) => setSido(e.target.value)}>
+          <option value="">시·도</option>
+          {sidos.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+        </select>
+        <select value={sigungu} onChange={(e) => setSigungu(e.target.value)} disabled={!sido}>
+          <option value="">시·군·구</option>
+          {sigungus.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+        </select>
+        <select value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sigungu}>
+          <option value="">읍·면·동</option>
+          {dongs.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
+        </select>
+      </div>
+
+      {!dong && <div className="dong-empty">위에서 동을 선택하면 우리동네 중개사 랭킹이 나옵니다.</div>}
+      {loading && <Loading />}
+      {data && !loading && (
+        <>
+          <div className="dong-sort">
+            {[["listings", "매물 많은순"], ["staff", "직원 많은순"], ["tenure", "업력순"]].map(([k, label]) => (
+              <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{label}</button>
+            ))}
+          </div>
+          {data.top && (
+            <div className="dong-top">
+              <div className="dong-top-badge"><Crown size={16} aria-hidden /> {data.dong_name} 1등</div>
+              <div className="dong-top-name">{data.top.realtor_name}</div>
+              <div className="dong-top-stats">
+                <span>매물 <b>{data.top.listings.toLocaleString()}</b></span>
+                <span>직원 <b>{data.top.staff_count ?? "-"}</b></span>
+                <span>업력 <b>{data.top.tenure_years ?? "-"}년</b></span>
+              </div>
+            </div>
+          )}
+          {data.items.length === 0 && <div className="dong-empty">이 동에 등록된 중개사 정보가 아직 없어요.</div>}
+          <div className="dong-list">
+            {data.items.map((r, i) => (
+              <Link key={r.realtor_id} to={`/realtor/${r.realtor_id}`} className="dong-row">
+                <span className="dong-rank">{i + 1}</span>
+                <span className="dong-name">{r.realtor_name}{r.verified_office && <span className="dong-vf">인증</span>}</span>
+                <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
+                <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
+                <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
 
 /** 순위 메달 — TOP 5 를 특별하게(금·은·동 + 1위 왕관). 6위부터는 숫자. */
 function RankMedal({ rank }: { rank: number }) {
@@ -200,6 +279,7 @@ export default function RealtorRanks() {
       )}
 
       <SubNav tabs={[
+        { to: "/realtors/dong", label: "우리동네" },
         { to: "/realtors/national", label: "매물보유(전국)" },
         { to: "/realtors/region", label: "매물보유(지역별)" },
         { to: "/realtors/tenure", label: "업력순위" },
