@@ -108,7 +108,7 @@ export function RealtorByDong() {
   useEffect(() => {
     if (!activeCortar || !API_BASE) { setData(null); setLoading(false); return; }
     setLoading(true);
-    fetch(`${API_BASE}/stats/realtors/by-dong?cortar=${activeCortar}&limit=100`)
+    fetch(`${API_BASE}/stats/realtors/by-dong?cortar=${activeCortar}&limit=1000`)
       .then((r) => r.json()).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
   }, [activeCortar]);
 

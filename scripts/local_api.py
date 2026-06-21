@@ -1292,13 +1292,13 @@ def nearest_dong(lat: float, lng: float):
 
 
 @app.get("/stats/realtors/by-dong")
-def realtors_by_dong(cortar: str, sort: str = "listings", limit: int = 20):
-    """우리동네(동) 중개사 랭킹 — 사무소가 그 동에 소재한 중개사(realtor_dong 기준).
-    매물수(전체 보유)·직원수·업력을 한눈에. sort=listings|staff|tenure."""
+def realtors_by_dong(cortar: str, sort: str = "listings", limit: int = 1000):
+    """우리동네(동) 중개사 랭킹 — 사무소가 그 동에 소재한 등록 중개사(realtor_dong 기준).
+    매물수(naver매칭분)·직원수·업력을 한눈에. 동 단위라 전부 반환(최대 역삼동 890곳)."""
     if not cortar:
         raise HTTPException(400, "cortar required")
-    if limit < 1 or limit > 100:
-        limit = 20
+    if limit < 1 or limit > 2000:
+        limit = 1000
     ck = f"realtor_dong:{cortar}:{sort}:{limit}"
     cached = _cache_get(ck)
     if cached is not None:
