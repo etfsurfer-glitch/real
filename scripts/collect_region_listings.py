@@ -22,8 +22,11 @@ from collector.creds import ensure_creds          # noqa: E402
 from collector.http import get_json               # noqa: E402
 
 DATA_DIR = os.environ.get("KOCZIP_DATA", "data")
-FILTER = "VL:YR:DDDGG:DDDGN:DGN:SMS:SG"
+# 유효 필터코드만(DDDGN·DGN은 네이버가 무시하는 노이즈 → 제외). 검증: 5코드 합 = 통합호출 총수.
+# 카테고리 분할 호출 → (1) 각 호출 작아짐 (2) 상단탭 = 코드별 (3) 코드별 무결성 대조.
+CODES = ["VL", "YR", "DDDGG", "SMS", "SG"]
 ARTICLES_URL = "https://new.land.naver.com/api/articles"
+PAGE_CAP = 3000   # 안전상한(자연정지가 먼저 멈춰야 정상). 도달하면 truncation = 무결성 위반.
 
 # 카테고리 → (DB파일, 응답 유형명 집합, 권리금 여부)
 CATEGORIES = {
@@ -114,23 +117,26 @@ def _open(cat: str) -> sqlite3.Connection:
     return c
 
 
-def _fetch_region(cortar: str, creds: dict) -> list[dict]:
-    """한 동의 비단지 매물 전수(sameAddressGroup=false, 전 페이지)."""
-    out, page = [], 1
-    while page <= 1000:   # 네이버 isMoreData가 보통 먼저 멈춤. 역삼동급 고밀도 대비 상한.
+def _fetch_code(cortar: str, code: str, creds: dict) -> tuple[list[dict], bool, int]:
+    """한 동·한 코드의 매물 전수. (items, natural_stop, map_exposed) 반환.
+    natural_stop=True → isMoreData=false 도달(=전수 완료). False → 캡/에러로 중단(무결성 위반)."""
+    out, page, natural, map_exposed = [], 1, False, None
+    while page <= PAGE_CAP:
         params = {
-            "cortarNo": cortar, "realEstateType": FILTER, "tradeType": "A1:B1:B2",
+            "cortarNo": cortar, "realEstateType": code, "tradeType": "A1:B1:B2",
             "sameAddressGroup": "false", "page": str(page),
         }
         st, data = get_json(ARTICLES_URL, creds, params=params)
         if st != 200 or not isinstance(data, dict):
-            break
-        items = data.get("articleList") or []
-        out.extend(items)
+            break  # natural=False → 에러로 기록됨
+        if map_exposed is None:
+            map_exposed = data.get("mapExposedCount")
+        out.extend(data.get("articleList") or [])
         if not data.get("isMoreData"):
+            natural = True
             break
         page += 1
-    return out
+    return out, natural, map_exposed
 
 
 def _upsert(conns: dict, cat: str, it: dict, cortar: str, today: str, has_premium: bool):
@@ -183,25 +189,35 @@ def main():
     conns = {cat: _open(cat) for cat in CATEGORIES}
     try:
         for cortar in cortars:
-            items = _fetch_region(cortar, creds)
             per_cat = {c: 0 for c in CATEGORIES}
             attr = {"realtor": 0, "region": 0}
-            for it in items:
-                cat = _name_to_cat(it.get("articleRealEstateTypeName"))
-                if not cat or not it.get("articleNo"):
-                    continue
-                _upsert(conns, cat, it, cortar, today, CATEGORIES[cat][2])
-                per_cat[cat] += 1
-                attr["realtor" if it.get("realtorId") else "region"] += 1
+            integrity_ok = True       # 모든 코드가 자연정지(전수) 했는가
+            seen = set()              # 코드간 중복 article 방지(혹시 모를 경계 중복)
+            for code in CODES:        # ★카테고리 분할 호출 — 각 작아짐 + 코드별 무결성
+                items, natural, _mx = _fetch_code(cortar, code, creds)
+                if not natural:
+                    integrity_ok = False   # 캡/에러로 중단 → 전수 실패
+                for it in items:
+                    an = it.get("articleNo")
+                    if not an or an in seen:
+                        continue
+                    seen.add(an)
+                    cat = _name_to_cat(it.get("articleRealEstateTypeName"))
+                    if not cat:
+                        continue
+                    _upsert(conns, cat, it, cortar, today, CATEGORIES[cat][2])
+                    per_cat[cat] += 1
+                    attr["realtor" if it.get("realtorId") else "region"] += 1
+            status = "success" if integrity_ok else "partial"   # ★무결성 플래그
             for cat, n in per_cat.items():
                 conns[cat].execute(
                     "INSERT INTO collection_log(cortar_no,run_date,status,n_articles,collected_at) "
                     "VALUES(?,?,?,?,?) ON CONFLICT(cortar_no,run_date) DO UPDATE SET "
                     "status=excluded.status,n_articles=excluded.n_articles,collected_at=excluded.collected_at",
-                    (cortar, today, "success", n, datetime.datetime.now().isoformat(timespec="seconds")))
+                    (cortar, today, status, n, datetime.datetime.now().isoformat(timespec="seconds")))
             for c in conns.values():
                 c.commit()
-            print(f"[{cortar}] 총 {len(items)} → {per_cat} | 귀속 realtor {attr['realtor']}/region {attr['region']}")
+            print(f"[{cortar}] 총 {len(seen)} → {per_cat} | 귀속 R{attr['realtor']}/Reg{attr['region']} | 무결성={status}")
     finally:
         for c in conns.values():
             c.close()
