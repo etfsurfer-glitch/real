@@ -35,7 +35,7 @@ function RealtorRankCard({ title, sub, icon, accent, items, val, valText }: {
       </div>
       <div className="rank-rows">
         {rows.map((r, i) => (
-          <RealtorRowLink r={r} className="rank-row" key={r.realtor_id || r.sys_regno}>
+          <RealtorRowLink r={r} className="rank-row" key={r.sys_regno}>
             <span className={`medal m${i < 3 ? i + 1 : 0}`}>{i + 1}</span>
             <span className="rank-body">
               <span className="rank-name">{r.realtor_name}</span>
@@ -76,7 +76,7 @@ function DongModal({ data, onClose }: { data: DongResp; onClose: () => void }) {
         </div>
         <div className="dmodal-list">
           {rows.map((r, i) => (
-            <RealtorRowLink key={r.realtor_id || r.sys_regno} r={r} className="dong-row">
+            <RealtorRowLink key={r.sys_regno} r={r} className="dong-row">
               <span className="dong-rank">{i + 1}</span>
               <span className="dong-name">{r.realtor_name}</span>
               <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
@@ -110,10 +110,10 @@ export function RealtorByDong() {
         .then((r) => r.json()).then((j) => {
           const yr = new Date().getFullYear();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          setQRes((j.items || []).map((x: any) => {
+          setQRes((j.items || []).map((x: any, i: number) => {
             const ey = x.established_year ? parseInt(String(x.established_year).slice(0, 4), 10) : null;
             return {
-              realtor_id: x.realtor_id, sys_regno: x.realtor_id || x.realtor_name,
+              realtor_id: x.realtor_id, sys_regno: `${x.realtor_id || x.realtor_name || "r"}#${i}`,
               realtor_name: x.realtor_name || "공인중개사", listings: x.count || 0,
               staff_count: x.staff_count ?? null, established_year: ey,
               tenure_years: ey ? yr - ey : null, phone: null,

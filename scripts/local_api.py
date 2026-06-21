@@ -1307,19 +1307,19 @@ def realtors_by_dong(cortar: str, sort: str = "listings", limit: int = 1000):
     cur_year = _dt.date.today().year
     with _open_db() as c:
         dn = c.execute("SELECT cortar_name FROM regions WHERE cortar_no=? LIMIT 1", (cortar,)).fetchone()
-        # vworld 등록 중개사 전체(사무소 소재 동). naver 매칭분은 매물수·상세링크 포함.
+        # vworld 등록 중개사 전체(사무소 소재 동). 사무소(sys_regno)당 1행 — realtor_match를
+        # 직접 JOIN하면 한 사무소가 여러 naver_id에 매칭돼 행이 복제됨(둥지 버그) → 서브쿼리로 집계.
         rows = c.execute(
             """
-            SELECT rd.realtor_id, rd.sys_regno,
-                   COALESCE(v.business_name, m.naver_name) AS name,
-                   COALESCE(m.total_listings, 0) AS listings,
+            SELECT rd.realtor_id, rd.sys_regno, v.business_name AS name,
+                   COALESCE((SELECT SUM(total_listings) FROM realtor_match m WHERE m.sys_regno=rd.sys_regno), 0) AS listings,
                    (SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=rd.sys_regno) AS staff,
                    substr(v.registered_ymd,1,4) AS est_yr,
                    v.phone
             FROM realtor_dong rd
             JOIN vworld_brokers v ON v.sys_regno = rd.sys_regno
-            LEFT JOIN realtor_match m ON m.sys_regno = rd.sys_regno
             WHERE rd.cortar_no = ?
+            GROUP BY rd.sys_regno
             """, (cortar,)).fetchall()
     items = []
     for r in rows:
