@@ -6,7 +6,7 @@ import {
   Sparkles, LayoutDashboard, BadgePercent,
   TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert,
   ClipboardCheck, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, type LucideIcon,
+  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, type LucideIcon,
 } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
@@ -31,6 +31,7 @@ import AdminResident from "./pages/AdminResident";
 import AdminRealtorRequests from "./pages/AdminRealtorRequests";
 import AdminDataSources from "./pages/AdminDataSources";
 import AdminPush from "./pages/AdminPush";
+import AdminTodayStats from "./pages/AdminTodayStats";
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
 import PresaleTx from "./pages/PresaleTx";
@@ -294,6 +295,7 @@ function AppShell() {
         <Route path="/admin/logs" element={<RequireAdmin><AdminLogs /></RequireAdmin>} />
         <Route path="/admin/data-sources" element={<RequireAdmin><AdminDataSources /></RequireAdmin>} />
         <Route path="/admin/push" element={<RequireAdmin><AdminPush /></RequireAdmin>} />
+        <Route path="/admin/today" element={<RequireAdmin><AdminTodayStats /></RequireAdmin>} />
         <Route path="/tx-stats" element={<TxStatsLayout />}>
           <Route index element={<Navigate to="region-pulse" replace />} />
           <Route path="region-pulse" element={<TxRegionPulse />} />
@@ -346,6 +348,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin", label: "대시보드", icon: LayoutDashboard, end: true },
   { to: "/admin/users", label: "사용자", icon: Users },
   { to: "/admin/logs", label: "활동 로그", icon: ScrollText },
+  { to: "/admin/today", label: "오늘의 접속통계", icon: Activity },
   { to: "/admin/data-sources", label: "수집 현황", icon: Database },
   { to: "/admin/push", label: "알림 발송", icon: Bell },
   { to: "/admin/realtor-match", label: "중개사 매칭", icon: Wrench },

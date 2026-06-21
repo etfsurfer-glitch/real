@@ -5079,6 +5079,44 @@ def _member_map(user_ids) -> dict:
         return {}
 
 
+@app.get("/admin/today-stats")
+def admin_today_stats(_admin: dict = Depends(admin_user)):
+    """오늘(KST) 접속통계 — 방문자·로그인사용자·최대 동시작업자·신규가입·시간대별. ts는 UTC라 +9h 보정."""
+    T = "date(ts,'+9 hours')=date('now','+9 hours')"   # KST 오늘
+    with _logs_db() as c:
+        date_kst = c.execute("SELECT date('now','+9 hours')").fetchone()[0]
+        ev, lu, vi = c.execute(
+            f"SELECT COUNT(*), COUNT(DISTINCT user_id), COUNT(DISTINCT ip) FROM event_log WHERE {T}").fetchone()
+        logins = c.execute(f"SELECT COUNT(*) FROM event_log WHERE {T} AND kind='login'").fetchone()[0]
+        pageviews = c.execute(
+            f"SELECT COUNT(*) FROM event_log WHERE {T} AND kind IN ('view','view_complex','view_realtor')").fetchone()[0]
+        ai = c.execute(f"SELECT COUNT(*) FROM event_log WHERE {T} AND kind LIKE 'ai%'").fetchone()[0]
+        complex_views = c.execute(f"SELECT COUNT(*) FROM event_log WHERE {T} AND kind='view_complex'").fetchone()[0]
+        hourly = [{"hour": int(h), "visitors": v, "events": e} for h, v, e in c.execute(
+            f"SELECT strftime('%H', ts,'+9 hours'), COUNT(DISTINCT ip), COUNT(*) "
+            f"FROM event_log WHERE {T} GROUP BY 1 ORDER BY 1")]
+        # 최대 동시작업자 — 10분 버킷 distinct IP 최댓값(피크 동시 접속 근사)
+        pk = c.execute(
+            f"SELECT MAX(c), bk FROM (SELECT strftime('%H:',ts,'+9 hours')||(CAST(strftime('%M',ts,'+9 hours') AS INT)/10*10) bk, "
+            f"COUNT(DISTINCT ip) c FROM event_log WHERE {T} GROUP BY bk)").fetchone()
+        peak_concurrent, peak_window = (pk[0] or 0), (pk[1] or "")
+        top_paths = [{"path": p, "n": n} for p, n in c.execute(
+            f"SELECT path, COUNT(*) FROM event_log WHERE {T} AND path IS NOT NULL AND path<>'' "
+            f"GROUP BY path ORDER BY 2 DESC LIMIT 8")]
+    with _reviews_db() as rc:
+        new_signups = rc.execute(
+            "SELECT COUNT(*) FROM user_profiles WHERE agreed_terms_at IS NOT NULL "
+            "AND date(agreed_terms_at,'+9 hours')=date('now','+9 hours')").fetchone()[0]
+        total_users = rc.execute("SELECT COUNT(*) FROM user_profiles").fetchone()[0]
+    return {
+        "date_kst": date_kst, "visitors": vi, "logged_users": lu, "events": ev,
+        "logins": logins, "pageviews": pageviews, "ai_questions": ai, "complex_views": complex_views,
+        "peak_concurrent": peak_concurrent, "peak_window": peak_window,
+        "new_signups": new_signups, "total_users": total_users,
+        "hourly": hourly, "top_paths": top_paths,
+    }
+
+
 @app.get("/admin/logs")
 def admin_logs(_admin: dict = Depends(admin_user), kind: str = "", user_id: str = "",
                ref: str = "", q: str = "", since_hours: int = 0, limit: int = 200):
