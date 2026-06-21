@@ -71,6 +71,7 @@ const NAV_ITEMS: NavItem[] = [
     { to: "/today/old/stats", label: "오늘 매물 통계" },
   ] },
   { to: "/realtors", label: "중개사무소 랭킹", icon: Award, children: [
+    { to: "/realtors/dong", label: "우리동네 중개사" },
     { to: "/realtors/national", label: "매물보유순위(전국)" },
     { to: "/realtors/region", label: "매물보유순위(지역별)" },
     { to: "/realtors/tenure", label: "업력순위" },
