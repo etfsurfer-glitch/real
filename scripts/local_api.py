@@ -7410,22 +7410,60 @@ _KOCZIP_TEST_LISTINGS = [   # 관리자 테스트용 데모 매물(실제 단지
 ]
 
 
+# 비단지 카테고리 → 별도 DB파일 (홈페이지 6구분 통합 노출용). 아파트/오피는 listings_current.
+_REGION_DBS = {
+    "상가": "listings_sangga.sqlite",
+    "사무실": "listings_office.sqlite",
+    "빌라/연립": "listings_villa.sqlite",
+    "단독/다가구": "listings_house.sqlite",
+}
+
+
 def _homepage_listings(realtor_id: str, limit: int = 1000) -> list[dict]:
-    """홈페이지 매물 갤러리용 — 해당 중개사 보유 매물(단지명·거래유형·가격·면적)."""
+    """홈페이지 매물 — 우리 6구분(아파트·오피스텔·상가·사무실·빌라/연립·단독/다가구) 통합.
+    아파트/오피=listings_current(단지기반), 나머지=비단지 4DB(realtor 귀속분만). 각 항목에 category."""
     if realtor_id == "koczip-test":
         return _KOCZIP_TEST_LISTINGS
     tt = {"A1": "매매", "B1": "전세", "B2": "월세"}
+    items: list[dict] = []
+    # 1) 아파트·오피스텔 (단지기반) — real_estate_type 으로 구분
     with _open_db() as c:
         rows = c.execute(
             "SELECT l.complex_no, cx.complex_name, l.trade_type, "
-            "MIN(l.deal_or_warrant_price), l.area2_m2, l.area_name, COUNT(*) "
+            "MIN(l.deal_or_warrant_price), l.area2_m2, l.area_name, COUNT(*), l.real_estate_type "
             "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
             "WHERE l.realtor_id=? AND l.deal_or_warrant_price>0 "
             "GROUP BY l.complex_no, l.trade_type, ROUND(l.area2_m2) "
             "ORDER BY l.deal_or_warrant_price DESC LIMIT ?", (realtor_id, limit)).fetchall()
-    return [{"complex_no": r[0], "complex_name": r[1], "trade_type": tt.get(r[2], r[2]),
-             "price": r[3], "excl_use_ar": round(r[4]) if r[4] else None,
-             "area_name": r[5], "count": r[6]} for r in rows]
+    for r in rows:
+        cat = "오피스텔" if r[7] in ("OPST", "OBYG") else "아파트"
+        items.append({"category": cat, "complex_no": r[0], "complex_name": r[1],
+                      "trade_type": tt.get(r[2], r[2]), "price": r[3],
+                      "excl_use_ar": round(r[4]) if r[4] else None,
+                      "area_name": r[5], "count": r[6], "article_no": None})
+    # 2) 비단지(상가·사무실·빌라/연립·단독/다가구) — realtor 귀속분만, 별도 DB(읽기전용)
+    for cat, dbfile in _REGION_DBS.items():
+        path = DB_PATH.parent / dbfile
+        if not path.exists():
+            continue
+        try:
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
+                rows = rc.execute(
+                    "SELECT building_name, trade_type, MIN(deal_or_warrant_price), MIN(rent_price), "
+                    "area1_m2, real_estate_type_name, COUNT(*), MIN(article_no) "
+                    "FROM listings WHERE realtor_id=? AND deal_or_warrant_price>0 "
+                    "GROUP BY COALESCE(building_name,''), trade_type, ROUND(area1_m2) "
+                    "ORDER BY deal_or_warrant_price DESC LIMIT ?", (realtor_id, limit)).fetchall()
+            for r in rows:
+                items.append({"category": cat, "complex_no": None,
+                              "complex_name": r[0] or r[5], "trade_type": tt.get(r[1], r[1]),
+                              "price": r[2], "rent_price": r[3],
+                              "excl_use_ar": round(r[4]) if r[4] else None,
+                              "area_name": r[5], "count": r[6],
+                              "article_no": r[7]})  # 네이버 딥링크용
+        except Exception:
+            continue
+    return items
 
 
 def _homepage_row(c, realtor_id):
