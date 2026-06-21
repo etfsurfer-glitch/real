@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loading } from "../components/Loading";
-import { Link, Outlet, useOutletContext } from "react-router-dom";
-import { Crown, MapPin, X, Building2, Users, CalendarClock, Sparkles } from "lucide-react";
+import { Link, Outlet, useOutletContext, useLocation } from "react-router-dom";
+import { Crown, MapPin, X, Building2, Users, CalendarClock, Sparkles, Search } from "lucide-react";
 import { SubNav } from "../components/SubNav";
 import ShareBar from "../components/ShareBar";
 import { useRegionFilter } from "../components/RegionSelect";
@@ -10,7 +10,7 @@ import { supabase } from "../supabase";
 type DongRealtor = {
   realtor_id: string | null; sys_regno: string; realtor_name: string; listings: number;
   staff_count: number | null; established_year: number | null;
-  tenure_years: number | null; phone: string | null; naver_linked: boolean;
+  tenure_years: number | null; phone: string | null; naver_linked: boolean; sido?: string;
 };
 type DongResp = { cortar_no: string; dong_name: string | null; sort: string; count: number; top: DongRealtor | null; items: DongRealtor[] };
 
@@ -96,7 +96,33 @@ export function RealtorByDong() {
   const [data, setData] = useState<DongResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
+  const [q, setQ] = useState("");
+  const [qRes, setQRes] = useState<DongRealtor[] | null>(null);
   const shareRef = useRef<HTMLDivElement>(null);
+
+  // 이름 검색 — 동네 찾기와 한 화면에서. 결과도 매물·직원·업력 같은 카드 톤.
+  useEffect(() => {
+    const t = q.trim();
+    if (t.length < 1 || !API_BASE) { setQRes(null); return; }
+    const id = window.setTimeout(() => {
+      fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(t)}&limit=40`)
+        .then((r) => r.json()).then((j) => {
+          const yr = new Date().getFullYear();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          setQRes((j.items || []).map((x: any) => {
+            const ey = x.established_year ? parseInt(String(x.established_year).slice(0, 4), 10) : null;
+            return {
+              realtor_id: x.realtor_id, sys_regno: x.realtor_id || x.realtor_name,
+              realtor_name: x.realtor_name || "공인중개사", listings: x.count || 0,
+              staff_count: x.staff_count ?? null, established_year: ey,
+              tenure_years: ey ? yr - ey : null, phone: null,
+              naver_linked: !!x.realtor_id, sido: x.sido,
+            } as DongRealtor & { sido?: string };
+          }));
+        }).catch(() => setQRes([]));
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [q]);
 
   // 진입 시 접속 위치(CF IP) → 가장 가까운 동을 기본값으로(허전함 방지). 사용자가 드롭다운으로 수정 가능.
   useEffect(() => {
@@ -147,10 +173,34 @@ export function RealtorByDong() {
             {dongs.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
           </select>
         </div>
-        {autoLoc && !dong && <div className="hood-hint">접속 위치 기준이에요 · 동을 바꾸면 그 동네로 기억해 드려요</div>}
+        <div className="hood-namesearch">
+          <Search size={15} aria-hidden />
+          <input value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="또는 중개사무소 이름으로 검색 (예: 래미안, 자이…)" />
+          {q && <button onClick={() => setQ("")} aria-label="지우기"><X size={14} /></button>}
+        </div>
+        {autoLoc && !dong && !q && <div className="hood-hint">접속 위치 기준이에요 · 동을 바꾸면 그 동네로 기억해 드려요</div>}
       </div>
 
-      {loading ? <div className="hood-loading"><Loading /></div> : data && items.length > 0 ? (
+      {q.trim() ? (
+        <div className="qres">
+          <p className="muted" style={{ margin: "2px 0 8px", fontSize: 12.5 }}>
+            <b>'{q.trim()}'</b> 검색 결과 {qRes?.length ?? 0}곳
+          </p>
+          {qRes && qRes.length === 0 && <div className="dong-empty">일치하는 중개사무소가 없어요.</div>}
+          <div className="dong-list">
+            {(qRes ?? []).map((r, i) => (
+              <RealtorRowLink key={r.sys_regno} r={r} className="dong-row">
+                <span className="dong-rank">{i + 1}</span>
+                <span className="dong-name">{r.realtor_name}{r.sido && <em style={{ color: "#9aa7b8", fontWeight: 400 }}> {r.sido}</em>}</span>
+                <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
+                <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
+                <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
+              </RealtorRowLink>
+            ))}
+          </div>
+        </div>
+      ) : loading ? <div className="hood-loading"><Loading /></div> : data && items.length > 0 ? (
         <>
           <div className="hood-digest">
             <span className="hood-digest-ic"><Sparkles size={16} strokeWidth={2.4} aria-hidden /></span>
@@ -217,6 +267,8 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 
 export default function RealtorRanks() {
   const shareRef = useRef<HTMLDivElement>(null);
+  const { pathname } = useLocation();
+  const onDong = pathname === "/realtors" || pathname.endsWith("/dong");  // 우리동네 탭은 자체 히어로·검색
   const [national, setNational] = useState<RealtorRow[] | null>(null);
   const [bySido, setBySido] = useState<Record<string, RealtorRow[]> | null>(null);
   const [sidos, setSidos] = useState<Sido[]>([]);
@@ -318,6 +370,7 @@ export default function RealtorRanks() {
   return (
     <div ref={shareRef} className="share-target">
       <Link to="/overview" className="back">← 전국현황</Link>
+      {!onDong && <>
       <h2 style={{ margin: "0 0 4px" }}>중개사무소 매물 보유 순위</h2>
       <div className="muted" style={{ marginBottom: 16 }}>
         중개사무소별 보유 매물 수 기준. 같은 상호라도 사무소가 다르면 따로 집계됩니다.
@@ -373,6 +426,7 @@ export default function RealtorRanks() {
           ) : null}
         </div>
       )}
+      </>}
 
       <SubNav tabs={[
         { to: "/realtors/dong", label: "우리동네" },

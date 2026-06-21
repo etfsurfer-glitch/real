@@ -2197,3 +2197,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .rcol-val{font-size:13px;font-weight:800;color:#13294b;white-space:nowrap}
 .rcol-val em{font-size:10px;font-weight:600;color:#9aa7b8;font-style:normal;margin-left:1px}
 @media(max-width:620px){.rcols{grid-template-columns:1fr;gap:8px}.rcol-row{padding:9px 12px}.rcol-name{font-size:13px}}
+
+/* 우리동네 히어로 내 이름검색 */
+.hood-namesearch{display:flex;align-items:center;gap:8px;margin-top:10px;background:rgba(255,255,255,.96);border-radius:11px;padding:9px 13px;position:relative;z-index:1;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.hood-namesearch svg{color:#15315e;flex-shrink:0}
+.hood-namesearch input{flex:1;border:none;outline:none;font-size:14px;font-weight:600;color:#15315e;background:transparent}
+.hood-namesearch input::placeholder{color:#9aa7b8;font-weight:500}
+.hood-namesearch button{border:none;background:#eef1f5;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#7a8aa0;flex-shrink:0}
+.qres{margin-top:14px}
