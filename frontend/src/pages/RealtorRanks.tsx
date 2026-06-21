@@ -165,7 +165,7 @@ export function RealtorByDong() {
             <MapPin size={14} strokeWidth={2.4} /> 우리 동네로
           </button>
           <button className={mode === "name" ? "on" : ""} onClick={() => setMode("name")}>
-            <Search size={14} strokeWidth={2.4} /> 이름으로 찾기
+            <Search size={14} strokeWidth={2.4} /> 중개사무소명으로 찾기
           </button>
         </div>
         {mode === "dong" ? (
