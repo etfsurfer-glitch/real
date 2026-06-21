@@ -18,8 +18,10 @@ from __future__ import annotations
 import sys, os, sqlite3, json, argparse, datetime
 
 sys.path.insert(0, ".")
+from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: E402
 from collector.creds import ensure_creds          # noqa: E402
 from collector.http import get_json               # noqa: E402
+from collector.config import settings             # noqa: E402
 
 DATA_DIR = os.environ.get("KOCZIP_DATA", "data")
 # 유효 필터코드만(DDDGN·DGN은 네이버가 무시하는 노이즈 → 제외). 검증: 5코드 합 = 통합호출 총수.
@@ -112,21 +114,25 @@ def _open(cat: str) -> sqlite3.Connection:
     db_file, _names, premium = CATEGORIES[cat]
     path = os.path.join(DATA_DIR, db_file)
     assert "naverreal" not in db_file, "안전장치: 메인 DB 접근 금지"
-    c = sqlite3.connect(path)
+    c = sqlite3.connect(path, timeout=30)
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=30000")
+    c.execute("PRAGMA synchronous=NORMAL")
     c.executescript(_schema(premium))
     return c
 
 
-def _fetch_code(cortar: str, code: str, creds: dict) -> tuple[list[dict], bool, int]:
+def _fetch_code(cortar: str, code: str, creds: dict, interface: str | None = None) -> tuple[list[dict], bool, int]:
     """한 동·한 코드의 매물 전수. (items, natural_stop, map_exposed) 반환.
-    natural_stop=True → isMoreData=false 도달(=전수 완료). False → 캡/에러로 중단(무결성 위반)."""
+    natural_stop=True → isMoreData=false 도달(=전수 완료). False → 캡/에러로 중단(무결성 위반).
+    interface=소스IP 바인딩(멀티IP 병렬)."""
     out, page, natural, map_exposed = [], 1, False, None
     while page <= PAGE_CAP:
         params = {
             "cortarNo": cortar, "realEstateType": code, "tradeType": "A1:B1:B2",
             "sameAddressGroup": "false", "page": str(page),
         }
-        st, data = get_json(ARTICLES_URL, creds, params=params)
+        st, data = get_json(ARTICLES_URL, creds, params=params, interface=interface)
         if st != 200 or not isinstance(data, dict):
             break  # natural=False → 에러로 기록됨
         if map_exposed is None:
@@ -176,52 +182,120 @@ def _upsert(conns: dict, cat: str, it: dict, cortar: str, today: str, has_premiu
     )
 
 
+def _fetch_dong(cortar: str, creds: dict, interface: str | None) -> tuple[str, list[dict], bool]:
+    """워커: 한 동의 5코드 전수(같은 IP). (cortar, items, natural) 반환. 네트워크만(DB 미접근)."""
+    items, natural = [], True
+    for code in CODES:
+        try:
+            its, nat, _mx = _fetch_code(cortar, code, creds, interface)
+        except Exception:
+            its, nat = [], False
+        items.extend(its)
+        natural &= nat
+    return cortar, items, natural
+
+
+def _write_dong(conns: dict, cortar: str, items: list[dict], natural: bool, today: str):
+    """메인스레드: 한 동 결과를 4 DB에 기록(직렬). 반환 (total, per_cat, status)."""
+    per_cat = {c: 0 for c in CATEGORIES}
+    seen = set()
+    for it in items:
+        an = it.get("articleNo")
+        if not an or an in seen:
+            continue
+        seen.add(an)
+        cat = _name_to_cat(it.get("articleRealEstateTypeName"))
+        if not cat:
+            continue
+        _upsert(conns, cat, it, cortar, today, CATEGORIES[cat][2])
+        per_cat[cat] += 1
+    status = "success" if natural else "partial"
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    for cat in CATEGORIES:
+        conns[cat].execute(
+            "INSERT INTO collection_log(cortar_no,run_date,status,n_articles,collected_at) "
+            "VALUES(?,?,?,?,?) ON CONFLICT(cortar_no,run_date) DO UPDATE SET "
+            "status=excluded.status,n_articles=excluded.n_articles,collected_at=excluded.collected_at",
+            (cortar, today, status, per_cat[cat], now))
+        conns[cat].commit()
+    return len(seen), per_cat, status
+
+
+def _all_dongs() -> list[str]:
+    """전국 동 목록 — naverreal.sqlite 를 ★읽기전용(mode=ro)★으로 열어 단지보유 동(동레벨 10자리)."""
+    path = os.path.join(DATA_DIR, "naverreal.sqlite")
+    ro = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return [r[0] for r in ro.execute(
+            "SELECT DISTINCT cortar_no FROM complexes "
+            "WHERE cortar_no IS NOT NULL AND length(cortar_no)=10 ORDER BY cortar_no")]
+    finally:
+        ro.close()
+
+
+def _done_today(conns: dict, today: str) -> set:
+    """오늘 이미 success 기록된 동(체크포인트 재개)."""
+    done = set()
+    for c in conns.values():
+        for (cortar,) in c.execute(
+                "SELECT cortar_no FROM collection_log WHERE run_date=? AND status='success'", (today,)):
+            done.add(cortar)
+    return done
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cortar", default="", help="동 cortarNo (쉼표구분). 미지정시 무동작(안전)")
+    ap.add_argument("--cortar", default="", help="동 cortarNo (쉼표구분, 테스트용)")
+    ap.add_argument("--all", action="store_true", help="전국(단지보유 동) 전체 — 멀티IP")
+    ap.add_argument("--limit", type=int, default=0, help="동 개수 제한(테스트)")
     args = ap.parse_args()
-    cortars = [c.strip() for c in args.cortar.split(",") if c.strip()]
+
+    if args.all:
+        cortars = _all_dongs()
+    else:
+        cortars = [c.strip() for c in args.cortar.split(",") if c.strip()]
+    if args.limit:
+        cortars = cortars[:args.limit]
     if not cortars:
-        print("cortar 미지정 — 안전상 아무것도 안 함. --cortar 1168010100 처럼 지정.")
+        print("대상 없음 — --all 또는 --cortar 지정.")
         return
+
     today = datetime.date.today().isoformat()
     creds = ensure_creds()
     conns = {cat: _open(cat) for cat in CATEGORIES}
+    ips = [s.strip() for s in (settings.naver_source_ips or "").split(",") if s.strip()] or [None]
+    nworkers = max(1, settings.naver_concurrency) * len(ips)
+
+    done = _done_today(conns, today)
+    todo = [c for c in cortars if c not in done]
+    print(f"전국 비단지 수집: 대상 {len(cortars)}동 · 완료스킵 {len(done)} · 진행 {len(todo)} "
+          f"· IP {len(ips)}×{settings.naver_concurrency}워커={nworkers}", flush=True)
+
+    n_dong = 0
+    grand = {c: 0 for c in CATEGORIES}
+    n_partial = 0
     try:
-        for cortar in cortars:
-            per_cat = {c: 0 for c in CATEGORIES}
-            attr = {"realtor": 0, "region": 0}
-            integrity_ok = True       # 모든 코드가 자연정지(전수) 했는가
-            seen = set()              # 코드간 중복 article 방지(혹시 모를 경계 중복)
-            for code in CODES:        # ★카테고리 분할 호출 — 각 작아짐 + 코드별 무결성
-                items, natural, _mx = _fetch_code(cortar, code, creds)
-                if not natural:
-                    integrity_ok = False   # 캡/에러로 중단 → 전수 실패
-                for it in items:
-                    an = it.get("articleNo")
-                    if not an or an in seen:
-                        continue
-                    seen.add(an)
-                    cat = _name_to_cat(it.get("articleRealEstateTypeName"))
-                    if not cat:
-                        continue
-                    _upsert(conns, cat, it, cortar, today, CATEGORIES[cat][2])
-                    per_cat[cat] += 1
-                    attr["realtor" if it.get("realtorId") else "region"] += 1
-            status = "success" if integrity_ok else "partial"   # ★무결성 플래그
-            for cat, n in per_cat.items():
-                conns[cat].execute(
-                    "INSERT INTO collection_log(cortar_no,run_date,status,n_articles,collected_at) "
-                    "VALUES(?,?,?,?,?) ON CONFLICT(cortar_no,run_date) DO UPDATE SET "
-                    "status=excluded.status,n_articles=excluded.n_articles,collected_at=excluded.collected_at",
-                    (cortar, today, status, n, datetime.datetime.now().isoformat(timespec="seconds")))
-            for c in conns.values():
-                c.commit()
-            print(f"[{cortar}] 총 {len(seen)} → {per_cat} | 귀속 R{attr['realtor']}/Reg{attr['region']} | 무결성={status}")
+        with ThreadPoolExecutor(max_workers=nworkers) as exe:
+            futs = {exe.submit(_fetch_dong, cortar, creds, ips[i % len(ips)]): cortar
+                    for i, cortar in enumerate(todo)}
+            for fut in as_completed(futs):
+                cortar = futs[fut]
+                try:
+                    _c, items, natural = fut.result()
+                except Exception:
+                    items, natural = [], False
+                total, per_cat, status = _write_dong(conns, cortar, items, natural, today)
+                n_dong += 1
+                if status == "partial":
+                    n_partial += 1
+                for cat in CATEGORIES:
+                    grand[cat] += per_cat[cat]
+                if total > 0 or n_dong % 300 == 0:
+                    print(f"  [{cortar}] {total} {per_cat} {status}  ({n_dong}/{len(todo)})", flush=True)
     finally:
         for c in conns.values():
             c.close()
-    print("완료. 기록 DB:", ", ".join(os.path.join(DATA_DIR, CATEGORIES[c][0]) for c in CATEGORIES))
+    print(f"완료: {n_dong}동 처리 · 합계 {grand} · partial(재수집필요) {n_partial}동", flush=True)
 
 
 if __name__ == "__main__":
