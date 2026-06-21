@@ -248,6 +248,8 @@ def main():
     ap.add_argument("--cortar", default="", help="동 cortarNo (쉼표구분, 테스트용)")
     ap.add_argument("--all", action="store_true", help="전국(단지보유 동) 전체 — 멀티IP")
     ap.add_argument("--limit", type=int, default=0, help="동 개수 제한(테스트)")
+    ap.add_argument("--resume", action="store_true",
+                    help="오늘 이미 success한 동 스킵(크래시 재개용). 기본은 전수 갱신(3회 루틴).")
     args = ap.parse_args()
 
     if args.all:
@@ -266,9 +268,13 @@ def main():
     ips = [s.strip() for s in (settings.naver_source_ips or "").split(",") if s.strip()] or [None]
     nworkers = max(1, settings.naver_concurrency) * len(ips)
 
-    done = _done_today(conns, today)
-    todo = [c for c in cortars if c not in done]
-    print(f"전국 비단지 수집: 대상 {len(cortars)}동 · 완료스킵 {len(done)} · 진행 {len(todo)} "
+    # 기본: 전수 갱신(매물 3회 루틴 — 매번 모든 동 재수집). --resume만 오늘 완료분 스킵(크래시 재개).
+    if args.resume:
+        done = _done_today(conns, today)
+        todo = [c for c in cortars if c not in done]
+    else:
+        done, todo = set(), cortars
+    print(f"전국 비단지 수집: 대상 {len(cortars)}동 · 스킵 {len(done)} · 진행 {len(todo)} "
           f"· IP {len(ips)}×{settings.naver_concurrency}워커={nworkers}", flush=True)
 
     n_dong = 0
@@ -292,6 +298,15 @@ def main():
                     grand[cat] += per_cat[cat]
                 if total > 0 or n_dong % 300 == 0:
                     print(f"  [{cortar}] {total} {per_cat} {status}  ({n_dong}/{len(todo)})", flush=True)
+
+        # delisting 정리 — 전국 전수운영 후에만(부분 실행은 다른 동을 잘못 지움). 2일간 안 보인 매물=빠진 매물.
+        if args.all and not args.limit:
+            purged = 0
+            for cat, c in conns.items():
+                cur = c.execute("DELETE FROM listings WHERE snapshot_date < date('now','-2 day')")
+                purged += cur.rowcount
+                c.commit()
+            print(f"delisting 정리: {purged}건 제거(2일+ 미노출)", flush=True)
     finally:
         for c in conns.values():
             c.close()
