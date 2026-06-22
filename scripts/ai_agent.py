@@ -647,6 +647,15 @@ def get_complex_info(complex_name: str, region: str = "") -> dict:
         "금액": _won(s["deal_amount"]), "거래": s["dealing_gbn"],
         "동": s.get("dong"), "등기": ("완료" if s.get("registered") else "미등기"),
     } for s in sales[:6]]
+    # 전세·월세 실거래도 포함 — 'OO 전세/월세' 질문에 답할 수 있게(매매만 보던 버그 보완).
+    rents = (tx.get("jeonse") or []) + (tx.get("wolse") or [])
+    rents.sort(key=lambda r: r.get("deal_ymd", ""), reverse=True)
+    recent_rent = [{
+        "계약일": r.get("deal_ymd"), "전용㎡": r.get("excl_use_ar"), "층": r.get("floor"),
+        "보증금": _won(r.get("deposit")),
+        "월세": (_won(r["monthly_rent"]) if r.get("monthly_rent") else None),
+        "구분": ("월세" if r.get("monthly_rent") else "전세"),
+    } for r in rents[:6]]
     try:
         dres = api.complex_quick_deals(cno, min_discount=0.05, limit=8)
         deals = [{
@@ -663,6 +672,7 @@ def get_complex_info(complex_name: str, region: str = "") -> dict:
         "주소": cx.get("road_address") or cx.get("detail_address"),
         "단지정보": f"/complex/{cno}",   # 프런트 바로가기
         "최근12개월_매매건수": len(sales), "최근실거래": recent,
+        "최근12개월_전월세건수": len(rents), "최근전월세": recent_rent,
         "급매_보유중개사": deals,
     }
 
