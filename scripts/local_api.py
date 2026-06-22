@@ -1315,7 +1315,54 @@ def nonresi_stats(cat: str, cortar: str = "", trade: str = ""):
     return {"cat": cat, "label": _NONRESI_LABEL[cat], "cortar": cortar,
             "region_name": region_name, "total": total, "by_trade": by_trade,
             "top_buildings": [{"name": b, "n": n} for b, n in tops],
-            "source": "호가"}
+            "source": "호가", "realprice": _nonresi_realprice(cat, cortar)}
+
+
+def _rh_region_clause(cortar: str) -> tuple[str, list]:
+    """rh_transactions/rh_rentals 는 sgg_cd(5자리)+umd_nm(동명) 키. 구=sgg_cd, 동=sgg_cd+umd_nm."""
+    if not cortar:
+        return "", []
+    if len(cortar) <= 5:
+        return "sgg_cd=?", [cortar]
+    with _open_db() as mc:
+        r = mc.execute("SELECT cortar_name FROM regions WHERE cortar_no=?", (cortar,)).fetchone()
+    if r:
+        return "sgg_cd=? AND umd_nm=?", [cortar[:5], r[0]]
+    return "sgg_cd=?", [cortar[:5]]
+
+
+def _nonresi_realprice(cat: str, cortar: str) -> dict | None:
+    """비단지 실거래 집계(최근 12개월·해제 제외). 현재 빌라(연립다세대)만 — 단독·상가매매는 추후."""
+    if cat != "villa":
+        return None
+    import datetime as _dt
+    cutoff = (_dt.date.today().replace(day=1) - _dt.timedelta(days=365)).strftime("%Y-%m-%d")
+    rc, rp = _rh_region_clause(cortar)
+    w_tx = ["is_cancelled=0", "deal_ymd>=?"] + ([rc] if rc else [])
+    w_rt = ["deal_ymd>=?"] + ([rc] if rc else [])
+    with _open_db() as c:
+        tx = c.execute(
+            f"SELECT COUNT(*), CAST(AVG(deal_amount) AS INT), "
+            f"CAST(AVG(NULLIF(deal_amount,0)/NULLIF(excl_use_ar,0))*3.3058 AS INT) "
+            f"FROM rh_transactions WHERE {' AND '.join(w_tx)}", [cutoff] + rp).fetchone()
+        # 중위 매매가
+        med = c.execute(
+            f"SELECT deal_amount FROM rh_transactions WHERE {' AND '.join(w_tx)} "
+            f"AND deal_amount>0 ORDER BY deal_amount LIMIT 1 "
+            f"OFFSET (SELECT COUNT(*) FROM rh_transactions WHERE {' AND '.join(w_tx)} AND deal_amount>0)/2",
+            [cutoff] + rp + [cutoff] + rp).fetchone()
+        js = c.execute(
+            f"SELECT COUNT(*), CAST(AVG(deposit) AS INT) FROM rh_rentals "
+            f"WHERE monthly_rent=0 AND {' AND '.join(w_rt)}", [cutoff] + rp).fetchone()
+        ws = c.execute(
+            f"SELECT COUNT(*), CAST(AVG(deposit) AS INT), CAST(AVG(monthly_rent) AS INT) "
+            f"FROM rh_rentals WHERE monthly_rent>0 AND {' AND '.join(w_rt)}", [cutoff] + rp).fetchone()
+    if not (tx[0] or js[0] or ws[0]):
+        return None
+    return {"window": "최근 12개월", "sale": {"n": tx[0], "avg": tx[1], "median": med[0] if med else None,
+                                              "avg_pyeong": tx[2]},
+            "jeonse": {"n": js[0], "avg_deposit": js[1]},
+            "wolse": {"n": ws[0], "avg_deposit": ws[1], "avg_rent": ws[2]}}
 
 
 @app.get("/stats/nearest-dong")

@@ -15,7 +15,8 @@ const CATS = [
 ];
 
 type TradeRow = { trade: string; n: number; avg_price: number | null; avg_rent?: number | null; avg_pyeong?: number | null; avg_area_m2: number | null };
-type Resp = { cat: string; label: string; cortar: string; region_name: string | null; total: number; by_trade: TradeRow[]; top_buildings: { name: string; n: number }[]; source: string; available?: boolean };
+type RealPrice = { window: string; sale: { n: number; avg: number | null; median: number | null; avg_pyeong: number | null }; jeonse: { n: number; avg_deposit: number | null }; wolse: { n: number; avg_deposit: number | null; avg_rent: number | null } } | null;
+type Resp = { cat: string; label: string; cortar: string; region_name: string | null; total: number; by_trade: TradeRow[]; top_buildings: { name: string; n: number }[]; source: string; available?: boolean; realprice?: RealPrice };
 
 function won(v: number | null | undefined): string {
   if (!v) return "-";
@@ -87,6 +88,30 @@ export default function NonResi() {
               </div>
             ))}
           </div>
+          {data.realprice && (
+            <>
+              <div className="ats-section" style={{ marginTop: 18 }}>
+                실거래 시세 <span className="nr-rp-tag">실거래 · {data.realprice.window}</span>
+              </div>
+              <div className="nr-cards">
+                <div className="nr-card nr-rp">
+                  <div className="nr-card-h">매매 <span>{data.realprice.sale.n.toLocaleString()}건</span></div>
+                  <div className="nr-card-v"><b>{won(data.realprice.sale.avg)}</b></div>
+                  <div className="nr-card-m">중위 {won(data.realprice.sale.median)} · 평당 {won(data.realprice.sale.avg_pyeong)}</div>
+                </div>
+                <div className="nr-card nr-rp">
+                  <div className="nr-card-h">전세 <span>{data.realprice.jeonse.n.toLocaleString()}건</span></div>
+                  <div className="nr-card-v"><b>{won(data.realprice.jeonse.avg_deposit)}</b></div>
+                  <div className="nr-card-m">평균 보증금</div>
+                </div>
+                <div className="nr-card nr-rp">
+                  <div className="nr-card-h">월세 <span>{data.realprice.wolse.n.toLocaleString()}건</span></div>
+                  <div className="nr-card-v">보증 <b>{won(data.realprice.wolse.avg_deposit)}</b> / 월 <b>{won(data.realprice.wolse.avg_rent)}</b></div>
+                  <div className="nr-card-m">평균</div>
+                </div>
+              </div>
+            </>
+          )}
           {data.total === 0 && <div className="dong-empty">이 지역 {data.label} 매물이 없어요. 지역을 바꿔보세요.</div>}
           {data.top_buildings.length > 0 && data.total > 0 && (
             <>
