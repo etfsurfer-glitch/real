@@ -285,6 +285,53 @@ CREATE TABLE IF NOT EXISTS rh_rentals (
 );
 CREATE INDEX IF NOT EXISTS rh_rent_sgg_ymd_idx ON rh_rentals(sgg_cd, deal_ymd);
 CREATE INDEX IF NOT EXISTS rh_rent_ymd_idx     ON rh_rentals(deal_ymd DESC);
+
+-- 비단지: 단독/다가구 매매(동 단위·지번 마스킹). 연면적/대지면적 → 토지가치 관점.
+CREATE TABLE IF NOT EXISTS sh_transactions (
+    deal_id      TEXT PRIMARY KEY,
+    deal_ymd     TEXT NOT NULL, deal_year INTEGER, deal_month INTEGER, deal_day INTEGER,
+    deal_amount  INTEGER NOT NULL,          -- 매매가(원)
+    sgg_cd       TEXT, umd_nm TEXT,
+    house_type   TEXT,                       -- 단독/다가구
+    total_floor_ar REAL, plottage_ar REAL,   -- 연면적/대지면적(㎡)
+    build_year   INTEGER, dealing_gbn TEXT, buyer_gbn TEXT, sler_gbn TEXT,
+    is_cancelled INTEGER NOT NULL DEFAULT 0, cancel_date TEXT,
+    raw          TEXT, inserted_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS sh_tx_sgg_ymd_idx ON sh_transactions(sgg_cd, deal_ymd);
+CREATE INDEX IF NOT EXISTS sh_tx_ymd_idx     ON sh_transactions(deal_ymd DESC);
+
+-- 비단지: 단독/다가구 전월세.
+CREATE TABLE IF NOT EXISTS sh_rentals (
+    deal_id      TEXT PRIMARY KEY,
+    deal_ymd     TEXT NOT NULL, deal_year INTEGER, deal_month INTEGER, deal_day INTEGER,
+    deposit      INTEGER, monthly_rent INTEGER,
+    sgg_cd       TEXT, umd_nm TEXT, house_type TEXT,
+    total_floor_ar REAL, build_year INTEGER,
+    contract_type TEXT, contract_term TEXT, use_rr_right TEXT,
+    pre_deposit  INTEGER, pre_monthly_rent INTEGER,
+    raw          TEXT, inserted_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS sh_rent_sgg_ymd_idx ON sh_rentals(sgg_cd, deal_ymd);
+CREATE INDEX IF NOT EXISTS sh_rent_ymd_idx     ON sh_rentals(deal_ymd DESC);
+
+-- 비단지: 상업업무용(상가·사무실) 매매. 지번+건물용도(building_use)+용도지역(land_use)+층. 매매만.
+CREATE TABLE IF NOT EXISTS nrg_transactions (
+    deal_id      TEXT PRIMARY KEY,
+    deal_ymd     TEXT NOT NULL, deal_year INTEGER, deal_month INTEGER, deal_day INTEGER,
+    deal_amount  INTEGER NOT NULL,          -- 매매가(원)
+    sgg_cd       TEXT, umd_nm TEXT, jibun TEXT,
+    building_use TEXT,                       -- 판매/업무/제1·2종근린생활시설 등
+    building_type TEXT,                      -- 집합/일반
+    land_use     TEXT,                       -- 용도지역(제2종일반주거 등)
+    building_ar  REAL, plottage_ar REAL, floor INTEGER, build_year INTEGER,
+    dealing_gbn  TEXT, buyer_gbn TEXT, sler_gbn TEXT,
+    is_cancelled INTEGER NOT NULL DEFAULT 0, cancel_date TEXT,
+    raw          TEXT, inserted_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS nrg_tx_sgg_ymd_idx ON nrg_transactions(sgg_cd, deal_ymd);
+CREATE INDEX IF NOT EXISTS nrg_tx_use_idx     ON nrg_transactions(sgg_cd, building_use, deal_ymd);
+CREATE INDEX IF NOT EXISTS nrg_tx_ymd_idx     ON nrg_transactions(deal_ymd DESC);
 """
 
 _LOCK = threading.Lock()
@@ -934,6 +981,146 @@ def upsert_rh_rentals(conn: sqlite3.Connection, items: Iterable[dict]) -> dict:
             "contract_type,contract_term,use_rr_right,pre_deposit,pre_monthly_rent,raw) "
             "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(deal_id) DO UPDATE SET raw=excluded.raw", rows)
+        conn.commit()
+    counts["inserted"] = len(rows)
+    return counts
+
+
+def make_sh_deal_id(tx: dict) -> str:
+    h = hashlib.sha1()
+    for key in ("sggCd", "dealYear", "dealMonth", "dealDay", "umdNm", "houseType",
+                "totalFloorAr", "plottageAr", "buildYear", "dealAmount"):
+        h.update((tx.get(key) or "").encode("utf-8"))
+        h.update(b"|")
+    return h.hexdigest()[:24]
+
+
+def upsert_sh_transactions(conn: sqlite3.Connection, items: Iterable[dict]) -> dict:
+    """단독/다가구 매매 — 동 단위. 연면적/대지면적 보존. 해제·이중신고 처리."""
+    counts = {"inserted": 0}
+    rows, seen = [], {}
+    for tx in items:
+        base = make_sh_deal_id(tx)
+        occ = seen.get(base, 0); seen[base] = occ + 1
+        did = base if occ == 0 else f"{base}_{occ}"
+        ymd, y, m, d = _ymd(tx)
+        amount = _coerce_amount_won(tx.get("dealAmount"))
+        if amount is None or not ymd:
+            continue
+        is_cancelled, cancel_date = _cancel_state(tx)
+        rows.append((
+            did, ymd, y, m, d, amount,
+            (tx.get("sggCd") or "").strip() or None, (tx.get("umdNm") or "").strip() or None,
+            (tx.get("houseType") or "").strip() or None,
+            _coerce_float(tx.get("totalFloorAr")), _coerce_float(tx.get("plottageAr")),
+            _coerce_int(tx.get("buildYear")),
+            (tx.get("dealingGbn") or "").strip() or None, (tx.get("buyerGbn") or "").strip() or None,
+            (tx.get("slerGbn") or "").strip() or None, is_cancelled, cancel_date,
+            json.dumps(tx, ensure_ascii=False),
+        ))
+    if not rows:
+        return counts
+    with _LOCK:
+        conn.executemany(
+            "INSERT INTO sh_transactions(deal_id,deal_ymd,deal_year,deal_month,deal_day,deal_amount,"
+            "sgg_cd,umd_nm,house_type,total_floor_ar,plottage_ar,build_year,"
+            "dealing_gbn,buyer_gbn,sler_gbn,is_cancelled,cancel_date,raw) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(deal_id) DO UPDATE SET is_cancelled=excluded.is_cancelled,"
+            "cancel_date=excluded.cancel_date,raw=excluded.raw", rows)
+        conn.commit()
+    counts["inserted"] = len(rows)
+    return counts
+
+
+def make_sh_rental_id(tx: dict) -> str:
+    h = hashlib.sha1()
+    for key in ("sggCd", "dealYear", "dealMonth", "dealDay", "umdNm", "houseType",
+                "totalFloorAr", "buildYear", "deposit", "monthlyRent"):
+        h.update((tx.get(key) or "").encode("utf-8"))
+        h.update(b"|")
+    return h.hexdigest()[:24]
+
+
+def upsert_sh_rentals(conn: sqlite3.Connection, items: Iterable[dict]) -> dict:
+    """단독/다가구 전월세."""
+    counts = {"inserted": 0}
+    rows, seen = [], {}
+    for tx in items:
+        base = make_sh_rental_id(tx)
+        occ = seen.get(base, 0); seen[base] = occ + 1
+        did = base if occ == 0 else f"{base}_{occ}"
+        ymd, y, m, d = _ymd(tx)
+        deposit = _coerce_amount_won(tx.get("deposit"))
+        if deposit is None or not ymd:
+            continue
+        rows.append((
+            did, ymd, y, m, d, deposit, _coerce_amount_won(tx.get("monthlyRent")) or 0,
+            (tx.get("sggCd") or "").strip() or None, (tx.get("umdNm") or "").strip() or None,
+            (tx.get("houseType") or "").strip() or None,
+            _coerce_float(tx.get("totalFloorAr")), _coerce_int(tx.get("buildYear")),
+            (tx.get("contractType") or "").strip() or None, (tx.get("contractTerm") or "").strip() or None,
+            (tx.get("useRRRight") or "").strip() or None,
+            _coerce_amount_won(tx.get("preDeposit")), _coerce_amount_won(tx.get("preMonthlyRent")),
+            json.dumps(tx, ensure_ascii=False),
+        ))
+    if not rows:
+        return counts
+    with _LOCK:
+        conn.executemany(
+            "INSERT INTO sh_rentals(deal_id,deal_ymd,deal_year,deal_month,deal_day,deposit,monthly_rent,"
+            "sgg_cd,umd_nm,house_type,total_floor_ar,build_year,"
+            "contract_type,contract_term,use_rr_right,pre_deposit,pre_monthly_rent,raw) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(deal_id) DO UPDATE SET raw=excluded.raw", rows)
+        conn.commit()
+    counts["inserted"] = len(rows)
+    return counts
+
+
+def make_nrg_deal_id(tx: dict) -> str:
+    h = hashlib.sha1()
+    for key in ("sggCd", "dealYear", "dealMonth", "dealDay", "umdNm", "jibun",
+                "buildingUse", "floor", "buildingAr", "dealAmount"):
+        h.update((tx.get(key) or "").encode("utf-8"))
+        h.update(b"|")
+    return h.hexdigest()[:24]
+
+
+def upsert_nrg_transactions(conn: sqlite3.Connection, items: Iterable[dict]) -> dict:
+    """상업업무용(상가·사무실) 매매 — 지번+용도+층. 해제·이중신고 처리."""
+    counts = {"inserted": 0}
+    rows, seen = [], {}
+    for tx in items:
+        base = make_nrg_deal_id(tx)
+        occ = seen.get(base, 0); seen[base] = occ + 1
+        did = base if occ == 0 else f"{base}_{occ}"
+        ymd, y, m, d = _ymd(tx)
+        amount = _coerce_amount_won(tx.get("dealAmount"))
+        if amount is None or not ymd:
+            continue
+        is_cancelled, cancel_date = _cancel_state(tx)
+        rows.append((
+            did, ymd, y, m, d, amount,
+            (tx.get("sggCd") or "").strip() or None, (tx.get("umdNm") or "").strip() or None,
+            (tx.get("jibun") or "").strip() or None, (tx.get("buildingUse") or "").strip() or None,
+            (tx.get("buildingType") or "").strip() or None, (tx.get("landUse") or "").strip() or None,
+            _coerce_float(tx.get("buildingAr")), _coerce_float(tx.get("plottageAr")),
+            _coerce_int(tx.get("floor")), _coerce_int(tx.get("buildYear")),
+            (tx.get("dealingGbn") or "").strip() or None, (tx.get("buyerGbn") or "").strip() or None,
+            (tx.get("slerGbn") or "").strip() or None, is_cancelled, cancel_date,
+            json.dumps(tx, ensure_ascii=False),
+        ))
+    if not rows:
+        return counts
+    with _LOCK:
+        conn.executemany(
+            "INSERT INTO nrg_transactions(deal_id,deal_ymd,deal_year,deal_month,deal_day,deal_amount,"
+            "sgg_cd,umd_nm,jibun,building_use,building_type,land_use,building_ar,plottage_ar,floor,build_year,"
+            "dealing_gbn,buyer_gbn,sler_gbn,is_cancelled,cancel_date,raw) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(deal_id) DO UPDATE SET is_cancelled=excluded.is_cancelled,"
+            "cancel_date=excluded.cancel_date,raw=excluded.raw", rows)
         conn.commit()
     counts["inserted"] = len(rows)
     return counts

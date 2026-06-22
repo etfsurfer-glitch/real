@@ -37,6 +37,17 @@ ENDPOINT_RH_TRADE = (
 ENDPOINT_RH_RENT = (
     "https://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent"
 )
+# 비단지: 단독/다가구 매매·전월세(동 단위·연면적/대지면적). 지번 마스킹 → 토지가치 관점.
+ENDPOINT_SH_TRADE = (
+    "https://apis.data.go.kr/1613000/RTMSDataSvcSHTrade/getRTMSDataSvcSHTrade"
+)
+ENDPOINT_SH_RENT = (
+    "https://apis.data.go.kr/1613000/RTMSDataSvcSHRent/getRTMSDataSvcSHRent"
+)
+# 비단지: 상업업무용(상가·사무실) 매매. 지번+건물용도(buildingUse)+용도지역. 매매만(임대 실거래 없음).
+ENDPOINT_NRG_TRADE = (
+    "https://apis.data.go.kr/1613000/RTMSDataSvcNrgTrade/getRTMSDataSvcNrgTrade"
+)
 
 
 class APIError(RuntimeError):
