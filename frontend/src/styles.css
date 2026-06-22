@@ -2288,3 +2288,34 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 @media(max-width:560px){.nr-cards{grid-template-columns:1fr}}
 .nr-rp-tag{font-size:10.5px;font-weight:700;color:#0a7d4f;background:#e6f7ef;border-radius:6px;padding:2px 7px;margin-left:6px;vertical-align:middle}
 .nr-card.nr-rp{border-color:#bce8d3;background:#f4fcf8}
+
+/* 비단지 실거래 후크 */
+.nr-yield{margin-top:8px;font-size:13px;color:#0a5c3a;background:#eefaf3;border-radius:9px;padding:9px 13px}
+.nr-yield b{font-size:15px}
+.nr-jeonse{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px}
+.nr-j-stat{background:#fff;border:1px solid #e6eaf0;border-radius:12px;padding:12px;text-align:center}
+.nr-j-stat span{display:block;font-size:11.5px;color:#8a97a8;margin-bottom:4px}
+.nr-j-stat b{font-size:20px;font-weight:800;color:#13294b}
+.nr-j-stat b.danger{color:#d4332b}
+.nr-risky{margin-top:10px;background:#fff;border:1px solid #f0d9d7;border-radius:12px;overflow:hidden}
+.nr-risky-h{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#c0392b;background:#fdf3f2;padding:8px 12px}
+.nr-risky-row{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid #f4f6f9;font-size:12.5px}
+.nr-risky-b{flex:1;color:#33425a;font-weight:600}
+.nr-risky-b em{color:#9aa7b8;font-style:normal;font-weight:400;font-size:11px}
+.nr-risky-d{color:#8a97a8;font-size:11.5px}
+.nr-risky-r{font-weight:800;color:#e08a00;min-width:48px;text-align:right}
+.nr-risky-r.danger{color:#d4332b}
+.nr-deal-bar{display:flex;gap:8px;align-items:center;margin:6px 0 10px;flex-wrap:wrap}
+.nr-deal-bar select,.nr-deal-bar input{border:1px solid #d4dbe6;border-radius:8px;padding:7px 10px;font-size:12.5px}
+.nr-deal-bar input{flex:1;min-width:120px}
+.nr-seg{display:inline-flex;border:1px solid #d4dbe6;border-radius:8px;overflow:hidden}
+.nr-seg button{border:0;background:#fff;color:#5a6b80;font-size:12.5px;font-weight:700;padding:7px 14px;cursor:pointer}
+.nr-seg button.on{background:#13294b;color:#fff}
+.nr-deals{display:flex;flex-direction:column;gap:1px;background:#eef1f5;border-radius:12px;overflow:hidden}
+.nr-deal{display:flex;align-items:center;gap:10px;background:#fff;padding:11px 13px}
+.nr-deal-l{flex:1;min-width:0}
+.nr-deal-b{font-size:13.5px;font-weight:700;color:#1c2c44;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nr-deal-s{font-size:11px;color:#9aa7b8;margin-top:2px}
+.nr-deal-r{text-align:right;white-space:nowrap}
+.nr-deal-r b{font-size:14px;font-weight:800;color:#13294b}
+.nr-deal-py{display:block;font-size:10.5px;color:#9aa7b8;margin-top:1px}
