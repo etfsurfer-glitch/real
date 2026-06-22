@@ -1261,6 +1261,63 @@ def realtors_by_tenure(limit: int = 20, region: str = ""):
     return out
 
 
+_NONRESI_DB = {"sangga": "listings_sangga.sqlite", "office": "listings_office.sqlite",
+               "villa": "listings_villa.sqlite", "house": "listings_house.sqlite"}
+_NONRESI_LABEL = {"sangga": "상가", "office": "사무실", "villa": "빌라·연립", "house": "단독·다가구"}
+
+
+@app.get("/stats/nonresi")
+def nonresi_stats(cat: str, cortar: str = "", trade: str = ""):
+    """비단지(상가·사무실·빌라·단독) 호가 통계 — 지역×거래유형별 건수·평균 보증/월세/매매·평당·면적.
+    cat: sangga|office|villa|house. cortar: 동(10)/구(5) 접두. trade: A1/B1/B2. (호가 기준, 실거래 아님)"""
+    if cat not in _NONRESI_DB:
+        raise HTTPException(400, "cat must be sangga|office|villa|house")
+    path = DB_PATH.parent / _NONRESI_DB[cat]
+    if not path.exists():
+        return {"cat": cat, "available": False, "by_trade": [], "total": 0}
+    region_name = None
+    if cortar:
+        with _open_db() as mc:
+            r = mc.execute("SELECT cortar_name FROM regions WHERE cortar_no=? OR "
+                           "(cortar_type='dvsn' AND substr(cortar_no,1,5)=?) ORDER BY length(cortar_no) DESC LIMIT 1",
+                           (cortar, cortar)).fetchone()
+            region_name = r[0] if r else None
+    where, params = [], []
+    if cortar:
+        where.append("substr(cortar_no,1,?)=?"); params += [len(cortar), cortar]
+    if trade in ("A1", "B1", "B2"):
+        where.append("trade_type=?"); params.append(trade)
+    wsql = ("WHERE " + " AND ".join(where)) if where else ""
+    tt = {"A1": "매매", "B1": "전세", "B2": "월세"}
+    M = 10000  # 만원→원
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as c:
+        rows = c.execute(
+            f"SELECT trade_type, COUNT(*), AVG(deal_or_warrant_price), AVG(rent_price), "
+            f"AVG(area1_m2), AVG(NULLIF(deal_or_warrant_price,0)/NULLIF(area1_m2,0)) "
+            f"FROM listings {wsql} GROUP BY trade_type", params).fetchall()
+        by_trade = []
+        for t, n, dp, rp, ar, ppm in rows:
+            d = {"trade": tt.get(t, t), "n": n,
+                 "avg_price": int((dp or 0) * M) or None,
+                 "avg_area_m2": round(ar) if ar else None}
+            if t == "B2":
+                d["avg_rent"] = int((rp or 0) * M) or None
+            if t == "A1" and ppm:           # 매매 평당가(㎡당×3.3058)
+                d["avg_pyeong"] = int(ppm * 3.3058 * M)
+            by_trade.append(d)
+        total = sum(x["n"] for x in by_trade)
+        # 건물(상가·빌라)·지역 top — 매물 많은 곳
+        tops = c.execute(
+            f"SELECT COALESCE(NULLIF(building_name,''),'(기타)'), COUNT(*) n FROM listings {wsql} "
+            f"GROUP BY building_name ORDER BY n DESC LIMIT 8", params).fetchall()
+    order = {"매매": 0, "전세": 1, "월세": 2}
+    by_trade.sort(key=lambda x: order.get(x["trade"], 9))
+    return {"cat": cat, "label": _NONRESI_LABEL[cat], "cortar": cortar,
+            "region_name": region_name, "total": total, "by_trade": by_trade,
+            "top_buildings": [{"name": b, "n": n} for b, n in tops],
+            "source": "호가"}
+
+
 @app.get("/stats/nearest-dong")
 def nearest_dong(lat: float, lng: float):
     """접속 위치(위경도) → 가장 가까운 동(cortar_no). 우리동네 기본값용. 가장 가까운 단지의 동."""

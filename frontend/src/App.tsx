@@ -32,6 +32,7 @@ import AdminRealtorRequests from "./pages/AdminRealtorRequests";
 import AdminDataSources from "./pages/AdminDataSources";
 import AdminPush from "./pages/AdminPush";
 import AdminTodayStats from "./pages/AdminTodayStats";
+import NonResi from "./pages/NonResi";
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
 import PresaleTx from "./pages/PresaleTx";
@@ -296,6 +297,8 @@ function AppShell() {
         <Route path="/admin/data-sources" element={<RequireAdmin><AdminDataSources /></RequireAdmin>} />
         <Route path="/admin/push" element={<RequireAdmin><AdminPush /></RequireAdmin>} />
         <Route path="/admin/today" element={<RequireAdmin><AdminTodayStats /></RequireAdmin>} />
+        <Route path="/nonresi/:cat" element={<NonResi />} />
+        <Route path="/nonresi" element={<NonResi />} />
         <Route path="/tx-stats" element={<TxStatsLayout />}>
           <Route index element={<Navigate to="region-pulse" replace />} />
           <Route path="region-pulse" element={<TxRegionPulse />} />

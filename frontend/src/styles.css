@@ -2272,3 +2272,17 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .ats-path-p{color:#33425a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,monospace}
 .ats-path-n{font-weight:800;color:#13294b}
 @media(max-width:560px){.ats-cards{grid-template-columns:repeat(2,1fr)}}
+
+/* 비단지(상가·빌라·사무실) 시세 — 숨김 페이지 */
+.nr-cats{display:flex;gap:6px;flex-wrap:wrap}
+.nr-cats button{display:inline-flex;align-items:center;gap:5px;border:1px solid #d4dbe6;background:#fff;color:#46566b;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer}
+.nr-cats button.on{background:#13294b;color:#fff;border-color:#13294b}
+.nr-total{margin:14px 0 8px;font-size:13.5px;color:#33425a;background:#f5f8fc;border-radius:9px;padding:9px 13px}
+.nr-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.nr-card{background:#fff;border:1px solid #e6eaf0;border-radius:13px;padding:13px}
+.nr-card-h{font-size:12.5px;font-weight:700;color:#5a6b80;display:flex;justify-content:space-between;margin-bottom:6px}
+.nr-card-h span{color:#9aa7b8;font-weight:600}
+.nr-card-v{font-size:17px;font-weight:800;color:#13294b}
+.nr-card-v b{font-weight:800}
+.nr-card-m{font-size:11px;color:#9aa7b8;margin-top:4px}
+@media(max-width:560px){.nr-cards{grid-template-columns:1fr}}
