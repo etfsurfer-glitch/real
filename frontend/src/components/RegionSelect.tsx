@@ -10,10 +10,13 @@ export function useRegionFilter() {
   const [sidos, setSidos] = useState<Region[]>([]);
   const [sigungus, setSigungus] = useState<Region[]>([]);
   const [dongs, setDongs] = useState<Region[]>([]);
+  // 초기값: URL 쿼리 > localStorage(마지막 선택 기억) > 빈값. 뒤로가기·재접속 시 지역 복원.
   const init = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const [sido, setSidoRaw] = useState(() => init.get("sido") || "");
-  const [sigungu, setSigunguRaw] = useState(() => init.get("sigungu") || "");
-  const [dong, setDongRaw] = useState(() => init.get("dong") || "");
+  const _ls = (k: string) => { try { return window.localStorage.getItem("koczip:region:" + k) || ""; } catch { return ""; } };
+  const _save = (k: string, v: string) => { try { window.localStorage.setItem("koczip:region:" + k, v); } catch { /* ignore */ } };
+  const [sido, setSidoRaw] = useState(() => init.get("sido") || _ls("sido"));
+  const [sigungu, setSigunguRaw] = useState(() => init.get("sigungu") || _ls("sigungu"));
+  const [dong, setDongRaw] = useState(() => init.get("dong") || _ls("dong"));
 
   useEffect(() => {
     if (!API_BASE) return;
@@ -34,10 +37,10 @@ export function useRegionFilter() {
       .catch(() => setDongs([]));
   }, [sigungu]);
 
-  // 사용자가 상위를 바꾸면 하위 초기화 (URL 복원·목록로딩 effect는 건드리지 않음).
-  const setSido = (v: string) => { setSidoRaw(v); setSigunguRaw(""); setDongRaw(""); };
-  const setSigungu = (v: string) => { setSigunguRaw(v); setDongRaw(""); };
-  const setDong = setDongRaw;
+  // 사용자가 상위를 바꾸면 하위 초기화 + localStorage 저장(마지막 선택 기억).
+  const setSido = (v: string) => { setSidoRaw(v); setSigunguRaw(""); setDongRaw(""); _save("sido", v); _save("sigungu", ""); _save("dong", ""); };
+  const setSigungu = (v: string) => { setSigunguRaw(v); setDongRaw(""); _save("sigungu", v); _save("dong", ""); };
+  const setDong = (v: string) => { setDongRaw(v); _save("dong", v); };
 
   const query = dong
     ? `&dong=${dong}`

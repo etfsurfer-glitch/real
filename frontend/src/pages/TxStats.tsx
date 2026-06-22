@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useStickyState } from "../hooks/useStickyState";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { Loading } from "../components/Loading";
 import ShareBar from "../components/ShareBar";
@@ -76,11 +77,12 @@ type VolumeItem = {
 };
 
 function useFilters() {
-  const [days, setDays] = useState<number>(30);
-  const [trade, setTrade] = useState<"A1" | "B1" | "B2">("A1");
-  const [asset, setAsset] = useState<"all" | "apt" | "offi">("all");
-  const [dealing, setDealing] = useState<"all" | "broker" | "direct">("all");
-  const [areaClass, setAreaClass] = useState<AreaClass>("all");
+  // sticky — 뒤로가기·재접속 시 마지막 필터 복원
+  const [days, setDays] = useStickyState<number>("txstats:days", 30);
+  const [trade, setTrade] = useStickyState<"A1" | "B1" | "B2">("txstats:trade", "A1");
+  const [asset, setAsset] = useStickyState<"all" | "apt" | "offi">("txstats:asset", "all");
+  const [dealing, setDealing] = useStickyState<"all" | "broker" | "direct">("txstats:dealing", "all");
+  const [areaClass, setAreaClass] = useStickyState<AreaClass>("txstats:areaClass", "all");
   return { days, setDays, trade, setTrade, asset, setAsset, dealing, setDealing, areaClass, setAreaClass };
 }
 

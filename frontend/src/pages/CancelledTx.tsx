@@ -1,4 +1,5 @@
 import { useEffect, useState, CSSProperties } from "react";
+import { useStickyState } from "../hooks/useStickyState";
 import { Link } from "react-router-dom";
 import { Loading } from "../components/Loading";
 import { ApplyButton } from "../hooks/useDeferredUrl";
@@ -69,10 +70,10 @@ function formatWon(v: number | null | undefined): string {
 }
 
 export default function CancelledTx() {
-  const [asset, setAsset] = useState<"apt" | "offi" | "all">("apt");
+  const [asset, setAsset] = useStickyState<"apt" | "offi" | "all">("cancelled:asset", "apt");
   const [dealing, setDealing] = useState<"" | "중개거래" | "직거래">("");
   const [sido, setSido] = useState<string>("");
-  const [months, setMonths] = useState<number>(3);
+  const [months, setMonths] = useStickyState<number>("cancelled:months", 3);
   const [offset, setOffset] = useState(0);
   // 필터 즉시 호출 방지 — '적용' 눌러야 fetch (applied 스냅샷 기준으로만 조회).
   const [applied, setApplied] = useState({ asset, dealing, sido, months });

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useStickyState } from "../hooks/useStickyState";
 import ShareBar from "../components/ShareBar";
 import { Link, Outlet, useOutletContext, useLocation } from "react-router-dom";
 import { SubNav } from "../components/SubNav";
@@ -321,7 +322,7 @@ function RegionRank({ region, asset, trade }: { region: RegionFilter; asset: str
   const defaultLevel: "sido" | "sigungu" | "dong" =
     region.sigungu ? "dong" : region.sido ? "sigungu" : "sido";
   const [level, setLevel] = useState<"sido" | "sigungu" | "dong">(defaultLevel);
-  const [areaClass, setAreaClass] = useState<AreaClass>("all");
+  const [areaClass, setAreaClass] = useStickyState<AreaClass>("changes:areaClass", "all");
   // 로컬필터(단위·면적)는 '적용' 으로만 갱신. 지역/거래/유형은 상단(레이아웃) 적용분이 props 로 들어옴.
   const [applied, setApplied] = useState<{ level: "sido" | "sigungu" | "dong"; area: AreaClass }>(
     { level: defaultLevel, area: "all" });

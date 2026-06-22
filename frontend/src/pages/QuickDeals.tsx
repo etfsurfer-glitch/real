@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useStickyState } from "../hooks/useStickyState";
 import { Link } from "react-router-dom";
 import ShareBar from "../components/ShareBar";
 import { AlertTriangle } from "lucide-react";
@@ -55,14 +56,18 @@ type DealGroup = {
 
 export default function QuickDeals() {
   const shareRef = useRef<HTMLDivElement>(null);
-  const [tradeType, setTradeType] = useState<"A1" | "B1">("A1");
-  const [pyeong, setPyeong] = useState<string>("");  // "" | "10" | "20" | "30" | "40" | "50"
-  // 우리동네 '급매 더보기'에서 넘어올 때 URL 쿼리로 지역 복원 (이 페이지는 시군구 단위 캐시 설계라 동은 미사용).
+  const [tradeType, setTradeType] = useStickyState<"A1" | "B1">("quickdeals:trade", "A1");
+  const [pyeong, setPyeong] = useStickyState<string>("quickdeals:pyeong", "");  // "" | "10" | "20" | "30" | "40" | "50"
+  // 지역: URL 쿼리(우리동네 '급매 더보기') > localStorage(마지막 선택) > 빈값. 뒤로가기·재접속 복원.
   const initRegion = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const [sido, setSido] = useState<string>(() => initRegion.get("sido") || "");
-  const [sigungu, setSigungu] = useState<string>(() => initRegion.get("sigungu") || "");
-  const [minDiscount, setMinDiscount] = useState<number>(0.05);
-  const [days, setDays] = useState<number>(90);
+  const _rls = (k: string) => { try { return window.localStorage.getItem("koczip:region:" + k) || ""; } catch { return ""; } };
+  const _rsave = (k: string, v: string) => { try { window.localStorage.setItem("koczip:region:" + k, v); } catch { /* ignore */ } };
+  const [sido, setSidoRaw] = useState<string>(() => initRegion.get("sido") || _rls("sido"));
+  const [sigungu, setSigunguRaw] = useState<string>(() => initRegion.get("sigungu") || _rls("sigungu"));
+  const setSido = (v: string) => { setSidoRaw(v); setSigunguRaw(""); _rsave("sido", v); _rsave("sigungu", ""); _rsave("dong", ""); };
+  const setSigungu = (v: string) => { setSigunguRaw(v); _rsave("sigungu", v); _rsave("dong", ""); };
+  const [minDiscount, setMinDiscount] = useStickyState<number>("quickdeals:minDiscount", 0.05);
+  const [days, setDays] = useStickyState<number>("quickdeals:days", 90);
 
   // 시도 목록
   const sidoQ = useFetchJson<{ items: Sido[] }>(

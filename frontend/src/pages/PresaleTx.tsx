@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useStickyState } from "../hooks/useStickyState";
 import { Link } from "react-router-dom";
 import { Loading } from "../components/Loading";
 import { ApplyButton } from "../hooks/useDeferredUrl";
@@ -50,7 +51,7 @@ function formatWon(v: number | null | undefined): string {
 export default function PresaleTx() {
   const [kind, setKind] = useState<"" | "분양권" | "입주권">("");
   const [sido, setSido] = useState<string>("");
-  const [months, setMonths] = useState<number>(6);
+  const [months, setMonths] = useStickyState<number>("presale:months", 6);
   const [offset, setOffset] = useState(0);
   const [applied, setApplied] = useState({ kind, sido, months });
   const dirty = applied.kind !== kind || applied.sido !== sido || applied.months !== months;
