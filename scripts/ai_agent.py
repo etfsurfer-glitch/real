@@ -11,6 +11,7 @@
 `from __future__ import annotations` 를 쓰면 안 된다(힌트가 문자열이 되어 깨짐).
 """
 import os
+import time
 from functools import lru_cache
 from pathlib import Path
 import sqlite3
@@ -84,8 +85,10 @@ SYSTEM_PROMPT = (
     "개별 실거래 한 건씩의 목록을 뽑는 도구는 없으므로, 위 ①②③로 그 지역의 실거래 활동을 구체적으로 설명하고, "
     "특정 단지의 실거래 이력은 get_complex_info(단지명)로 볼 수 있다고 안내하라. "
     "특정 월(예: 6월)을 콕 집으면, 데이터는 그 달을 포함한 최신까지 있으니 '6월 거래는 이렇다'고 ① 기준으로 답한다.\n"
-    "11) [지역 vs 전국 순위 — 도구 선택 매우 중요] rank_complexes 에서 거래량·평당가·갭·회전율·저평가(회복률)는 "
+    "11) [지역 vs 전국 순위 — 도구 선택 매우 중요] rank_complexes 에서 거래량·평당가·갭·회전율·저평가(회복률)·수익률는 "
     "region 을 주면 그 지역만 집계하니 지역 질문에 그대로 써라(예: '강남구 거래량'·'대전 평당가'). "
+    "★지역을 안 주면 region 생략하고 **전국으로 즉시 호출**하라 — '저평가 단지', '갭투자 좋은 단지', '회전율 높은 단지', "
+    "'수익률 높은 단지'처럼 지역 없는 순위질문에 **절대 '어느 지역이요?'라고 되묻지 마라**(rank_complexes를 전국으로 바로 호출). "
     "반면 최고가·전세가율·저가거래·호가갭은 '전국 순위' 전용이라 특정 지역은 빈손이 날 수 있으니 이렇게 라우팅하라: "
     "▸특정 지역의 '비싼/싼/가격대 아파트'(예: '제주 비싼 아파트', '대전 싼 아파트') → find_apartments(region=지역, sort) 로 답하고 "
     "rank_complexes(최고가)는 쓰지 마라. "
@@ -1128,7 +1131,20 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
         role = "model" if h.get("role") == "model" else "user"
         contents.append(types.Content(role=role, parts=[types.Part.from_text(text=txt)]))
     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=question)]))
-    resp = client.models.generate_content(model=MODEL, contents=contents, config=cfg)
+    # 일시 과부하(503)·쿼터(429)는 짧게 재시도 — 답변 누락 방지.
+    resp = None
+    for _attempt in range(3):
+        try:
+            resp = client.models.generate_content(model=MODEL, contents=contents, config=cfg)
+            break
+        except Exception as e:  # noqa: BLE001
+            code = getattr(e, "code", None) or 0
+            msg = str(e)
+            transient = code in (429, 503) or "UNAVAILABLE" in msg or "overloaded" in msg or "RESOURCE_EXHAUSTED" in msg
+            if transient and _attempt < 2:
+                time.sleep(1.2 * (_attempt + 1))
+                continue
+            raise
 
     # 어떤 도구를 어떤 인자로 호출했는지 추적
     trace = []
