@@ -737,12 +737,21 @@ def region_market_pulse(region: str = "") -> dict:
             "최근3년평균": it.get("avg3y_cur_actual"), "이번달_예측": it.get("current_month_pred"),
         }
 
+    note = None
     if reg:
         m = [it for it in items if it["region_code"] == reg["sido_code"]]
         data = [row(it) for it in m] or [{"note": f"{reg['sido']} 데이터 없음"}]
+        # 구·동을 물었어도 이 수치는 시도 전체다 → 모델이 '강남구 N건'으로 오기재하지 않도록 명시.
+        if reg.get("sigungu") or reg.get("dong"):
+            note = (f"이 거래량은 '{reg.get('sigungu') or reg.get('dong')}'가 아니라 "
+                    f"**{reg['sido']} 전체(시도)** 기준입니다. 구·동 단위 거래량은 미지원이니 "
+                    f"답변에 반드시 '{reg['sido']} 기준'이라고 밝히세요.")
     else:
         data = [row(it) for it in items]
-    return {"기준월": res.get("current_month"), "신고기준일": res.get("filed_date"), "분위기": data}
+    out = {"기준월": res.get("current_month"), "신고기준일": res.get("filed_date"), "분위기": data}
+    if note:
+        out["주의"] = note
+    return out
 
 
 def find_realtor(name: str, region: str = "") -> dict:
