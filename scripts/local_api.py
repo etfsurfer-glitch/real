@@ -1153,46 +1153,41 @@ def _sgg_prefix(region: str) -> str:
 
 
 @app.get("/stats/realtors/by-staff")
-def realtors_by_staff(limit: int = 20, region: str = ""):
-    """직원수(소속 인원) 상위 N개 중개사. vworld_employees 기준.
-    region: sgg_cd 접두(2/4/5자리). 주면 그 지역 안에서 순위."""
+def realtors_by_staff(limit: int = 20, region: str = "", by: str = "staff"):
+    """직원/자격 기준 상위 중개사. vworld_employees 기준.
+    by: staff(인원) | licensed(공인중개사수) | assistant(중개보조원수) | ratio(공인중개사 비율, 인원3+).
+    region: sgg_cd 접두(2/4/5자리)."""
     if limit < 1 or limit > 100:
         raise HTTPException(400, "limit out of range")
     region = _sgg_prefix(region)
-    ck = f"realtor_staff:{limit}:{region}"
+    by = by if by in ("staff", "licensed", "assistant", "ratio") else "staff"
+    ck = f"realtor_staff:{limit}:{region}:{by}"
     cached = _cache_get(ck)
     if cached is not None:
         return cached
+    order = {"staff": "e.emp", "licensed": "e.licensed", "assistant": "e.assistant",
+             "ratio": "(e.licensed*1.0/e.emp)"}[by]
+    having = "HAVING emp>=3" if by == "ratio" else ""
+    sub = ("(SELECT sys_regno, COUNT(*) AS emp, "
+           "SUM(CASE WHEN role='공인중개사' THEN 1 ELSE 0 END) AS licensed, "
+           "SUM(CASE WHEN role='중개보조원' THEN 1 ELSE 0 END) AS assistant, "
+           "MAX(business_name) AS bn FROM vworld_employees WHERE sys_regno IS NOT NULL "
+           f"GROUP BY sys_regno {having}) e")
     with _open_db() as c:
-        # V-World 등록 인원 전체 기준(네이버 매칭 여부와 무관) — 대형 중개법인도 포함.
         if region:
             rows = c.execute(
-                """
-                SELECT e.sys_regno, e.emp, e.bn
-                FROM (SELECT sys_regno, COUNT(*) AS emp, MAX(business_name) AS bn
-                      FROM vworld_employees WHERE sys_regno IS NOT NULL
-                      GROUP BY sys_regno) e
-                JOIN vworld_brokers vb ON vb.sys_regno = e.sys_regno
-                WHERE substr(vb.sgg_cd, 1, ?) = ?
-                ORDER BY e.emp DESC
-                LIMIT ?
-                """, (len(region), region, limit),
-            ).fetchall()
+                f"SELECT e.sys_regno, e.emp, e.licensed, e.assistant, e.bn FROM {sub} "
+                f"JOIN vworld_brokers vb ON vb.sys_regno=e.sys_regno "
+                f"WHERE substr(vb.sgg_cd,1,?)=? ORDER BY {order} DESC LIMIT ?",
+                (len(region), region, limit)).fetchall()
         else:
             rows = c.execute(
-                """
-                SELECT sys_regno, COUNT(*) AS emp, MAX(business_name) AS bn
-                FROM vworld_employees
-                WHERE sys_regno IS NOT NULL
-                GROUP BY sys_regno
-                ORDER BY emp DESC
-                LIMIT ?
-                """, (limit,),
-            ).fetchall()
+                f"SELECT e.sys_regno, e.emp, e.licensed, e.assistant, e.bn FROM {sub} "
+                f"ORDER BY {order} DESC LIMIT ?", (limit,)).fetchall()
         cities = {r[0][:2]: r[1] for r in c.execute(
             "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city'")}
         items = []
-        for rg, emp, bn in rows:
+        for rg, emp, lic, asst, bn in rows:
             m = c.execute(
                 "SELECT realtor_id, total_listings FROM realtor_match WHERE sys_regno=? LIMIT 1",
                 (rg,)).fetchone()
@@ -1201,14 +1196,15 @@ def realtors_by_staff(limit: int = 20, region: str = ""):
                 (rg,)).fetchone()
             sgg = br[0] if br else None
             items.append({
-                "realtor_id": (m[0] if m else None),     # 매칭된 곳만 상세링크
+                "realtor_id": (m[0] if m else None),
                 "realtor_name": bn,
                 "count": (m[1] if m else None),
                 "sido": (cities.get((sgg or "")[:2]) if sgg else None),
-                "staff_count": emp,
+                "staff_count": emp, "licensed_count": lic, "assistant_count": asst,
+                "licensed_ratio": (round(lic / emp, 2) if emp else None),
                 "established_year": (br[1][:4] if (br and br[1] and len(br[1]) >= 4) else None),
             })
-    out = {"limit": limit, "items": items}
+    out = {"limit": limit, "by": by, "items": items}
     _cache_put(ck, out)
     return out
 

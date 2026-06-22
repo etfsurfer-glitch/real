@@ -102,8 +102,10 @@ SYSTEM_PROMPT = (
     "- 신고가 경신 단지\n"
     "- 지역(시도) 거래량 분위기 (이번달 vs 지난달/전년/예측)\n"
     "- 중개사무소 검색·상세 (연락처·보유매물·전국등수·거래실적)\n"
-    "- 중개사무소 순위 (직원수·업력·보유매물) → rank_realtors 사용. "
-    "'부동산/중개업소/중개법인 직원순위·직원많은 곳·직원수 top·업력순·매물 많은 중개사' 질문은 반드시 rank_realtors 로 답한다. "
+    "- 중개사무소 순위 (직원수·공인중개사수·보조원수·공인중개사비율·업력·보유매물) → rank_realtors 사용. "
+    "'부동산/중개업소/중개법인'의 직원순위·직원많은곳·공인중개사 많은/비율·보조원 많은·업력순·**매물 많은 중개사(부동산)**' 질문은 반드시 rank_realtors. "
+    "★주의: '매물 많은 **부동산/중개사무소**'=rank_realtors(metric='매물보유'), '매물 많은 **단지/아파트**'=rank_complexes — 혼동 금지. "
+    "동(읍·면·동)까지 지정되면 rank_realtors가 '우리동네 중개사'로 답한다. "
     "★지역을 말하지 않으면 전국 기준(region 생략)으로 '즉시' 호출하라. 절대 '어느 지역이요?'라고 되묻지 마라. "
     "전국 순위를 먼저 보여준 뒤, 답 끝에 '특정 지역만 따로 볼 수도 있어요' 한 줄만 덧붙인다.\n"
     "- 단지/거래 순위: 갭·전세가율·평당가·실거래 최고가·거래량·증여의심 저가거래·회전율·월세수익률·호가갭·전고점대비 저평가(회복률)\n"
@@ -936,9 +938,11 @@ def rank_realtors(metric: str = "직원수", region: str = "", limit: int = 20) 
     """중개사무소(부동산 중개업소·중개법인) 순위.
 
     Args:
-        metric: '직원수'(소속 인원 많은순) | '업력'(개업 오래된순) |
-                '매물보유'(보유 매물 많은순, 전국). 기본 '직원수'.
-        region: 자연어 지역(선택). 주면 그 시도로 좁힌다(best-effort).
+        metric: '직원수'(소속 인원) | '공인중개사수'(자격 보유 인원) | '보조원수'(중개보조원) |
+                '공인중개사비율'(인원 대비 자격자 비율) | '업력'(개업 오래된순) |
+                '매물보유'(중개사무소가 보유한 매물 많은순). 기본 '직원수'.
+                ※ '매물 많은 부동산/중개사무소'는 여기(매물보유)로. '매물 많은 단지/아파트'는 rank_complexes 로.
+        region: 자연어 지역(선택). 동(읍·면·동)까지 주면 '우리동네 중개사'(사무소 소재지) 랭킹.
         limit: 최대 건수(최대 50).
     """
     import scripts.local_api as api
@@ -961,6 +965,22 @@ def rank_realtors(metric: str = "직원수", region: str = "", limit: int = 20) 
             pref = reg["sido_code"]
         scope = " ".join(filter(None, [reg.get("sido"), reg.get("sigungu"), reg.get("dong")])) or "전국"
 
+    # 동(읍·면·동)까지 지정되면 '우리동네 중개사'(사무소 소재지 기준) 랭킹 사용.
+    dong_cortar = reg.get("dong_cortar") if reg else None
+    if dong_cortar:
+        sort = ("staff" if ("직원" in m or "보조" in m or "공인중개사" in m or "자격" in m or "비율" in m)
+                else "tenure" if ("업력" in m or "오래" in m) else "listings")
+        d = api.realtors_by_dong(cortar=dong_cortar, sort=sort, limit=lim)
+        rows = []
+        for x in d.get("items", [])[:lim]:
+            r = {"중개사무소": x.get("realtor_name"), "매물수": x.get("listings"),
+                 "직원수": x.get("staff_count"), "업력": x.get("tenure_years")}
+            if x.get("realtor_id"):
+                r["중개사정보"] = f"/realtor/{x['realtor_id']}"
+            rows.append(r)
+        return {"통계": f"{d.get('dong_name') or scope} 우리동네 중개사", "범위": scope,
+                "건수": len(rows), "순위": rows}
+
     if "업력" in m or "오래" in m or "tenure" in m:
         items = api.realtors_by_tenure(limit=50, region=pref).get("items", [])
         title = "업력(개업 오래된) 순위"
@@ -974,6 +994,15 @@ def rank_realtors(metric: str = "직원수", region: str = "", limit: int = 20) 
             else:
                 scope = "전국"  # 해당 지역 매물보유 데이터 없음 → 전국으로 정직 표기
         title = "보유 매물 많은 순위"
+    elif "비율" in m or "ratio" in m:
+        items = api.realtors_by_staff(limit=50, region=pref, by="ratio").get("items", [])
+        title = "공인중개사 비율 높은 순위(인원 3명+)"
+    elif "보조원" in m or "assistant" in m:
+        items = api.realtors_by_staff(limit=50, region=pref, by="assistant").get("items", [])
+        title = "중개보조원 많은 순위"
+    elif "공인중개사" in m or "자격사" in m or "licensed" in m:
+        items = api.realtors_by_staff(limit=50, region=pref, by="licensed").get("items", [])
+        title = "공인중개사(자격) 많은 순위"
     else:
         items = api.realtors_by_staff(limit=50, region=pref).get("items", [])
         title = "직원수(소속 인원) 순위"
@@ -981,11 +1010,12 @@ def rank_realtors(metric: str = "직원수", region: str = "", limit: int = 20) 
     rows = []
     for x in items[:lim]:
         d = {"중개사무소": x.get("realtor_name"), "지역": x.get("sido"),
-             "직원수": x.get("staff_count"), "보유매물": x.get("count"),
-             "개업연도": x.get("established_year")}
+             "직원수": x.get("staff_count"), "공인중개사수": x.get("licensed_count"),
+             "보조원수": x.get("assistant_count"), "공인중개사비율": x.get("licensed_ratio"),
+             "보유매물": x.get("count"), "개업연도": x.get("established_year")}
         if x.get("realtor_id"):
             d["중개사정보"] = f"/realtor/{x['realtor_id']}"
-        rows.append(d)
+        rows.append({k: v for k, v in d.items() if v is not None})
     return {"통계": title, "범위": scope, "건수": len(rows), "순위": rows}
 
 
@@ -1071,12 +1101,14 @@ def _safe_text(resp) -> str:
             "(예: '강남구 30평대 매매 급매', '서울 6월 거래량')")
 
 
-def run_agent(question: str, history: list | None = None, nickname: str | None = None) -> dict:
+def run_agent(question: str, history: list | None = None, nickname: str | None = None,
+              thinking_budget: int = 0) -> dict:
     """질문 → 답변. 도구 호출 추적·토큰 사용량 포함.
 
     history: 이전 대화 [{role:'user'|'model', text:str}, ...] (멀티턴 맥락).
     '거기서 30평대만', '그 단지 전세는?' 같은 후속 질문을 위해 직전 턴들을 함께 보낸다.
     nickname: 있으면 '***님' 으로 호칭.
+    thinking_budget: 0=사고끔(기본,빠름) / -1=동적 / N=고정. A/B 검증용 노출.
     """
     from google.genai import types
     client = _genai()
@@ -1084,9 +1116,8 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
         system_instruction=_system_for(nickname),
         tools=_TOOLS,
         temperature=0.2,
-        # thinking 기본 ON이 호출당 ~5초·추론토큰 ~800개를 추가 → 데이터 조회/요약엔
-        # 불필요하므로 끈다(budget=0). 응답 6.6s→1.4s로 단축.
-        thinking_config=types.ThinkingConfig(thinking_budget=0),
+        # thinking 기본 OFF(budget=0) — 데이터 조회/요약엔 불필요, 응답 6.6s→1.4s.
+        thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
         automatic_function_calling=types.AutomaticFunctionCallingConfig(maximum_remote_calls=6),
     )
     contents = []
@@ -1110,6 +1141,7 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
     usage = {
         "input_tokens": getattr(um, "prompt_token_count", None),
         "output_tokens": getattr(um, "candidates_token_count", None),
+        "thinking_tokens": getattr(um, "thoughts_token_count", None),
         "total_tokens": getattr(um, "total_token_count", None),
     } if um else {}
 
