@@ -156,41 +156,47 @@ export default function JeonseCheck() {
 
             {res?.ok && res.units && res.units.length > 0 && (() => {
               const isHouse = !!res.resolved?.kind?.includes("단독") || res.units.some((u) => u.whole);
-              return (
-              <>
-                {isHouse && (
-                  <div className="kkt-warn"><AlertTriangle size={13} /> 단독·다가구는 한 건물에 <b>여러 세입자 보증금이 누적</b>됩니다. 공시가격만으론 판정이 어려워요 — <b>선순위 채권에 '앞선 세입자 보증금 합계'도 포함</b>하고, 전입세대 열람·확정일자 현황을 꼭 확인하세요.</div>
-                )}
-                <div className="kkt-label">{isHouse ? "건물 전체 공시가격" : "전용면적 선택"} <span>{isHouse ? "(개별주택가격)" : "면적마다 공시가격이 달라요"}</span></div>
-                <div className="jc-units">
-                  {res.units.map((u) => (
-                    <button key={u.area_m2 ?? "w"} className={`jc-unit ${unit?.area_m2 === u.area_m2 ? "on" : ""}`} onClick={() => setUnit(u)}>
-                      <b>{u.whole || u.area_m2 == null ? "건물 전체" : `${u.area_m2}㎡`}</b><span>{won(u.gongsi)}</span>
-                    </button>
-                  ))}
-                </div>
-                {unit && (
-                  <div className="kkt-gongsi">
-                    <div className="jc-gongsi-row"><span>공시가격 (전용 {unit.area_m2}㎡)</span><b>{won(unit.gongsi)}</b></div>
-                    <div className="jc-gongsi-row hug"><span>HUG 한도 ×140%</span><b>{won(unit.hug_limit)}</b></div>
-                    <div className="jc-depbox"><input type="number" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="전세 보증금 (만원)" autoFocus /></div>
-                    {dep && <div className="muted" style={{ fontSize: 11.5 }}>{won(depWon)}</div>}
-                    <div className="jc-depbox" style={{ marginTop: 8 }}><input type="number" value={lien} onChange={(e) => setLien(e.target.value)} placeholder="선순위 채권 (근저당·대출, 만원)" /></div>
-                    <div className="muted" style={{ fontSize: 10.5 }}>{lienWon ? won(lienWon) + " · " : ""}등기부등본 '채권최고액' 합계 · 없으면 0</div>
+              // 단독·다가구: 판정하지 않고 알림 + 공시가격(참고)만. 빌라(공동주택): 면적선택→판정.
+              return isHouse ? (
+                <>
+                  <div className="kkt-warn"><AlertTriangle size={13} /> 단독·다가구는 한 건물에 <b>여러 세입자 보증금이 누적</b>되는 구조라 공시가격만으로는 깡통 여부를 <b>판정하지 않습니다</b>. 아래는 참고용이며, <b>전입세대 열람원·확정일자 부여현황</b>으로 선순위 보증금 총액을 꼭 확인하세요.</div>
+                  <div className="kkt-gongsi" style={{ marginTop: 8 }}>
+                    <div className="jc-gongsi-row"><span>건물 전체 공시가격 (개별주택가격)</span><b>{won(res.units![0].gongsi)}</b></div>
+                    <div className="jc-gongsi-row hug"><span>HUG 한도 ×140% (참고)</span><b>{won(res.units![0].hug_limit)}</b></div>
                   </div>
-                )}
-                {v && (
-                  <div className="kkt-verdict" style={{ borderColor: GRADE[v.grade].c, background: `${GRADE[v.grade].c}12` }}>
-                    <div className="jc-vhead" style={{ color: GRADE[v.grade].c }}>
-                      {(() => { const I = GRADE[v.grade].icon; return <I size={24} />; })()}
-                      <span className="jc-grade">{v.grade}</span><span className="jc-ratio">{lienWon ? "부채비율" : "전세가율"} {v.ratio}%</span>
+                </>
+              ) : (
+                <>
+                  <div className="kkt-label">전용면적 선택 <span>면적마다 공시가격이 달라요</span></div>
+                  <div className="jc-units">
+                    {res.units!.map((u) => (
+                      <button key={u.area_m2 ?? "w"} className={`jc-unit ${unit?.area_m2 === u.area_m2 ? "on" : ""}`} onClick={() => setUnit(u)}>
+                        <b>{u.area_m2 == null ? "건물 전체" : `${u.area_m2}㎡`}</b><span>{won(u.gongsi)}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {unit && (
+                    <div className="kkt-gongsi">
+                      <div className="jc-gongsi-row"><span>공시가격 (전용 {unit.area_m2}㎡)</span><b>{won(unit.gongsi)}</b></div>
+                      <div className="jc-gongsi-row hug"><span>HUG 한도 ×140%</span><b>{won(unit.hug_limit)}</b></div>
+                      <div className="jc-depbox"><input type="number" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="전세 보증금 (만원)" autoFocus /></div>
+                      {dep && <div className="muted" style={{ fontSize: 11.5 }}>{won(depWon)}</div>}
+                      <div className="jc-depbox" style={{ marginTop: 8 }}><input type="number" value={lien} onChange={(e) => setLien(e.target.value)} placeholder="선순위 채권 (근저당·대출, 만원)" /></div>
+                      <div className="muted" style={{ fontSize: 10.5 }}>{lienWon ? won(lienWon) + " · " : ""}등기부등본 '채권최고액' 합계 · 없으면 0</div>
                     </div>
-                    <div className="jc-vmsg">{v.msg}</div>
-                    {lienWon > 0 && unit && <div className="kkt-break">전세 {won(depWon)} + 선순위채권 {won(lienWon)} = <b>{won(totalWon)}</b> · HUG한도 {won(unit.hug_limit)}</div>}
-                    <div className="jc-gauge"><div className="jc-gauge-fill" style={{ width: `${Math.min(v.ratio / 1.6, 100)}%`, background: GRADE[v.grade].c }} /><span className="jc-gauge-100">100%</span><span className="jc-gauge-140">140%</span></div>
-                  </div>
-                )}
-              </>
+                  )}
+                  {v && (
+                    <div className="kkt-verdict" style={{ borderColor: GRADE[v.grade].c, background: `${GRADE[v.grade].c}12` }}>
+                      <div className="jc-vhead" style={{ color: GRADE[v.grade].c }}>
+                        {(() => { const I = GRADE[v.grade].icon; return <I size={24} />; })()}
+                        <span className="jc-grade">{v.grade}</span><span className="jc-ratio">{lienWon ? "부채비율" : "전세가율"} {v.ratio}%</span>
+                      </div>
+                      <div className="jc-vmsg">{v.msg}</div>
+                      {lienWon > 0 && unit && <div className="kkt-break">전세 {won(depWon)} + 선순위채권 {won(lienWon)} = <b>{won(totalWon)}</b> · HUG한도 {won(unit.hug_limit)}</div>}
+                      <div className="jc-gauge"><div className="jc-gauge-fill" style={{ width: `${Math.min(v.ratio / 1.6, 100)}%`, background: GRADE[v.grade].c }} /><span className="jc-gauge-100">100%</span><span className="jc-gauge-140">140%</span></div>
+                    </div>
+                  )}
+                </>
               );
             })()}
             {res?.ok && (!res.units || res.units.length === 0) && srvV && (
