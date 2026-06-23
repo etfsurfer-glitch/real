@@ -1543,6 +1543,26 @@ def jeonse_listings(cortar: str = "", limit: int = 50, offset: int = 0):
     return {"cortar": cortar, "total": total, "listings": out}
 
 
+@app.get("/tools/villa-bbox")
+def villa_bbox(swlat: float, swlng: float, nelat: float, nelng: float, limit: int = 600):
+    """지도 영역 내 '평가 가능한 모든 빌라'(villa_master, 실거래 이력+좌표) — 매물 아닌 것 포함."""
+    if (nelat - swlat) > 0.08 or (nelng - swlng) > 0.1:
+        return {"too_wide": True, "buildings": []}
+    lim = max(1, min(limit, 1000))
+    with _open_db() as c:
+        rows = c.execute(
+            "SELECT key, umd_nm, jibun, building, area_avg, tx_count, lat, lng FROM villa_master "
+            "WHERE status='ok' AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ? LIMIT ?",
+            (swlat, nelat, swlng, nelng, lim + 1)).fetchall()
+    too_many = len(rows) > lim
+    out = []
+    for k, umd, jb, bld, ar, tx, la, lo in rows[:lim]:
+        nm = bld if (bld and not bld.startswith("(")) else f"{umd} {jb}"
+        out.append({"key": k, "name": nm, "umd": umd, "jibun": jb,
+                    "area_m2": round(ar) if ar else None, "tx_count": tx, "lat": la, "lng": lo})
+    return {"too_many": too_many, "count": len(out), "buildings": out}
+
+
 @app.get("/tools/jeonse-markers-bbox")
 def jeonse_markers_bbox(swlat: float, swlng: float, nelat: float, nelng: float, limit: int = 500):
     """지도 영역(bbox) 내 빌라 전세 매물 마커. 너무 넓으면 too_wide."""

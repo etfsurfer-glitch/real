@@ -2409,3 +2409,20 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .jcm::after{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);border:5px solid transparent;border-top-color:#1f56b0;width:0;height:0}
 .jcm.on{background:#1f56b0;border-color:#13294b;z-index:9999}
 .jcm.on b{color:#fff}.jcm.on i{color:#cfe0ff}.jcm.on::after{border-top-color:#13294b}
+
+/* 전세 감별기 — 모든 빌라(villa_master) 지도 핀 */
+.jvm{width:11px;height:11px;border-radius:50%;background:#1f7ae0;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer}
+.jvm:hover{background:#13294b}
+.jvm.on{width:15px;height:15px;background:#d4332b;z-index:9999}
+.jc-sel{display:flex;align-items:center;gap:7px;margin-top:12px;background:#eef4ff;border-radius:10px;padding:10px 13px;font-size:13.5px;color:#13294b}
+.jc-sel b{font-weight:800}
+.jc-sel span{color:#5a6b80;font-size:12px}
+.jc-gongsi{margin-top:12px;background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:15px}
+.jc-gongsi-row{display:flex;justify-content:space-between;font-size:13.5px;color:#46566b;margin-bottom:6px}
+.jc-gongsi-row b{color:#13294b;font-weight:800}
+.jc-gongsi-row.hug b{color:#c0392b}
+.jc-depbox{display:flex;gap:8px;margin-top:12px}
+.jc-depbox input{flex:1;border:1px solid #d4dbe6;border-radius:9px;padding:11px 12px;font-size:14px}
+.jc-depbox button{background:#13294b;color:#fff;border:0;border-radius:9px;padding:11px 18px;font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap}
+.jc-depbox button:disabled{opacity:.4}
+.jc-redo{margin-top:12px;width:100%;background:#fff;border:1px solid #d4dbe6;color:#46566b;border-radius:9px;padding:9px;font-size:13px;font-weight:700;cursor:pointer}
