@@ -11,7 +11,7 @@ type Nearby = { scope: string; sale_median: number | null; jeonse_median: number
 type Verdict = { grade: string | null; ratio?: number; hug_limit: number; gongsi: number; gongsi_year: string; message: string };
 type Sale = { date: string; amount: number; area_m2: number | null; floor: number | null };
 type Rent = { date: string; deposit: number; monthly: number; area_m2: number | null; floor: number | null };
-type Listing = { article_no: string; trade: string; area_m2: number | null; price: number; rent: number; floor: string | null; naver_url: string };
+type Listing = { article_no: string; trade: string; area_m2: number | null; price: number; rent: number; floor: string | null; dup?: number; naver_url: string };
 type Resp = { ok: boolean; error?: string; resolved?: { text: string; building: string | null; kind: string | null }; units?: Unit[]; verdict?: Verdict | null; nearby?: Nearby; building_deals?: { sales: Sale[]; rents: Rent[] }; building_listings?: Listing[] };
 type Bld = { name: string; tx_count?: number; lat: number; lng: number };
 
@@ -213,7 +213,7 @@ export default function JeonseCheck() {
                   {res.building_listings.slice(0, 6).map((l) => (
                     <button className="kkt-listing" key={l.article_no} onClick={() => openListingPopup(l.naver_url)}>
                       <span className="kkt-l-t">{l.trade}</span>
-                      <span className="kkt-l-m">{l.area_m2}㎡{l.floor ? `·${l.floor}` : ""}</span>
+                      <span className="kkt-l-m">{l.area_m2}㎡{l.floor ? `·${l.floor}` : ""}{l.dup && l.dup > 1 ? ` · ${l.dup}곳` : ""}</span>
                       <b>{won(l.price)}{l.trade === "월세" && l.rent ? `/${won(l.rent)}` : ""}</b>
                       <ExternalLink size={12} className="kkt-l-x" />
                     </button>

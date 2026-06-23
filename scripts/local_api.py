@@ -1725,17 +1725,27 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
         path = DB_PATH.parent / _NONRESI_DB["villa"]
         if path.exists():
             d = 0.00045   # 약 45m
+            seen: dict = {}   # (거래·면적·가격·월세·층) 동일 → 중복 매물 합치기
             with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
                 for r in lc.execute(
                     "SELECT article_no, building_name, area2_m2, trade_type, deal_or_warrant_price, "
                     "rent_price, floor_info FROM listings WHERE latitude BETWEEN ? AND ? "
-                    "AND longitude BETWEEN ? AND ? AND deal_or_warrant_price>0 LIMIT 12",
+                    "AND longitude BETWEEN ? AND ? AND deal_or_warrant_price>0 LIMIT 60",
                         (lat - d, lat + d, lng - d, lng + d)):
+                    key = (r[3], round(r[2] or 0), r[4], r[5] or 0)   # 거래·면적·가격·월세 (층 무시)
+                    if key in seen:
+                        seen[key]["dup"] += 1
+                        continue
                     tt = {"A1": "매매", "B1": "전세", "B2": "월세"}.get(r[3], r[3])
-                    bld_listings.append({"article_no": r[0], "trade": tt,
-                                         "area_m2": round(r[2]) if r[2] else None,
-                                         "price": int(r[4] * 10000), "rent": int((r[5] or 0) * 10000),
-                                         "floor": r[6], "naver_url": f"https://m.land.naver.com/article/info/{r[0]}"})
+                    item = {"article_no": r[0], "trade": tt,
+                            "area_m2": round(r[2]) if r[2] else None,
+                            "price": int(r[4] * 10000), "rent": int((r[5] or 0) * 10000),
+                            "floor": r[6], "dup": 1,
+                            "naver_url": f"https://m.land.naver.com/article/info/{r[0]}"}
+                    seen[key] = item
+                    bld_listings.append(item)
+                    if len(bld_listings) >= 12:
+                        break
     return {"ok": True, "input": {"addr": addr, "area": area, "deposit": deposit_won},
             "building_deals": bld_deals, "building_listings": bld_listings,
             "resolved": {"text": pnu.get("addr") or (geo.get("text") if geo else None), "pnu": pnu["pnu"],
