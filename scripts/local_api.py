@@ -1663,6 +1663,10 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
             cur = [u for u in ind if u.get("stdrYear") == maxyr and u.get("housePc")]
             if cur:
                 gongsi = int(cur[0]["housePc"]); kind = "단독·다가구"; gongsi_year = maxyr
+                bld_name = cur[0].get("ldCodeNm") or None
+                # 건물 전체 1개 값(호별 아님) → 단일 unit. whole=True 로 프런트가 경고 표시.
+                units_out = [{"area_m2": None, "gongsi": gongsi,
+                              "hug_limit": round(gongsi * 1.4), "n": 1, "whole": True}]
 
     # 판정 (HUG 전세보증 기준 = 공시가격 × 140%)
     verdict = None

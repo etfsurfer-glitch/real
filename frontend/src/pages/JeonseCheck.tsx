@@ -6,7 +6,7 @@ import { openListingPopup } from "../lib/listingPopup";
 
 const API = import.meta.env.VITE_API_BASE;
 
-type Unit = { area_m2: number; gongsi: number; hug_limit: number; n: number };
+type Unit = { area_m2: number | null; gongsi: number; hug_limit: number; n: number; whole?: boolean };
 type Nearby = { scope: string; sale_median: number | null; jeonse_median: number | null; risky_pct: number | null; n_buildings: number | null };
 type Verdict = { grade: string | null; ratio?: number; hug_limit: number; gongsi: number; gongsi_year: string; message: string };
 type Sale = { date: string; amount: number; area_m2: number | null; floor: number | null };
@@ -154,13 +154,18 @@ export default function JeonseCheck() {
             {loading && <div className="jc-hint">공시가격 조회 중…</div>}
             {res && !res.ok && <div className="jc-err">{res.error}</div>}
 
-            {res?.ok && res.units && res.units.length > 0 && (
+            {res?.ok && res.units && res.units.length > 0 && (() => {
+              const isHouse = !!res.resolved?.kind?.includes("단독") || res.units.some((u) => u.whole);
+              return (
               <>
-                <div className="kkt-label">전용면적 선택 <span>면적마다 공시가격이 달라요</span></div>
+                {isHouse && (
+                  <div className="kkt-warn"><AlertTriangle size={13} /> 단독·다가구는 한 건물에 <b>여러 세입자 보증금이 누적</b>됩니다. 공시가격만으론 판정이 어려워요 — <b>선순위 채권에 '앞선 세입자 보증금 합계'도 포함</b>하고, 전입세대 열람·확정일자 현황을 꼭 확인하세요.</div>
+                )}
+                <div className="kkt-label">{isHouse ? "건물 전체 공시가격" : "전용면적 선택"} <span>{isHouse ? "(개별주택가격)" : "면적마다 공시가격이 달라요"}</span></div>
                 <div className="jc-units">
                   {res.units.map((u) => (
-                    <button key={u.area_m2} className={`jc-unit ${unit?.area_m2 === u.area_m2 ? "on" : ""}`} onClick={() => setUnit(u)}>
-                      <b>{u.area_m2}㎡</b><span>{won(u.gongsi)}</span>
+                    <button key={u.area_m2 ?? "w"} className={`jc-unit ${unit?.area_m2 === u.area_m2 ? "on" : ""}`} onClick={() => setUnit(u)}>
+                      <b>{u.whole || u.area_m2 == null ? "건물 전체" : `${u.area_m2}㎡`}</b><span>{won(u.gongsi)}</span>
                     </button>
                   ))}
                 </div>
@@ -186,7 +191,8 @@ export default function JeonseCheck() {
                   </div>
                 )}
               </>
-            )}
+              );
+            })()}
             {res?.ok && (!res.units || res.units.length === 0) && srvV && (
               <div className="kkt-gongsi">
                 <div className="jc-gongsi-row"><span>공시가격 · {res.resolved?.kind}</span><b>{won(srvV.gongsi)}</b></div>
