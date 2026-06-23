@@ -1497,20 +1497,24 @@ def _vw_ned(op: str, pnu: str) -> list:
 
 
 @app.get("/tools/jeonse-listings")
-def jeonse_listings(cortar: str = "", limit: int = 30):
-    """동 단위 빌라 전세 매물(좌표 포함) — 감별기에서 주소 없이 매물 선택용."""
+def jeonse_listings(cortar: str = "", limit: int = 50, offset: int = 0):
+    """동 단위 빌라 전세 매물(좌표 포함) — 감별기에서 주소 없이 매물 선택용. 페이지네이션."""
     if not cortar:
         raise HTTPException(400, "지역(동)을 선택하세요")
     path = DB_PATH.parent / _NONRESI_DB["villa"]
     if not path.exists():
-        return {"cortar": cortar, "listings": []}
+        return {"cortar": cortar, "total": 0, "listings": []}
+    limit = max(1, min(limit, 60))
     with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
+        total = lc.execute(
+            "SELECT COUNT(*) FROM listings WHERE substr(cortar_no,1,?)=? AND trade_type='B1' "
+            "AND deal_or_warrant_price>0 AND latitude>0", (len(cortar), cortar)).fetchone()[0]
         rows = lc.execute(
             "SELECT article_no, building_name, area2_m2, deal_or_warrant_price, latitude, longitude, floor_info "
             "FROM listings WHERE substr(cortar_no,1,?)=? AND trade_type='B1' "
             "AND deal_or_warrant_price>0 AND latitude>0 "
-            "ORDER BY article_confirm_ymd DESC, deal_or_warrant_price DESC LIMIT ?",
-            (len(cortar), cortar, max(1, min(limit, 30)))).fetchall()
+            "ORDER BY article_confirm_ymd DESC, deal_or_warrant_price DESC LIMIT ? OFFSET ?",
+            (len(cortar), cortar, limit, max(0, offset))).fetchall()
 
     # 매물 좌표 역지오코딩 → 실제 지번 주소(건물명이 '빌라'로만 와서 구분 불가한 문제 해결). 병렬.
     from concurrent.futures import ThreadPoolExecutor
@@ -1536,7 +1540,51 @@ def jeonse_listings(cortar: str = "", limit: int = 30):
                     "area_m2": round(ar) if ar else None, "floor": fl,
                     "deposit": int(pr * 10000), "lat": la, "lng": lo,
                     "naver_url": f"https://m.land.naver.com/article/info/{a}"})
-    return {"cortar": cortar, "listings": out}
+    return {"cortar": cortar, "total": total, "listings": out}
+
+
+@app.get("/tools/jeonse-markers-bbox")
+def jeonse_markers_bbox(swlat: float, swlng: float, nelat: float, nelng: float, limit: int = 500):
+    """지도 영역(bbox) 내 빌라 전세 매물 마커. 너무 넓으면 too_wide."""
+    if (nelat - swlat) > 0.13 or (nelng - swlng) > 0.16:
+        return {"too_wide": True, "markers": []}
+    path = DB_PATH.parent / _NONRESI_DB["villa"]
+    if not path.exists():
+        return {"markers": []}
+    lim = max(1, min(limit, 800))
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
+        rows = lc.execute(
+            "SELECT article_no, area2_m2, deal_or_warrant_price, latitude, longitude, floor_info, building_name "
+            "FROM listings WHERE trade_type='B1' AND deal_or_warrant_price>0 "
+            "AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? "
+            "ORDER BY article_confirm_ymd DESC LIMIT ?",
+            (swlat, nelat, swlng, nelng, lim + 1)).fetchall()
+    too_many = len(rows) > lim
+    return {"too_many": too_many, "markers": [
+        {"article_no": a, "area_m2": round(ar) if ar else None, "deposit": int(pr * 10000),
+         "lat": la, "lng": lo, "floor": fl, "building": b or "빌라"}
+        for a, ar, pr, la, lo, fl, b in rows[:lim]]}
+
+
+@app.get("/tools/jeonse-markers")
+def jeonse_markers(cortar: str = "", limit: int = 1000):
+    """동 단위 빌라 전세 매물 좌표 마커 — 지도용(역지오코딩 없이 전체). 클릭 시 감별."""
+    if not cortar:
+        raise HTTPException(400, "지역(동)을 선택하세요")
+    path = DB_PATH.parent / _NONRESI_DB["villa"]
+    if not path.exists():
+        return {"cortar": cortar, "markers": []}
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
+        rows = lc.execute(
+            "SELECT article_no, area2_m2, deal_or_warrant_price, latitude, longitude, floor_info, building_name "
+            "FROM listings WHERE substr(cortar_no,1,?)=? AND trade_type='B1' "
+            "AND deal_or_warrant_price>0 AND latitude>0 "
+            "ORDER BY article_confirm_ymd DESC LIMIT ?",
+            (len(cortar), cortar, max(1, min(limit, 2000)))).fetchall()
+    return {"cortar": cortar, "markers": [
+        {"article_no": a, "area_m2": round(ar) if ar else None, "deposit": int(pr * 10000),
+         "lat": la, "lng": lo, "floor": fl, "building": b or "빌라"}
+        for a, ar, pr, la, lo, fl, b in rows]}
 
 
 @app.get("/tools/jeonse-check")
