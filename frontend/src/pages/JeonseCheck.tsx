@@ -21,15 +21,18 @@ function won(v: number | null | undefined): string {
   return `${Math.floor(v / 1e4).toLocaleString()}만`;
 }
 const GRADE: Record<string, { c: string; icon: typeof ShieldCheck }> = {
-  "안전": { c: "#1f9d63", icon: ShieldCheck },
-  "주의": { c: "#e08a1e", icon: AlertTriangle },
-  "위험": { c: "#d23b3b", icon: ShieldAlert },
+  "양호": { c: "#1f9d63", icon: ShieldCheck },
+  "보증한도 확인": { c: "#d4a017", icon: AlertTriangle },
+  "HUG 초과 가능": { c: "#e0701e", icon: AlertTriangle },
+  "고위험": { c: "#d23b3b", icon: ShieldAlert },
 };
+// HUG 보증한도 = 공시가격 × 140%(주택가격 환산) × 90%(담보인정) = 공시가격 × 126%
 function judge(depositWon: number, gongsi: number) {
   const r = depositWon / gongsi;
-  if (r <= 1.3) return { grade: "안전", msg: "공시가격의 130% 이내 — HUG 전세보증 가입이 가능한 안전 범위예요." };
-  if (r <= 1.4) return { grade: "주의", msg: "HUG 보증한도(공시가격 140%)에 가까워요. 한도 초과 여부를 꼭 확인하세요." };
-  return { grade: "위험", msg: "공시가격 140% 초과 — HUG 전세보증도 거부되는 깡통전세 위험 수준이에요." };
+  if (r <= 1.15) return { grade: "양호", msg: "공시가격 기준으로도 여유가 있어요." };
+  if (r <= 1.26) return { grade: "보증한도 확인", msg: "HUG 보증한도(공시가×126%)에 임박했어요. 선순위채권·근저당을 꼭 확인하세요." };
+  if (r <= 1.40) return { grade: "HUG 초과 가능", msg: "공시가격 기준 HUG 보증한도를 넘을 수 있어요. KB시세·감정가 등 대체 기준 확인이 필요해요." };
+  return { grade: "고위험", msg: "공시가 환산 주택가격(140%)을 넘는 수준 — 깡통·보증거절 가능성이 큽니다." };
 }
 
 export default function JeonseCheck() {
@@ -162,7 +165,7 @@ export default function JeonseCheck() {
                   <div className="kkt-warn"><AlertTriangle size={13} /> 단독·다가구는 한 건물에 <b>여러 세입자 보증금이 누적</b>되는 구조라 공시가격만으로는 깡통 여부를 <b>판정하지 않습니다</b>. 아래는 참고용이며, <b>전입세대 열람원·확정일자 부여현황</b>으로 선순위 보증금 총액을 꼭 확인하세요.</div>
                   <div className="kkt-gongsi" style={{ marginTop: 8 }}>
                     <div className="jc-gongsi-row"><span>건물 전체 공시가격 (개별주택가격)</span><b>{won(res.units![0].gongsi)}</b></div>
-                    <div className="jc-gongsi-row hug"><span>HUG 한도 ×140% (참고)</span><b>{won(res.units![0].hug_limit)}</b></div>
+                    <div className="jc-gongsi-row hug"><span>HUG 보증한도 (공시가×126%, 참고)</span><b>{won(res.units![0].hug_limit)}</b></div>
                   </div>
                 </>
               ) : (
@@ -178,7 +181,7 @@ export default function JeonseCheck() {
                   {unit && (
                     <div className="kkt-gongsi">
                       <div className="jc-gongsi-row"><span>공시가격 (전용 {unit.area_m2}㎡)</span><b>{won(unit.gongsi)}</b></div>
-                      <div className="jc-gongsi-row hug"><span>HUG 한도 ×140%</span><b>{won(unit.hug_limit)}</b></div>
+                      <div className="jc-gongsi-row hug"><span>HUG 보증한도 (공시가×126%)</span><b>{won(unit.hug_limit)}</b></div>
                       <div className="jc-depbox"><input type="number" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="전세 보증금 (만원)" autoFocus /></div>
                       {dep && <div className="muted" style={{ fontSize: 11.5 }}>{won(depWon)}</div>}
                       <div className="jc-depbox" style={{ marginTop: 8 }}><input type="number" value={lien} onChange={(e) => setLien(e.target.value)} placeholder="선순위 채권 (근저당·대출, 만원)" /></div>
@@ -192,8 +195,8 @@ export default function JeonseCheck() {
                         <span className="jc-grade">{v.grade}</span><span className="jc-ratio">{lienWon ? "부채비율" : "전세가율"} {v.ratio}%</span>
                       </div>
                       <div className="jc-vmsg">{v.msg}</div>
-                      {lienWon > 0 && unit && <div className="kkt-break">전세 {won(depWon)} + 선순위채권 {won(lienWon)} = <b>{won(totalWon)}</b> · HUG한도 {won(unit.hug_limit)}</div>}
-                      <div className="jc-gauge"><div className="jc-gauge-fill" style={{ width: `${Math.min(v.ratio / 1.6, 100)}%`, background: GRADE[v.grade].c }} /><span className="jc-gauge-100">100%</span><span className="jc-gauge-140">140%</span></div>
+                      {lienWon > 0 && unit && <div className="kkt-break">전세 {won(depWon)} + 선순위채권 {won(lienWon)} = <b>{won(totalWon)}</b> · 보증한도 {won(unit.hug_limit)}</div>}
+                      <div className="jc-gauge"><div className="jc-gauge-fill" style={{ width: `${Math.min(v.ratio / 1.6, 100)}%`, background: GRADE[v.grade].c }} /><span className="jc-gauge-100">126%</span><span className="jc-gauge-140">140%</span></div>
                     </div>
                   )}
                 </>
@@ -250,7 +253,7 @@ export default function JeonseCheck() {
                 {res.nearby.risky_pct != null && <div className="muted" style={{ fontSize: 10.5, marginTop: 5 }}>이 동네 빌라 중 전세가율 80% 이상(깡통 위험) 비율</div>}
               </>
             )}
-            {res?.ok && <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>※ 가격 위험도(공시가격 기준). 선순위 근저당·대출·체납 미반영 — 계약 전 <b>등기부등본</b> 확인 필수.</p>}
+            {res?.ok && <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>※ <b>공시가격 기준 단순 추정</b>입니다. 실제 HUG 가입 여부는 KB시세·부동산테크 시세·<b>선순위채권·근저당</b>·주택유형에 따라 달라질 수 있어요. 계약 전 <b>등기부등본</b> 확인 필수.</p>}
           </aside>
         )}
       </div>

@@ -1646,7 +1646,8 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
             if ar > 0:
                 grp.setdefault(ar, []).append(int(u["pblntfPc"]))
         units_out = [{"area_m2": ar, "gongsi": round(sum(v) / len(v)),
-                      "hug_limit": round(sum(v) / len(v) * 1.4), "n": len(v)}
+                      "hug_limit": round(sum(v) / len(v) * 1.26),  # 공시가×140%×담보인정90%=126% (실질 보증한도)
+                      "n": len(v)}
                      for ar, v in sorted(grp.items())]
         if latest:
             bld_name = latest[0].get("aphusNm")
@@ -1666,7 +1667,7 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
                 bld_name = cur[0].get("ldCodeNm") or None
                 # 건물 전체 1개 값(호별 아님) → 단일 unit. whole=True 로 프런트가 경고 표시.
                 units_out = [{"area_m2": None, "gongsi": gongsi,
-                              "hug_limit": round(gongsi * 1.4), "n": 1, "whole": True}]
+                              "hug_limit": round(gongsi * 1.26), "n": 1, "whole": True}]
 
     # 판정 (HUG 전세보증 기준 = 공시가격 × 140%)
     verdict = None
@@ -1760,7 +1761,8 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
                 if best["gongsi"]:
                     rr = it["price"] / best["gongsi"]
                     it["ratio"] = round(rr * 100)
-                    it["grade"] = "안전" if rr <= 1.3 else ("주의" if rr <= 1.4 else "위험")
+                    it["grade"] = ("양호" if rr <= 1.15 else "보증한도 확인" if rr <= 1.26
+                                   else "HUG 초과 가능" if rr <= 1.40 else "고위험")
     bld_listings = bld_listings[:12]
     return {"ok": True, "input": {"addr": addr, "area": area, "deposit": deposit_won},
             "building_deals": bld_deals, "building_listings": bld_listings,
