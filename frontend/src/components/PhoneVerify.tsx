@@ -11,6 +11,10 @@ export default function PhoneVerify() {
   const { user, token, phoneVerified, meLoaded, refreshMe } = usePhoneState();
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // 모달이 한 번 열린 뒤 token이 순간 흔들려도(모바일 키보드 포커스→onAuthStateChange 재호출)
+  // PhoneModal이 리마운트되어 입력 단계(stage)가 초기화되지 않도록 마지막 token을 고정.
+  const lastToken = useRef<string | null>(null);
+  if (token) lastToken.current = token;
 
   // 인증 완료되면 모달 닫기.
   useEffect(() => { if (phoneVerified) setOpen(false); }, [phoneVerified]);
@@ -38,7 +42,7 @@ export default function PhoneVerify() {
           </span>
         </div>
       )}
-      {open && token && <PhoneModal token={token} onClose={() => setOpen(false)} onDone={async () => { await refreshMe(); setOpen(false); }} />}
+      {open && lastToken.current && <PhoneModal token={lastToken.current} onClose={() => setOpen(false)} onDone={async () => { await refreshMe(); setOpen(false); }} />}
     </>
   );
 }
