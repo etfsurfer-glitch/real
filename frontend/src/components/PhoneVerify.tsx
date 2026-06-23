@@ -157,9 +157,6 @@ export function PhoneModal({ token, onClose, onDone }: { token: string; onClose:
             <button className="auth-btn kakao modal-cta" disabled={busy || code.length < 6} onClick={verify}>
               {busy ? "확인 중…" : "인증 완료"}
             </button>
-            <button className="auth-btn ghost" style={{ marginTop: 6, width: "100%" }} disabled={busy} onClick={() => setStage("phone")}>
-              번호 다시 입력
-            </button>
           </>
         )}
 

@@ -2091,6 +2091,31 @@ def realtors_by_sido(limit: int = 10):
     return out
 
 
+_OFFICE_FILLER_RE = None
+
+
+def _office_core(s: str | None) -> str:
+    """중개사무소명에서 흔한 접미·일반어(부동산·공인중개사사무소 등)를 제거한 '핵심어'.
+    '동대구푸르지오부동산' / '동대구푸르지오공인중개사사무소' → 둘 다 '동대구푸르지오'로 매칭."""
+    global _OFFICE_FILLER_RE
+    if _OFFICE_FILLER_RE is None:
+        import re
+        _OFFICE_FILLER_RE = re.compile(
+            r"공인중개사사무소|부동산중개사무소|부동산공인중개사|공인중개사|중개사무소|"
+            r"중개법인|부동산중개|중개사|사무소|부동산|공인|중개|랜드|에이전시")
+    if not s:
+        return ""
+    return _OFFICE_FILLER_RE.sub("", s).replace(" ", "").lower()
+
+
+def _office_name_hit(q_low: str, q_core: str, name: str | None) -> bool:
+    if not name:
+        return False
+    if q_low in name.lower():
+        return True
+    return bool(q_core) and q_core in _office_core(name)
+
+
 @app.get("/stats/realtors/search")
 def realtors_search(q: str = "", sido: str = "", limit: int = 30):
     """중개사 검색 — 이름 부분일치 + 선택적 시도 필터. 매물 보유 내림차순.
@@ -2107,28 +2132,31 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
         raise HTTPException(400, "sido must be 2-digit")
     ranks = _rank_tables()
     q_low = q.lower()
+    q_core = _office_core(q)
     items: list[tuple[str, str | None, int]] = []  # (rid, name, count)
     if sido:
         for (s, rid), (_rk, n, name) in ranks["sido_rank"].items():
             if s != sido:
                 continue
-            if q and (not name or q_low not in name.lower()):
+            if q and not _office_name_hit(q_low, q_core, name):
                 continue
             items.append((rid, name, n))
     else:
         for rid, (_rk, n, name) in ranks["national"].items():
-            if q and (not name or q_low not in name.lower()):
+            if q and not _office_name_hit(q_low, q_core, name):
                 continue
             items.append((rid, name, n))
     # 매물이 없어 랭킹 인덱스에 없는 사무소(신규/합성 등)도 이름으로 찾게 보강.
     if q:
         seen = {rid for rid, _n, _c in items}
         with _open_db() as c:
-            cond, params = "realtor_name LIKE ?", [f"%{q}%"]
+            # 필러어 제거한 핵심어로 LIKE (없으면 원문). '동대구푸르지오부동산'→'%동대구푸르지오%'
+            like_term = q_core if q_core else q
+            cond, params = "realtor_name LIKE ?", [f"%{like_term}%"]
             if sido:
                 cond += " AND substr(cortar_no,1,2)=?"; params.append(sido)
             for rid, name in c.execute(
-                    f"SELECT realtor_id, realtor_name FROM naver_realtors WHERE {cond} LIMIT 50", params):
+                    f"SELECT realtor_id, realtor_name FROM naver_realtors WHERE {cond} LIMIT 80", params):
                 if rid not in seen:
                     seen.add(rid); items.append((rid, name, 0))
     items.sort(key=lambda r: -r[2])
