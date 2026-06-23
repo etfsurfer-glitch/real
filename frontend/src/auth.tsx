@@ -190,17 +190,50 @@ export async function loginKakao() {
   });
 }
 
+// 인앱 브라우저(webview) 감지 — Google OAuth는 webview에서 차단되므로 외부 브라우저로 보내야 함.
+export function isInAppBrowser(): boolean {
+  return inAppBrowser().inApp;
+}
+function inAppBrowser(): { inApp: boolean; kakao: boolean; android: boolean } {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const ios = /iPhone|iPad|iPod/i.test(ua);
+  const kakao = /KAKAOTALK/i.test(ua);
+  const named = /(Instagram|FBAN|FBAV|FB_IAB|Line\/|NAVER\(|DaumApps|Band\/|KAKAOSTORY|Snapchat|Threads|TossApp|coupang|wadiz)/i.test(ua);
+  const android = !ios && (named || /;\s*wv\)/i.test(ua));
+  const iosInapp = ios && (kakao || named);
+  return { inApp: kakao || android || iosInapp, kakao, android };
+}
+
+// 주어진 URL을 외부(시스템) 브라우저로 연다 — webview 차단 우회.
+function openExternalUrl(url: string) {
+  const { kakao, android } = inAppBrowser();
+  if (kakao) {
+    window.location.href = "kakaotalk://web/openExternal?url=" + encodeURIComponent(url);
+    return;
+  }
+  if (android) {
+    const noScheme = url.replace(/^https?:\/\//, "");
+    window.location.href = "intent://" + noScheme + "#Intent;scheme=https;package=com.android.chrome;end";
+    return;
+  }
+  // iOS 비카카오 인앱: 강제 전환 스킴이 없어 새 창 시도(일부만 동작) — 안내는 InAppBrowserBanner가 담당.
+  window.open(url, "_blank");
+}
+
 export async function loginGoogle() {
   if (!authClient) {
     alert("로그인 서버(Supabase)가 설정되지 않았습니다.");
     return;
   }
+  // 인앱 브라우저면: Google이 webview를 막으므로(PKCE도 같은 브라우저서 시작·완료돼야 함)
+  // 앱 자체를 외부 브라우저로 열고, 거기서 자동으로 Google 로그인을 트리거한다(?login=google).
+  if (inAppBrowser().inApp) {
+    openExternalUrl(window.location.origin + "/?login=google");
+    return;
+  }
   await authClient.auth.signInWithOAuth({
     provider: "google",
-    options: {
-      redirectTo: window.location.origin,
-      scopes: "openid email profile",
-    },
+    options: { redirectTo: window.location.origin, scopes: "openid email profile" },
   });
 }
 

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
-import { AuthProvider, useAuth, logout, loginKakao, loginGoogle } from "./auth";
+import { AuthProvider, useAuth, logout, loginKakao, loginGoogle, isInAppBrowser } from "./auth";
 import PhoneVerify from "./components/PhoneVerify";
 import AccountMenu from "./components/AccountMenu";
 import Overview from "./pages/Overview";
@@ -141,6 +141,15 @@ function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   // 라우트 바뀌면 모바일 드로어 자동 닫힘(뒤로가기 포함)
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+  // 인앱 브라우저에서 Google 로그인 → 외부 브라우저로 ?login=google 열림 → 여기서 자동 트리거.
+  // (외부 브라우저=인앱 아님일 때만 실행해 무한루프 방지)
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("login") === "google" && !isInAppBrowser()) {
+      window.history.replaceState({}, "", window.location.pathname);
+      loginGoogle();
+    }
+  }, []);
   // real.koczip.com 은 중개사 홈페이지 전용 호스트 — 루트 /{slug} 가 곧 홈페이지.
   const isRealHost = typeof window !== "undefined" && window.location.hostname === "real.koczip.com";
   if (isRealHost) {
