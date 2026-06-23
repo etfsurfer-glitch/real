@@ -11,7 +11,7 @@ type Nearby = { scope: string; sale_median: number | null; jeonse_median: number
 type Verdict = { grade: string | null; ratio?: number; hug_limit: number; gongsi: number; gongsi_year: string; message: string };
 type Sale = { date: string; amount: number; area_m2: number | null; floor: number | null };
 type Rent = { date: string; deposit: number; monthly: number; area_m2: number | null; floor: number | null };
-type Listing = { article_no: string; trade: string; area_m2: number | null; price: number; rent: number; floor: string | null; dup?: number; naver_url: string };
+type Listing = { article_no: string; trade: string; area_m2: number | null; price: number; rent: number; floor: string | null; dup?: number; ratio?: number; grade?: string; naver_url: string };
 type Resp = { ok: boolean; error?: string; resolved?: { text: string; building: string | null; kind: string | null }; units?: Unit[]; verdict?: Verdict | null; nearby?: Nearby; building_deals?: { sales: Sale[]; rents: Rent[] }; building_listings?: Listing[] };
 type Bld = { name: string; tx_count?: number; lat: number; lng: number };
 
@@ -21,15 +21,15 @@ function won(v: number | null | undefined): string {
   return `${Math.floor(v / 1e4).toLocaleString()}만`;
 }
 const GRADE: Record<string, { c: string; icon: typeof ShieldCheck }> = {
-  "안전": { c: "#0a9d57", icon: ShieldCheck }, "양호": { c: "#1f7ae0", icon: ShieldCheck },
-  "주의": { c: "#e08a00", icon: AlertTriangle }, "위험": { c: "#d4332b", icon: ShieldAlert },
+  "안전": { c: "#1f9d63", icon: ShieldCheck },
+  "주의": { c: "#e08a1e", icon: AlertTriangle },
+  "위험": { c: "#d23b3b", icon: ShieldAlert },
 };
 function judge(depositWon: number, gongsi: number) {
   const r = depositWon / gongsi;
-  if (r <= 1.0) return { grade: "안전", msg: "공시가격 이하입니다." };
-  if (r <= 1.2) return { grade: "양호", msg: "공시가격을 넘지만 HUG 한도 안입니다." };
-  if (r <= 1.4) return { grade: "주의", msg: "HUG 보증한도(공시가격 140%)에 근접합니다." };
-  return { grade: "위험", msg: "공시가격 140% 초과 — HUG 전세보증도 거부되는 깡통전세 위험 수준입니다." };
+  if (r <= 1.0) return { grade: "안전", msg: "보증금이 공시가격 이하예요." };
+  if (r <= 1.4) return { grade: "주의", msg: "공시가격을 넘어요 — HUG 보증한도(140%) 이내인지 확인하세요." };
+  return { grade: "위험", msg: "공시가격 140%를 초과 — HUG 전세보증도 거부되는 깡통전세 위험 수준이에요." };
 }
 
 export default function JeonseCheck() {
@@ -229,7 +229,8 @@ export default function JeonseCheck() {
                   {res.building_listings.slice(0, 6).map((l) => (
                     <button className="kkt-listing" key={l.article_no} onClick={() => openListingPopup(l.naver_url)}>
                       <span className="kkt-l-t">{l.trade}</span>
-                      <span className="kkt-l-m">{l.area_m2}㎡{l.floor ? `·${l.floor}` : ""}{l.dup && l.dup > 1 ? ` · ${l.dup}곳` : ""}</span>
+                      <span className="kkt-l-m">{l.area_m2}㎡{l.dup && l.dup > 1 ? ` · ${l.dup}곳` : ""}</span>
+                      {l.grade && GRADE[l.grade] && <span className="kkt-l-g" style={{ background: GRADE[l.grade].c + "1f", color: GRADE[l.grade].c }}>{l.grade} {l.ratio}%</span>}
                       <b>{won(l.price)}{l.trade === "월세" && l.rent ? `/${won(l.rent)}` : ""}</b>
                       <ExternalLink size={12} className="kkt-l-x" />
                     </button>

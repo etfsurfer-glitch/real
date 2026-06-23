@@ -2553,6 +2553,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .kkt-l-m{color:var(--c-faint);flex:1}
 .kkt-listing b{font-weight:800;color:var(--c-text)}
 .kkt-l-x{color:var(--c-faint);flex:none}
+.kkt-l-g{font-size:10px;font-weight:800;border-radius:var(--r-sm);padding:2px 6px;flex:none}
 @media (max-width:760px){
   .kkt-area{box-shadow:var(--sh-sm);overflow:visible;border:0}
   .kkt-map{height:50vh;min-height:340px;border-radius:var(--r-lg);border:1px solid var(--c-border)}

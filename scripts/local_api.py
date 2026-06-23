@@ -1750,6 +1750,16 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
                     bld_listings.append(item)
                     if len(bld_listings) >= 12:
                         break
+    # 전세 매물별 안전도(전세가율% + 등급) — 면적에 맞는 공시가격으로 (공동주택만)
+    area_units = [u for u in units_out if u.get("area_m2")]
+    if area_units:
+        for it in bld_listings:
+            if it["trade"] == "전세" and it.get("area_m2"):
+                best = min(area_units, key=lambda u: abs(u["area_m2"] - it["area_m2"]))
+                if best["gongsi"]:
+                    rr = it["price"] / best["gongsi"]
+                    it["ratio"] = round(rr * 100)
+                    it["grade"] = "안전" if rr <= 1.0 else ("주의" if rr <= 1.4 else "위험")
     return {"ok": True, "input": {"addr": addr, "area": area, "deposit": deposit_won},
             "building_deals": bld_deals, "building_listings": bld_listings,
             "resolved": {"text": pnu.get("addr") or (geo.get("text") if geo else None), "pnu": pnu["pnu"],
