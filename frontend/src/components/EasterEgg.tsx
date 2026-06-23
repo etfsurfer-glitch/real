@@ -11,13 +11,15 @@ export default function EasterEgg() {
   const live = !!user?.phoneVerified;
   const [open, setOpen] = useState(false);
 
+  // 로그인 안 했거나 전화인증 회원이 아니면 아예 렌더하지 않음(흔적 없음).
+  if (!live) return null;
+
   return (
     <>
       <span
-        className={`egg${live ? " egg-live" : ""}`}
-        onClick={live ? (e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); } : undefined}
-        role={live ? "button" : undefined}
-        aria-hidden={!live}
+        className="egg egg-live"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
+        role="button"
       >{EGG}</span>
 
       {open && createPortal(
