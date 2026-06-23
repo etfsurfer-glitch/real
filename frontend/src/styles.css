@@ -1122,6 +1122,11 @@ input.search:focus { outline: none; border-color: var(--c-primary); box-shadow: 
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(20, 28, 38, 0.5);
   display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px;
+  overflow-y: auto;   /* 키보드로 뷰포트가 줄어도 카드 전체에 스크롤 접근 가능 */
+}
+/* 모바일: 정중앙 고정이면 키보드가 하단 입력칸을 가림 → 상단정렬로 항상 보이게 */
+@media (max-width: 560px) {
+  .modal-overlay { align-items: flex-start; padding-top: 14px; }
 }
 .modal-card {
   background: #fff; border-radius: 14px; width: 100%; max-width: 360px;

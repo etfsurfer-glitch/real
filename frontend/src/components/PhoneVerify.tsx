@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ShieldCheck, Phone, X } from "lucide-react";
 import { useAuth, getReferral, clearReferral } from "../auth";
@@ -62,6 +62,18 @@ export function PhoneModal({ token, onClose, onDone }: { token: string; onClose:
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
+
+  // 인증번호 단계로 가면 입력칸에 자동 포커스 + 보이게 스크롤(모바일서 키보드에 가려 안 보이던 문제 보완)
+  useEffect(() => {
+    if (stage === "code") {
+      const t = setTimeout(() => {
+        codeRef.current?.scrollIntoView({ block: "center" });
+        codeRef.current?.focus();
+      }, 60);
+      return () => clearTimeout(t);
+    }
+  }, [stage]);
 
   const auth = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
@@ -133,6 +145,7 @@ export function PhoneModal({ token, onClose, onDone }: { token: string; onClose:
           <>
             <label className="modal-label">인증번호 6자리</label>
             <input
+              ref={codeRef}
               className="ai-input" inputMode="numeric" autoComplete="one-time-code" placeholder="● ● ● ● ● ●" maxLength={6}
               value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
               onKeyDown={(e) => { if (e.key === "Enter") verify(); }}
