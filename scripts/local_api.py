@@ -1440,11 +1440,19 @@ VWORLD_KEY = os.getenv("VWORLD_KEY", "")
 VWORLD_DOMAIN = "koczip.com"
 
 
-def _vworld_get(url: str) -> dict:
-    import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": "koczip/1.0"})
-    with urllib.request.urlopen(req, timeout=8) as r:
-        return _json.loads(r.read().decode("utf-8"))
+def _vworld_get(url: str, retries: int = 3) -> dict:
+    """VWorld 호출 — 일시 오류(502/타임아웃/throttle)에 재시도+백오프. 마지막 실패만 raise."""
+    import urllib.request, time
+    last = None
+    for i in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "koczip/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                return _json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            last = e
+            time.sleep(0.4 * (i + 1))
+    raise last if last else RuntimeError("vworld_get failed")
 
 
 def _vw_geocode(addr: str) -> dict | None:
