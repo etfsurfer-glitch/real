@@ -44,10 +44,11 @@ export default function JeonseCheck() {
   const [loading, setLoading] = useState(false);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [dep, setDep] = useState("");
+  const [lien, setLien] = useState("");   // 선순위 채권(근저당·대출), 만원
   const [addr, setAddr] = useState("");
 
   const checkCoord = (b: Bld) => {
-    setSel(b); setRes(null); setUnit(null); setDep(""); setLoading(true);
+    setSel(b); setRes(null); setUnit(null); setDep(""); setLien(""); setLoading(true);
     fetch(`${API}/tools/jeonse-check?lat=${b.lat}&lng=${b.lng}`).then((r) => r.json()).then((d) => {
       setRes(d);
       if (d.units?.length === 1) setUnit(d.units[0]);
@@ -115,7 +116,9 @@ export default function JeonseCheck() {
   }, [sido, sigungu, dong]);
 
   const depWon = dep ? Number(dep) * 10000 : 0;
-  const v = unit && depWon ? { ...judge(depWon, unit.gongsi), ratio: Math.round(depWon / unit.gongsi * 100) } : null;
+  const lienWon = lien ? Number(lien) * 10000 : 0;
+  const totalWon = depWon + lienWon;   // 전세보증금 + 선순위 채권
+  const v = unit && depWon ? { ...judge(totalWon, unit.gongsi), ratio: Math.round(totalWon / unit.gongsi * 100) } : null;
   const srvV = res?.verdict;
 
   return (
@@ -165,19 +168,20 @@ export default function JeonseCheck() {
                   <div className="kkt-gongsi">
                     <div className="jc-gongsi-row"><span>공시가격 (전용 {unit.area_m2}㎡)</span><b>{won(unit.gongsi)}</b></div>
                     <div className="jc-gongsi-row hug"><span>HUG 한도 ×140%</span><b>{won(unit.hug_limit)}</b></div>
-                    <div className="jc-depbox">
-                      <input type="number" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="전세 보증금 (만원)" autoFocus />
-                    </div>
+                    <div className="jc-depbox"><input type="number" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="전세 보증금 (만원)" autoFocus /></div>
                     {dep && <div className="muted" style={{ fontSize: 11.5 }}>{won(depWon)}</div>}
+                    <div className="jc-depbox" style={{ marginTop: 8 }}><input type="number" value={lien} onChange={(e) => setLien(e.target.value)} placeholder="선순위 채권 (근저당·대출, 만원)" /></div>
+                    <div className="muted" style={{ fontSize: 10.5 }}>{lienWon ? won(lienWon) + " · " : ""}등기부등본 '채권최고액' 합계 · 없으면 0</div>
                   </div>
                 )}
                 {v && (
                   <div className="kkt-verdict" style={{ borderColor: GRADE[v.grade].c, background: `${GRADE[v.grade].c}12` }}>
                     <div className="jc-vhead" style={{ color: GRADE[v.grade].c }}>
                       {(() => { const I = GRADE[v.grade].icon; return <I size={24} />; })()}
-                      <span className="jc-grade">{v.grade}</span><span className="jc-ratio">{v.ratio}%</span>
+                      <span className="jc-grade">{v.grade}</span><span className="jc-ratio">{lienWon ? "부채비율" : "전세가율"} {v.ratio}%</span>
                     </div>
                     <div className="jc-vmsg">{v.msg}</div>
+                    {lienWon > 0 && unit && <div className="kkt-break">전세 {won(depWon)} + 선순위채권 {won(lienWon)} = <b>{won(totalWon)}</b> · HUG한도 {won(unit.hug_limit)}</div>}
                     <div className="jc-gauge"><div className="jc-gauge-fill" style={{ width: `${Math.min(v.ratio / 1.6, 100)}%`, background: GRADE[v.grade].c }} /><span className="jc-gauge-100">100%</span><span className="jc-gauge-140">140%</span></div>
                   </div>
                 )}

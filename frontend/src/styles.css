@@ -2477,3 +2477,5 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   .kkt-side{position:static;width:100%;max-width:none;max-height:none;border-radius:0;box-shadow:none;border-top:1px solid #e6eaf0}
   .kkt-area{overflow:visible}
 }
+.kkt-break{font-size:11.5px;color:#46566b;background:rgba(255,255,255,.6);border-radius:7px;padding:6px 9px;margin:8px 0}
+.kkt-break b{color:#13294b;font-weight:800}
