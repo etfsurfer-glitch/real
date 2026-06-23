@@ -1756,7 +1756,8 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
         for it in bld_listings:
             if it["trade"] == "전세" and it.get("area_m2"):
                 best = min(area_units, key=lambda u: abs(u["area_m2"] - it["area_m2"]))
-                if best["gongsi"]:
+                # 매물 면적이 공시가격 등록 면적과 ±3㎡ 이내일 때만 판정(옆 건물 매물 오판 방지)
+                if best["gongsi"] and abs(best["area_m2"] - it["area_m2"]) <= 3:
                     rr = it["price"] / best["gongsi"]
                     it["ratio"] = round(rr * 100)
                     it["grade"] = "안전" if rr <= 1.0 else ("주의" if rr <= 1.4 else "위험")
