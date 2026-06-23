@@ -33,6 +33,7 @@ import AdminDataSources from "./pages/AdminDataSources";
 import AdminPush from "./pages/AdminPush";
 import AdminTodayStats from "./pages/AdminTodayStats";
 import NonResi from "./pages/NonResi";
+import JeonseCheck from "./pages/JeonseCheck";
 import EasterEgg from "./components/EasterEgg";
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
@@ -303,6 +304,7 @@ function AppShell() {
         <Route path="/admin/today" element={<RequireAdmin><AdminTodayStats /></RequireAdmin>} />
         <Route path="/nonresi/:cat" element={<NonResi />} />
         <Route path="/nonresi" element={<NonResi />} />
+        <Route path="/jeonse-check" element={<JeonseCheck />} />
         <Route path="/tx-stats" element={<TxStatsLayout />}>
           <Route index element={<Navigate to="region-pulse" replace />} />
           <Route path="region-pulse" element={<TxRegionPulse />} />

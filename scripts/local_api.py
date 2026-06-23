@@ -1436,6 +1436,325 @@ def nonresi_jeonse_ratio(cortar: str = ""):
             "risky": risky}
 
 
+VWORLD_KEY = os.getenv("VWORLD_KEY", "")
+VWORLD_DOMAIN = "koczip.com"
+
+
+def _vworld_get(url: str) -> dict:
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "koczip/1.0"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return _json.loads(r.read().decode("utf-8"))
+
+
+def _vw_geocode(addr: str) -> dict | None:
+    import urllib.parse
+    for typ in ("road", "parcel"):
+        q = urllib.parse.urlencode({"service": "address", "request": "getcoord", "version": "2.0",
+                                    "crs": "epsg:4326", "address": addr, "format": "json",
+                                    "type": typ, "key": VWORLD_KEY})
+        try:
+            d = _vworld_get(f"https://api.vworld.kr/req/address?{q}")
+            res = d.get("response", {})
+            if res.get("status") == "OK":
+                pt = res["result"]["point"]
+                st = res.get("refined", {}).get("structure", {})
+                return {"x": float(pt["x"]), "y": float(pt["y"]),
+                        "sgg": st.get("level2"), "umd": st.get("level4L") or st.get("level3"),
+                        "text": res.get("refined", {}).get("text")}
+        except Exception:
+            continue
+    return None
+
+
+def _vw_pnu(x: float, y: float) -> dict | None:
+    import urllib.parse
+    q = urllib.parse.urlencode({"service": "data", "request": "GetFeature", "data": "LP_PA_CBND_BUBUN",
+                                "key": VWORLD_KEY, "domain": VWORLD_DOMAIN,
+                                "geomFilter": f"POINT({x} {y})", "size": "1", "format": "json"})
+    try:
+        d = _vworld_get(f"https://api.vworld.kr/req/data?{q}")
+        feats = d["response"]["result"]["featureCollection"]["features"]
+        if feats:
+            p = feats[0]["properties"]
+            return {"pnu": p["pnu"], "addr": p.get("addr"), "jiga": int(p.get("jiga") or 0)}
+    except Exception:
+        pass
+    return None
+
+
+def _vw_ned(op: str, pnu: str) -> list:
+    import urllib.parse
+    q = urllib.parse.urlencode({"key": VWORLD_KEY, "domain": VWORLD_DOMAIN, "pnu": pnu,
+                                "format": "json", "numOfRows": "1000", "pageNo": "1"})
+    try:
+        d = _vworld_get(f"https://api.vworld.kr/ned/data/{op}?{q}")
+        root = next(iter(d.values())) if d else {}
+        f = root.get("field", []) if isinstance(root, dict) else []
+        return f if isinstance(f, list) else [f]
+    except Exception:
+        return []
+
+
+@app.get("/tools/jeonse-check")
+def jeonse_check(addr: str, area: float = 0, deposit: float = 0):
+    """깡통전세 감별기 — 주소·전용면적·보증금 입력 → 공시가격(HUG 140%) 기준 위험판정 + 주변 통계·매물.
+    deposit 단위: 만원."""
+    if not VWORLD_KEY:
+        raise HTTPException(503, "공시가격 키 미설정")
+    geo = _vw_geocode(addr)
+    if not geo:
+        return {"ok": False, "error": "주소를 찾지 못했어요. 도로명 또는 지번 주소로 다시 입력해 주세요."}
+    pnu = _vw_pnu(geo["x"], geo["y"])
+    if not pnu:
+        return {"ok": False, "error": "해당 위치의 필지를 찾지 못했어요."}
+
+    # 공시가격: 공동주택(빌라/아파트) 우선, 없으면 개별주택(단독)
+    deposit_won = int(deposit * 10000)
+    gongsi = None
+    kind = None
+    bld_name = None
+    matched_area = None
+    units = _vw_ned("getApartHousingPriceAttr", pnu["pnu"])
+    if units:
+        yrs = [u.get("stdrYear", "") for u in units if u.get("stdrYear")]
+        maxyr = max(yrs) if yrs else None
+        latest = [u for u in units if u.get("stdrYear") == maxyr and u.get("pblntfPc")]
+        if area:
+            latest.sort(key=lambda u: abs(float(u.get("prvuseAr") or 0) - area))
+            near = [u for u in latest if abs(float(u.get("prvuseAr") or 0) - area) <= 3] or latest[:3]
+        else:
+            near = latest
+        if near:
+            gongsi = round(sum(int(u["pblntfPc"]) for u in near) / len(near))
+            matched_area = round(sum(float(u.get("prvuseAr") or 0) for u in near) / len(near), 1)
+            bld_name = near[0].get("aphusNm")
+            kind = near[0].get("aphusSeCodeNm") or "공동주택"
+            gongsi_year = maxyr
+    if gongsi is None:
+        ind = _vw_ned("getIndvdHousingPriceAttr", pnu["pnu"])
+        if ind:
+            yrs = [u.get("stdrYear", "") for u in ind if u.get("stdrYear")]
+            maxyr = max(yrs) if yrs else None
+            cur = [u for u in ind if u.get("stdrYear") == maxyr and u.get("housePc")]
+            if cur:
+                gongsi = int(cur[0]["housePc"]); kind = "단독·다가구"; gongsi_year = maxyr
+
+    # 판정 (HUG 전세보증 기준 = 공시가격 × 140%)
+    verdict = None
+    if gongsi and deposit_won:
+        ratio = deposit_won / gongsi
+        hug = round(gongsi * 1.4)
+        if ratio <= 1.0:
+            grade, msg = "안전", "공시가격 이하입니다."
+        elif ratio <= 1.2:
+            grade, msg = "양호", "공시가격을 넘지만 HUG 한도 안입니다."
+        elif ratio <= 1.4:
+            grade, msg = "주의", "HUG 보증한도(공시가격 140%)에 근접합니다."
+        else:
+            grade, msg = "위험", "공시가격 140%를 초과 — HUG 전세보증도 거부되는 깡통전세 위험 수준입니다."
+        verdict = {"grade": grade, "ratio": round(ratio * 100), "hug_limit": hug,
+                   "gongsi": gongsi, "gongsi_year": gongsi_year, "deposit": deposit_won, "message": msg}
+    elif gongsi:
+        verdict = {"grade": None, "gongsi": gongsi, "gongsi_year": gongsi_year, "hug_limit": round(gongsi * 1.4),
+                   "deposit": None, "message": "보증금을 입력하면 위험도를 판정해요."}
+
+    # 주변 통계·매물 (동 단위, sgg=pnu[:5])
+    sgg = pnu["pnu"][:5]
+    umd = geo.get("umd")
+    nearby = _jeonse_nearby(sgg, umd)
+    return {"ok": True, "input": {"addr": addr, "area": area, "deposit": deposit_won},
+            "resolved": {"text": pnu.get("addr") or geo.get("text"), "pnu": pnu["pnu"],
+                         "building": bld_name, "kind": kind, "matched_area": matched_area,
+                         "sgg": geo.get("sgg"), "umd": umd, "land_price": pnu.get("jiga")},
+            "verdict": verdict, "nearby": nearby}
+
+
+def _jeonse_nearby(sgg: str, umd: str | None) -> dict:
+    """동(또는 구) 빌라 실거래 시세·건물단위 위험비율 + 현재 전세 매물."""
+    w = ["sgg_cd=?"]; p = [sgg]
+    if umd:
+        w.append("umd_nm=?"); p.append(umd)
+    ws = " AND ".join(w)
+    out = {"scope": (umd or "") + " 빌라", "sale_median": None, "jeonse_median": None,
+           "risky_pct": None, "n_buildings": None, "listings": []}
+    with _open_db() as c:
+        out["sale_median"] = _med(c, "rh_transactions", "deal_amount",
+                                  f"{ws} AND is_cancelled=0 AND deal_ymd>='2024-06-01'", list(p))
+        out["jeonse_median"] = _med(c, "rh_rentals", "deposit",
+                                    f"monthly_rent=0 AND {ws} AND deal_ymd>='2024-06-01'", list(p))
+        # 건물단위 위험비율(전세가율≥80%)
+        rows = c.execute(
+            f"""WITH s AS (SELECT mhouse_nm, CAST(excl_use_ar AS INT) ar, AVG(deal_amount) ma
+                   FROM rh_transactions WHERE {ws} AND is_cancelled=0 AND deal_ymd>='2024-06-01'
+                   AND mhouse_nm NOT LIKE '(%' GROUP BY mhouse_nm, ar),
+                 j AS (SELECT mhouse_nm, CAST(excl_use_ar AS INT) ar, AVG(deposit) mj
+                   FROM rh_rentals WHERE {ws} AND monthly_rent=0 AND deal_ymd>='2024-06-01'
+                   AND mhouse_nm NOT LIKE '(%' GROUP BY mhouse_nm, ar)
+                SELECT COUNT(*), SUM(CASE WHEN j.mj*100.0/NULLIF(s.ma,0)>=80 THEN 1 ELSE 0 END)
+                FROM s JOIN j ON s.mhouse_nm=j.mhouse_nm AND s.ar=j.ar""", p + p).fetchone()
+        if rows and rows[0]:
+            out["n_buildings"] = rows[0]
+            out["risky_pct"] = round((rows[1] or 0) * 100 / rows[0], 1)
+    # 현재 전세 매물 (동 cortar 매핑 → listings_villa B1)
+    cortar = None
+    with _open_db() as c:
+        if umd:
+            r = c.execute("SELECT cortar_no FROM regions WHERE cortar_type='sec' AND cortar_name=? "
+                          "AND substr(cortar_no,1,5)=? LIMIT 1", (umd, sgg)).fetchone()
+            cortar = r[0] if r else None
+    path = DB_PATH.parent / _NONRESI_DB["villa"]
+    if path.exists():
+        pref = cortar or sgg
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
+            lr = lc.execute("SELECT article_no, building_name, area2_m2, deal_or_warrant_price "
+                            "FROM listings WHERE substr(cortar_no,1,?)=? AND trade_type='B1' "
+                            "AND deal_or_warrant_price>0 ORDER BY deal_or_warrant_price LIMIT 8",
+                            (len(pref), pref)).fetchall()
+        out["listings"] = [{"building": b or "-", "area_m2": round(a) if a else None,
+                            "deposit": int(pr * 10000),
+                            "naver_url": f"https://m.land.naver.com/article/info/{art}"}
+                           for art, b, a, pr in lr]
+    return out
+
+
+def _nonresi_real_table(cat: str) -> tuple[str, str, str]:
+    """실거래 테이블·전용면적컬럼·용도절 — 급매/환금성 비교용."""
+    if cat == "villa":
+        return "rh_transactions", "excl_use_ar", ""
+    if cat in ("sangga", "office"):
+        uc, _ = _nrg_use_clause(cat)
+        return "nrg_transactions", "building_ar", uc
+    return "", "", ""   # house는 대지·건물 복합이라 ㎡당 비교 제외
+
+
+@app.get("/stats/nonresi/bargains")
+def nonresi_bargains(cat: str, cortar: str = "", limit: int = 40):
+    """③ 급매 — 호가 매물(전용면적 기준)을 같은 지역·면적대 실거래 중위 ₩/㎡와 비교해 저평가 매물 추출."""
+    if cat not in _NONRESI_DB:
+        raise HTTPException(400, "bad cat")
+    rtable, rarea, ruse = _nonresi_real_table(cat)
+    if not rtable or not cortar:
+        return {"cat": cat, "available": False, "note": "단독은 ㎡당 비교 부적합, 또는 지역 미선택", "bargains": []}
+    sgg = cortar[:5]
+    import datetime as _dt
+    cutoff = (_dt.date.today().replace(day=1) - _dt.timedelta(days=365)).strftime("%Y-%m-%d")
+    rwhere = [f"sgg_cd=?", "is_cancelled=0", "deal_ymd>=?", f"{rarea}>0"]
+    rparams = [sgg, cutoff]
+    if ruse:
+        rwhere.append(ruse)
+    with _open_db() as c:
+        rows = c.execute(f"SELECT {rarea}, deal_amount FROM {rtable} WHERE {' AND '.join(rwhere)}",
+                         rparams).fetchall()
+    # 면적대(10㎡) 버킷별 실거래 중위 ₩/㎡(전용)
+    from statistics import median
+    band: dict[int, list] = {}
+    for ar, amt in rows:
+        if ar and amt:
+            band.setdefault(int(ar // 10), []).append(amt / ar)
+    band_med = {b: median(v) for b, v in band.items() if len(v) >= 5}
+    if not band_med:
+        return {"cat": cat, "available": False, "note": "실거래 표본 부족", "bargains": []}
+    # 호가 매물(매매 A1, 전용=area2) 비교
+    path = DB_PATH.parent / _NONRESI_DB[cat]
+    out = []
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
+        lrows = lc.execute(
+            "SELECT article_no, building_name, cortar_no, area2_m2, deal_or_warrant_price, floor_info "
+            "FROM listings WHERE substr(cortar_no,1,5)=? AND trade_type='A1' "
+            "AND area2_m2>0 AND deal_or_warrant_price>0", [sgg]).fetchall()
+    for art, bn, ct, ar2, price, fl in lrows:
+        b = int(ar2 // 10)
+        med = band_med.get(b)
+        if not med:
+            continue
+        ppm = price * 10000.0 / ar2
+        disc = 1 - ppm / med
+        if disc >= 0.15:
+            out.append({"article_no": art, "building": bn or "-", "cortar": ct,
+                        "area_m2": round(ar2), "price": int(price * 10000),
+                        "floor": fl, "market_pyeong": int(med * 3.3058),
+                        "discount": round(disc * 100), "needs_check": disc >= 0.4,
+                        "naver_url": f"https://m.land.naver.com/article/info/{art}"})
+    out.sort(key=lambda x: -x["discount"])
+    return {"cat": cat, "available": True, "n_listings": len(lrows),
+            "n_bargains": len(out), "bargains": out[:max(1, min(limit, 100))]}
+
+
+@app.get("/stats/nonresi/liquidity")
+def nonresi_liquidity(cat: str, cortar: str = ""):
+    """② 환금성 — 현재 매물수(호가) vs 월평균 실거래(최근12개월) → 소진 개월수(매물 적체도)."""
+    if cat not in _NONRESI_DB:
+        raise HTTPException(400, "bad cat")
+    rtable, _, ruse = _nonresi_real_table(cat)
+    sgg = cortar[:5] if cortar else ""
+    import datetime as _dt
+    cutoff = (_dt.date.today().replace(day=1) - _dt.timedelta(days=365)).strftime("%Y-%m-%d")
+    monthly = None
+    if rtable and sgg:
+        rwhere = ["sgg_cd=?", "is_cancelled=0", "deal_ymd>=?"]
+        rparams = [sgg, cutoff]
+        if ruse:
+            rwhere.append(ruse)
+        with _open_db() as c:
+            n = c.execute(f"SELECT COUNT(*) FROM {rtable} WHERE {' AND '.join(rwhere)}", rparams).fetchone()[0]
+        monthly = round(n / 12, 1)
+    path = DB_PATH.parent / _NONRESI_DB[cat]
+    listings_n = None
+    if path.exists() and sgg:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
+            listings_n = lc.execute("SELECT COUNT(*) FROM listings WHERE substr(cortar_no,1,5)=? "
+                                    "AND trade_type='A1'", [sgg]).fetchone()[0]
+    months = round(listings_n / monthly, 1) if (listings_n and monthly) else None
+    return {"cat": cat, "cortar": cortar, "listings": listings_n,
+            "monthly_deals": monthly, "months_to_clear": months}
+
+
+@app.get("/stats/nonresi/jeonse-listings")
+def nonresi_jeonse_listings(cortar: str = "", limit: int = 40):
+    """① 깡통전세 × 전세매물 — 동별 위험도(건물단위 전세가율≥80% 비율)를 현재 전세 매물에 부착."""
+    if not cortar:
+        raise HTTPException(400, "지역을 선택하세요")
+    rc, rp = _rh_region_clause(cortar)
+    with _open_db() as c:
+        # 동별 건물단위 전세가율 → 위험건물 비율
+        drows = c.execute(
+            f"""WITH s AS (SELECT umd_nm, mhouse_nm, CAST(excl_use_ar AS INT) ar, AVG(deal_amount) ma
+                   FROM rh_transactions WHERE {rc} AND is_cancelled=0 AND deal_ymd>='2024-06-01'
+                   AND mhouse_nm NOT LIKE '(%' GROUP BY umd_nm,mhouse_nm,ar),
+                 j AS (SELECT umd_nm, mhouse_nm, CAST(excl_use_ar AS INT) ar, AVG(deposit) mj
+                   FROM rh_rentals WHERE {rc} AND monthly_rent=0 AND deal_ymd>='2024-06-01'
+                   AND mhouse_nm NOT LIKE '(%' GROUP BY umd_nm,mhouse_nm,ar)
+                SELECT s.umd_nm, COUNT(*), SUM(CASE WHEN j.mj*100.0/NULLIF(s.ma,0)>=80 THEN 1 ELSE 0 END)
+                FROM s JOIN j ON s.umd_nm=j.umd_nm AND s.mhouse_nm=j.mhouse_nm AND s.ar=j.ar
+                GROUP BY s.umd_nm""", rp + rp).fetchall()
+    dong_risk = {r[0]: {"n": r[1], "risky": r[2], "pct": round(r[2] * 100 / r[1], 1) if r[1] else 0}
+                 for r in drows}
+    # 현재 전세 매물(listings_villa B1)
+    path = DB_PATH.parent / _NONRESI_DB["villa"]
+    items = []
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
+        lrows = lc.execute(
+            "SELECT article_no, building_name, cortar_no, area2_m2, deal_or_warrant_price "
+            "FROM listings WHERE substr(cortar_no,1,?)=? AND trade_type='B1' AND deal_or_warrant_price>0 "
+            "LIMIT 400", [len(cortar), cortar]).fetchall()
+    # cortar(동코드) → 동명
+    with _open_db() as c:
+        cmap = {r[0]: r[1] for r in c.execute(
+            "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='sec'").fetchall()}
+    for art, bn, ct, ar2, price in lrows:
+        umd = cmap.get(ct)
+        risk = dong_risk.get(umd)
+        items.append({"article_no": art, "building": bn or "-", "umd": umd,
+                      "area_m2": round(ar2) if ar2 else None, "deposit": int(price * 10000),
+                      "dong_risk_pct": risk["pct"] if risk else None,
+                      "naver_url": f"https://m.land.naver.com/article/info/{art}"})
+    items.sort(key=lambda x: -(x["dong_risk_pct"] or -1))
+    risky_items = [x for x in items if (x["dong_risk_pct"] or 0) >= 30]
+    return {"cortar": cortar, "n_listings": len(lrows), "n_risky_dong_listings": len(risky_items),
+            "dong_risk": dong_risk, "listings": (risky_items or items)[:max(1, min(limit, 100))]}
+
+
 def _rh_region_clause(cortar: str) -> tuple[str, list]:
     """rh_transactions/rh_rentals 는 sgg_cd(5자리)+umd_nm(동명) 키. 구=sgg_cd, 동=sgg_cd+umd_nm."""
     if not cortar:
