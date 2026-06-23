@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Loading } from "../components/Loading";
 import ShareBar from "../components/ShareBar";
+import EasterEgg from "../components/EasterEgg";
 import { MapPin, TrendingUp, BadgePercent, BarChart3, Trophy, Flame, ChevronRight } from "lucide-react";
 
 const API = import.meta.env.VITE_API_BASE;
@@ -137,6 +138,7 @@ export default function MyHood() {
           </select>
         </div>
         {!r.sido && <div className="hood-hint">동네를 고르면 다음에도 기억해서 바로 보여드려요</div>}
+        <EasterEgg />
       </div>
 
       <div className="hood-share"><ShareBar targetRef={shareRef} title={`${scope} 우리동네 실거래·급매`} fileName={`콕집_우리동네_${scope}`} /></div>

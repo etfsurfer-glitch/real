@@ -2319,3 +2319,18 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .nr-deal-r{text-align:right;white-space:nowrap}
 .nr-deal-r b{font-size:14px;font-weight:800;color:#13294b}
 .nr-deal-py{display:block;font-size:10.5px;color:#9aa7b8;margin-top:1px}
+
+/* 랜딩 이스터에그 — 평소엔 흐린 빌드 스탬프, 인증 회원에겐 금빛으로 빛남 */
+.egg{position:absolute;right:13px;bottom:9px;font-size:10px;font-weight:600;letter-spacing:2px;color:rgba(255,255,255,.22);user-select:none;pointer-events:none;font-feature-settings:"tnum"}
+.egg-live{pointer-events:auto;cursor:pointer;color:transparent;background:linear-gradient(95deg,#ffe7a0,#ffb55c,#ff8efb,#8be9ff);background-size:200% auto;-webkit-background-clip:text;background-clip:text;text-shadow:0 0 14px rgba(255,196,110,.55);animation:egg-shine 3s linear infinite,egg-pulse 2.2s ease-in-out infinite}
+@keyframes egg-shine{to{background-position:200% center}}
+@keyframes egg-pulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.45)}}
+.egg-modal{position:fixed;inset:0;z-index:1000;background:rgba(10,18,35,.62);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:24px;animation:egg-fade .2s ease}
+@keyframes egg-fade{from{opacity:0}to{opacity:1}}
+.egg-card{position:relative;background:linear-gradient(160deg,#1a2748,#0f1830);border:1px solid rgba(255,200,120,.35);border-radius:20px;padding:30px 26px 22px;max-width:330px;text-align:center;color:#fff;box-shadow:0 20px 60px -12px rgba(0,0,0,.6)}
+.egg-spark{font-size:34px;color:#ffce72;text-shadow:0 0 20px rgba(255,196,110,.8);margin-bottom:6px;animation:egg-pulse 1.8s ease-in-out infinite}
+.egg-card h3{margin:0 0 10px;font-size:17px;font-weight:800;background:linear-gradient(95deg,#ffe7a0,#ffb55c);-webkit-background-clip:text;background-clip:text;color:transparent}
+.egg-card p{margin:0 0 12px;font-size:13px;line-height:1.6;color:#d6def0}
+.egg-code{display:inline-block;font-size:14px;font-weight:800;letter-spacing:2px;color:#0f1830;background:linear-gradient(95deg,#ffe7a0,#ffb55c);border-radius:10px;padding:8px 16px;margin:2px 0 10px}
+.egg-note{font-size:11.5px;color:#9fb0cc}
+.egg-card button{margin-top:6px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font-size:13px;font-weight:700;border-radius:10px;padding:9px 22px;cursor:pointer}
