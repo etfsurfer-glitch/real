@@ -1496,18 +1496,47 @@ def _vw_ned(op: str, pnu: str) -> list:
         return []
 
 
+@app.get("/tools/jeonse-listings")
+def jeonse_listings(cortar: str = "", limit: int = 30):
+    """동 단위 빌라 전세 매물(좌표 포함) — 감별기에서 주소 없이 매물 선택용."""
+    if not cortar:
+        raise HTTPException(400, "지역(동)을 선택하세요")
+    path = DB_PATH.parent / _NONRESI_DB["villa"]
+    if not path.exists():
+        return {"cortar": cortar, "listings": []}
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
+        rows = lc.execute(
+            "SELECT article_no, building_name, area2_m2, deal_or_warrant_price, latitude, longitude "
+            "FROM listings WHERE substr(cortar_no,1,?)=? AND trade_type='B1' "
+            "AND deal_or_warrant_price>0 AND latitude>0 "
+            "ORDER BY article_confirm_ymd DESC, deal_or_warrant_price DESC LIMIT ?",
+            (len(cortar), cortar, max(1, min(limit, 60)))).fetchall()
+    return {"cortar": cortar, "listings": [
+        {"article_no": a, "building": b or "빌라", "area_m2": round(ar) if ar else None,
+         "deposit": int(pr * 10000), "lat": la, "lng": lo,
+         "naver_url": f"https://m.land.naver.com/article/info/{a}"}
+        for a, b, ar, pr, la, lo in rows]}
+
+
 @app.get("/tools/jeonse-check")
-def jeonse_check(addr: str, area: float = 0, deposit: float = 0):
-    """깡통전세 감별기 — 주소·전용면적·보증금 입력 → 공시가격(HUG 140%) 기준 위험판정 + 주변 통계·매물.
-    deposit 단위: 만원."""
+def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0,
+                 deposit: float = 0, cortar: str = ""):
+    """깡통전세 감별기 — 주소 또는 좌표(매물 선택) + 전용면적·보증금 → 공시가격(HUG 140%) 위험판정
+    + 주변 통계·매물. deposit 단위: 만원."""
     if not VWORLD_KEY:
         raise HTTPException(503, "공시가격 키 미설정")
-    geo = _vw_geocode(addr)
-    if not geo:
-        return {"ok": False, "error": "주소를 찾지 못했어요. 도로명 또는 지번 주소로 다시 입력해 주세요."}
-    pnu = _vw_pnu(geo["x"], geo["y"])
+    geo = None
+    if lat and lng:
+        pnu = _vw_pnu(lng, lat)          # 매물 좌표 직접 사용(주소 불필요)
+    elif addr:
+        geo = _vw_geocode(addr)
+        if not geo:
+            return {"ok": False, "error": "주소를 찾지 못했어요. 지번 주소로 다시 입력해 주세요."}
+        pnu = _vw_pnu(geo["x"], geo["y"])
+    else:
+        return {"ok": False, "error": "주소를 입력하거나 매물을 선택해 주세요."}
     if not pnu:
-        return {"ok": False, "error": "해당 위치의 필지를 찾지 못했어요."}
+        return {"ok": False, "error": "해당 위치의 공시가격 필지를 찾지 못했어요."}
 
     # 공시가격: 공동주택(빌라/아파트) 우선, 없으면 개별주택(단독)
     deposit_won = int(deposit * 10000)
@@ -1559,14 +1588,26 @@ def jeonse_check(addr: str, area: float = 0, deposit: float = 0):
         verdict = {"grade": None, "gongsi": gongsi, "gongsi_year": gongsi_year, "hug_limit": round(gongsi * 1.4),
                    "deposit": None, "message": "보증금을 입력하면 위험도를 판정해요."}
 
-    # 주변 통계·매물 (동 단위, sgg=pnu[:5])
+    # 주변 통계·매물 (동 단위). cortar(선택한 동) 우선 → 없으면 geo/pnu에서 해석.
     sgg = pnu["pnu"][:5]
-    umd = geo.get("umd")
+    umd = None
+    sgg_name = geo.get("sgg") if geo else None
+    if cortar:
+        with _open_db() as c:
+            r = c.execute("SELECT cortar_name FROM regions WHERE cortar_no=?", (cortar,)).fetchone()
+            umd = r[0] if r else None
+            sgg = cortar[:5]
+    if not umd and geo:
+        umd = geo.get("umd")
+    if not umd and pnu.get("addr"):     # pnu 주소에서 동/읍/면 토큰 추출
+        for tok in pnu["addr"].split():
+            if tok.endswith(("동", "읍", "면")):
+                umd = tok; break
     nearby = _jeonse_nearby(sgg, umd)
     return {"ok": True, "input": {"addr": addr, "area": area, "deposit": deposit_won},
-            "resolved": {"text": pnu.get("addr") or geo.get("text"), "pnu": pnu["pnu"],
+            "resolved": {"text": pnu.get("addr") or (geo.get("text") if geo else None), "pnu": pnu["pnu"],
                          "building": bld_name, "kind": kind, "matched_area": matched_area,
-                         "sgg": geo.get("sgg"), "umd": umd, "land_price": pnu.get("jiga")},
+                         "sgg": sgg_name, "umd": umd, "land_price": pnu.get("jiga")},
             "verdict": verdict, "nearby": nearby}
 
 

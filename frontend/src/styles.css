@@ -2377,3 +2377,19 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .jc-l-b{font-size:13px;font-weight:700;color:#1c2c44}
 .jc-l-b em{color:#9aa7b8;font-style:normal;font-weight:400;font-size:11px;margin-left:4px}
 .jc-l-d{display:inline-flex;align-items:center;gap:4px;font-size:13.5px;font-weight:800;color:#13294b;white-space:nowrap}
+
+/* 전세 감별기 — 매물 선택 모드 */
+.jc-seg{display:inline-flex;border:1px solid #d4dbe6;border-radius:10px;overflow:hidden}
+.jc-seg button{border:0;background:#fff;color:#5a6b80;font-size:13px;font-weight:700;padding:9px 16px;cursor:pointer}
+.jc-seg button.on{background:#13294b;color:#fff}
+.jc-hint{margin-top:12px;background:#f5f8fc;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#5a6b80}
+.jc-picklist{margin-top:12px;display:flex;flex-direction:column;gap:1px;background:#eef1f5;border-radius:12px;overflow:hidden}
+.jc-pick{display:flex;align-items:center;gap:10px;background:#fff;border:0;padding:13px;cursor:pointer;text-align:left;width:100%}
+.jc-pick.on{background:#eef4ff;box-shadow:inset 3px 0 0 #1f56b0}
+.jc-pick-l{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.jc-pick-b{font-size:13.5px;font-weight:700;color:#1c2c44}
+.jc-pick-b em{color:#9aa7b8;font-style:normal;font-weight:400;font-size:11.5px;margin-left:4px}
+.jc-pick-d{font-size:12.5px;color:#46566b;font-weight:600}
+.jc-pick-arr{color:#c4ccd6;flex:none}
+.jc-pick-load{color:#1f56b0;font-weight:800;flex:none}
+.jc-result{margin-top:4px}
