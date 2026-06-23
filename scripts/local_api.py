@@ -1506,16 +1506,37 @@ def jeonse_listings(cortar: str = "", limit: int = 30):
         return {"cortar": cortar, "listings": []}
     with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
         rows = lc.execute(
-            "SELECT article_no, building_name, area2_m2, deal_or_warrant_price, latitude, longitude "
+            "SELECT article_no, building_name, area2_m2, deal_or_warrant_price, latitude, longitude, floor_info "
             "FROM listings WHERE substr(cortar_no,1,?)=? AND trade_type='B1' "
             "AND deal_or_warrant_price>0 AND latitude>0 "
             "ORDER BY article_confirm_ymd DESC, deal_or_warrant_price DESC LIMIT ?",
-            (len(cortar), cortar, max(1, min(limit, 60)))).fetchall()
-    return {"cortar": cortar, "listings": [
-        {"article_no": a, "building": b or "빌라", "area_m2": round(ar) if ar else None,
-         "deposit": int(pr * 10000), "lat": la, "lng": lo,
-         "naver_url": f"https://m.land.naver.com/article/info/{a}"}
-        for a, b, ar, pr, la, lo in rows]}
+            (len(cortar), cortar, max(1, min(limit, 30)))).fetchall()
+
+    # 매물 좌표 역지오코딩 → 실제 지번 주소(건물명이 '빌라'로만 와서 구분 불가한 문제 해결). 병렬.
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _short_addr(la, lo):
+        p = _vw_pnu(lo, la)
+        full = p.get("addr") if p else None
+        if not full:
+            return None
+        toks = full.split()
+        # 구/군 다음(동+지번)만 — "화곡동 102-119"
+        for i, t in enumerate(toks):
+            if t.endswith(("구", "군", "시")) and i + 1 < len(toks):
+                return " ".join(toks[i + 1:])
+        return full
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        addrs = list(ex.map(lambda r: _short_addr(r[4], r[5]), rows))
+
+    out = []
+    for (a, b, ar, pr, la, lo, fl), addr in zip(rows, addrs):
+        out.append({"article_no": a, "addr": addr, "building": b or "빌라",
+                    "area_m2": round(ar) if ar else None, "floor": fl,
+                    "deposit": int(pr * 10000), "lat": la, "lng": lo,
+                    "naver_url": f"https://m.land.naver.com/article/info/{a}"})
+    return {"cortar": cortar, "listings": out}
 
 
 @app.get("/tools/jeonse-check")

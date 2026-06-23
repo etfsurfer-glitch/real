@@ -7,7 +7,7 @@ const API = import.meta.env.VITE_API_BASE;
 type Verdict = { grade: string | null; ratio?: number; hug_limit: number; gongsi: number; gongsi_year: string; deposit: number | null; message: string };
 type Nearby = { scope: string; sale_median: number | null; jeonse_median: number | null; risky_pct: number | null; n_buildings: number | null; listings: { building: string; area_m2: number | null; deposit: number; naver_url: string }[] };
 type Resp = { ok: boolean; error?: string; resolved?: { text: string; building: string | null; kind: string | null; matched_area: number | null; sgg: string; umd: string }; verdict?: Verdict | null; nearby?: Nearby };
-type Listing = { article_no: string; building: string; area_m2: number | null; deposit: number; lat: number; lng: number; naver_url: string };
+type Listing = { article_no: string; addr: string | null; building: string; area_m2: number | null; floor: string | null; deposit: number; lat: number; lng: number; naver_url: string };
 
 function won(v: number | null | undefined): string {
   if (!v) return "-";
@@ -92,8 +92,8 @@ export default function JeonseCheck() {
               {listings.map((l) => (
                 <button key={l.article_no} className={`jc-pick ${sel === l.article_no ? "on" : ""}`} onClick={() => checkListing(l)}>
                   <span className="jc-pick-l">
-                    <span className="jc-pick-b">{l.building} <em>{l.area_m2}㎡</em></span>
-                    <span className="jc-pick-d">전세 {won(l.deposit)}</span>
+                    <span className="jc-pick-b">{l.addr || l.building} <em>{l.area_m2}㎡{l.floor ? ` · ${l.floor}층` : ""}</em></span>
+                    <span className="jc-pick-d">전세 {won(l.deposit)} · {l.building}</span>
                   </span>
                   {sel === l.article_no && loading ? <span className="jc-pick-load">…</span> : <ChevronRight size={16} className="jc-pick-arr" />}
                 </button>
