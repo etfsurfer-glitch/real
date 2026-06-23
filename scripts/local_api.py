@@ -1633,23 +1633,29 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
     kind = None
     bld_name = None
     matched_area = None
+    gongsi_year = None
+    units_out: list = []   # 한 건물 안의 면적별 공시가격(공동주택)
     units = _vw_ned("getApartHousingPriceAttr", pnu["pnu"])
     if units:
         yrs = [u.get("stdrYear", "") for u in units if u.get("stdrYear")]
         maxyr = max(yrs) if yrs else None
         latest = [u for u in units if u.get("stdrYear") == maxyr and u.get("pblntfPc")]
-        if area:
-            latest.sort(key=lambda u: abs(float(u.get("prvuseAr") or 0) - area))
-            near = [u for u in latest if abs(float(u.get("prvuseAr") or 0) - area) <= 3] or latest[:3]
-        else:
-            near = latest
-        if near:
-            gongsi = round(sum(int(u["pblntfPc"]) for u in near) / len(near))
-            matched_area = round(sum(float(u.get("prvuseAr") or 0) for u in near) / len(near), 1)
-            bld_name = near[0].get("aphusNm")
-            kind = near[0].get("aphusSeCodeNm") or "공동주택"
+        grp: dict = {}                       # 전용면적(반올림) → [공시가격…]
+        for u in latest:
+            ar = round(float(u.get("prvuseAr") or 0))
+            if ar > 0:
+                grp.setdefault(ar, []).append(int(u["pblntfPc"]))
+        units_out = [{"area_m2": ar, "gongsi": round(sum(v) / len(v)),
+                      "hug_limit": round(sum(v) / len(v) * 1.4), "n": len(v)}
+                     for ar, v in sorted(grp.items())]
+        if latest:
+            bld_name = latest[0].get("aphusNm")
+            kind = latest[0].get("aphusSeCodeNm") or "공동주택"
             gongsi_year = maxyr
-    if gongsi is None:
+        if area and units_out:               # 입력 면적에 가장 가까운 그룹으로 판정
+            best = min(units_out, key=lambda x: abs(x["area_m2"] - area))
+            gongsi, matched_area = best["gongsi"], best["area_m2"]
+    if gongsi is None and not units_out:      # 공동주택 아님 → 단독주택가격
         ind = _vw_ned("getIndvdHousingPriceAttr", pnu["pnu"])
         if ind:
             yrs = [u.get("stdrYear", "") for u in ind if u.get("stdrYear")]
@@ -1697,7 +1703,7 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
             "resolved": {"text": pnu.get("addr") or (geo.get("text") if geo else None), "pnu": pnu["pnu"],
                          "building": bld_name, "kind": kind, "matched_area": matched_area,
                          "sgg": sgg_name, "umd": umd, "land_price": pnu.get("jiga")},
-            "verdict": verdict, "nearby": nearby}
+            "units": units_out, "verdict": verdict, "nearby": nearby}
 
 
 def _jeonse_nearby(sgg: str, umd: str | None) -> dict:
