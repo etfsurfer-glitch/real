@@ -15,7 +15,7 @@ export default function EasterEgg() {
     <>
       <span
         className={`egg${live ? " egg-live" : ""}`}
-        onClick={live ? () => setOpen(true) : undefined}
+        onClick={live ? (e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); } : undefined}
         role={live ? "button" : undefined}
         aria-hidden={!live}
       >{EGG}</span>

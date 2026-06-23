@@ -33,6 +33,7 @@ import AdminDataSources from "./pages/AdminDataSources";
 import AdminPush from "./pages/AdminPush";
 import AdminTodayStats from "./pages/AdminTodayStats";
 import NonResi from "./pages/NonResi";
+import EasterEgg from "./components/EasterEgg";
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
 import PresaleTx from "./pages/PresaleTx";
@@ -163,12 +164,15 @@ function AppShell() {
   return (
     <div className="layout">
       <header className="top">
-        <h1>
-          <Link to="/" style={{ color: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <img src="/logo.svg" alt="" width="28" height="28" style={{ verticalAlign: "middle" }} />
-            <span>콕집</span>
-          </Link>
-        </h1>
+        <div className="brand-wrap">
+          <h1>
+            <Link to="/" style={{ color: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <img src="/logo.svg" alt="" width="28" height="28" style={{ verticalAlign: "middle" }} />
+              <span>콕집</span>
+            </Link>
+          </h1>
+          <EasterEgg />
+        </div>
         <nav>
           {NAV_ITEMS.map((item) => item.children ? (
             <div className="nav-group" key={item.to}>

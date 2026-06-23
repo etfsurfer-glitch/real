@@ -2320,9 +2320,10 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .nr-deal-r b{font-size:14px;font-weight:800;color:#13294b}
 .nr-deal-py{display:block;font-size:10.5px;color:#9aa7b8;margin-top:1px}
 
-/* 랜딩 이스터에그 — 평소엔 흐린 빌드 스탬프, 인증 회원에겐 금빛으로 빛남 */
-.egg{position:absolute;right:13px;bottom:9px;font-size:10px;font-weight:600;letter-spacing:2px;color:rgba(255,255,255,.22);user-select:none;pointer-events:none;font-feature-settings:"tnum"}
-.egg-live{pointer-events:auto;cursor:pointer;color:transparent;background:linear-gradient(95deg,#ffe7a0,#ffb55c,#ff8efb,#8be9ff);background-size:200% auto;-webkit-background-clip:text;background-clip:text;text-shadow:0 0 14px rgba(255,196,110,.55);animation:egg-shine 3s linear infinite,egg-pulse 2.2s ease-in-out infinite}
+/* 이스터에그 — 콕집 바로 아래. 평소엔 흐린 회색 subtext, 인증 회원에겐 선명한 그라데이션 */
+.brand-wrap{display:flex;flex-direction:column;gap:1px}
+.egg{margin-left:36px;margin-top:-3px;font-size:10px;font-weight:700;letter-spacing:2px;line-height:1;color:rgba(19,41,75,.26);user-select:none;pointer-events:none;font-feature-settings:"tnum"}
+.egg-live{pointer-events:auto;cursor:pointer;color:transparent;background:linear-gradient(95deg,#e8550e,#d6157a,#7b2cf5,#0aa2e8);background-size:220% auto;-webkit-background-clip:text;background-clip:text;text-shadow:0 0 10px rgba(214,21,122,.35);animation:egg-shine 3s linear infinite,egg-pulse 2.2s ease-in-out infinite}
 @keyframes egg-shine{to{background-position:200% center}}
 @keyframes egg-pulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.45)}}
 .egg-modal{position:fixed;inset:0;z-index:1000;background:rgba(10,18,35,.62);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:24px;animation:egg-fade .2s ease}
