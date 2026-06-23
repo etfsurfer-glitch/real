@@ -240,11 +240,15 @@ export default function JeonseCheck() {
             )}
 
             {res?.ok && res.nearby && (
-              <div className="kkt-near">
-                <div><span>매매중위</span><b>{won(res.nearby.sale_median)}</b></div>
-                <div><span>전세중위</span><b>{won(res.nearby.jeonse_median)}</b></div>
-                <div><span>위험건물</span><b className={(res.nearby.risky_pct || 0) >= 30 ? "danger" : ""}>{res.nearby.risky_pct ?? "-"}%</b></div>
-              </div>
+              <>
+                <div className="kkt-label">{res.nearby.scope} 시세 <span>이 건물 아닌 동네 평균</span></div>
+                <div className="kkt-near">
+                  <div><span>매매 중위</span><b>{won(res.nearby.sale_median)}</b></div>
+                  <div><span>전세 중위</span><b>{won(res.nearby.jeonse_median)}</b></div>
+                  <div><span>위험건물 비율</span><b className={(res.nearby.risky_pct || 0) >= 30 ? "danger" : ""}>{res.nearby.risky_pct ?? "-"}%</b></div>
+                </div>
+                {res.nearby.risky_pct != null && <div className="muted" style={{ fontSize: 10.5, marginTop: 5 }}>이 동네 빌라 중 전세가율 80% 이상(깡통 위험) 비율</div>}
+              </>
             )}
             {res?.ok && <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>※ 가격 위험도(공시가격 기준). 선순위 근저당·대출·체납 미반영 — 계약 전 <b>등기부등본</b> 확인 필수.</p>}
           </aside>
