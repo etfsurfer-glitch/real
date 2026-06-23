@@ -1734,7 +1734,7 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
                 for r in lc.execute(
                     "SELECT article_no, building_name, area2_m2, trade_type, deal_or_warrant_price, "
                     "rent_price, floor_info FROM listings WHERE latitude BETWEEN ? AND ? "
-                    "AND longitude BETWEEN ? AND ? AND deal_or_warrant_price>0 LIMIT 60",
+                    "AND longitude BETWEEN ? AND ? AND deal_or_warrant_price>0 LIMIT 120",
                         (lat - d, lat + d, lng - d, lng + d)):
                     key = (r[3], round(r[2] or 0), r[4], r[5] or 0)   # 거래·면적·가격·월세 (층 무시)
                     if key in seen:
@@ -1748,19 +1748,20 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
                             "naver_url": f"https://m.land.naver.com/article/info/{r[0]}"}
                     seen[key] = item
                     bld_listings.append(item)
-                    if len(bld_listings) >= 12:
-                        break
-    # 전세 매물별 안전도(전세가율% + 등급) — 면적에 맞는 공시가격으로 (공동주택만)
+    # 옵션 A: 이 건물 공시가격 등록 면적과 ±3㎡ 맞는 매물만(옆 건물 매물 제외). + 전세 안전도 등급.
     area_units = [u for u in units_out if u.get("area_m2")]
     if area_units:
+        uareas = [u["area_m2"] for u in area_units]
+        bld_listings = [it for it in bld_listings
+                        if it.get("area_m2") and min(abs(a - it["area_m2"]) for a in uareas) <= 3]
         for it in bld_listings:
-            if it["trade"] == "전세" and it.get("area_m2"):
+            if it["trade"] == "전세":
                 best = min(area_units, key=lambda u: abs(u["area_m2"] - it["area_m2"]))
-                # 매물 면적이 공시가격 등록 면적과 ±3㎡ 이내일 때만 판정(옆 건물 매물 오판 방지)
-                if best["gongsi"] and abs(best["area_m2"] - it["area_m2"]) <= 3:
+                if best["gongsi"]:
                     rr = it["price"] / best["gongsi"]
                     it["ratio"] = round(rr * 100)
                     it["grade"] = "안전" if rr <= 1.0 else ("주의" if rr <= 1.4 else "위험")
+    bld_listings = bld_listings[:12]
     return {"ok": True, "input": {"addr": addr, "area": area, "deposit": deposit_won},
             "building_deals": bld_deals, "building_listings": bld_listings,
             "resolved": {"text": pnu.get("addr") or (geo.get("text") if geo else None), "pnu": pnu["pnu"],
