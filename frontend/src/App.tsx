@@ -82,6 +82,7 @@ const NAV_ITEMS: NavItem[] = [
     { to: "/realtors/staff", label: "직원수순위" },
   ] },
   { to: "/quick-deals", label: "급매찾기", icon: BadgePercent },
+  { to: "/jeonse-check", label: "깡통전세지수", icon: ShieldAlert },
   { to: "/changes", label: "매물가격추이", icon: TrendingUp, children: [
     { to: "/changes/trend", label: "가격 추이" },
     { to: "/changes/region", label: "지역별 순위" },

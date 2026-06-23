@@ -1661,27 +1661,41 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
     matched_area = None
     gongsi_year = None
     units_out: list = []   # 한 건물 안의 면적별 공시가격(공동주택)
-    units = _vw_ned("getApartHousingPriceAttr", pnu["pnu"])
-    if units:
-        yrs = [u.get("stdrYear", "") for u in units if u.get("stdrYear")]
-        maxyr = max(yrs) if yrs else None
-        latest = [u for u in units if u.get("stdrYear") == maxyr and u.get("pblntfPc")]
-        grp: dict = {}                       # 전용면적(반올림) → [공시가격…]
-        for u in latest:
-            ar = round(float(u.get("prvuseAr") or 0))
-            if ar > 0:
-                grp.setdefault(ar, []).append(int(u["pblntfPc"]))
-        units_out = [{"area_m2": ar, "gongsi": round(sum(v) / len(v)),
-                      "hug_limit": round(sum(v) / len(v) * 1.26),  # 공시가×140%×담보인정90%=126% (실질 보증한도)
-                      "n": len(v)}
-                     for ar, v in sorted(grp.items())]
-        if latest:
-            bld_name = latest[0].get("aphusNm")
-            kind = latest[0].get("aphusSeCodeNm") or "공동주택"
-            gongsi_year = maxyr
-        if area and units_out:               # 입력 면적에 가장 가까운 그룹으로 판정
-            best = min(units_out, key=lambda x: abs(x["area_m2"] - area))
-            gongsi, matched_area = best["gongsi"], best["area_m2"]
+    # DB 캐시(villa_price) 우선 — 공시가격은 연1회 공고라 캐시 재사용. 없으면 라이브 API 폴백.
+    with _open_db() as _pc:
+        vp = _pc.execute("SELECT area_m2, gongsi, aphus_nm, se_nm, year FROM villa_price WHERE pnu=?",
+                         (pnu["pnu"],)).fetchall()
+    if vp:
+        grp: dict = {}
+        for ar, g, _anm, _se, _yr in vp:
+            a = round(ar or 0)
+            if a > 0 and g:
+                grp.setdefault(a, []).append(g)
+        units_out = [{"area_m2": a, "gongsi": round(sum(v) / len(v)),
+                      "hug_limit": round(sum(v) / len(v) * 1.26), "n": len(v)}
+                     for a, v in sorted(grp.items())]
+        bld_name = vp[0][2]; kind = vp[0][3] or "공동주택"; gongsi_year = vp[0][4]
+    else:
+        units = _vw_ned("getApartHousingPriceAttr", pnu["pnu"])
+        if units:
+            yrs = [u.get("stdrYear", "") for u in units if u.get("stdrYear")]
+            maxyr = max(yrs) if yrs else None
+            latest = [u for u in units if u.get("stdrYear") == maxyr and u.get("pblntfPc")]
+            grp = {}
+            for u in latest:
+                ar = round(float(u.get("prvuseAr") or 0))
+                if ar > 0:
+                    grp.setdefault(ar, []).append(int(u["pblntfPc"]))
+            units_out = [{"area_m2": ar, "gongsi": round(sum(v) / len(v)),
+                          "hug_limit": round(sum(v) / len(v) * 1.26), "n": len(v)}
+                         for ar, v in sorted(grp.items())]
+            if latest:
+                bld_name = latest[0].get("aphusNm")
+                kind = latest[0].get("aphusSeCodeNm") or "공동주택"
+                gongsi_year = maxyr
+    if area and units_out:                   # 입력 면적에 가장 가까운 그룹으로 판정
+        best = min(units_out, key=lambda x: abs((x["area_m2"] or 0) - area))
+        gongsi, matched_area = best["gongsi"], best["area_m2"]
     if gongsi is None and not units_out:      # 공동주택 아님 → 단독주택가격
         ind = _vw_ned("getIndvdHousingPriceAttr", pnu["pnu"])
         if ind:
