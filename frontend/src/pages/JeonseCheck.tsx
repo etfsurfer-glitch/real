@@ -27,9 +27,9 @@ const GRADE: Record<string, { c: string; icon: typeof ShieldCheck }> = {
 };
 function judge(depositWon: number, gongsi: number) {
   const r = depositWon / gongsi;
-  if (r <= 1.0) return { grade: "안전", msg: "보증금이 공시가격 이하예요." };
-  if (r <= 1.4) return { grade: "주의", msg: "공시가격을 넘어요 — HUG 보증한도(140%) 이내인지 확인하세요." };
-  return { grade: "위험", msg: "공시가격 140%를 초과 — HUG 전세보증도 거부되는 깡통전세 위험 수준이에요." };
+  if (r <= 1.3) return { grade: "안전", msg: "공시가격의 130% 이내 — HUG 전세보증 가입이 가능한 안전 범위예요." };
+  if (r <= 1.4) return { grade: "주의", msg: "HUG 보증한도(공시가격 140%)에 가까워요. 한도 초과 여부를 꼭 확인하세요." };
+  return { grade: "위험", msg: "공시가격 140% 초과 — HUG 전세보증도 거부되는 깡통전세 위험 수준이에요." };
 }
 
 export default function JeonseCheck() {

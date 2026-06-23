@@ -1760,7 +1760,7 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
                 if best["gongsi"]:
                     rr = it["price"] / best["gongsi"]
                     it["ratio"] = round(rr * 100)
-                    it["grade"] = "안전" if rr <= 1.0 else ("주의" if rr <= 1.4 else "위험")
+                    it["grade"] = "안전" if rr <= 1.3 else ("주의" if rr <= 1.4 else "위험")
     bld_listings = bld_listings[:12]
     return {"ok": True, "input": {"addr": addr, "area": area, "deposit": deposit_won},
             "building_deals": bld_deals, "building_listings": bld_listings,
