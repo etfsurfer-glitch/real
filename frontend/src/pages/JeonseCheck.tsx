@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { ShieldCheck, ShieldAlert, AlertTriangle, Search, MapPin, Home } from "lucide-react";
+import { ShieldCheck, ShieldAlert, AlertTriangle, Search, Home, X, ExternalLink } from "lucide-react";
 import { loadKakao, geocodeRegion } from "../lib/kakaomap";
 import { useRegionFilter } from "../components/RegionSelect";
+import { openListingPopup } from "../lib/listingPopup";
 
 const API = import.meta.env.VITE_API_BASE;
 
 type Unit = { area_m2: number; gongsi: number; hug_limit: number; n: number };
 type Nearby = { scope: string; sale_median: number | null; jeonse_median: number | null; risky_pct: number | null; n_buildings: number | null };
-type Verdict = { grade: string | null; ratio?: number; hug_limit: number; gongsi: number; gongsi_year: string; deposit: number | null; message: string };
-type Resp = { ok: boolean; error?: string; resolved?: { text: string; building: string | null; kind: string | null }; units?: Unit[]; verdict?: Verdict | null; nearby?: Nearby };
-type Bld = { key: string; name: string; umd: string; jibun: string; area_m2: number | null; tx_count: number; lat: number; lng: number };
+type Verdict = { grade: string | null; ratio?: number; hug_limit: number; gongsi: number; gongsi_year: string; message: string };
+type Sale = { date: string; amount: number; area_m2: number | null; floor: number | null };
+type Rent = { date: string; deposit: number; monthly: number; area_m2: number | null; floor: number | null };
+type Listing = { article_no: string; trade: string; area_m2: number | null; price: number; rent: number; floor: string | null; naver_url: string };
+type Resp = { ok: boolean; error?: string; resolved?: { text: string; building: string | null; kind: string | null }; units?: Unit[]; verdict?: Verdict | null; nearby?: Nearby; building_deals?: { sales: Sale[]; rents: Rent[] }; building_listings?: Listing[] };
+type Bld = { name: string; tx_count?: number; lat: number; lng: number };
 
 function won(v: number | null | undefined): string {
   if (!v) return "-";
@@ -20,7 +24,6 @@ const GRADE: Record<string, { c: string; icon: typeof ShieldCheck }> = {
   "안전": { c: "#0a9d57", icon: ShieldCheck }, "양호": { c: "#1f7ae0", icon: ShieldCheck },
   "주의": { c: "#e08a00", icon: AlertTriangle }, "위험": { c: "#d4332b", icon: ShieldAlert },
 };
-// 클라이언트 판정 (HUG 기준 = 공시가격 ×140%)
 function judge(depositWon: number, gongsi: number) {
   const r = depositWon / gongsi;
   if (r <= 1.0) return { grade: "안전", msg: "공시가격 이하입니다." };
@@ -31,29 +34,43 @@ function judge(depositWon: number, gongsi: number) {
 
 export default function JeonseCheck() {
   const { sidos, sigungus, dongs, sido, setSido, sigungu, setSigungu, dong, setDong } = useRegionFilter();
-  const [mode, setMode] = useState<"map" | "manual">("map");
   const mapEl = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const overlays = useRef<any[]>([]);
+  const pinRef = useRef<any>(null);   // 주소검색 임시 핀
   const [status, setStatus] = useState("");
   const [sel, setSel] = useState<Bld | null>(null);
   const [res, setRes] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(false);
-  const [unit, setUnit] = useState<Unit | null>(null);   // 선택한 면적
-  const [dep, setDep] = useState("");                     // 전세 보증금(만원)
-  const [addr, setAddr] = useState(""); const [mArea, setMArea] = useState(""); const [mDep, setMDep] = useState("");
+  const [unit, setUnit] = useState<Unit | null>(null);
+  const [dep, setDep] = useState("");
+  const [addr, setAddr] = useState("");
 
-  const check = (b: Bld) => {
-    setLoading(true); setUnit(null); setDep("");
+  const checkCoord = (b: Bld) => {
+    setSel(b); setRes(null); setUnit(null); setDep(""); setLoading(true);
     fetch(`${API}/tools/jeonse-check?lat=${b.lat}&lng=${b.lng}`).then((r) => r.json()).then((d) => {
       setRes(d);
-      if (d.units?.length === 1) setUnit(d.units[0]);   // 면적 1개면 자동 선택
+      if (d.units?.length === 1) setUnit(d.units[0]);
     }).catch(() => setRes({ ok: false, error: "조회 실패" })).finally(() => setLoading(false));
   };
-  const pickBld = (b: Bld) => { setSel(b); setRes(null); check(b); };
+
+  const searchAddr = () => {
+    if (!addr.trim()) return;
+    geocodeRegion(addr.trim()).then((c) => {
+      if (!c || !mapRef.current) { setStatus("주소를 찾지 못했어요"); return; }
+      const kakao = window.kakao;
+      mapRef.current.setLevel(3);
+      mapRef.current.panTo(new kakao.maps.LatLng(c.lat, c.lng));
+      if (pinRef.current) pinRef.current.setMap(null);
+      const el = document.createElement("div"); el.className = "jvm on";
+      pinRef.current = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(c.lat, c.lng), content: el, yAnchor: 0.5, xAnchor: 0.5, zIndex: 5 });
+      pinRef.current.setMap(mapRef.current);
+      checkCoord({ name: addr.trim(), lat: c.lat, lng: c.lng });
+    });
+  };
 
   useEffect(() => {
-    if (mode !== "map" || !API) return;
+    if (!API) return;
     let disposed = false; let debounce: ReturnType<typeof setTimeout>;
     loadKakao().then(() => {
       if (disposed || !mapEl.current) return;
@@ -70,134 +87,152 @@ export default function JeonseCheck() {
           const j = await r.json();
           if (disposed) return; clear();
           if (j.too_wide) { setStatus("지도를 확대하면 빌라가 보여요"); return; }
-          for (const bld of (j.buildings || []) as Bld[]) {
+          for (const bld of (j.buildings || []) as { name: string; tx_count: number; lat: number; lng: number }[]) {
             const el = document.createElement("div");
             el.className = "jvm"; el.title = bld.name;
-            el.addEventListener("click", () => { pickBld(bld); document.querySelectorAll(".jvm.on").forEach((e) => e.classList.remove("on")); el.classList.add("on"); });
+            el.addEventListener("click", () => {
+              if (pinRef.current) { pinRef.current.setMap(null); pinRef.current = null; }
+              document.querySelectorAll(".jvm.on").forEach((e) => e.classList.remove("on")); el.classList.add("on");
+              checkCoord({ name: bld.name, tx_count: bld.tx_count, lat: bld.lat, lng: bld.lng });
+            });
             const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(bld.lat, bld.lng), content: el, yAnchor: 0.5, xAnchor: 0.5, clickable: true, zIndex: 1 });
             ov.setMap(map); overlays.current.push(ov);
           }
-          setStatus(`평가 가능한 빌라 ${(j.buildings || []).length}곳${j.too_many ? "+ (확대하면 더 정확)" : ""} — 핀을 누르세요`);
+          setStatus(`빌라 ${(j.buildings || []).length}곳${j.too_many ? "+" : ""} · 핀을 누르거나 주소를 검색하세요`);
         } catch { setStatus("불러오기 실패"); }
       };
       kakao.maps.event.addListener(map, "idle", () => { clearTimeout(debounce); debounce = setTimeout(load, 250); });
       load();
     }).catch(() => setStatus("지도 로드 실패"));
-    return () => { disposed = true; clearTimeout(debounce); overlays.current.forEach((o) => o.setMap(null)); overlays.current = []; };
-  }, [mode]);
+    return () => { disposed = true; clearTimeout(debounce); overlays.current.forEach((o) => o.setMap(null)); };
+  }, []);
 
   useEffect(() => {
-    if (mode !== "map" || !mapRef.current) return;
+    if (!mapRef.current) return;
     const nm = [sidos.find((s) => s.code === sido)?.name, sigungus.find((s) => s.code === sigungu)?.name, dongs.find((d) => d.code === dong)?.name].filter(Boolean).join(" ");
     if (!nm) return;
     geocodeRegion(nm).then((c) => { if (c && mapRef.current) { mapRef.current.setLevel(dong ? 4 : sigungu ? 5 : 7); mapRef.current.panTo(new window.kakao.maps.LatLng(c.lat, c.lng)); } });
-  }, [sido, sigungu, dong, mode]);
+  }, [sido, sigungu, dong]);
 
-  const checkManual = () => {
-    if (!addr.trim()) return; setLoading(true); setRes(null); setSel(null); setUnit(null);
-    fetch(`${API}/tools/jeonse-check?addr=${encodeURIComponent(addr.trim())}&area=${mArea || 0}&deposit=${mDep || 0}`)
-      .then((r) => r.json()).then(setRes).catch(() => setRes({ ok: false, error: "조회 실패" })).finally(() => setLoading(false));
-  };
-
-  // 지도 빌라: 선택 면적+보증금으로 클라이언트 판정 / 단독 등: 서버 verdict
   const depWon = dep ? Number(dep) * 10000 : 0;
-  const liveV = unit && depWon ? { ...judge(depWon, unit.gongsi), gongsi: unit.gongsi, hug: unit.hug_limit, ratio: Math.round(depWon / unit.gongsi * 100) } : null;
+  const v = unit && depWon ? { ...judge(depWon, unit.gongsi), ratio: Math.round(depWon / unit.gongsi * 100) } : null;
   const srvV = res?.verdict;
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: "6px 4px 40px" }}>
-      <h2 style={{ fontSize: 21, fontWeight: 800, color: "#13294b", margin: "0 0 4px" }}>전세 안전 감별기</h2>
-      <p className="muted" style={{ fontSize: 13, margin: "0 0 12px" }}>
-        지도에서 <b>빌라를 누르고 → 면적을 고르고 → 전세 보증금</b>을 넣으면 <b>공시가격(HUG 기준)</b>으로 깡통전세 위험을 알려드려요.
+    <div style={{ maxWidth: 1040, margin: "0 auto", padding: "6px 4px 40px" }}>
+      <h2 style={{ fontSize: 22, fontWeight: 800, color: "#13294b", margin: "0 0 3px" }}>깡통전세지수</h2>
+      <p className="muted" style={{ fontSize: 13, margin: "0 0 10px" }}>
+        빌라를 누르거나 주소를 검색 → 면적 선택 → 전세 보증금 입력 → <b>공시가격(HUG 기준)</b>으로 깡통전세 위험을 판정합니다.
       </p>
 
-      <div className="jc-seg">
-        <button className={mode === "map" ? "on" : ""} onClick={() => { setMode("map"); setRes(null); setSel(null); }}>지도에서 찾기</button>
-        <button className={mode === "manual" ? "on" : ""} onClick={() => { setMode("manual"); setRes(null); setSel(null); }}>주소 직접 입력</button>
-      </div>
+      <div className="kkt-area">
+        <div ref={mapEl} className="kkt-map" />
 
-      {mode === "map" ? (
-        <>
-          <div className="dong-pick" style={{ marginTop: 12 }}>
+        {/* 지도 위 상단: 지역 드롭다운 + 주소검색 일체화 */}
+        <div className="kkt-top">
+          <div className="kkt-region">
             <select value={sido} onChange={(e) => setSido(e.target.value)}><option value="">시·도</option>{sidos.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</select>
             <select value={sigungu} onChange={(e) => setSigungu(e.target.value)} disabled={!sido}><option value="">시·군·구</option>{sigungus.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</select>
             <select value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sigungu}><option value="">읍·면·동</option>{dongs.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}</select>
           </div>
-          <div className="jc-map-wrap"><div ref={mapEl} className="jc-map" /><div className="jc-map-status"><MapPin size={12} /> {status || "지도를 움직여 빌라를 찾아보세요"}</div></div>
-        </>
-      ) : (
-        <div className="jc-form" style={{ marginTop: 12 }}>
-          <label>주소 <span>지번 (예: 서울 강서구 화곡동 102-119)</span>
-            <input value={addr} onChange={(e) => setAddr(e.target.value)} onKeyDown={(e) => e.key === "Enter" && checkManual()} placeholder="서울 강서구 화곡동 102-119" /></label>
-          <div className="jc-row">
-            <label>전용면적 (㎡)<input type="number" value={mArea} onChange={(e) => setMArea(e.target.value)} placeholder="35" /></label>
-            <label>보증금 (만원) {mDep && <span>{won(Number(mDep) * 10000)}</span>}<input type="number" value={mDep} onChange={(e) => setMDep(e.target.value)} onKeyDown={(e) => e.key === "Enter" && checkManual()} placeholder="26000" /></label>
+          <div className="kkt-addr">
+            <input value={addr} onChange={(e) => setAddr(e.target.value)} onKeyDown={(e) => e.key === "Enter" && searchAddr()} placeholder="주소 검색 (예: 화곡동 102-119)" />
+            <button onClick={searchAddr} aria-label="검색"><Search size={15} /></button>
           </div>
-          <button className="jc-go" onClick={checkManual} disabled={loading || !addr.trim()}><Search size={16} /> {loading ? "조회 중…" : "감별하기"}</button>
         </div>
-      )}
 
-      {sel && mode === "map" && <div className="jc-sel"><Home size={14} /> <b>{res?.resolved?.building || sel.name}</b> <span>실거래 {sel.tx_count}건</span></div>}
-      {loading && <div className="jc-hint" style={{ textAlign: "center" }}>공시가격 조회 중…</div>}
-      {res && !res.ok && <div className="jc-err">{res.error}</div>}
+        <div className="kkt-status">{status || "지도를 움직여 빌라를 찾아보세요"}</div>
 
-      {res?.ok && (
-        <div className="jc-result">
-          {/* 공동주택: 면적 선택 → 보증금 → 판정 */}
-          {res.units && res.units.length > 0 ? (
-            <>
-              <div className="ats-section" style={{ marginTop: 14 }}>면적(전용)을 고르세요 — 면적마다 공시가격이 달라요</div>
-              <div className="jc-units">
-                {res.units.map((u) => (
-                  <button key={u.area_m2} className={`jc-unit ${unit?.area_m2 === u.area_m2 ? "on" : ""}`} onClick={() => setUnit(u)}>
-                    <b>{u.area_m2}㎡</b><span>공시 {won(u.gongsi)}</span>
-                  </button>
-                ))}
-              </div>
-              {unit && (
-                <div className="jc-gongsi">
-                  <div className="jc-gongsi-row"><span>공시가격 (전용 {unit.area_m2}㎡)</span><b>{won(unit.gongsi)}</b></div>
-                  <div className="jc-gongsi-row hug"><span>HUG 한도 (공시가×140%)</span><b>{won(unit.hug_limit)}</b></div>
-                  <div className="jc-depbox">
-                    <input type="number" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="전세 보증금 (만원)" />
-                    {dep && <span className="jc-dep-eok">{won(depWon)}</span>}
-                  </div>
+        {/* 우측 사이드바: 평형 선택 + 점검 결과 */}
+        {(sel || loading) && (
+          <aside className="kkt-side">
+            <button className="kkt-side-x" onClick={() => { setSel(null); setRes(null); if (pinRef.current) { pinRef.current.setMap(null); pinRef.current = null; } document.querySelectorAll(".jvm.on").forEach((e) => e.classList.remove("on")); }}><X size={15} /></button>
+            {sel && <div className="kkt-bld"><Home size={14} /> <b>{res?.resolved?.building || sel.name}</b>{sel.tx_count != null && <span> · 실거래 {sel.tx_count}건</span>}</div>}
+            {loading && <div className="jc-hint">공시가격 조회 중…</div>}
+            {res && !res.ok && <div className="jc-err">{res.error}</div>}
+
+            {res?.ok && res.units && res.units.length > 0 && (
+              <>
+                <div className="kkt-label">전용면적 선택 <span>면적마다 공시가격이 달라요</span></div>
+                <div className="jc-units">
+                  {res.units.map((u) => (
+                    <button key={u.area_m2} className={`jc-unit ${unit?.area_m2 === u.area_m2 ? "on" : ""}`} onClick={() => setUnit(u)}>
+                      <b>{u.area_m2}㎡</b><span>{won(u.gongsi)}</span>
+                    </button>
+                  ))}
                 </div>
-              )}
-              {liveV && (
-                <div className="jc-verdict" style={{ borderColor: GRADE[liveV.grade].c, background: `${GRADE[liveV.grade].c}0d`, marginTop: 12 }}>
-                  <div className="jc-vhead" style={{ color: GRADE[liveV.grade].c }}>
-                    {(() => { const I = GRADE[liveV.grade].icon; return <I size={26} />; })()}
-                    <span className="jc-grade">{liveV.grade}</span><span className="jc-ratio">전세가율 {liveV.ratio}%</span>
+                {unit && (
+                  <div className="kkt-gongsi">
+                    <div className="jc-gongsi-row"><span>공시가격 (전용 {unit.area_m2}㎡)</span><b>{won(unit.gongsi)}</b></div>
+                    <div className="jc-gongsi-row hug"><span>HUG 한도 ×140%</span><b>{won(unit.hug_limit)}</b></div>
+                    <div className="jc-depbox">
+                      <input type="number" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="전세 보증금 (만원)" autoFocus />
+                    </div>
+                    {dep && <div className="muted" style={{ fontSize: 11.5 }}>{won(depWon)}</div>}
                   </div>
-                  <div className="jc-vmsg">{liveV.msg}</div>
-                  <div className="jc-gauge"><div className="jc-gauge-fill" style={{ width: `${Math.min(liveV.ratio / 1.6, 100)}%`, background: GRADE[liveV.grade].c }} /><span className="jc-gauge-100">100%</span><span className="jc-gauge-140">140%</span></div>
-                </div>
-              )}
-            </>
-          ) : srvV ? (
-            <div className="jc-gongsi">
-              <div className="jc-gongsi-row"><span>공시가격 ({srvV.gongsi_year}) · {res.resolved?.kind}</span><b>{won(srvV.gongsi)}</b></div>
-              <div className="jc-gongsi-row hug"><span>HUG 한도 (공시가×140%)</span><b>{won(srvV.hug_limit)}</b></div>
-              {srvV.grade && <div className="jc-vmsg" style={{ marginTop: 8, color: GRADE[srvV.grade]?.c, fontWeight: 700 }}>{srvV.grade} — 전세가율 {srvV.ratio}% · {srvV.message}</div>}
-            </div>
-          ) : null}
-
-          {res.nearby && (
-            <>
-              <div className="ats-section" style={{ marginTop: 16 }}>{res.nearby.scope} 시세</div>
-              <div className="jc-near">
-                <div><span>매매 중위</span><b>{won(res.nearby.sale_median)}</b></div>
-                <div><span>전세 중위</span><b>{won(res.nearby.jeonse_median)}</b></div>
-                <div><span>위험 건물</span><b className={(res.nearby.risky_pct || 0) >= 30 ? "danger" : ""}>{res.nearby.risky_pct ?? "-"}%</b></div>
+                )}
+                {v && (
+                  <div className="kkt-verdict" style={{ borderColor: GRADE[v.grade].c, background: `${GRADE[v.grade].c}12` }}>
+                    <div className="jc-vhead" style={{ color: GRADE[v.grade].c }}>
+                      {(() => { const I = GRADE[v.grade].icon; return <I size={24} />; })()}
+                      <span className="jc-grade">{v.grade}</span><span className="jc-ratio">{v.ratio}%</span>
+                    </div>
+                    <div className="jc-vmsg">{v.msg}</div>
+                    <div className="jc-gauge"><div className="jc-gauge-fill" style={{ width: `${Math.min(v.ratio / 1.6, 100)}%`, background: GRADE[v.grade].c }} /><span className="jc-gauge-100">100%</span><span className="jc-gauge-140">140%</span></div>
+                  </div>
+                )}
+              </>
+            )}
+            {res?.ok && (!res.units || res.units.length === 0) && srvV && (
+              <div className="kkt-gongsi">
+                <div className="jc-gongsi-row"><span>공시가격 · {res.resolved?.kind}</span><b>{won(srvV.gongsi)}</b></div>
+                <div className="jc-gongsi-row hug"><span>HUG 한도 ×140%</span><b>{won(srvV.hug_limit)}</b></div>
               </div>
-            </>
-          )}
-          <p className="muted" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
-            ※ 공시가격 기준 <b>가격 위험도</b>입니다. <b>선순위 근저당·집주인 대출·세금 체납은 미반영</b> — 계약 전 <b>등기부등본</b>을 꼭 확인하세요. HUG 보증요건은 공시가격의 약 140%입니다.
-          </p>
-        </div>
-      )}
+            )}
+
+            {/* 이 건물 실거래 */}
+            {res?.ok && res.building_deals && (res.building_deals.sales.length > 0 || res.building_deals.rents.length > 0) && (
+              <>
+                <div className="kkt-label">이 건물 실거래</div>
+                <div className="kkt-deals">
+                  {res.building_deals.sales.slice(0, 3).map((s, i) => (
+                    <div className="kkt-deal" key={"s" + i}><span className="t sale">매매</span><span className="d">{s.date}</span><span className="a">{s.area_m2}㎡{s.floor ? `·${s.floor}층` : ""}</span><b>{won(s.amount)}</b></div>
+                  ))}
+                  {res.building_deals.rents.slice(0, 4).map((r, i) => (
+                    <div className="kkt-deal" key={"r" + i}><span className={`t ${r.monthly ? "wol" : "jeon"}`}>{r.monthly ? "월세" : "전세"}</span><span className="d">{r.date}</span><span className="a">{r.area_m2}㎡{r.floor ? `·${r.floor}층` : ""}</span><b>{won(r.deposit)}{r.monthly ? `/${won(r.monthly)}` : ""}</b></div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* 현재 매물 — 네이버 바로가기 */}
+            {res?.ok && res.building_listings && res.building_listings.length > 0 && (
+              <>
+                <div className="kkt-label">현재 매물 {res.building_listings.length}건</div>
+                <div className="kkt-listings">
+                  {res.building_listings.slice(0, 6).map((l) => (
+                    <button className="kkt-listing" key={l.article_no} onClick={() => openListingPopup(l.naver_url)}>
+                      <span className="kkt-l-t">{l.trade}</span>
+                      <span className="kkt-l-m">{l.area_m2}㎡{l.floor ? `·${l.floor}` : ""}</span>
+                      <b>{won(l.price)}{l.trade === "월세" && l.rent ? `/${won(l.rent)}` : ""}</b>
+                      <ExternalLink size={12} className="kkt-l-x" />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {res?.ok && res.nearby && (
+              <div className="kkt-near">
+                <div><span>매매중위</span><b>{won(res.nearby.sale_median)}</b></div>
+                <div><span>전세중위</span><b>{won(res.nearby.jeonse_median)}</b></div>
+                <div><span>위험건물</span><b className={(res.nearby.risky_pct || 0) >= 30 ? "danger" : ""}>{res.nearby.risky_pct ?? "-"}%</b></div>
+              </div>
+            )}
+            {res?.ok && <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>※ 가격 위험도(공시가격 기준). 선순위 근저당·대출·체납 미반영 — 계약 전 <b>등기부등본</b> 확인 필수.</p>}
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

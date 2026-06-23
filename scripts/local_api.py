@@ -1699,7 +1699,45 @@ def jeonse_check(addr: str = "", lat: float = 0, lng: float = 0, area: float = 0
             if tok.endswith(("동", "읍", "면")):
                 umd = tok; break
     nearby = _jeonse_nearby(sgg, umd)
+
+    # 이 건물의 실거래(매매/전세 최근) + 현재 매물(좌표 근접) — 지번/좌표로 매칭
+    bjibun = None
+    if pnu.get("addr"):
+        toks = pnu["addr"].split()
+        if toks and ("-" in toks[-1] or toks[-1].rstrip("0123456789") == ""):
+            bjibun = toks[-1]
+    bld_deals = {"sales": [], "rents": []}
+    if umd and bjibun:
+        with _open_db() as c:
+            for r in c.execute(
+                "SELECT deal_ymd, deal_amount, excl_use_ar, floor FROM rh_transactions "
+                "WHERE sgg_cd=? AND umd_nm=? AND jibun=? AND is_cancelled=0 ORDER BY deal_ymd DESC LIMIT 5",
+                    (sgg, umd, bjibun)):
+                bld_deals["sales"].append({"date": r[0], "amount": r[1], "area_m2": round(r[2]) if r[2] else None, "floor": r[3]})
+            for r in c.execute(
+                "SELECT deal_ymd, deposit, monthly_rent, excl_use_ar, floor FROM rh_rentals "
+                "WHERE sgg_cd=? AND umd_nm=? AND jibun=? ORDER BY deal_ymd DESC LIMIT 5",
+                    (sgg, umd, bjibun)):
+                bld_deals["rents"].append({"date": r[0], "deposit": r[1], "monthly": r[2],
+                                           "area_m2": round(r[3]) if r[3] else None, "floor": r[4]})
+    bld_listings = []
+    if lat and lng:
+        path = DB_PATH.parent / _NONRESI_DB["villa"]
+        if path.exists():
+            d = 0.00045   # 약 45m
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as lc:
+                for r in lc.execute(
+                    "SELECT article_no, building_name, area2_m2, trade_type, deal_or_warrant_price, "
+                    "rent_price, floor_info FROM listings WHERE latitude BETWEEN ? AND ? "
+                    "AND longitude BETWEEN ? AND ? AND deal_or_warrant_price>0 LIMIT 12",
+                        (lat - d, lat + d, lng - d, lng + d)):
+                    tt = {"A1": "매매", "B1": "전세", "B2": "월세"}.get(r[3], r[3])
+                    bld_listings.append({"article_no": r[0], "trade": tt,
+                                         "area_m2": round(r[2]) if r[2] else None,
+                                         "price": int(r[4] * 10000), "rent": int((r[5] or 0) * 10000),
+                                         "floor": r[6], "naver_url": f"https://m.land.naver.com/article/info/{r[0]}"})
     return {"ok": True, "input": {"addr": addr, "area": area, "deposit": deposit_won},
+            "building_deals": bld_deals, "building_listings": bld_listings,
             "resolved": {"text": pnu.get("addr") or (geo.get("text") if geo else None), "pnu": pnu["pnu"],
                          "building": bld_name, "kind": kind, "matched_area": matched_area,
                          "sgg": sgg_name, "umd": umd, "land_price": pnu.get("jiga")},
