@@ -2565,3 +2565,6 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   .jc-unit{flex:1;min-width:64px}
   .jc-depbox input{padding:13px;font-size:16px}
 }
+.jvm-cl{display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(18,104,211,.88);color:#fff;border:2.5px solid #fff;box-shadow:0 2px 10px rgba(20,40,80,.4);cursor:pointer;font-weight:800}
+.jvm-cl b{font-size:12px}
+.jvm-cl:hover{background:var(--c-primary-strong)}

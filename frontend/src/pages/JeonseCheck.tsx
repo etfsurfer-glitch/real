@@ -83,11 +83,34 @@ export default function JeonseCheck() {
       mapRef.current = map;
       map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
       const clear = () => { overlays.current.forEach((o) => o.setMap(null)); overlays.current = []; };
+      const CLUSTER_AT = 6;   // 이 레벨 이상(축소)이면 군집으로 묶음
       const load = async () => {
         const b = map.getBounds(), sw = b.getSouthWest(), ne = b.getNorthEast();
+        const bbox = `swlat=${sw.getLat()}&swlng=${sw.getLng()}&nelat=${ne.getLat()}&nelng=${ne.getLng()}`;
         setStatus("불러오는 중…");
         try {
-          const r = await fetch(`${API}/tools/villa-bbox?swlat=${sw.getLat()}&swlng=${sw.getLng()}&nelat=${ne.getLat()}&nelng=${ne.getLng()}`);
+          // ── 축소: 군집(개수) 표시 ──
+          if (map.getLevel() >= CLUSTER_AT) {
+            const r = await fetch(`${API}/tools/villa-cluster?${bbox}`);
+            const j = await r.json();
+            if (disposed) return; clear();
+            let tot = 0;
+            for (const cell of (j.cells || []) as { lat: number; lng: number; count: number }[]) {
+              tot += cell.count;
+              const el = document.createElement("div");
+              el.className = "jvm-cl";
+              const sz = cell.count >= 500 ? 54 : cell.count >= 100 ? 46 : cell.count >= 20 ? 40 : 34;
+              el.style.width = el.style.height = sz + "px";
+              el.innerHTML = `<b>${cell.count.toLocaleString()}</b>`;
+              el.addEventListener("click", () => { map.setLevel(Math.max(1, map.getLevel() - 2)); map.setCenter(new kakao.maps.LatLng(cell.lat, cell.lng)); });
+              const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(cell.lat, cell.lng), content: el, yAnchor: 0.5, xAnchor: 0.5, clickable: true, zIndex: 1 });
+              ov.setMap(map); overlays.current.push(ov);
+            }
+            setStatus(`빌라 ${tot.toLocaleString()}곳 (군집) — 확대하면 개별 빌라가 보여요`);
+            return;
+          }
+          // ── 확대: 개별 핀 ──
+          const r = await fetch(`${API}/tools/villa-bbox?${bbox}`);
           const j = await r.json();
           if (disposed) return; clear();
           if (j.too_wide) { setStatus("지도를 확대하면 빌라가 보여요"); return; }

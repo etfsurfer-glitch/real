@@ -1551,6 +1551,24 @@ def jeonse_listings(cortar: str = "", limit: int = 50, offset: int = 0):
     return {"cortar": cortar, "total": total, "listings": out}
 
 
+@app.get("/tools/villa-cluster")
+def villa_cluster(swlat: float, swlng: float, nelat: float, nelng: float,
+                  cols: int = 8, rows: int = 8):
+    """지도 축소 시 빌라 군집 — bbox를 격자로 나눠 셀별 빌라수+중심좌표(핀 폭주 방지)."""
+    if not (swlat < nelat and swlng < nelng):
+        raise HTTPException(400, "bad bounds")
+    cols = max(2, min(cols, 16)); rows = max(2, min(rows, 16))
+    dlat = (nelat - swlat) / rows or 1e-9
+    dlng = (nelng - swlng) / cols or 1e-9
+    with _open_db() as c:
+        cells = c.execute(
+            "SELECT CAST((lat-?)/? AS INT) gy, CAST((lng-?)/? AS INT) gx, "
+            "COUNT(*) n, AVG(lat) clat, AVG(lng) clng FROM villa_master "
+            "WHERE status='ok' AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ? GROUP BY gy, gx",
+            (swlat, dlat, swlng, dlng, swlat, nelat, swlng, nelng)).fetchall()
+    return {"cells": [{"lat": r[3], "lng": r[4], "count": r[2]} for r in cells if r[2]]}
+
+
 @app.get("/tools/villa-bbox")
 def villa_bbox(swlat: float, swlng: float, nelat: float, nelng: float, limit: int = 600):
     """지도 영역 내 '평가 가능한 모든 빌라'(villa_master, 실거래 이력+좌표) — 매물 아닌 것 포함."""
