@@ -2170,7 +2170,7 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
         "comm": "SUM(COALESCE(rc.sangga_n,0)+COALESCE(rc.office_n,0))",
         "building": "SUM(COALESCE(rc.building_n,0))",
         "land": "SUM(COALESCE(rc.land_n,0)+COALESCE(rc.factory_n,0))",
-        "all": f"SUM(m.total_listings + {_rall})",
+        "all": f"SUM(COALESCE(m.total_listings,0) + {_rall})",
     }.get(scope, "SUM(m.total_listings)")
     import datetime as _dt
     cur_year = _dt.date.today().year
@@ -2184,7 +2184,7 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
                    COALESCE((SELECT {scope_sql} FROM realtor_match m
                              LEFT JOIN realtor_region_counts rc ON rc.realtor_id=m.realtor_id
                              WHERE m.sys_regno=rd.sys_regno), 0) AS listings,
-                   COALESCE((SELECT SUM(m.total_listings + {_rall})
+                   COALESCE((SELECT SUM(COALESCE(m.total_listings,0) + {_rall})
                              FROM realtor_match m LEFT JOIN realtor_region_counts rc ON rc.realtor_id=m.realtor_id
                              WHERE m.sys_regno=rd.sys_regno), 0) AS total_n,
                    (SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=rd.sys_regno) AS staff,
@@ -2263,7 +2263,8 @@ def realtors_by_sido(limit: int = 10, scope: str = "complex"):
                                f"WHERE realtor_id IN ({ph}) GROUP BY realtor_id", ids):
                 totals[x[0]] = x[1]
             for x in c.execute(f"SELECT realtor_id, COALESCE(villa_n,0)+COALESCE(house_n,0)+"
-                               f"COALESCE(sangga_n,0)+COALESCE(office_n,0) FROM realtor_region_counts "
+                               f"COALESCE(sangga_n,0)+COALESCE(office_n,0)+COALESCE(land_n,0)+"
+                               f"COALESCE(factory_n,0)+COALESCE(building_n,0) FROM realtor_region_counts "
                                f"WHERE realtor_id IN ({ph})", ids):
                 totals[x[0]] = totals.get(x[0], 0) + (x[1] or 0)
     grouped: dict[str, list[dict]] = {}
