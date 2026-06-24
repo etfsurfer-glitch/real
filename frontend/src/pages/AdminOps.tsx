@@ -7,7 +7,7 @@ const MOTTO = "야rrrrrrr정신으로 야rrrrrrr할때까지 야rrrrrrr하자"; 
 const CATS = ["서버비용", "홍보비", "세금", "기타"];
 
 type Staff = { id: number; name: string; title: string };
-type Task = { id: number; title: string; detail: string; assignee_id: number | null; assignee_name: string | null; assignee_title: string | null; status: string; created_at: string; updated_at: string };
+type Task = { id: number; title: string; detail: string; assignee_id: number | null; assignee_name: string | null; assignee_title: string | null; status: string; created_at: string; updated_at: string; due_date: string | null };
 type Expense = { id: number; item: string; amount: number; spender_id: number | null; spender_name: string | null; memo: string; spent_at: string | null; created_at: string; kind: string; category: string };
 
 // UTC 문자열이 KST 기준 이번주/이번달에 드는지
@@ -21,6 +21,18 @@ function inPeriod(dt: string | null, period: string): boolean {
   return sow(k).getTime() === sow(n).getTime();
 }
 const won = (n: number) => n.toLocaleString() + "원";
+
+// 마감일 → D-day 배지(KST 기준)
+function dday(due: string | null): { text: string; cls: string } | null {
+  if (!due) return null;
+  const t = new Date(Date.now() + 9 * 3600 * 1000); t.setUTCHours(0, 0, 0, 0);
+  const d = new Date(due + "T00:00:00Z");
+  if (isNaN(d.getTime())) return null;
+  const diff = Math.round((d.getTime() - t.getTime()) / 86400000);
+  if (diff === 0) return { text: "D-DAY", cls: "due-today" };
+  if (diff > 0) return { text: `D-${diff}`, cls: diff <= 3 ? "due-soon" : "due-far" };
+  return { text: `D+${-diff}`, cls: "due-over" };
+}
 
 export default function AdminOps() {
   const { token } = useAuth();
@@ -63,12 +75,13 @@ function WorkBoard({ staff, tasks, H, reload }: { staff: Staff[]; tasks: Task[];
   const [title, setTitle] = useState("");
   const [detail, setDetail] = useState("");
   const [assignee, setAssignee] = useState<string>("");
+  const [due, setDue] = useState("");
   const [period, setPeriod] = useState("month");
 
   const add = async () => {
     if (!title.trim()) return;
-    await fetch(`${API}/admin/ops/tasks`, H({ method: "POST", body: JSON.stringify({ title, detail, assignee_id: assignee ? Number(assignee) : null, status: "todo" }) }));
-    setTitle(""); setDetail(""); reload();
+    await fetch(`${API}/admin/ops/tasks`, H({ method: "POST", body: JSON.stringify({ title, detail, assignee_id: assignee ? Number(assignee) : null, status: "todo", due_date: due }) }));
+    setTitle(""); setDetail(""); setDue(""); reload();
   };
   const move = async (t: Task, status: string) => { await fetch(`${API}/admin/ops/tasks/${t.id}`, H({ method: "PATCH", body: JSON.stringify({ status }) })); reload(); };
   const del = async (t: Task) => { if (!confirm("삭제할까요?")) return; await fetch(`${API}/admin/ops/tasks/${t.id}`, H({ method: "DELETE" })); reload(); };
@@ -85,11 +98,12 @@ function WorkBoard({ staff, tasks, H, reload }: { staff: Staff[]; tasks: Task[];
     <div>
       <div className="ops-form">
         <input placeholder="업무 내용" value={title} onChange={(e) => setTitle(e.target.value)} style={{ flex: "2 1 180px" }} />
-        <input placeholder="상세(선택)" value={detail} onChange={(e) => setDetail(e.target.value)} style={{ flex: "2 1 160px" }} />
-        <select value={assignee} onChange={(e) => setAssignee(e.target.value)} style={{ flex: "1 1 110px" }}>
+        <input placeholder="상세(선택)" value={detail} onChange={(e) => setDetail(e.target.value)} style={{ flex: "2 1 150px" }} />
+        <select value={assignee} onChange={(e) => setAssignee(e.target.value)} style={{ flex: "1 1 100px" }}>
           <option value="">담당자</option>
           {staff.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.title})</option>)}
         </select>
+        <input type="date" value={due} onChange={(e) => setDue(e.target.value)} title="마감일(D-day)" style={{ flex: "1 1 130px" }} />
         <button className="ops-add" onClick={add}><Plus size={15} /> 등록</button>
       </div>
 
@@ -103,10 +117,15 @@ function WorkBoard({ staff, tasks, H, reload }: { staff: Staff[]; tasks: Task[];
         {COLS.map((c) => (
           <div key={c.key} className="ops-col">
             <div className="ops-col-h" style={{ color: c.color }}>{c.label} <span>{col(c.key).length}</span></div>
-            {col(c.key).length === 0 ? <div className="ops-empty">없음</div> : col(c.key).map((t) => (
+            {col(c.key).length === 0 ? <div className="ops-empty">없음</div> : col(c.key).map((t) => {
+              const dd = c.key !== "done" ? dday(t.due_date) : null;
+              return (
               <div key={t.id} className="ops-task">
-                <div className="ops-task-t">{t.title}</div>
-                {t.detail && <div className="ops-task-d">{t.detail}</div>}
+                <div className="ops-task-t">
+                  <span>{t.title}</span>
+                  {dd && <span className={`ops-dday ${dd.cls}`}>{dd.text}</span>}
+                </div>
+                {(t.detail || t.due_date) && <div className="ops-task-d">{t.detail}{t.due_date && <span className="ops-due"> · 마감 {t.due_date}</span>}</div>}
                 <div className="ops-task-m">
                   {t.assignee_name ? <span className="ops-who">{t.assignee_name} <em>{t.assignee_title}</em></span> : <span className="ops-who none">담당 미정</span>}
                   <span className="ops-actions">
@@ -117,7 +136,7 @@ function WorkBoard({ staff, tasks, H, reload }: { staff: Staff[]; tasks: Task[];
                   </span>
                 </div>
               </div>
-            ))}
+              ); })}
           </div>
         ))}
       </div>

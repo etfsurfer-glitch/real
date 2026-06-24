@@ -5936,7 +5936,7 @@ _OPS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS ops_staff(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, title TEXT,
   created_at TEXT DEFAULT (datetime('now')));
 CREATE TABLE IF NOT EXISTS ops_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, detail TEXT,
-  assignee_id INTEGER, status TEXT DEFAULT 'todo',
+  assignee_id INTEGER, status TEXT DEFAULT 'todo', due_date TEXT,
   created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')));
 CREATE TABLE IF NOT EXISTS ops_expenses(id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT, amount INTEGER,
   spender_id INTEGER, memo TEXT, spent_at TEXT, kind TEXT DEFAULT 'adhoc', category TEXT,
@@ -5947,8 +5947,9 @@ CREATE TABLE IF NOT EXISTS ops_expenses(id INTEGER PRIMARY KEY AUTOINCREMENT, it
 def _ensure_ops(c):
     c.executescript(_OPS_SCHEMA)
     # 기존 테이블에 신규 컬럼 보강(있으면 무시)
-    for col, ddl in (("kind", "ALTER TABLE ops_expenses ADD COLUMN kind TEXT DEFAULT 'adhoc'"),
-                     ("category", "ALTER TABLE ops_expenses ADD COLUMN category TEXT")):
+    for ddl in ("ALTER TABLE ops_expenses ADD COLUMN kind TEXT DEFAULT 'adhoc'",
+                "ALTER TABLE ops_expenses ADD COLUMN category TEXT",
+                "ALTER TABLE ops_tasks ADD COLUMN due_date TEXT"):
         try:
             c.execute(ddl)
         except Exception:
@@ -5965,6 +5966,7 @@ class OpsTaskBody(BaseModel):
     detail: str = ""
     assignee_id: int | None = None
     status: str = "todo"
+    due_date: str = ""
 
 
 class OpsTaskPatch(BaseModel):
@@ -5972,6 +5974,7 @@ class OpsTaskPatch(BaseModel):
     detail: str | None = None
     assignee_id: int | None = None
     status: str | None = None
+    due_date: str | None = None
 
 
 class OpsExpenseBody(BaseModel):
@@ -6016,10 +6019,11 @@ def ops_tasks_list(_admin: dict = Depends(admin_user)):
     with _reviews_db() as c:
         _ensure_ops(c)
         rows = c.execute(
-            "SELECT t.id,t.title,t.detail,t.assignee_id,s.name,s.title,t.status,t.created_at,t.updated_at "
+            "SELECT t.id,t.title,t.detail,t.assignee_id,s.name,s.title,t.status,t.created_at,t.updated_at,t.due_date "
             "FROM ops_tasks t LEFT JOIN ops_staff s ON s.id=t.assignee_id ORDER BY t.updated_at DESC").fetchall()
     return {"tasks": [{"id": r[0], "title": r[1], "detail": r[2], "assignee_id": r[3], "assignee_name": r[4],
-                       "assignee_title": r[5], "status": r[6], "created_at": r[7], "updated_at": r[8]} for r in rows]}
+                       "assignee_title": r[5], "status": r[6], "created_at": r[7], "updated_at": r[8],
+                       "due_date": r[9]} for r in rows]}
 
 
 @app.post("/admin/ops/tasks")
@@ -6029,8 +6033,9 @@ def ops_task_add(body: OpsTaskBody, _admin: dict = Depends(admin_user)):
     st = body.status if body.status in ("todo", "doing", "done") else "todo"
     with _reviews_db() as c:
         _ensure_ops(c)
-        cur = c.execute("INSERT INTO ops_tasks(title,detail,assignee_id,status) VALUES(?,?,?,?)",
-                        (body.title.strip(), (body.detail or "").strip(), body.assignee_id, st))
+        cur = c.execute("INSERT INTO ops_tasks(title,detail,assignee_id,status,due_date) VALUES(?,?,?,?,?)",
+                        (body.title.strip(), (body.detail or "").strip(), body.assignee_id, st,
+                         (body.due_date or "").strip() or None))
         c.commit()
     return {"id": cur.lastrowid}
 
@@ -6046,6 +6051,8 @@ def ops_task_patch(tid: int, body: OpsTaskPatch, _admin: dict = Depends(admin_us
         sets.append("assignee_id=?"); params.append(body.assignee_id)
     if body.status is not None and body.status in ("todo", "doing", "done"):
         sets.append("status=?"); params.append(body.status)
+    if body.due_date is not None:
+        sets.append("due_date=?"); params.append(body.due_date.strip() or None)
     if not sets:
         return {"ok": True}
     sets.append("updated_at=datetime('now')")

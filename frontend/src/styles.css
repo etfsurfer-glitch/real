@@ -2683,3 +2683,12 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 @keyframes introFeat{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes introFade{to{opacity:0;visibility:hidden}}
 @media(prefers-reduced-motion:reduce){.intro{display:none}}
+
+/* 업무 D-day 배지 */
+.ops-task-t{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.ops-dday{font-size:11px;font-weight:800;border-radius:6px;padding:1px 7px;white-space:nowrap;flex:none}
+.ops-dday.due-over{background:#fde8e8;color:#d23b3b}
+.ops-dday.due-today{background:#d23b3b;color:#fff}
+.ops-dday.due-soon{background:#fff2e0;color:#e0701e}
+.ops-dday.due-far{background:#eef2f7;color:#6b7785}
+.ops-due{color:var(--c-faint);font-size:11.5px}
