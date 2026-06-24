@@ -94,6 +94,22 @@ function DongModal({ data, onClose }: { data: DongResp; onClose: () => void }) {
   );
 }
 
+// 매물 범위 선택 — 모든 랭킹 히어로 공통(단지형 기본 + 4 + 전체). dark=히어로 배너용.
+const SCOPE_OPTS: [string, string][] = [
+  ["complex", "단지형 (아파트·오피)"], ["house", "주택 (빌라·단독)"], ["comm", "상가·사무실"],
+  ["building", "빌딩·건물"], ["land", "토지·공장"], ["all", "전체"],
+];
+function ScopeSelect({ value, onChange, dark = false }: { value: string; onChange: (v: string) => void; dark?: boolean }) {
+  return (
+    <label className={`scope-sel${dark ? " dark" : ""}`}>
+      <span>매물 범위</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {SCOPE_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
+  );
+}
+
 export function RealtorByDong() {
   const { sidos, sigungus, dongs, sido, setSido, sigungu, setSigungu, dong, setDong } = useRegionFilter();
   const [autoLoc, setAutoLoc] = useState<{ cortar: string; name: string } | null>(null);
@@ -227,20 +243,12 @@ export function RealtorByDong() {
             <span className="hood-digest-ic"><Sparkles size={16} strokeWidth={2.4} aria-hidden /></span>
             <span className="hood-digest-tx">
               <b className="scope">{scope}</b>엔 등록 중개사 <b>{data.count.toLocaleString()}곳</b>
-              {topL && <> · 매물이 가장 많은 곳은 <b>{topL.realtor_name}</b> <b className="hot">{topL.listings.toLocaleString()}개</b>예요</>}
+              {topL && <> · 매물 1위 <b>{topL.realtor_name}</b> <b className="hot">{topL.listings.toLocaleString()}개</b></>}
             </span>
+            <ScopeSelect value={mscope} onChange={setMscope} dark />
           </div>
           <div className="hood-share"><ShareBar targetRef={shareRef} title={`${scope} 우리동네 중개사`} fileName={`콕집_우리동네중개사_${scope}`} /></div>
-          <div className="rank-scope">
-            <span>매물 범위</span>
-            <select value={mscope} onChange={(e) => setMscope(e.target.value)}>
-              <option value="complex">단지형 (아파트·오피)</option>
-              <option value="resi">주거 전체 (단지·빌라·단독)</option>
-              <option value="comm">상가·사무실</option>
-              <option value="all">전체</option>
-            </select>
-          </div>
-          <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>매물·직원·업력 세 기준을 나란히 — 무엇이 중요한지는 직접 정하세요.</p>
+          <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>매물·직원·업력 세 기준을 나란히 · 매물 범위는 위에서 선택.</p>
           <div className="rank-wrap">
             <RealtorRankCard title="매물 많은 곳" sub="현재 보유" icon={<Building2 size={16} strokeWidth={2.3} />} accent="blue"
               items={items} val={(r) => r.listings} valText={(r) => `${r.listings.toLocaleString()}개${r.total_listings && r.total_listings > r.listings ? ` · 전체 ${r.total_listings.toLocaleString()}` : ""}`} />
@@ -272,7 +280,7 @@ function RankMedal({ rank }: { rank: number }) {
   );
 }
 
-type RealtorCtx = { national: RealtorRow[]; sidoEntries: [string, RealtorRow[]][] };
+type RealtorCtx = { national: RealtorRow[]; sidoEntries: [string, RealtorRow[]][]; mscope: string; setMscope: (v: string) => void };
 
 type RealtorRow = {
   realtor_id: string | null;
@@ -467,26 +475,13 @@ export default function RealtorRanks() {
         { to: "/realtors/tenure", label: "업력순위" },
         { to: "/realtors/staff", label: "직원수순위" },
       ]} />
-      {(pathname.endsWith("/national") || pathname.endsWith("/region")) && (
-        <div className="rank-scope" style={{ marginTop: 8 }}>
-          <span>매물 범위</span>
-          <select value={mscope} onChange={(e) => setMscope(e.target.value)}>
-            <option value="complex">단지형 (아파트·오피)</option>
-            <option value="house">주택 (빌라·단독)</option>
-            <option value="comm">상가·사무실</option>
-            <option value="building">빌딩·건물</option>
-            <option value="land">토지·공장</option>
-            <option value="all">전체</option>
-          </select>
-        </div>
-      )}
-      <Outlet context={{ national: national ?? [], sidoEntries }} />
+      <Outlet context={{ national: national ?? [], sidoEntries, mscope, setMscope }} />
     </div>
   );
 }
 
 // 랭킹 하위 페이지 공통 히어로 — 사이트 톤(네이비→블루) 배너 + 1위 하이라이트.
-function RankHero({ icon, title, sub, highlight }: { icon: ReactNode; title: string; sub: string; highlight?: ReactNode }) {
+function RankHero({ icon, title, sub, highlight, control }: { icon: ReactNode; title: string; sub: string; highlight?: ReactNode; control?: ReactNode }) {
   return (
     <div className="rank-hero">
       <span className="rank-hero-ic">{icon}</span>
@@ -494,30 +489,31 @@ function RankHero({ icon, title, sub, highlight }: { icon: ReactNode; title: str
         <h2>{title}</h2>
         <p>{sub}</p>
       </div>
+      {control && <div className="rank-hero-ctrl">{control}</div>}
       {highlight && <div className="rank-hero-hl">{highlight}</div>}
     </div>
   );
 }
 
 export function RealtorNational() {
-  const { national } = useOutletContext<RealtorCtx>();
-  const top = national[0];
+  const { national, mscope, setMscope } = useOutletContext<RealtorCtx>();
   return (
     <>
       <RankHero icon={<Crown size={22} strokeWidth={2.3} />} title="전국 매물보유 순위"
         sub="매물 범위를 골라 전국 중개사무소를 줄세웁니다 · 단지형 기본"
-        highlight={top && <><b>{top.realtor_name}</b><span>{top.count.toLocaleString()}개</span></>} />
+        control={<ScopeSelect value={mscope} onChange={setMscope} dark />} />
       <RealtorTable rows={national} detailed />
     </>
   );
 }
 
 export function RealtorBySido() {
-  const { sidoEntries } = useOutletContext<RealtorCtx>();
+  const { sidoEntries, mscope, setMscope } = useOutletContext<RealtorCtx>();
   return (
     <>
       <RankHero icon={<MapPin size={22} strokeWidth={2.3} />} title="지역별 매물보유 순위"
-        sub="시도마다 매물이 많은 중개사무소 TOP 10 · 단지형 기본" />
+        sub="시도마다 매물이 많은 중개사무소 TOP 10 · 단지형 기본"
+        control={<ScopeSelect value={mscope} onChange={setMscope} dark />} />
       <div className="rank-sido-grid">
         {sidoEntries.map(([sidoName, rows]) => (
           <div key={sidoName} className="rank-sido-card">

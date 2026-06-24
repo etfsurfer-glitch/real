@@ -2816,3 +2816,18 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .rank-sido-name{display:flex;align-items:center;gap:5px;font-weight:800;font-size:14px;color:var(--c-text);margin-bottom:8px}
 .rank-sido-name svg{color:var(--c-primary)}
 @media(max-width:600px){.rank-hero-hl{display:none}.rank-hero-tx h2{font-size:17px}}
+
+/* 매물 범위 선택(랭킹 히어로 공통) */
+.scope-sel{display:inline-flex;align-items:center;gap:7px;font-size:13px;flex:none}
+.scope-sel>span{font-weight:700;white-space:nowrap;color:var(--c-text-soft)}
+.scope-sel select{border:1px solid var(--c-border);border-radius:var(--r-pill);padding:7px 12px;font-size:13px;font-weight:700;background:#fff;cursor:pointer;color:var(--c-primary-strong)}
+.scope-sel.dark>span{color:rgba(255,255,255,.85)}
+.scope-sel.dark select{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fff}
+.scope-sel.dark select option{color:#222}
+.rank-hero-ctrl{flex:none;margin-left:auto}
+.rank-hero-ctrl + .rank-hero-hl{margin-left:0}
+/* 우리동네 digest 안의 범위선택 — 오른쪽 정렬 */
+.hood-digest{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hood-digest .hood-digest-tx{flex:1;min-width:180px}
+.hood-digest .scope-sel{margin-left:auto}
+@media(max-width:600px){.rank-hero-ctrl{margin-left:0;width:100%}.scope-sel select{flex:1}}
