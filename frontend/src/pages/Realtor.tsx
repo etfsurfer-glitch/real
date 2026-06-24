@@ -52,10 +52,12 @@ type NaverInfo = {
   rent_count: number | null;
 };
 
+type Breakdown = { complex: number; villa: number; house: number; sangga: number; office: number; total: number };
 type RealtorDetail = {
   realtor_id: string;
   realtor_name: string | null;
   total_count: number;
+  listing_breakdown?: Breakdown;
   national_rank: number;
   national_total: number;
   by_sido: SidoRank[];
@@ -204,9 +206,13 @@ export default function Realtor() {
       {/* ── 핵심 지표 ── */}
       <div className="stat-grid">
         <div className="stat-box">
-          <div className="stat-label">전체 매물</div>
-          <div className="stat-value">{grandTotal.toLocaleString()}</div>
-          <div className="stat-sub">{data.by_complex.length}개 단지</div>
+          <div className="stat-label">단지형 매물</div>
+          <div className="stat-value">{(data.listing_breakdown?.complex ?? grandTotal).toLocaleString()}</div>
+          <div className="stat-sub">
+            {data.by_complex.length}개 단지
+            {data.listing_breakdown && data.listing_breakdown.total > data.listing_breakdown.complex
+              && <> · 전체 {data.listing_breakdown.total.toLocaleString()}</>}
+          </div>
         </div>
         {data.vworld?.employees && data.vworld.employees.total > 0 && (
           <div className="stat-box">
@@ -231,6 +237,19 @@ export default function Realtor() {
           </div>
         )}
       </div>
+
+      {/* ── 매물 유형 breakdown (단지형 기본 + 비단지) ── */}
+      {data.listing_breakdown && data.listing_breakdown.total > data.listing_breakdown.complex && (
+        <div className="rl-breakdown">
+          <span className="rl-bd-title">매물 유형</span>
+          {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"]] as const)
+            .filter(([, k]) => (data.listing_breakdown![k] || 0) > 0)
+            .map(([label, k]) => (
+              <span key={k} className={`rl-bd-chip${k === "complex" ? " primary" : ""}`}>{label} <b>{data.listing_breakdown![k].toLocaleString()}</b></span>
+            )))}
+          <span className="rl-bd-chip total">전체 <b>{data.listing_breakdown.total.toLocaleString()}</b></span>
+        </div>
+      )}
 
       {/* ── 거래유형 분포 막대 ── */}
       {grandTotal > 0 && (

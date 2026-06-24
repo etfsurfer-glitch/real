@@ -1070,10 +1070,18 @@ def realtors_national(limit: int = 20, scope: str = "complex"):
         ids = [r[0] for r in rows]
         info: dict[str, dict] = {}
         rnames: dict = {}
+        totals: dict = {}
         if ids:
             _ph0 = ",".join("?" * len(ids))
             rnames = {x[0]: x[1] for x in c.execute(
                 f"SELECT realtor_id, realtor_name FROM realtor_names WHERE realtor_id IN ({_ph0})", ids)}
+            for x in c.execute(f"SELECT realtor_id, COUNT(*) FROM listings_current "
+                               f"WHERE realtor_id IN ({_ph0}) GROUP BY realtor_id", ids):
+                totals[x[0]] = x[1]
+            for x in c.execute(f"SELECT realtor_id, COALESCE(villa_n,0)+COALESCE(house_n,0)+"
+                               f"COALESCE(sangga_n,0)+COALESCE(office_n,0) FROM realtor_region_counts "
+                               f"WHERE realtor_id IN ({_ph0})", ids):
+                totals[x[0]] = totals.get(x[0], 0) + (x[1] or 0)
         if ids:
             ph = ",".join("?" * len(ids))
             sido_names = {
@@ -1110,6 +1118,7 @@ def realtors_national(limit: int = 20, scope: str = "complex"):
             "realtor_id": r[0],
             "realtor_name": e.get("office_name") or rnames.get(r[0]) or r[1] or "공인중개사",
             "count": r[2],
+            "total_count": totals.get(r[0], r[2]),
             "sido": e.get("sido"),
             "staff_count": e.get("staff_count"),
             "established_year": e.get("established_year"),
@@ -2164,6 +2173,10 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
                    COALESCE((SELECT {scope_sql} FROM realtor_match m
                              LEFT JOIN realtor_region_counts rc ON rc.realtor_id=m.realtor_id
                              WHERE m.sys_regno=rd.sys_regno), 0) AS listings,
+                   COALESCE((SELECT SUM(m.total_listings + COALESCE(rc.villa_n,0)+COALESCE(rc.house_n,0)+
+                             COALESCE(rc.sangga_n,0)+COALESCE(rc.office_n,0))
+                             FROM realtor_match m LEFT JOIN realtor_region_counts rc ON rc.realtor_id=m.realtor_id
+                             WHERE m.sys_regno=rd.sys_regno), 0) AS total_n,
                    (SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=rd.sys_regno) AS staff,
                    substr(v.registered_ymd,1,4) AS est_yr,
                    v.phone
@@ -2174,12 +2187,12 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
             """, (cortar,)).fetchall()
     items = []
     for r in rows:
-        est = int(r[5]) if (r[5] and r[5].isdigit()) else None
+        est = int(r[6]) if (r[6] and r[6].isdigit()) else None
         items.append({
             "realtor_id": r[0], "sys_regno": r[1], "realtor_name": r[2] or "공인중개사",
-            "listings": r[3] or 0, "staff_count": r[4] or None,
+            "listings": r[3] or 0, "total_listings": r[4] or 0, "staff_count": r[5] or None,
             "established_year": est, "tenure_years": (cur_year - est) if est else None,
-            "phone": r[6], "naver_linked": r[0] is not None,
+            "phone": r[7], "naver_linked": r[0] is not None,
         })
     key = {"staff": lambda x: x["staff_count"] or 0,
            "tenure": lambda x: x["tenure_years"] or 0}.get(sort, lambda x: x["listings"])
@@ -2227,16 +2240,24 @@ def realtors_by_sido(limit: int = 10, scope: str = "complex"):
             SELECT sido, rid, n FROM ranked WHERE rk <= ? ORDER BY sido, n DESC
             """, (limit,)).fetchall()
         ids = list({r[1] for r in rows})
-        names = {}
+        names = {}; totals: dict = {}
         if ids:
             ph = ",".join("?" * len(ids))
             names = {x[0]: x[1] for x in c.execute(
                 f"SELECT realtor_id, realtor_name FROM realtor_names WHERE realtor_id IN ({ph})", ids)}
+            for x in c.execute(f"SELECT realtor_id, COUNT(*) FROM listings_current "
+                               f"WHERE realtor_id IN ({ph}) GROUP BY realtor_id", ids):
+                totals[x[0]] = x[1]
+            for x in c.execute(f"SELECT realtor_id, COALESCE(villa_n,0)+COALESCE(house_n,0)+"
+                               f"COALESCE(sangga_n,0)+COALESCE(office_n,0) FROM realtor_region_counts "
+                               f"WHERE realtor_id IN ({ph})", ids):
+                totals[x[0]] = totals.get(x[0], 0) + (x[1] or 0)
     grouped: dict[str, list[dict]] = {}
     for sido, rid, n in rows:
         name = sido_names.get(sido, sido)
         grouped.setdefault(name, []).append(
-            {"realtor_id": rid, "realtor_name": names.get(rid) or "공인중개사", "count": n})
+            {"realtor_id": rid, "realtor_name": names.get(rid) or "공인중개사", "count": n,
+             "total_count": totals.get(rid, n)})
     out = {"limit": limit, "scope": scope, "groups": grouped}
     _cache_put(ck, out)
     return out
@@ -2564,10 +2585,22 @@ def realtor_detail(realtor_id: str):
                 },
             }
 
+    # 매물 통계 — 단지형(기본) + 비단지 유형별 + 전체(부수). 사이트 일관 규칙.
+    with _open_db() as c:
+        rc = c.execute("SELECT villa_n,house_n,sangga_n,office_n FROM realtor_region_counts WHERE realtor_id=?",
+                       (realtor_id,)).fetchone()
+    _v, _h, _s, _o = (rc or (0, 0, 0, 0))
+    _v, _h, _s, _o = (_v or 0), (_h or 0), (_s or 0), (_o or 0)
+    listing_breakdown = {
+        "complex": total_count, "villa": _v, "house": _h, "sangga": _s, "office": _o,
+        "total": total_count + _v + _h + _s + _o,
+    }
+
     return {
         "realtor_id": realtor_id,
         "realtor_name": realtor_name,
         "total_count": total_count,
+        "listing_breakdown": listing_breakdown,
         "national_rank": nat_rank,
         "national_total": ranks["national_total"],
         "by_sido": by_sido_out,

@@ -2790,3 +2790,13 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mld-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .mld-actions a{flex:1;justify-content:center;min-width:90px;padding:11px}
 @media(max-width:480px){.mld-rows{grid-template-columns:1fr}}
+
+/* 중개사 세부 매물 유형 breakdown */
+.rl-breakdown{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:10px 0 4px}
+.rl-bd-title{font-size:12.5px;font-weight:700;color:var(--c-muted);margin-right:2px}
+.rl-bd-chip{display:inline-flex;align-items:center;gap:4px;background:var(--c-bg-soft,#f4f6f9);border-radius:var(--r-pill);padding:5px 11px;font-size:12.5px;color:var(--c-text-soft)}
+.rl-bd-chip b{color:var(--c-text);font-weight:800}
+.rl-bd-chip.primary{background:var(--c-primary-tint);color:var(--c-primary-strong)}
+.rl-bd-chip.primary b{color:var(--c-primary-strong)}
+.rl-bd-chip.total{background:var(--c-text);color:#fff}
+.rl-bd-chip.total b{color:#fff}
