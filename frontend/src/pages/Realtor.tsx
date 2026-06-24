@@ -58,7 +58,7 @@ type RealtorDetail = {
   realtor_name: string | null;
   total_count: number;
   listing_breakdown?: Breakdown;
-  national_rank: number;
+  national_rank: number | null;
   national_total: number;
   by_sido: SidoRank[];
   by_complex: ComplexAgg[];
@@ -224,11 +224,13 @@ export default function Realtor() {
             </div>
           </div>
         )}
-        <div className="stat-box">
-          <div className="stat-label">전국매물수 기준</div>
-          <div className="stat-value">#{data.national_rank.toLocaleString()}</div>
-          <div className="stat-sub">{data.national_total.toLocaleString()}개 중</div>
-        </div>
+        {data.national_rank != null && (
+          <div className="stat-box">
+            <div className="stat-label">전국매물수 기준</div>
+            <div className="stat-value">#{data.national_rank.toLocaleString()}</div>
+            <div className="stat-sub">{data.national_total.toLocaleString()}개 중</div>
+          </div>
+        )}
         {data.by_sido[0] && (
           <div className="stat-box">
             <div className="stat-label">{data.by_sido[0].sido_name}매물수 기준</div>

@@ -2490,9 +2490,19 @@ def realtor_detail(realtor_id: str):
     """중개사 상세: 전국 등수, 시도별 등수, 단지별 매물 집계."""
     ranks = _rank_tables()
     nat = ranks["national"].get(realtor_id)
-    if not nat:
-        raise HTTPException(404, "realtor not found")
-    nat_rank, total_count, realtor_name = nat
+    if nat:
+        nat_rank, total_count, realtor_name = nat
+    else:
+        # 비단지 전용 중개사 — 단지(national) 랭킹엔 없지만 매칭/비단지 매물이 있으면 표시.
+        with _open_db() as c:
+            exists = c.execute(
+                "SELECT 1 FROM realtor_match WHERE realtor_id=? UNION ALL "
+                "SELECT 1 FROM realtor_region_counts WHERE realtor_id=? LIMIT 1",
+                (realtor_id, realtor_id)).fetchone()
+            if not exists:
+                raise HTTPException(404, "realtor not found")
+            nm = c.execute("SELECT realtor_name FROM realtor_names WHERE realtor_id=?", (realtor_id,)).fetchone()
+        nat_rank, total_count, realtor_name = None, 0, (nm[0] if nm else realtor_id)
     by_sido_out = []
     for (sido, rid), (rk, n, _name) in ranks["sido_rank"].items():
         if rid == realtor_id:
