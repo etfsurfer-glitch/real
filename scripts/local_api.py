@@ -5938,6 +5938,69 @@ def _member_map(user_ids) -> dict:
         return {}
 
 
+def _page_label(path: str | None) -> str:
+    """경로 → 직관적 페이지명. 관리자 대시보드 표시용."""
+    if not path:
+        return "기타"
+    p = path.split("?")[0]
+    if p in ("/", ""):
+        return "홈"
+    rules = [
+        ("/today", "TODAY·우리동네"), ("/quick-deals", "급매찾기"), ("/jeonse-check", "깡통전세지수"),
+        ("/changes", "매물가격추이"), ("/tx-stats", "실거래 통계"), ("/realtors", "중개사 랭킹"),
+        ("/complex", "단지 상세"), ("/realtor/", "중개사 상세"), ("/map", "지도"),
+        ("/forum", "토론장"), ("/lounge", "중개사 라운지"), ("/ai", "AI 분석"),
+        ("/nonresi", "상가·빌라·사무실"), ("/overview", "전국현황"), ("/quick", "급매찾기"),
+        ("/me", "내 정보"), ("/admin", "관리자"), ("/r/", "중개사 홈페이지"), ("/cancelled", "취소거래"),
+    ]
+    for pre, lbl in rules:
+        if p.startswith(pre):
+            return lbl
+    return p
+
+
+@app.get("/admin/trends")
+def admin_trends(_admin: dict = Depends(admin_user), days: int = 30):
+    """일별 추이 — 순방문자(distinct IP)·페이지뷰·신규가입. 최근 days일(KST)."""
+    days = min(max(int(days), 7), 120)
+    win = f"-{days} days"
+    with _logs_db() as c:
+        rows = c.execute(
+            "SELECT date(ts,'+9 hours') d, COUNT(DISTINCT ip) vis, "
+            "SUM(CASE WHEN kind IN ('view','view_complex','view_realtor') THEN 1 ELSE 0 END) pv "
+            "FROM event_log WHERE date(ts,'+9 hours') >= date('now','+9 hours', ?) GROUP BY d",
+            (win,)).fetchall()
+    daily = {r[0]: {"date": r[0], "visitors": r[1], "pageviews": r[2] or 0, "signups": 0} for r in rows}
+    with _reviews_db() as rc:
+        for d, n in rc.execute(
+            "SELECT date(agreed_terms_at,'+9 hours') d, COUNT(*) FROM user_profiles "
+            "WHERE agreed_terms_at IS NOT NULL AND date(agreed_terms_at,'+9 hours') >= date('now','+9 hours', ?) "
+            "GROUP BY d", (win,)):
+            daily.setdefault(d, {"date": d, "visitors": 0, "pageviews": 0, "signups": 0})["signups"] = n
+    return {"days": sorted(daily.values(), key=lambda x: x["date"])}
+
+
+@app.get("/admin/top-pages")
+def admin_top_pages(_admin: dict = Depends(admin_user), days: int = 7, limit: int = 15):
+    """페이지별 조회 — 직관적 이름으로 묶어 집계. 최근 days일."""
+    days = min(max(int(days), 1), 90)
+    with _logs_db() as c:
+        rows = c.execute(
+            "SELECT path, COUNT(*) n, COUNT(DISTINCT ip) v FROM event_log "
+            "WHERE kind IN ('view','view_complex','view_realtor') AND path LIKE '/%' "
+            "AND date(ts,'+9 hours') >= date('now','+9 hours', ?) GROUP BY path",
+            (f"-{days} days",)).fetchall()
+    agg: dict = {}
+    for p, n, v in rows:
+        lbl = _page_label(p)
+        if lbl == p:        # 알려진 페이지명에 매칭 안 됨(=API·봇 경로) → 제외
+            continue
+        a = agg.setdefault(lbl, {"label": lbl, "views": 0, "visitors": 0})
+        a["views"] += n; a["visitors"] += v
+    out = sorted(agg.values(), key=lambda x: -x["views"])[:limit]
+    return {"days": days, "pages": out}
+
+
 @app.get("/admin/today-stats")
 def admin_today_stats(_admin: dict = Depends(admin_user)):
     """오늘(KST) 접속통계 — 방문자·로그인사용자·최대 동시작업자·신규가입·시간대별. ts는 UTC라 +9h 보정."""
@@ -5959,7 +6022,7 @@ def admin_today_stats(_admin: dict = Depends(admin_user)):
             f"SELECT MAX(c), bk FROM (SELECT strftime('%H:',ts,'+9 hours')||(CAST(strftime('%M',ts,'+9 hours') AS INT)/10*10) bk, "
             f"COUNT(DISTINCT ip) c FROM event_log WHERE {T} GROUP BY bk)").fetchone()
         peak_concurrent, peak_window = (pk[0] or 0), (pk[1] or "")
-        top_paths = [{"path": p, "n": n} for p, n in c.execute(
+        top_paths = [{"path": p, "label": _page_label(p), "n": n} for p, n in c.execute(
             f"SELECT path, COUNT(*) FROM event_log WHERE {T} AND path IS NOT NULL AND path<>'' "
             f"GROUP BY path ORDER BY 2 DESC LIMIT 8")]
     with _reviews_db() as rc:
