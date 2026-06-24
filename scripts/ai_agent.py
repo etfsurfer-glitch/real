@@ -335,7 +335,26 @@ def _resolve_region(q: str) -> dict | None:
         score, cand = _dong(cno, name, parent)
         if score > bs or (score == bs and best and len(name) > len(best["dong"] or "")):
             bs, best = score, cand
-    return best
+    if best:
+        return best
+
+    # 5순위(폴백): 부분 동명 prefix — '을지로'→을지로2가·3가…(중구), '여의도'→여의도동.
+    # 정확/코어 매칭이 다 실패한 뒤에만. 같은 구로 수렴할 때만 채택(여러 구 걸치면 모호 → skip).
+    for t in sorted((t for t in qtok if len(t) >= 2), key=len, reverse=True):
+        hits = [(cno, name, parent) for cno, name, parent in sec if name and name.startswith(t)]
+        if not hits:
+            continue
+        if len(hits) == 1:                       # 단일 동 → 동 단위
+            return _dong(*hits[0])[1]
+        parents = {p for _, _, p in hits}
+        if len(parents) == 1:                    # 여러 동이지만 한 구 → 그 구로 수렴
+            p = hits[0][2]
+            dname, dparent = dvsn.get(p, (None, None))
+            return {"sido": cities.get(dparent), "sido_code": p[:2],
+                    "sigungu": dname, "sigungu_code": p[:5], "sigungu_cortar": p,
+                    "dong": None, "dong_cortar": None, "level": "sigungu"}
+        # 여러 구에 걸친 prefix → 모호 → 다음 토큰 시도
+    return None
 
 
 def _won(v):
