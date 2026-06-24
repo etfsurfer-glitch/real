@@ -1049,13 +1049,17 @@ def realtors_national(limit: int = 20, scope: str = "complex"):
         return cached
     with _open_db() as c:
         parts = []
-        if scope in ("complex", "resi", "all"):
+        if scope in ("complex", "all"):
             parts.append("SELECT realtor_id, COUNT(*) n FROM listings_current "
                          "WHERE realtor_id IS NOT NULL AND realtor_id!='' GROUP BY realtor_id")
-        if scope in ("resi", "all"):
+        if scope in ("house", "all"):
             parts.append("SELECT realtor_id, (villa_n+house_n) n FROM realtor_region_counts WHERE villa_n+house_n>0")
         if scope in ("comm", "all"):
             parts.append("SELECT realtor_id, (sangga_n+office_n) n FROM realtor_region_counts WHERE sangga_n+office_n>0")
+        if scope in ("building", "all"):
+            parts.append("SELECT realtor_id, building_n n FROM realtor_region_counts WHERE building_n>0")
+        if scope in ("land", "all"):
+            parts.append("SELECT realtor_id, (land_n+factory_n) n FROM realtor_region_counts WHERE land_n+factory_n>0")
         if not parts:
             parts.append("SELECT realtor_id, COUNT(*) n FROM listings_current "
                          "WHERE realtor_id IS NOT NULL AND realtor_id!='' GROUP BY realtor_id")
@@ -1079,7 +1083,8 @@ def realtors_national(limit: int = 20, scope: str = "complex"):
                                f"WHERE realtor_id IN ({_ph0}) GROUP BY realtor_id", ids):
                 totals[x[0]] = x[1]
             for x in c.execute(f"SELECT realtor_id, COALESCE(villa_n,0)+COALESCE(house_n,0)+"
-                               f"COALESCE(sangga_n,0)+COALESCE(office_n,0) FROM realtor_region_counts "
+                               f"COALESCE(sangga_n,0)+COALESCE(office_n,0)+COALESCE(land_n,0)+"
+                               f"COALESCE(factory_n,0)+COALESCE(building_n,0) FROM realtor_region_counts "
                                f"WHERE realtor_id IN ({_ph0})", ids):
                 totals[x[0]] = totals.get(x[0], 0) + (x[1] or 0)
         if ids:
@@ -2157,12 +2162,15 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
     if cached is not None:
         return cached
     # 매물수 범위 — realtor_match(단지형 total_listings) + realtor_region_counts(비단지) 합산.
+    _rall = ("COALESCE(rc.villa_n,0)+COALESCE(rc.house_n,0)+COALESCE(rc.sangga_n,0)+COALESCE(rc.office_n,0)"
+             "+COALESCE(rc.land_n,0)+COALESCE(rc.factory_n,0)+COALESCE(rc.building_n,0)")
     scope_sql = {
         "complex": "SUM(m.total_listings)",
-        "resi": "SUM(m.total_listings + COALESCE(rc.villa_n,0) + COALESCE(rc.house_n,0))",
-        "comm": "SUM(COALESCE(rc.sangga_n,0) + COALESCE(rc.office_n,0))",
-        "all": "SUM(m.total_listings + COALESCE(rc.villa_n,0) + COALESCE(rc.house_n,0) + "
-               "COALESCE(rc.sangga_n,0) + COALESCE(rc.office_n,0))",
+        "house": "SUM(COALESCE(rc.villa_n,0)+COALESCE(rc.house_n,0))",
+        "comm": "SUM(COALESCE(rc.sangga_n,0)+COALESCE(rc.office_n,0))",
+        "building": "SUM(COALESCE(rc.building_n,0))",
+        "land": "SUM(COALESCE(rc.land_n,0)+COALESCE(rc.factory_n,0))",
+        "all": f"SUM(m.total_listings + {_rall})",
     }.get(scope, "SUM(m.total_listings)")
     import datetime as _dt
     cur_year = _dt.date.today().year
@@ -2176,8 +2184,7 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
                    COALESCE((SELECT {scope_sql} FROM realtor_match m
                              LEFT JOIN realtor_region_counts rc ON rc.realtor_id=m.realtor_id
                              WHERE m.sys_regno=rd.sys_regno), 0) AS listings,
-                   COALESCE((SELECT SUM(m.total_listings + COALESCE(rc.villa_n,0)+COALESCE(rc.house_n,0)+
-                             COALESCE(rc.sangga_n,0)+COALESCE(rc.office_n,0))
+                   COALESCE((SELECT SUM(m.total_listings + {_rall})
                              FROM realtor_match m LEFT JOIN realtor_region_counts rc ON rc.realtor_id=m.realtor_id
                              WHERE m.sys_regno=rd.sys_regno), 0) AS total_n,
                    (SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=rd.sys_regno) AS staff,
@@ -2221,15 +2228,19 @@ def realtors_by_sido(limit: int = 10, scope: str = "complex"):
         sido_names = {r[0][:2]: r[1] for r in c.execute(
             "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city'")}
         parts = []
-        if scope in ("complex", "resi", "all"):
+        if scope in ("complex", "all"):
             parts.append("SELECT substr(c.cortar_no,1,2) sido, l.realtor_id rid, COUNT(*) n "
                          "FROM listings_current l JOIN complexes c ON c.complex_no=l.complex_no "
                          "WHERE l.realtor_id IS NOT NULL AND l.realtor_id!='' AND c.cortar_no IS NOT NULL "
                          "GROUP BY substr(c.cortar_no,1,2), l.realtor_id")
-        if scope in ("resi", "all"):
+        if scope in ("house", "all"):
             parts.append("SELECT sido, realtor_id rid, (villa_n+house_n) n FROM realtor_region_sido WHERE villa_n+house_n>0")
         if scope in ("comm", "all"):
             parts.append("SELECT sido, realtor_id rid, (sangga_n+office_n) n FROM realtor_region_sido WHERE sangga_n+office_n>0")
+        if scope in ("building", "all"):
+            parts.append("SELECT sido, realtor_id rid, building_n n FROM realtor_region_sido WHERE building_n>0")
+        if scope in ("land", "all"):
+            parts.append("SELECT sido, realtor_id rid, (land_n+factory_n) n FROM realtor_region_sido WHERE land_n+factory_n>0")
         if not parts:
             parts.append("SELECT substr(c.cortar_no,1,2) sido, l.realtor_id rid, COUNT(*) n "
                          "FROM listings_current l JOIN complexes c ON c.complex_no=l.complex_no "
@@ -2590,13 +2601,14 @@ def realtor_detail(realtor_id: str):
 
     # 매물 통계 — 단지형(기본) + 비단지 유형별 + 전체(부수). 사이트 일관 규칙.
     with _open_db() as c:
-        rc = c.execute("SELECT villa_n,house_n,sangga_n,office_n FROM realtor_region_counts WHERE realtor_id=?",
-                       (realtor_id,)).fetchone()
-    _v, _h, _s, _o = (rc or (0, 0, 0, 0))
-    _v, _h, _s, _o = (_v or 0), (_h or 0), (_s or 0), (_o or 0)
+        rc = c.execute("SELECT villa_n,house_n,sangga_n,office_n,land_n,factory_n,building_n "
+                       "FROM realtor_region_counts WHERE realtor_id=?", (realtor_id,)).fetchone()
+    _v, _h, _s, _o, _l, _f, _b = (rc or (0, 0, 0, 0, 0, 0, 0))
+    _v, _h, _s, _o, _l, _f, _b = (_v or 0), (_h or 0), (_s or 0), (_o or 0), (_l or 0), (_f or 0), (_b or 0)
     listing_breakdown = {
         "complex": total_count, "villa": _v, "house": _h, "sangga": _s, "office": _o,
-        "total": total_count + _v + _h + _s + _o,
+        "land": _l, "factory": _f, "building": _b,
+        "total": total_count + _v + _h + _s + _o + _l + _f + _b,
     }
 
     return {

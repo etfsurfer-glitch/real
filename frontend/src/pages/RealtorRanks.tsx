@@ -472,8 +472,10 @@ export default function RealtorRanks() {
           <span>매물 범위</span>
           <select value={mscope} onChange={(e) => setMscope(e.target.value)}>
             <option value="complex">단지형 (아파트·오피)</option>
-            <option value="resi">주거 전체 (단지·빌라·단독)</option>
+            <option value="house">주택 (빌라·단독)</option>
             <option value="comm">상가·사무실</option>
+            <option value="building">빌딩·건물</option>
+            <option value="land">토지·공장</option>
             <option value="all">전체</option>
           </select>
         </div>

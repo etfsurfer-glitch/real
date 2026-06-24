@@ -52,7 +52,7 @@ type NaverInfo = {
   rent_count: number | null;
 };
 
-type Breakdown = { complex: number; villa: number; house: number; sangga: number; office: number; total: number };
+type Breakdown = { complex: number; villa: number; house: number; sangga: number; office: number; land: number; factory: number; building: number; total: number };
 type RealtorDetail = {
   realtor_id: string;
   realtor_name: string | null;
@@ -242,7 +242,7 @@ export default function Realtor() {
       {data.listing_breakdown && data.listing_breakdown.total > data.listing_breakdown.complex && (
         <div className="rl-breakdown">
           <span className="rl-bd-title">매물 유형</span>
-          {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"]] as const)
+          {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"], ["빌딩", "building"], ["토지", "land"], ["공장", "factory"]] as const)
             .filter(([, k]) => (data.listing_breakdown![k] || 0) > 0)
             .map(([label, k]) => (
               <span key={k} className={`rl-bd-chip${k === "complex" ? " primary" : ""}`}>{label} <b>{data.listing_breakdown![k].toLocaleString()}</b></span>
