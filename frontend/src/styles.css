@@ -2656,3 +2656,30 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .ops-chip em{font-style:normal;color:var(--c-primary-strong);font-weight:600}
 .ops-chip button{border:0;background:none;color:var(--c-muted);cursor:pointer;font-size:15px;line-height:1;padding:0 0 0 2px}
 @media(max-width:680px){.ops-board{grid-template-columns:1fr}.ops-exp-table{font-size:12px}.ops-exp-table th:nth-child(3),.ops-exp-table td:nth-child(3){max-width:120px}}
+
+/* 앱 첫 실행 인트로(콕집 마크 → 위아래로 열림 → 주요기능 스치듯) */
+.intro{position:fixed;inset:0;z-index:99999;overflow:hidden;animation:introFade .35s ease 1.92s forwards}
+.intro-reveal{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+  background:radial-gradient(120% 120% at 50% 40%,#fff 0%,#eef3fb 100%)}
+.intro-brand{display:flex;align-items:center;gap:9px;font-size:30px;font-weight:900;color:#13294b;letter-spacing:-1px;
+  animation:introFeat .5s ease 1.0s both}
+.intro-feats{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;max-width:300px}
+.intro-feat{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #d8e3f2;color:#1268d3;
+  border-radius:30px;padding:7px 13px;font-size:13.5px;font-weight:800;box-shadow:0 3px 10px rgba(18,104,211,.12);
+  opacity:0;animation:introFeat .42s cubic-bezier(.2,.7,.3,1) both}
+.intro-feat svg{color:#1268d3}
+.intro-panel{position:absolute;left:0;width:100%;height:50%;z-index:2;
+  background:linear-gradient(135deg,#13294b,#1268d3)}
+.intro-panel.top{top:0;animation:introOpenTop .58s cubic-bezier(.65,0,.3,1) .88s forwards}
+.intro-panel.bottom{bottom:0;animation:introOpenBottom .58s cubic-bezier(.65,0,.3,1) .88s forwards}
+.intro-logo{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  color:#fff;font-size:26px;font-weight:900;letter-spacing:-1px;pointer-events:none;
+  animation:introLogoIn .5s cubic-bezier(.2,.8,.3,1) both,introLogoOut .3s ease .82s forwards}
+.intro-logo img{filter:drop-shadow(0 4px 14px rgba(0,0,0,.25))}
+@keyframes introLogoIn{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:scale(1)}}
+@keyframes introLogoOut{to{opacity:0;transform:scale(1.18)}}
+@keyframes introOpenTop{to{transform:translateY(-100%)}}
+@keyframes introOpenBottom{to{transform:translateY(100%)}}
+@keyframes introFeat{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes introFade{to{opacity:0;visibility:hidden}}
+@media(prefers-reduced-motion:reduce){.intro{display:none}}
