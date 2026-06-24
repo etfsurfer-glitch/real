@@ -36,9 +36,9 @@ CATEGORIES = {
     "office": ("listings_office.sqlite", {"사무실"}, False),
     "villa":  ("listings_villa.sqlite",  {"빌라/연립", "빌라단지-연립", "원룸", "다세대"}, False),
     "house":  ("listings_house.sqlite",  {"단독/다가구"}, False),
-    "land":     ("listings_land.sqlite",     {"토지"}, False),       # TJ
-    "factory":  ("listings_factory.sqlite",  {"공장/창고"}, False),  # GJCG
-    "building": ("listings_building.sqlite", {"건물"}, True),        # GM 통건물(권리금 가능)
+    "land":     ("listings_land.sqlite",     {"토지/임야"}, False),          # TJ
+    "factory":  ("listings_factory.sqlite",  {"공장/창고"}, False),          # GJCG
+    "building": ("listings_building.sqlite", {"빌딩/건물", "상가건물"}, True),  # GM 통건물(권리금 가능)
 }
 
 
