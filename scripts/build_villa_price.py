@@ -59,6 +59,26 @@ def build_pnu(ldcode: str, jibun: str):
     return f"{ldcode}{filar}{int(bon):04d}{int(bu or 0):04d}"
 
 
+def pnu_from_coords(lng, lat):
+    """좌표 → pnu (LP_PA_CBND_BUBUN). 동코드 매핑 실패한 건물용 폴백."""
+    if not (lng and lat):
+        return None
+    q = urllib.parse.urlencode({"service": "data", "request": "GetFeature", "data": "LP_PA_CBND_BUBUN",
+                                "key": KEY, "domain": DOMAIN, "crs": "EPSG:4326",
+                                "geomFilter": f"POINT({lng} {lat})", "size": "1", "format": "json"})
+    d = _get(f"https://api.vworld.kr/req/data?{q}")
+    if not d:
+        return None
+    try:
+        feats = d["response"]["result"]["featureCollection"]["features"]
+        if feats:
+            p = feats[0].get("properties", {})
+            return p.get("pnu") or p.get("PNU")
+    except Exception:
+        pass
+    return None
+
+
 def fetch_price(pnu):
     """getApartHousingPriceAttr → 최신연도 호별 [(se,dong,floor,ho,area,gongsi,year,code,mt)]. 'quota'/'error'."""
     q = urllib.parse.urlencode({"key": KEY, "domain": DOMAIN, "pnu": pnu,
@@ -104,8 +124,8 @@ def main():
     conn.execute("PRAGMA journal_mode=WAL"); conn.execute("PRAGMA busy_timeout=60000")
     ld = {(r[0][:5], r[1]): r[0] for r in conn.execute(
         "SELECT cortar_no,cortar_name FROM regions WHERE cortar_type='sec'")}
-    rows = conn.execute("SELECT key,sgg_cd,umd_nm,jibun FROM villa_master "
-                        "WHERE status='ok' AND price_status='pending'").fetchall()
+    rows = conn.execute("SELECT key,sgg_cd,umd_nm,jibun,lat,lng FROM villa_master "
+                        "WHERE status='ok' AND price_status IN ('pending','noldcode')").fetchall()
     total = len(rows)
     print(f"[price] pending {total:,}  conc={a.concurrency}")
     if not total:
@@ -113,13 +133,13 @@ def main():
     lock = threading.Lock(); done = [0]; t0 = time.time(); hit_quota = [False]
 
     def work(row):
-        key, sgg, umd, jibun = row
+        key, sgg, umd, jibun, lat, lng = row
         ldc = ld.get((sgg, umd))
-        if not ldc:
-            return key, None, "noldcode", []
-        pnu = build_pnu(ldc, jibun)
+        pnu = build_pnu(ldc, jibun) if ldc else None
+        if not pnu:                       # 동코드 매핑 실패 → 좌표로 pnu 폴백
+            pnu = pnu_from_coords(lng, lat)
         if not pnu:
-            return key, None, "badjibun", []
+            return key, None, "noldcode", []
         r = fetch_price(pnu)
         if r == "quota":
             return key, pnu, "quota", []

@@ -15,9 +15,13 @@ function shouldShow(): boolean {
   if (typeof window === "undefined") return false;
   try {
     if (new URLSearchParams(window.location.search).get("intro") === "1") return true; // 테스트용 강제
-    const standalone = (navigator as unknown as { standalone?: boolean }).standalone === true
-      || (!!window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
-    return standalone && !sessionStorage.getItem("koczip_intro");
+    // 안드로이드 '앱'(TWA/설치형)에서만 — 일반 모바일 브라우저·PC·iOS는 제외.
+    const ua = navigator.userAgent || "";
+    const isAndroid = /Android/i.test(ua);
+    const twa = document.referrer.startsWith("android-app://");   // TWA 런치 시그널
+    const standalone = (!!window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    const isAndroidApp = twa || (isAndroid && standalone);
+    return isAndroidApp && !sessionStorage.getItem("koczip_intro");
   } catch { return false; }
 }
 
