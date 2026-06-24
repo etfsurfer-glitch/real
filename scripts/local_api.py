@@ -1280,8 +1280,11 @@ def realtors_by_tenure(limit: int = 20, region: str = ""):
 
 
 _NONRESI_DB = {"sangga": "listings_sangga.sqlite", "office": "listings_office.sqlite",
-               "villa": "listings_villa.sqlite", "house": "listings_house.sqlite"}
-_NONRESI_LABEL = {"sangga": "상가", "office": "사무실", "villa": "빌라·연립", "house": "단독·다가구"}
+               "villa": "listings_villa.sqlite", "house": "listings_house.sqlite",
+               "land": "listings_land.sqlite", "factory": "listings_factory.sqlite",
+               "building": "listings_building.sqlite"}
+_NONRESI_LABEL = {"sangga": "상가", "office": "사무실", "villa": "빌라·연립", "house": "단독·다가구",
+                  "land": "토지", "factory": "공장·창고", "building": "건물"}
 
 
 @app.get("/stats/nonresi")
