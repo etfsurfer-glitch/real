@@ -46,6 +46,30 @@ def main():
     dongs = c.execute("SELECT COUNT(DISTINCT cortar_no) FROM realtor_dong").fetchone()[0]
     matched = c.execute("SELECT COUNT(*) FROM realtor_dong WHERE realtor_id IS NOT NULL").fetchone()[0]
     print(f"realtor_dong(office): {total}곳 / {dongs}개 동 / naver매칭 {matched}곳")
+
+    # 비단지(빌라·단독·상가·사무실) realtor_id별 매물수 집계 — 랭킹 매물 범위(scope)용.
+    base = DB.parent
+    for alias, fn in (("villa", "listings_villa.sqlite"), ("house", "listings_house.sqlite"),
+                      ("sangga", "listings_sangga.sqlite"), ("office", "listings_office.sqlite")):
+        p = base / fn
+        if p.exists():
+            c.execute(f"ATTACH '{p.as_posix()}' AS {alias}")
+    c.execute("CREATE TABLE IF NOT EXISTS realtor_region_counts("
+              "realtor_id TEXT PRIMARY KEY, villa_n INT DEFAULT 0, house_n INT DEFAULT 0, "
+              "sangga_n INT DEFAULT 0, office_n INT DEFAULT 0)")
+    c.execute("DELETE FROM realtor_region_counts")
+    c.execute("""
+        INSERT INTO realtor_region_counts(realtor_id, villa_n, house_n, sangga_n, office_n)
+        SELECT realtor_id, SUM(v), SUM(h), SUM(s), SUM(o) FROM (
+          SELECT realtor_id, COUNT(*) v,0 h,0 s,0 o FROM villa.listings  WHERE realtor_id!='' GROUP BY realtor_id
+          UNION ALL SELECT realtor_id,0,COUNT(*),0,0 FROM house.listings  WHERE realtor_id!='' GROUP BY realtor_id
+          UNION ALL SELECT realtor_id,0,0,COUNT(*),0 FROM sangga.listings WHERE realtor_id!='' GROUP BY realtor_id
+          UNION ALL SELECT realtor_id,0,0,0,COUNT(*) FROM office.listings WHERE realtor_id!='' GROUP BY realtor_id
+        ) GROUP BY realtor_id
+    """)
+    c.commit()
+    rc = c.execute("SELECT COUNT(*) FROM realtor_region_counts").fetchone()[0]
+    print(f"realtor_region_counts(비단지 집계): {rc}곳")
     c.close()
 
 

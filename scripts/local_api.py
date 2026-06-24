@@ -2123,17 +2123,26 @@ def nearest_dong(lat: float, lng: float):
 
 
 @app.get("/stats/realtors/by-dong")
-def realtors_by_dong(cortar: str, sort: str = "listings", limit: int = 1000):
+def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex", limit: int = 1000):
     """우리동네(동) 중개사 랭킹 — 사무소가 그 동에 소재한 등록 중개사(realtor_dong 기준).
-    매물수(naver매칭분)·직원수·업력을 한눈에. 동 단위라 전부 반환(최대 역삼동 890곳)."""
+    매물수·직원수·업력을 한눈에. scope=매물 범위: complex(단지형 아파트·오피)/resi(주거전체=단지+빌라+단독)/
+    comm(상가·사무실)/all(전체)."""
     if not cortar:
         raise HTTPException(400, "cortar required")
     if limit < 1 or limit > 2000:
         limit = 1000
-    ck = f"realtor_dong:{cortar}:{sort}:{limit}"
+    ck = f"realtor_dong:{cortar}:{sort}:{scope}:{limit}"
     cached = _cache_get(ck)
     if cached is not None:
         return cached
+    # 매물수 범위 — realtor_match(단지형 total_listings) + realtor_region_counts(비단지) 합산.
+    scope_sql = {
+        "complex": "SUM(m.total_listings)",
+        "resi": "SUM(m.total_listings + COALESCE(rc.villa_n,0) + COALESCE(rc.house_n,0))",
+        "comm": "SUM(COALESCE(rc.sangga_n,0) + COALESCE(rc.office_n,0))",
+        "all": "SUM(m.total_listings + COALESCE(rc.villa_n,0) + COALESCE(rc.house_n,0) + "
+               "COALESCE(rc.sangga_n,0) + COALESCE(rc.office_n,0))",
+    }.get(scope, "SUM(m.total_listings)")
     import datetime as _dt
     cur_year = _dt.date.today().year
     with _open_db() as c:
@@ -2141,9 +2150,11 @@ def realtors_by_dong(cortar: str, sort: str = "listings", limit: int = 1000):
         # vworld 등록 중개사 전체(사무소 소재 동). 사무소(sys_regno)당 1행 — realtor_match를
         # 직접 JOIN하면 한 사무소가 여러 naver_id에 매칭돼 행이 복제됨(둥지 버그) → 서브쿼리로 집계.
         rows = c.execute(
-            """
+            f"""
             SELECT rd.realtor_id, rd.sys_regno, v.business_name AS name,
-                   COALESCE((SELECT SUM(total_listings) FROM realtor_match m WHERE m.sys_regno=rd.sys_regno), 0) AS listings,
+                   COALESCE((SELECT {scope_sql} FROM realtor_match m
+                             LEFT JOIN realtor_region_counts rc ON rc.realtor_id=m.realtor_id
+                             WHERE m.sys_regno=rd.sys_regno), 0) AS listings,
                    (SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=rd.sys_regno) AS staff,
                    substr(v.registered_ymd,1,4) AS est_yr,
                    v.phone
@@ -2166,7 +2177,7 @@ def realtors_by_dong(cortar: str, sort: str = "listings", limit: int = 1000):
     items.sort(key=key, reverse=True)
     items = items[:limit]
     out = {"cortar_no": cortar, "dong_name": (dn[0] if dn else None),
-           "sort": sort, "count": len(items),
+           "sort": sort, "scope": scope, "count": len(items),
            "top": (items[0] if items else None), "items": items}
     _cache_put(ck, out)
     return out

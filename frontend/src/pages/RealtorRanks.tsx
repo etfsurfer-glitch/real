@@ -103,6 +103,7 @@ export function RealtorByDong() {
   const [q, setQ] = useState("");
   const [qRes, setQRes] = useState<DongRealtor[] | null>(null);
   const [mode, setMode] = useState<"dong" | "name">("dong");  // 찾는 방법 — 둘을 한 덩어리로 안 쌓고 토글
+  const [mscope, setMscope] = useState("complex");  // 매물 범위(랜딩=단지형)
   const shareRef = useRef<HTMLDivElement>(null);
 
   // 이름 검색 — 동네 찾기와 한 화면에서. 결과도 매물·직원·업력 같은 카드 톤.
@@ -148,9 +149,9 @@ export function RealtorByDong() {
   useEffect(() => {
     if (!activeCortar || !API_BASE) { setData(null); setLoading(false); return; }
     setLoading(true);
-    fetch(`${API_BASE}/stats/realtors/by-dong?cortar=${activeCortar}&limit=1000`)
+    fetch(`${API_BASE}/stats/realtors/by-dong?cortar=${activeCortar}&scope=${mscope}&limit=1000`)
       .then((r) => r.json()).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-  }, [activeCortar]);
+  }, [activeCortar, mscope]);
 
   const items = data?.items ?? [];
   const topL = items.length ? [...items].sort((a, b) => b.listings - a.listings)[0] : null;
@@ -230,6 +231,15 @@ export function RealtorByDong() {
             </span>
           </div>
           <div className="hood-share"><ShareBar targetRef={shareRef} title={`${scope} 우리동네 중개사`} fileName={`콕집_우리동네중개사_${scope}`} /></div>
+          <div className="rank-scope">
+            <span>매물 범위</span>
+            <select value={mscope} onChange={(e) => setMscope(e.target.value)}>
+              <option value="complex">단지형 (아파트·오피)</option>
+              <option value="resi">주거 전체 (단지·빌라·단독)</option>
+              <option value="comm">상가·사무실</option>
+              <option value="all">전체</option>
+            </select>
+          </div>
           <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>매물·직원·업력 세 기준을 나란히 — 무엇이 중요한지는 직접 정하세요.</p>
           <div className="rank-wrap">
             <RealtorRankCard title="매물 많은 곳" sub="현재 보유" icon={<Building2 size={16} strokeWidth={2.3} />} accent="blue"
