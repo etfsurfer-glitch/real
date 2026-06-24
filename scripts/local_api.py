@@ -8251,7 +8251,9 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
                "l.area1_m2,l.area2_m2,l.floor_info,l.direction,l.deal_or_warrant_price_text,l.rent_price_text,"
                "l.deal_or_warrant_price,l.article_confirm_ymd,l.building_name,l.tag_list_json,l.same_addr_cnt,"
                "l.same_addr_min_price,l.same_addr_max_price,l.article_feature_desc,l.cp_pc_article_url,"
-               "l.cp_name,l.verification_type,l.latitude,l.longitude,c.dong_name,c.road_address,c.detail_address "
+               "l.cp_name,l.verification_type,l.latitude,l.longitude,c.dong_name,c.road_address,c.detail_address,"
+               "c.parking_possible_count,c.parking_per_household,c.total_household_count,c.use_approve_ymd,"
+               "c.construction_company,c.management_office_tel "
                "FROM listings_current l LEFT JOIN complexes c ON c.complex_no=l.complex_no "
                f"WHERE {' AND '.join(w)}")
         with _open_db() as dc:
@@ -8276,6 +8278,8 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
                 "same_addr_max": r[18], "feature_desc": r[19], "naver_url": r[20], "cp_name": r[21],
                 "verification_type": r[22], "lat": r[23], "lng": r[24],
                 "dong": dong, "address": full_addr,
+                "parking_total": r[28], "parking_per": r[29], "households": r[30],
+                "approve_ymd": r[31], "builder": r[32], "mgmt_tel": r[33],
             })
 
     # 2) 비단지 매물(빌라·상가·사무실·단독) — 별도 DB
@@ -8331,6 +8335,8 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
                 "naver_url": f"https://m.land.naver.com/article/info/{r[0]}",
                 "cp_name": "", "verification_type": vtype, "lat": r[11], "lng": r[12],
                 "dong": dong, "address": full_addr,
+                "parking_total": None, "parking_per": None, "households": None,
+                "approve_ymd": None, "builder": None, "mgmt_tel": None,
             })
 
     # 메모/연락처/담당자 결합 → 검색·담당자 필터 → 정렬 → 컷

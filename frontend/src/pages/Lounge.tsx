@@ -1143,6 +1143,8 @@ type MLItem = {
   price_change_state: string; feature_desc: string; naver_url: string; cp_name: string;
   verification_type: string; lat: number; lng: number; memo: string; contact: string; manager: string;
   dong: string; address: string;
+  parking_total: number | null; parking_per: number | null; households: number | null;
+  approve_ymd: string | number | null; builder: string | null; mgmt_tel: string | null;
 };
 type Manager = { name: string; position: string; role: string };
 function fmtYmd(s: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : s; }
@@ -1253,6 +1255,7 @@ function ListingsTab({ authH, office }: { authH: () => Record<string, string>; o
                 {l.area_name && <span>{l.area_name}</span>}
                 {l.floor_info && <span>{l.floor_info}층</span>}
                 {l.direction && <span>{l.direction}</span>}
+                {l.parking_total ? <span>주차 {l.parking_total.toLocaleString()}대</span> : null}
                 {l.confirm_ymd && <span>확인 {fmtYmd(l.confirm_ymd)}</span>}
                 {l.verification_type && <span className="mlj-vf">{l.verification_type}</span>}
               </div>
@@ -1313,6 +1316,11 @@ function ListingDetail({ l, onClose }: { l: MLItem; onClose: () => void }) {
           <Row k="검증" v={l.verification_type} />
           <Row k="건물명" v={l.building_name} />
           <Row k="동일주소" v={l.same_addr_cnt ? `${l.same_addr_cnt}건 · ${eok(l.same_addr_min)} ~ ${eok(l.same_addr_max)}` : null} />
+          <Row k="세대수" v={l.households ? `${l.households.toLocaleString()}세대` : null} />
+          <Row k="주차" v={l.parking_total ? `총 ${l.parking_total.toLocaleString()}대${l.parking_per ? ` · 세대당 ${l.parking_per}` : ""}` : null} />
+          <Row k="준공" v={l.approve_ymd ? `${String(l.approve_ymd).slice(0, 4)}.${String(l.approve_ymd).slice(4, 6)}` : null} />
+          <Row k="시공사" v={l.builder} />
+          <Row k="관리실" v={l.mgmt_tel} />
           <Row k="담당자" v={l.manager} />
           <Row k="연락처" v={l.contact} />
         </div>
