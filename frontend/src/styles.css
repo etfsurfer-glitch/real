@@ -1959,7 +1959,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .rh-maplabel{background:#13294b;color:#fff;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 
 /* ── 우리단지찾기 ── */
-.mc{max-width:760px;margin:0 auto}
+.mc{max-width:1080px;margin:0 auto}
 .mc-hero{background:linear-gradient(135deg,#15315e,#1f56b0);border-radius:20px;padding:22px 22px 24px;color:#fff;box-shadow:0 10px 30px -12px rgba(31,86,176,.5)}
 .mc-h1{font-size:22px;font-weight:800;display:flex;align-items:center;gap:8px;margin:0 0 8px;letter-spacing:-.4px}
 .mc-sub{font-size:13.5px;line-height:1.55;opacity:.92;margin:0 0 16px}
@@ -1968,7 +1968,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mc-search-ic{color:#94a3b8;flex:none}
 .mc-input{flex:1;border:none;outline:none;background:none;padding:14px 0;font-size:15px;font-weight:600;color:#13294b}
 .mc-clear{border:none;background:#f1f4f8;color:#64748b;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;cursor:pointer;flex:none}
-.mc-results{margin-top:14px;display:grid;gap:9px}
+.mc-results{margin-top:14px;display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
 .mc-msg{padding:24px;text-align:center;color:#64748b;font-size:13.5px;border:1px dashed var(--c-border);border-radius:12px}
 .mc-card{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:1px solid var(--c-border);border-radius:14px;padding:14px 16px;text-decoration:none;color:inherit;transition:transform .12s,box-shadow .12s,border-color .12s}
 .mc-card:hover{transform:translateY(-2px);box-shadow:0 10px 22px -14px rgba(20,40,75,.35);border-color:#9fc1ee}
