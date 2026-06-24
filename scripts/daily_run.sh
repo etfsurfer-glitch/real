@@ -50,8 +50,9 @@ fi
 step "step 3: backfill_realprice (매매)"  $PY -u scripts/backfill_realprice.py --all --months 6; realprice_exit=$?
 step "step 4: backfill_rentals (전월세)"   $PY -u scripts/backfill_rentals.py   --all --months 6; rentals_exit=$?
 step "step 5: backfill_offi (오피스텔)"     $PY -u scripts/backfill_offi.py      --all --months 6; offi_exit=$?
+step "step 5b: backfill_silv (분양권/입주권)" $PY -u scripts/backfill_silv.py      --all --months 6; silv_exit=$?
 
-# 실거래 성공 마커 — 3종 backfill 후 data.go.kr 이 살아있으면 '오늘 실거래 수집됨' 기록.
+# 실거래 성공 마커 — backfill 후 data.go.kr 이 살아있으면 '오늘 실거래 수집됨' 기록.
 # DOWN(장애)이면 미기록 → catchup(koczip-catchup.timer)이 낮에 회복 시 채운다.
 if $PY scripts/dgk_health.py >>"$LOG" 2>&1; then
   date +%F > "$ROOT/data/realprice_done.date"
@@ -80,4 +81,4 @@ step "step 12: build_api_cache --default-only" $PY -u scripts/build_api_cache.py
 #     step()은 exit만 로깅(비치명적) → 실패/지연돼도 위 전체수집·발행 무영향. A안: 3회 다 전국.
 step "step 13: region_listings(비단지 전국)" $PY -u scripts/collect_region_listings.py --all; region_exit=$?
 
-log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} region=${region_exit:-NA}"
+log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} region=${region_exit:-NA}"
