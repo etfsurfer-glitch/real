@@ -8297,7 +8297,7 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
         path = DB_PATH.parent / _NONRESI_DB[dbkey]
         if not path.exists():
             continue
-        w = ["realtor_id=?"]; p = [rid]
+        w = ["realtor_id=?", "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"]; p = [rid]
         if code:
             w.append("trade_type=?"); p.append(code)
         try:
