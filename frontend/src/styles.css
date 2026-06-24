@@ -2898,3 +2898,18 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .hood-sub{font-size:13px;line-height:1.55;color:rgba(255,255,255,.86);margin:-8px 0 12px;font-weight:500;position:relative;z-index:1}
 .hood-sub b{color:#fff;font-weight:700}
 @media(max-width:600px){.hood-sub{font-size:12px;margin:-4px 0 10px}}
+
+/* 중개사 세부 모바일 세로늘어짐 방지 — 좁은 flex에서 글자단위 줄바꿈 차단 */
+.rl-lc-price{white-space:nowrap;flex:none}
+.rl-lc-type{white-space:nowrap;flex:none}
+.rl-lc-head{flex-wrap:nowrap}
+.rl-bd-chip{white-space:nowrap}
+.rl-cats button{white-space:nowrap}
+.rl-trades button{white-space:nowrap}
+.stat-value{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat-box{min-width:0}
+@media(max-width:600px){
+  .stat-grid{grid-template-columns:repeat(2,1fr)}
+  .stat-value{font-size:22px}
+  .stat-label{white-space:normal}
+}

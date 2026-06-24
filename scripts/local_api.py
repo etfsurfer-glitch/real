@@ -2661,11 +2661,21 @@ def realtor_detail(realtor_id: str):
             ttot = c.execute("SELECT COUNT(*) FROM realtor_total WHERE total_n>0").fetchone()[0]
             total_rank_out = {"count": tn, "national_rank": trk, "national_total": ttot}
 
+    # 거래유형 분포 — 전 유형(단지형+비단지) 기준. 통계 막대가 단지형(by_complex)만 세서
+    # 보유매물(전 유형) 매매수와 안 맞던 문제 보완. 보유매물과 동일 소스(_collect)라 숫자 일치.
+    _tt = {"매매": 0, "전세": 0, "월세": 0, "단기임대": 0}
+    for it in _collect_realtor_listings(realtor_id, None, ""):
+        k = it.get("trade_type")
+        if k in _tt:
+            _tt[k] += 1
+    trade_totals = {"A1": _tt["매매"], "B1": _tt["전세"], "B2": _tt["월세"] + _tt["단기임대"]}
+
     return {
         "realtor_id": realtor_id,
         "realtor_name": realtor_name,
         "total_count": total_count,
         "listing_breakdown": listing_breakdown,
+        "trade_totals": trade_totals,
         "rep_rank": rep_rank,
         "total_rank": total_rank_out,
         "national_rank": nat_rank,

@@ -60,6 +60,7 @@ type RealtorDetail = {
   realtor_name: string | null;
   total_count: number;
   listing_breakdown?: Breakdown;
+  trade_totals?: { A1: number; B1: number; B2: number };
   rep_rank?: RepRank | null;
   total_rank?: RankInfo | null;
   national_rank: number | null;
@@ -115,7 +116,8 @@ export default function Realtor() {
   if (error) return <div style={{ color: "crimson" }}>오류: {error}</div>;
   if (!data) return <div className="muted">데이터 없음</div>;
 
-  const tradeTotals = data.by_complex.reduce(
+  // 거래유형 분포 — 전 유형(백엔드 trade_totals). 없으면 단지형(by_complex)으로 폴백.
+  const tradeTotals = data.trade_totals ?? data.by_complex.reduce(
     (acc, r) => ({ A1: acc.A1 + r.A1, B1: acc.B1 + r.B1, B2: acc.B2 + r.B2 }),
     { A1: 0, B1: 0, B2: 0 },
   );

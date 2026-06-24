@@ -77,8 +77,11 @@ step "step 11: build_tx_rollups"           $PY -u scripts/build_tx_rollups.py; r
 # 12) 캐시 (기본화면만 — quick-deals 최적화로 시군구 급매캐시 불필요)
 step "step 12: build_api_cache --default-only" $PY -u scripts/build_api_cache.py --default-only; cache_exit=$?
 
-# 13) 비단지 매물(상가·사무실·빌라·단독) 전국 멀티IP — ★별도 4 DB에만 기록(naverreal 무접근).
+# 13) 비단지 매물(11종) 전국 멀티IP — ★별도 DB에만 기록(naverreal 무접근).
 #     step()은 exit만 로깅(비치명적) → 실패/지연돼도 위 전체수집·발행 무영향. A안: 3회 다 전국.
 step "step 13: region_listings(비단지 전국)" $PY -u scripts/collect_region_listings.py --all; region_exit=$?
+# 13b) 비단지 수집(step13) 후 중개사 집계 재빌드 — step9b는 region 전이라 당일 비단지 미반영이므로,
+#      여기서 한 번 더 돌려 realtor_region_counts·랭킹·우리동네에 오늘 비단지까지 반영(재발방지).
+step "step 13b: build_realtor_dong (비단지 반영)" $PY -u scripts/build_realtor_dong.py; rdong2_exit=$?
 
 log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} region=${region_exit:-NA}"
