@@ -8265,6 +8265,8 @@ def _realtor_candidates_by_phone(phone) -> list[dict]:
 
 
 def _office_brief(realtor_id):
+    if realtor_id == "koczip-test":   # 관리자 데모 사무소
+        return dict(_KT_OFFICE)
     with _open_db() as c:
         r = c.execute(
             "SELECT realtor_id, realtor_name, address, representative_name, "
@@ -8365,6 +8367,11 @@ def _ml_price_text(v) -> str:
 def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
     """중개사(realtor_id)의 매물 통합 — 단지형(listings_current) + 비단지(7종 별도 DB).
     매물장·중개사 세부페이지 공용. code=거래코드(A1/B1/B2) 또는 None, cat=유형 한글 필터."""
+    if rid == "koczip-test":   # 관리자 데모 — 전 카테고리 샘플(프로덕션 DB 미접근)
+        kt = [dict(x) for x in _KOCZIP_TEST_LISTINGS]
+        if cat:
+            kt = [x for x in kt if x.get("type") == cat]
+        return kt
     items: list = []
     # 1) 단지 매물(아파트·오피스텔·분양권). cat='단지형'이면 셋 다, 개별이면 해당만.
     if cat in ("", "단지형", "아파트", "오피스텔", "분양권"):
@@ -8642,9 +8649,21 @@ def lounge_lead_status(lead_id: int, body: dict, user: dict = Depends(current_us
     return {"ok": True}
 
 
+_TYPE2BD = {"아파트": "complex", "오피스텔": "complex", "분양권": "complex", "빌라": "villa",
+            "단독": "house", "상가": "sangga", "사무실": "office", "빌딩": "building",
+            "토지": "land", "공장": "factory", "지식산업센터": "knowledge", "재개발": "redev"}
+
+
 def _realtor_breakdown(rid: str) -> dict:
     """중개사 매물 유형별 집계 — 단지형(listings_current) + 비단지(realtor_region_counts) + 전체.
     라운지 대시보드·세부페이지 공용(단지형만 보이던 문제 보완)."""
+    if rid == "koczip-test":   # 관리자 데모
+        bd = {k: 0 for k in ("complex", "villa", "house", "sangga", "office",
+                             "land", "factory", "building", "knowledge", "redev")}
+        for x in _KOCZIP_TEST_LISTINGS:
+            bd[_TYPE2BD.get(x.get("type"), "complex")] += 1
+        bd["total"] = sum(bd.values())
+        return bd
     with _open_db() as c:
         cx = c.execute("SELECT COUNT(*) FROM listings_current WHERE realtor_id=?", (rid,)).fetchone()[0] or 0
         rc = c.execute("SELECT villa_n,house_n,sangga_n,office_n,land_n,factory_n,building_n,knowledge_n,redev_n "
@@ -9098,13 +9117,40 @@ def _norm_slug(s: str) -> str:
     return s
 
 
-_KOCZIP_TEST_LISTINGS = [   # 관리자 테스트용 데모 매물(실제 단지 연결)
-    {"complex_no": "134062", "complex_name": "디에이치퍼스티어아이파크", "trade_type": "매매", "price": 4200000000, "excl_use_ar": 84, "area_name": "84A", "count": 3},
-    {"complex_no": "128527", "complex_name": "개포자이프레지던스", "trade_type": "매매", "price": 3850000000, "excl_use_ar": 84, "area_name": "84B", "count": 2},
-    {"complex_no": "11698", "complex_name": "도곡렉슬", "trade_type": "전세", "price": 1500000000, "excl_use_ar": 84, "area_name": "84", "count": 4},
-    {"complex_no": "236", "complex_name": "은마", "trade_type": "매매", "price": 2950000000, "excl_use_ar": 84, "area_name": "84", "count": 5},
-    {"complex_no": "105", "complex_name": "한보미도맨션1,2차", "trade_type": "전세", "price": 1100000000, "excl_use_ar": 84, "area_name": "84", "count": 2},
+def _kt(type_, category, name, trade, ptext, rtext, area2, floor, direction, addr, *,
+        complex_no=None, article_no=None, price=0):
+    """콕집중개사(테스트) 데모 매물 한 건 — 매물장·홈페이지·대시보드 공용 리치 포맷."""
+    return {
+        "article_no": article_no, "complex_no": complex_no,
+        "complex_name": name if complex_no else None, "building_name": None if complex_no else name,
+        "type": type_, "category": category, "trade_type": trade,
+        "area_name": f"{int(area2)}㎡", "area1_m2": area2, "area2_m2": area2, "excl_use_ar": int(area2),
+        "floor_info": floor, "direction": direction,
+        "price_text": ptext, "rent_price_text": rtext, "price": price,
+        "confirm_ymd": "20260624", "address": addr, "feature_desc": "", "tags": [], "count": 1,
+        "naver_url": (f"https://new.land.naver.com/complexes/{complex_no}" if complex_no
+                     else f"https://m.land.naver.com/article/info/{article_no}"),
+        "lat": None, "lng": None, "dong": addr.split()[-1] if addr else "",
+    }
+
+
+_KOCZIP_TEST_LISTINGS = [   # 관리자 테스트용 데모 — 전 카테고리 다양하게(대시보드 칩·매물장 카드 시연용)
+    _kt("아파트", "아파트", "디에이치퍼스티어아이파크", "매매", "42억", "", 84, "15/35", "남향", "서울 강남구 개포동", complex_no="134062", price=4200000000),
+    _kt("아파트", "아파트", "은마", "전세", "11억", "", 84, "5/14", "남향", "서울 강남구 대치동", complex_no="236", price=1100000000),
+    _kt("오피스텔", "오피스텔", "강남역삼푸르지오시티", "월세", "1,000", "65", 23, "12/20", "동향", "서울 강남구 역삼동", complex_no="100543", price=10000000),
+    _kt("빌라", "빌라/연립", "역삼빌라", "전세", "3억 5,000", "", 45, "2/4", "남향", "서울 강남구 역삼동", article_no="2600000001", price=350000000),
+    _kt("단독", "단독/다가구", "삼성동단독주택", "매매", "28억", "", 198, "-", "남향", "서울 강남구 삼성동", article_no="2600000002", price=2800000000),
+    _kt("상가", "상가", "강남대로 1층 상가", "월세", "3,000", "550", 66, "1/8", "-", "서울 강남구 역삼동", article_no="2600000003", price=30000000),
+    _kt("사무실", "사무실", "테헤란로 오피스", "월세", "2,000", "420", 132, "9/15", "남향", "서울 강남구 역삼동", article_no="2600000004", price=20000000),
+    _kt("빌딩", "빌딩", "역삼동 통빌딩", "매매", "180억", "", 1450, "지하1/7", "-", "서울 강남구 역삼동", article_no="2600000005", price=18000000000),
+    _kt("토지", "토지", "수서동 대지", "매매", "55억", "", 660, "-", "-", "서울 강남구 수서동", article_no="2600000006", price=5500000000),
+    _kt("공장", "공장", "가산 공장/창고", "매매", "42억", "", 990, "-", "-", "서울 금천구 가산동", article_no="2600000007", price=4200000000),
+    _kt("지식산업센터", "지식산업센터", "가산 SK V1 지산", "매매", "9억 8,000", "", 165, "10/18", "남향", "서울 금천구 가산동", article_no="2600000008", price=980000000),
+    _kt("재개발", "재개발", "한남3구역 입주권", "매매", "23억", "", 84, "-", "-", "서울 용산구 한남동", article_no="2600000009", price=2300000000),
 ]
+_KT_OFFICE = {"realtor_id": "koczip-test", "realtor_name": "콕집중개사(테스트)",
+              "address": "서울 강남구 테헤란로 콕집빌딩 5층", "representative": "콕집",
+              "tel": "02-1234-5678", "cell": "010-0000-0000", "latitude": 37.5006, "longitude": 127.0366}
 
 
 # 비단지 카테고리 → 별도 DB파일 (홈페이지 6구분 통합 노출용). 아파트/오피는 listings_current.
