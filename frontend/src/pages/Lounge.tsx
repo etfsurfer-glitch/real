@@ -1255,7 +1255,7 @@ function ListingsTab({ authH, office }: { authH: () => Record<string, string>; o
                 {l.area_name && <span>{l.area_name}</span>}
                 {l.floor_info && <span>{l.floor_info}층</span>}
                 {l.direction && <span>{l.direction}</span>}
-                {l.parking_total ? <span>주차 {l.parking_total.toLocaleString()}대</span> : null}
+                {l.parking_per ? <span>세대당 주차 {l.parking_per}대</span> : null}
                 {l.confirm_ymd && <span>확인 {fmtYmd(l.confirm_ymd)}</span>}
                 {l.verification_type && <span className="mlj-vf">{l.verification_type}</span>}
               </div>
@@ -1317,7 +1317,7 @@ function ListingDetail({ l, onClose }: { l: MLItem; onClose: () => void }) {
           <Row k="건물명" v={l.building_name} />
           <Row k="동일주소" v={l.same_addr_cnt ? `${l.same_addr_cnt}건 · ${eok(l.same_addr_min)} ~ ${eok(l.same_addr_max)}` : null} />
           <Row k="세대수" v={l.households ? `${l.households.toLocaleString()}세대` : null} />
-          <Row k="주차" v={l.parking_total ? `총 ${l.parking_total.toLocaleString()}대${l.parking_per ? ` · 세대당 ${l.parking_per}` : ""}` : null} />
+          <Row k="세대당 주차" v={l.parking_per ? `${l.parking_per}대${l.parking_total ? ` (총 ${l.parking_total.toLocaleString()}대)` : ""}` : null} />
           <Row k="준공" v={l.approve_ymd ? `${String(l.approve_ymd).slice(0, 4)}.${String(l.approve_ymd).slice(4, 6)}` : null} />
           <Row k="시공사" v={l.builder} />
           <Row k="관리실" v={l.mgmt_tel} />
