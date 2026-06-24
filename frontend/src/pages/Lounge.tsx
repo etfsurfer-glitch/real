@@ -39,7 +39,8 @@ type Lead = { id: number; name: string | null; phone: string | null; message: st
 type Tab = "dashboard" | "listings" | "office" | "edit" | "leads" | "homepage";
 type Dash = {
   office: Office;
-  stats: { total_listings: number; national_rank: number | null; national_total: number;
+  stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
+    breakdown?: Record<string, number>;
     region: { sido_name: string; count: number; rank: number; total: number } | null };
   reviews: { total: number; avg: number | null; new_count: number;
     recent: { type: string; rating: number | null; body: string; created_at: string }[] };
@@ -232,7 +233,7 @@ function DashboardTab({ authH, office, onGoTab }: {
       <div className="dash-stats">
         <StatCard icon={<Building2 size={18} />} accent="blue" label="우리 매물수"
           value={(s.total_listings || 0).toLocaleString()} unit="건"
-          sub={s.national_rank ? `전국 ${s.national_rank.toLocaleString()}위` : "순위 집계 전"} />
+          sub={`단지형 ${(s.complex_listings || 0).toLocaleString()} · 비단지 ${((s.total_listings || 0) - (s.complex_listings || 0)).toLocaleString()}`} />
         <StatCard icon={<Award size={18} />} accent="gold" label="전국 순위"
           value={s.national_rank ? s.national_rank.toLocaleString() : "-"} unit={s.national_rank ? "위" : ""}
           sub={`전국 ${s.national_total.toLocaleString()}개 중`} />
@@ -243,6 +244,17 @@ function DashboardTab({ authH, office, onGoTab }: {
           value={`${d.reviews.new_count}`} unit="건"
           sub={d.reviews.avg ? `평점 ${d.reviews.avg} · 총 ${d.reviews.total}개` : `총 ${d.reviews.total}개 · 최근 30일`} />
       </div>
+
+      {s.breakdown && s.total_listings > 0 && (
+        <div className="rl-breakdown">
+          <span className="rl-bd-title">매물 유형</span>
+          {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"], ["빌딩", "building"], ["토지", "land"], ["공장", "factory"], ["지식산업센터", "knowledge"], ["재개발", "redev"]] as const)
+            .filter(([, k]) => (s.breakdown![k] || 0) > 0)
+            .map(([label, k]) => (
+              <span key={k} className={`rl-bd-chip${k === "complex" ? " primary" : ""}`}>{label} <b>{s.breakdown![k].toLocaleString()}</b></span>
+            )))}
+        </div>
+      )}
 
       <div className="dash-sec-h">
         <h3><MessageSquare size={16} strokeWidth={2.3} /> 상담신청 {d.leads.new_count > 0 && <span className="dash-badge">{d.leads.new_count} 신규</span>}</h3>

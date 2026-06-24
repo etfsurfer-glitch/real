@@ -8642,9 +8642,23 @@ def lounge_lead_status(lead_id: int, body: dict, user: dict = Depends(current_us
     return {"ok": True}
 
 
+def _realtor_breakdown(rid: str) -> dict:
+    """중개사 매물 유형별 집계 — 단지형(listings_current) + 비단지(realtor_region_counts) + 전체.
+    라운지 대시보드·세부페이지 공용(단지형만 보이던 문제 보완)."""
+    with _open_db() as c:
+        cx = c.execute("SELECT COUNT(*) FROM listings_current WHERE realtor_id=?", (rid,)).fetchone()[0] or 0
+        rc = c.execute("SELECT villa_n,house_n,sangga_n,office_n,land_n,factory_n,building_n,knowledge_n,redev_n "
+                       "FROM realtor_region_counts WHERE realtor_id=?", (rid,)).fetchone()
+    v = tuple((x or 0) for x in (rc or (0,) * 9))
+    bd = {"complex": cx, "villa": v[0], "house": v[1], "sangga": v[2], "office": v[3],
+          "land": v[4], "factory": v[5], "building": v[6], "knowledge": v[7], "redev": v[8]}
+    bd["total"] = cx + sum(v)
+    return bd
+
+
 @app.get("/lounge/dashboard")
 def lounge_dashboard(user: dict = Depends(current_user)):
-    """라운지 대시보드: 사무소·매물수·전국/지역 랭킹·신규리뷰·상담신청 요약을 한 번에."""
+    """라운지 대시보드: 사무소·매물수(유형별 전체)·전국/지역 랭킹·신규리뷰·상담신청 요약을 한 번에."""
     uid = user["id"]
     with _reviews_db() as c:
         rid = _require_member(c, uid)
@@ -8678,10 +8692,13 @@ def lounge_dashboard(user: dict = Depends(current_user)):
     if best:
         region = {"sido_name": ranks["sido_names"].get(best[0], best[0]),
                   "count": best[1], "rank": best[2], "total": ranks["sido_totals"].get(best[0], 0)}
+    bd = _realtor_breakdown(rid)
     return {
         "office": office,
         "stats": {
-            "total_listings": nat[1] if nat else 0,
+            "total_listings": bd["total"],          # 단지형+비단지 전체(단지형만 보이던 것 보완)
+            "complex_listings": bd["complex"],       # 단지형(부수 표기)
+            "breakdown": bd,                         # 유형별 칩
             "national_rank": nat[0] if nat else None,
             "national_total": ranks["national_total"],
             "region": region,
