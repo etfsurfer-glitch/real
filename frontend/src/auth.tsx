@@ -1,5 +1,6 @@
 import { createClient, type Session } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 
 // 인증 전용 Supabase 클라이언트. 데이터는 supabase.ts 의 로컬 stub(local_api)으로
 // 가지만, 로그인/세션만 진짜 Supabase Auth(카카오 provider)를 쓴다.
@@ -23,6 +24,7 @@ export type AuthUser = {
   needsConsent?: boolean; marketingOptIn?: boolean;
   earned?: number; nextRemaining?: number | null;
   realtorPromo?: { office_name: string | null } | null;
+  isRealtorMember?: boolean;
 };
 
 type AuthState = {
@@ -46,6 +48,7 @@ type MeInfo = {
   needsConsent?: boolean; marketingOptIn?: boolean;
   earned?: number; nextRemaining?: number | null;
   realtorPromo?: { office_name: string | null } | null;
+  isRealtorMember?: boolean;
 };
 
 async function fetchMe(token: string | null): Promise<MeInfo> {
@@ -64,6 +67,7 @@ async function fetchMe(token: string | null): Promise<MeInfo> {
       needsConsent: !!d.needs_consent, marketingOptIn: !!d.marketing_opt_in,
       earned: d.points_earned ?? 0, nextRemaining: d.next_remaining ?? null,
       realtorPromo: d.realtor_promo ?? null,
+      isRealtorMember: !!d.is_realtor_member,
     };
   } catch {
     return { isAdmin: false };
@@ -94,6 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const earnedRef = useRef<number | undefined>(undefined);
+  const navigate = useNavigate();
+  const loungeRedirectedRef = useRef(false);  // 로그인 1회당 라운지 자동이동 1번만
 
   const mergeMe = (info: MeInfo) => {
     // 누적 획득 포인트가 늘었으면(이전 값을 알 때만) 축하 토스트 이벤트 발행.
@@ -146,6 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           user: nextUser,
         };
       });
+      if (!token) loungeRedirectedRef.current = false;  // 로그아웃 시 리셋
       if (token) {
         const info = await fetchMe(token);
         if (!alive) return;
@@ -153,6 +160,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // 실제 로그인 순간에만 서버에 로그인 기록 남김 (토큰 갱신/탭복원 제외)
         if (event === "SIGNED_IN" && API) {
           fetch(`${API}/events/login`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+        }
+        // 라운지 인증 회원은 로그인 직후 라운지로 바로 이동 (로그인 1회당 1번, 탭복원·토큰갱신 제외)
+        if (event === "SIGNED_IN" && info.isRealtorMember && !loungeRedirectedRef.current) {
+          loungeRedirectedRef.current = true;
+          navigate("/lounge");
         }
       }
     };

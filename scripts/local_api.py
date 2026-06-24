@@ -7271,6 +7271,7 @@ def me(user: dict = Depends(current_user)) -> dict:
         cands = _realtor_candidates_by_phone(row[0])
         if cands:
             user["realtor_promo"] = {"office_name": cands[0].get("realtor_name")}
+    user["is_realtor_member"] = is_realtor_member   # 라운지 인증 회원 → 로그인 시 라운지로 라우팅
     user["phone_verified"] = bool(row and row[1])
     user["member_no"] = row[2] if row else None
     if row and row[0]:
