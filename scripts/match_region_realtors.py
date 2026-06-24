@@ -33,8 +33,9 @@ def main():
     a = ap.parse_args()
     m = sqlite3.connect(DB)
 
-    # 1) 이미 매칭된 realtor_id (스킵)
-    matched = {r[0] for r in m.execute("SELECT realtor_id FROM realtor_match WHERE realtor_id IS NOT NULL")}
+    # 1) 이미 vworld 매칭된 realtor_id (스킵). sys_regno 없이 기록된 건은 재시도 대상(스킵 안 함).
+    matched = {r[0] for r in m.execute(
+        "SELECT realtor_id FROM realtor_match WHERE realtor_id IS NOT NULL AND sys_regno IS NOT NULL AND sys_regno!=''")}
 
     # 2) 비단지 realtor_id → 이름 + sgg별 매물수 (현재 스냅샷, 전 카테고리 병합)
     info: dict[str, dict] = defaultdict(lambda: {"name": "", "sgg": defaultdict(int)})
@@ -101,13 +102,22 @@ def main():
         return 0
 
     before = m.execute("SELECT COUNT(*) FROM realtor_match").fetchone()[0]
+    sys_before = m.execute("SELECT COUNT(*) FROM realtor_match WHERE sys_regno IS NOT NULL AND sys_regno!=''").fetchone()[0]
+    # 신규 realtor_id는 INSERT. 기존 행은 절대 덮어쓰지 않음(PK 충돌 시 IGNORE).
     m.executemany(
         "INSERT OR IGNORE INTO realtor_match(realtor_id,naver_name,primary_sgg_cd,primary_sgg_count,"
         "total_listings,sys_regno,vworld_name,vworld_rep,match_type,candidates_json,matched_at,vworld_status) "
         "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", rows_to_insert)
+    # 이미 있으나 sys_regno가 비어있던 행만 보강 UPDATE(실제 매칭 있는 행은 WHERE로 보호).
+    upd = m.executemany(
+        "UPDATE realtor_match SET sys_regno=?,vworld_name=?,match_type=?,matched_at=?,vworld_status=?,"
+        "primary_sgg_cd=COALESCE(NULLIF(primary_sgg_cd,''),?),primary_sgg_count=? "
+        "WHERE realtor_id=? AND (sys_regno IS NULL OR sys_regno='')",
+        [(r[5], r[6], r[8], r[10], r[11], r[2], r[3], r[0]) for r in rows_to_insert]).rowcount
     m.commit()
     after = m.execute("SELECT COUNT(*) FROM realtor_match").fetchone()[0]
-    print(f"\n[commit] realtor_match {before:,} → {after:,} (+{after-before:,})")
+    sys_after = m.execute("SELECT COUNT(*) FROM realtor_match WHERE sys_regno IS NOT NULL AND sys_regno!=''").fetchone()[0]
+    print(f"\n[commit] realtor_match {before:,} → {after:,} (신규 +{after-before:,}) · sys보유 {sys_before:,} → {sys_after:,} (+{sys_after-sys_before:,})")
     return 0
 
 
