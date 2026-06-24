@@ -8282,7 +8282,8 @@ def lounge_managers(user: dict = Depends(current_user)):
 _TRADE_CODE = {"매매": "A1", "전세": "B1", "월세": "B2", "단기임대": "B3"}
 _TRADE_KOR = {"A1": "매매", "B1": "전세", "B2": "월세", "B3": "단기임대", "B4": "월세"}
 _RET_KOR = {"APT": "아파트", "JGC": "아파트", "OPST": "오피스텔", "ABYG": "분양권", "OBYG": "분양권"}
-_REGION_CATS = [("빌라", "villa"), ("상가", "sangga"), ("사무실", "office"), ("단독", "house")]
+_REGION_CATS = [("빌라", "villa"), ("상가", "sangga"), ("사무실", "office"), ("단독", "house"),
+                ("토지", "land"), ("공장", "factory"), ("빌딩", "building")]
 
 
 def _ml_price_text(v) -> str:
@@ -8293,21 +8294,12 @@ def _ml_price_text(v) -> str:
     return (f"{e}억" + (f" {man:,}" if man else "")) if e else f"{man:,}"
 
 
-@app.get("/lounge/listings")
-def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str = "",
-                    cat: str = "", manager: str = "", sort: str = "confirm", limit: int = 1500):
-    """매물장 — 내 중개사무소(realtor_id)의 매물 통합(단지 아파트·오피스텔·분양권 + 비단지 빌라·상가·사무실·단독).
-    trade=매매/전세/월세(코드 A1/B1/B2 매핑), cat=유형, manager=담당자(자기 매물장). 메모·연락·담당자는 사무소 공유."""
-    with _reviews_db() as rc:
-        rid = _require_member(rc, user["id"])
-        _ensure_lounge_notes(rc)
-        notes = {r[0]: (r[1], r[2], r[3]) for r in rc.execute(
-            "SELECT article_no, memo, contact, manager FROM lounge_notes WHERE realtor_id=?", (rid,)).fetchall()}
-    code = _TRADE_CODE.get(trade)
+def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
+    """중개사(realtor_id)의 매물 통합 — 단지형(listings_current) + 비단지(7종 별도 DB).
+    매물장·중개사 세부페이지 공용. code=거래코드(A1/B1/B2) 또는 None, cat=유형 한글 필터."""
     items: list = []
-
-    # 1) 단지 매물(아파트·오피스텔·분양권) — listings_current
-    if cat in ("", "아파트", "오피스텔", "분양권"):
+    # 1) 단지 매물(아파트·오피스텔·분양권). cat='단지형'이면 셋 다, 개별이면 해당만.
+    if cat in ("", "단지형", "아파트", "오피스텔", "분양권"):
         w = ["l.realtor_id=?"]; p: list = [rid]
         if code:
             w.append("l.trade_type=?"); p.append(code)
@@ -8324,14 +8316,14 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
             rows = dc.execute(sql, p).fetchall()
         for r in rows:
             tkor = _RET_KOR.get(r[4], "아파트")
-            if cat and cat != tkor:
+            if cat in ("아파트", "오피스텔", "분양권") and cat != tkor:
                 continue
             try:
                 tags = _json.loads(r[15]) if r[15] else []
             except Exception:
                 tags = []
             dong = r[25] or ""
-            addr = (r[26] or r[27] or "").strip()  # 도로명 우선, 없으면 지번
+            addr = (r[26] or r[27] or "").strip()
             full_addr = " ".join(x for x in [dong, addr] if x).strip()
             items.append({
                 "article_no": r[0], "complex_no": r[1], "complex_name": r[2],
@@ -8345,8 +8337,7 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
                 "parking_total": r[28], "parking_per": r[29], "households": r[30],
                 "approve_ymd": r[31], "builder": r[32], "mgmt_tel": r[33],
             })
-
-    # 2) 비단지 매물(빌라·상가·사무실·단독) — 별도 DB
+    # 2) 비단지 매물(빌라·상가·사무실·단독·토지·공장·빌딩) — 별도 DB
     for ckor, dbkey in _REGION_CATS:
         if cat and cat != ckor:
             continue
@@ -8374,7 +8365,6 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
                 dongmap = {x[0]: x[1] for x in dc.execute(
                     f"SELECT cortar_no, cortar_name FROM regions WHERE cortar_no IN ({ph})", list(cortars)).fetchall()}
         for r in rrows:
-            # 비단지 raw(풍부)에서 특징·태그·동일주소·검증 추출
             feat, tags, sa_cnt, sa_min, sa_max, vtype = "", [], 0, 0, 0, ""
             try:
                 rw = _json.loads(r[14]) if r[14] else {}
@@ -8402,6 +8392,38 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
                 "parking_total": None, "parking_per": None, "households": None,
                 "approve_ymd": None, "builder": None, "mgmt_tel": None,
             })
+    return items
+
+
+def _sort_listings(items: list, sort: str) -> list:
+    if sort == "price_desc":
+        items.sort(key=lambda x: x["price"] or 0, reverse=True)
+    elif sort == "price_asc":
+        items.sort(key=lambda x: x["price"] or 0)
+    else:
+        items.sort(key=lambda x: x["confirm_ymd"] or "", reverse=True)
+    return items
+
+
+@app.get("/realtor/{realtor_id}/listings")
+def realtor_listings_public(realtor_id: str, cat: str = "", trade: str = "",
+                            sort: str = "confirm", limit: int = 600):
+    """중개사 세부페이지 — 그 중개사 매물 전체(단지형+비단지), 유형(cat)·거래(trade) 필터. 공개."""
+    items = _collect_realtor_listings(realtor_id, _TRADE_CODE.get(trade), cat)
+    items = _sort_listings(items, sort)[:min(max(int(limit), 1), 2000)]
+    return {"realtor_id": realtor_id, "count": len(items), "listings": items}
+
+
+@app.get("/lounge/listings")
+def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str = "",
+                    cat: str = "", manager: str = "", sort: str = "confirm", limit: int = 1500):
+    """매물장 — 내 중개사무소(realtor_id)의 매물 통합. trade=매매/전세/월세, cat=유형, manager=담당자."""
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        _ensure_lounge_notes(rc)
+        notes = {r[0]: (r[1], r[2], r[3]) for r in rc.execute(
+            "SELECT article_no, memo, contact, manager FROM lounge_notes WHERE realtor_id=?", (rid,)).fetchall()}
+    items = _collect_realtor_listings(rid, _TRADE_CODE.get(trade), cat)
 
     # 메모/연락처/담당자 결합 → 검색·담당자 필터 → 정렬 → 컷
     for it in items:

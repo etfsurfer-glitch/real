@@ -2855,3 +2855,20 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .hood-scope{margin-top:10px;display:flex}
 .hood-scope .scope-sel{width:100%}
 .hood-scope .scope-sel select{flex:1}
+
+/* 중개사 세부 보유매물(유형필터+카드) */
+.rl-cats{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 12px}
+.rl-cats button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c-border);background:#fff;border-radius:var(--r-pill);padding:6px 12px;font-size:13px;font-weight:700;color:var(--c-muted);cursor:pointer}
+.rl-cats button.on{background:var(--c-primary);color:#fff;border-color:var(--c-primary)}
+.rl-cats button em{font-style:normal;font-size:11px;opacity:.85;background:rgba(0,0,0,.06);border-radius:8px;padding:0 5px}
+.rl-cats button.on em{background:rgba(255,255,255,.25)}
+.rl-listings{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.rl-lcard{display:block;border:1px solid var(--c-border-soft);border-radius:var(--r-md);padding:11px 12px;background:#fff;box-shadow:var(--sh-xs);text-decoration:none;transition:border-color .12s,transform .12s}
+.rl-lcard:hover{border-color:var(--c-primary);transform:translateY(-1px)}
+.rl-lc-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.rl-lc-type{font-size:11px;font-weight:700;background:#eef2f7;color:#555;border-radius:6px;padding:1px 6px}
+.rl-lc-title{flex:1;min-width:80px;font-size:14px;font-weight:800;color:var(--c-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rl-lc-price{font-size:14px;font-weight:800;color:var(--c-primary-strong)}
+.rl-lc-addr{display:flex;align-items:center;gap:4px;margin-top:5px;font-size:12px;color:var(--c-text-soft)}
+.rl-lc-addr svg{color:var(--c-muted);flex:none}
+.rl-lc-meta{margin-top:4px;font-size:12px;color:var(--c-muted)}

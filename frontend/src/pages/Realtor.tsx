@@ -293,34 +293,8 @@ export default function Realtor() {
         </>
       )}
 
-      {/* ── 단지별 매물 ── */}
-      <div className="section-title">단지별 보유 매물 ({data.by_complex.length}개 단지)</div>
-      <table>
-        <thead>
-          <tr>
-            <th>단지</th>
-            <th className="num">매매</th>
-            <th className="num">전세</th>
-            <th className="num">월세</th>
-            <th className="num">합계</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.by_complex.map((r) => (
-            <tr key={r.complex_no ?? "__none__"}>
-              <td>
-                {r.complex_no ? (
-                  <Link to={`/complex/${r.complex_no}`}>{r.complex_name ?? r.complex_no}</Link>
-                ) : (r.complex_name ?? "—")}
-              </td>
-              <td className="num" style={{ color: r.A1 ? "#c0392b" : "#ccc" }}>{r.A1 || ""}</td>
-              <td className="num" style={{ color: r.B1 ? "#1268d3" : "#ccc" }}>{r.B1 || ""}</td>
-              <td className="num" style={{ color: r.B2 ? "#27ae60" : "#ccc" }}>{r.B2 || ""}</td>
-              <td className="num" style={{ fontWeight: 700 }}>{r.total}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* ── 보유 매물(전체 유형 + 필터) ── */}
+      <RealtorListings realtorId={data.realtor_id} breakdown={data.listing_breakdown} />
 
       {/* ── 중개사무소 리뷰 ── */}
       <RealtorReviews realtorId={data.realtor_id} onSummary={setReviewSummary} />
@@ -354,5 +328,71 @@ function VworldUnmatched({ v }: { v: VworldMatch }) {
         <div className="muted">국토부 부동산중개업 등록 정보와 매칭되지 않았습니다 (폐업/말소/미등록 가능).</div>
       )}
     </div>
+  );
+}
+
+// ── 보유 매물(전체 유형 + 유형 필터) ──
+type RLItem = {
+  article_no: string; complex_no: string | null; complex_name: string | null; trade_type: string; type: string;
+  area_name: string; area2_m2: number; floor_info: string; direction: string;
+  price_text: string; rent_price_text: string; confirm_ymd: string; building_name: string;
+  feature_desc: string; naver_url: string; address: string; parking_per: number | null;
+};
+function rlFmtYmd(s: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : s; }
+
+function RealtorListings({ realtorId, breakdown }: { realtorId: string; breakdown?: Breakdown }) {
+  const [cat, setCat] = useState("");
+  const [items, setItems] = useState<RLItem[] | null>(null);
+  useEffect(() => {
+    if (!API_BASE) { setItems([]); return; }
+    let alive = true;
+    setItems(null);
+    fetch(`${API_BASE}/realtor/${encodeURIComponent(realtorId)}/listings?cat=${encodeURIComponent(cat)}&limit=300`)
+      .then((r) => r.json()).then((d) => { if (alive) setItems(d.listings || []); })
+      .catch(() => { if (alive) setItems([]); });
+    return () => { alive = false; };
+  }, [realtorId, cat]);
+
+  const b = breakdown;
+  const chips: [string, string, number][] = b
+    ? ([["전체", "", b.total], ["단지형", "단지형", b.complex], ["빌라", "빌라", b.villa],
+        ["단독", "단독", b.house], ["상가", "상가", b.sangga], ["사무실", "사무실", b.office],
+        ["빌딩", "빌딩", b.building], ["토지", "토지", b.land], ["공장", "공장", b.factory]] as [string, string, number][])
+        .filter(([, v, n]) => v === "" || n > 0)
+    : [["전체", "", 0]];
+
+  return (
+    <>
+      <div className="section-title">보유 매물</div>
+      <div className="rl-cats">
+        {chips.map(([label, v, n]) => (
+          <button key={v || "all"} className={cat === v ? "on" : ""} onClick={() => setCat(v)}>
+            {label}{n > 0 && <em>{n.toLocaleString()}</em>}
+          </button>
+        ))}
+      </div>
+      {!items ? <div className="muted" style={{ padding: 16 }}>불러오는 중…</div>
+        : items.length === 0 ? <div className="dong-empty">표시할 매물이 없습니다.</div>
+        : (
+          <div className="rl-listings">
+            {items.map((l) => (
+              <a key={l.article_no} className="rl-lcard" href={l.naver_url} target="_blank" rel="noreferrer">
+                <div className="rl-lc-head">
+                  <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
+                  <span className="rl-lc-type">{l.type}</span>
+                  <b className="rl-lc-title">{l.complex_name || l.building_name || l.area_name || "매물"}</b>
+                  <span className="rl-lc-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
+                </div>
+                {l.address && <div className="rl-lc-addr"><MapPin size={11} aria-hidden /> {l.address}</div>}
+                <div className="rl-lc-meta">
+                  {[l.area2_m2 ? `전용 ${l.area2_m2}㎡` : "", l.floor_info ? `${l.floor_info}층` : "",
+                    l.direction, l.confirm_ymd ? `확인 ${rlFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ")}
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+      <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>네이버 매물 기준 · 카드를 누르면 네이버 매물로 이동 (유형별 최대 300건)</p>
+    </>
   );
 }
