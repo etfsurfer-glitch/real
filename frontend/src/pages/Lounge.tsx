@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
-import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2,
+import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw } from "lucide-react";
 
 const TT: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
@@ -36,7 +36,7 @@ type Status = {
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-type Tab = "dashboard" | "office" | "edit" | "leads" | "homepage";
+type Tab = "dashboard" | "listings" | "office" | "edit" | "leads" | "homepage";
 type Dash = {
   office: Office;
   stats: { total_listings: number; national_rank: number | null; national_total: number;
@@ -146,6 +146,7 @@ export default function Lounge() {
           <div className="chip-row" style={{ marginBottom: 12 }}>
             {([
               ["dashboard", "대시보드", LayoutDashboard],
+              ["listings", "매물장", ClipboardList],
               ["homepage", st.has_homepage ? "홈페이지관리" : "홈페이지생성", Globe],
               ["leads", "상담신청", MessageSquare],
               ["edit", "정보수정요청", Pencil],
@@ -158,6 +159,7 @@ export default function Lounge() {
             ))}
           </div>
           {tab === "dashboard" && <DashboardTab authH={authH} office={st.office} onGoTab={setTab} />}
+          {tab === "listings" && <ListingsTab authH={authH} office={st.office} />}
           {tab === "office" && <OfficeTab office={st.office} method={st.method} onUnlink={unlink} />}
           {tab === "edit" && <EditTab authH={authH} />}
           {tab === "leads" && <LeadsTab authH={authH} />}
@@ -1130,4 +1132,113 @@ function leadBadge(s: string) {
   return s === "done" ? { background: "#e6f7ed", color: "#1a7f4b" }
     : s === "read" ? { background: "#eef2f5", color: "#555" }
     : { background: "#e7f5ff", color: "#1268d3" };
+}
+
+// ───────── 매물장: 내 사무소 매물 전체 + 메모/연락처 ─────────
+type MLItem = {
+  article_no: string; complex_no: string; complex_name: string | null; trade_type: string;
+  real_estate_type: string; area_name: string; area1_m2: number; area2_m2: number; floor_info: string;
+  direction: string; price_text: string; rent_price_text: string; price: number; confirm_ymd: string;
+  building_name: string; tags: string[]; same_addr_cnt: number; same_addr_min: number; same_addr_max: number;
+  price_change_state: string; feature_desc: string; naver_url: string; cp_name: string;
+  verification_type: string; lat: number; lng: number; memo: string; contact: string;
+};
+function fmtYmd(s: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : s; }
+function eok(v: number) {
+  if (!v) return "-";
+  const e = Math.floor(v / 10000), man = v % 10000;
+  return e ? `${e}억${man ? " " + man.toLocaleString() : ""}` : `${v.toLocaleString()}만`;
+}
+
+function ListingsTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
+  const [items, setItems] = useState<MLItem[] | null>(null);
+  const [q, setQ] = useState("");
+  const [trade, setTrade] = useState("");
+  const [sort, setSort] = useState("confirm");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
+
+  const load = useCallback(() => {
+    setBusy(true);
+    const p = new URLSearchParams({ q, trade, sort });
+    fetch(`${API_BASE}/lounge/listings?${p}`, { headers: authH() })
+      .then((r) => r.json()).then((d) => setItems(d.listings || [])).catch(() => setItems([]))
+      .finally(() => setBusy(false));
+  }, [authH, q, trade, sort]);
+  useEffect(() => { load(); }, [trade, sort]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const patch = (an: string, k: "memo" | "contact", v: string) =>
+    setItems((its) => its ? its.map((x) => x.article_no === an ? { ...x, [k]: v } : x) : its);
+  const saveNote = async (l: MLItem) => {
+    await fetch(`${API_BASE}/lounge/listings/note`, {
+      method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+      body: JSON.stringify({ article_no: l.article_no, memo: l.memo, contact: l.contact }),
+    });
+    setSaved((s) => ({ ...s, [l.article_no]: true }));
+    setTimeout(() => setSaved((s) => ({ ...s, [l.article_no]: false })), 1500);
+  };
+
+  return (
+    <div className="mljang">
+      <div className="mlj-bar">
+        <div className="mlj-search">
+          <Search size={15} aria-hidden />
+          <input placeholder="단지·건물·특징·지역 검색" value={q}
+            onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
+          <button onClick={load}>검색</button>
+        </div>
+        <div className="mlj-filters">
+          {([["", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]] as const).map(([k, l]) => (
+            <button key={k} className={trade === k ? "on" : ""} onClick={() => setTrade(k)}>{l}</button>
+          ))}
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="confirm">최신확인순</option>
+            <option value="price_desc">가격↓</option>
+            <option value="price_asc">가격↑</option>
+          </select>
+        </div>
+      </div>
+      <div className="mlj-count">{office.realtor_name ?? "내 사무소"} · 총 <b>{items?.length ?? 0}</b>개 {busy && "불러오는 중…"}</div>
+      {!items ? <Loading /> : items.length === 0 ? (
+        <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 매물장에 나옵니다.</div>
+      ) : (
+        <div className="mlj-list">
+          {items.map((l) => (
+            <div key={l.article_no} className="mlj-card">
+              <div className="mlj-head">
+                <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
+                <b className="mlj-title">{l.complex_name || l.building_name || l.area_name || "매물"}</b>
+                <span className="mlj-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
+              </div>
+              <div className="mlj-meta">
+                {l.real_estate_type && <span>{l.real_estate_type}</span>}
+                {l.area_name && <span>{l.area_name}</span>}
+                {l.area2_m2 ? <span>{l.area2_m2}㎡</span> : null}
+                {l.floor_info && <span>{l.floor_info}층</span>}
+                {l.direction && <span>{l.direction}</span>}
+                {l.confirm_ymd && <span>확인 {fmtYmd(l.confirm_ymd)}</span>}
+                {l.verification_type && <span className="mlj-vf">{l.verification_type}</span>}
+              </div>
+              {l.tags?.length > 0 && <div className="mlj-tags">{l.tags.map((t, i) => <span key={i}>{t}</span>)}</div>}
+              {l.feature_desc && <div className="mlj-feat">{l.feature_desc}</div>}
+              {(l.same_addr_min || l.same_addr_max) ? (
+                <div className="mlj-same">동일주소 {l.same_addr_cnt}건 · {eok(l.same_addr_min)} ~ {eok(l.same_addr_max)}</div>
+              ) : null}
+              <div className="mlj-actions">
+                <input className="mlj-contact" placeholder="연락처(집주인·세입자 등)" value={l.contact}
+                  onChange={(e) => patch(l.article_no, "contact", e.target.value)} />
+                {l.contact && <a className="mlj-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}><Phone size={13} /> 전화</a>}
+                {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={13} /> 네이버</a>}
+              </div>
+              <div className="mlj-memo">
+                <textarea placeholder="메모 (사무소 공유)" value={l.memo} rows={1}
+                  onChange={(e) => patch(l.article_no, "memo", e.target.value)} />
+                <button onClick={() => saveNote(l)} className={saved[l.article_no] ? "ok" : ""}>{saved[l.article_no] ? "저장됨" : "저장"}</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
