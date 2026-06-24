@@ -1039,32 +1039,41 @@ def _cache_put(key: str, val):
 
 
 @app.get("/stats/realtors/national")
-def realtors_national(limit: int = 20):
-    """전국 매물 보유 상위 N개 중개사. realtor_id 기준 (이름은 지역별 중복 多)."""
+def realtors_national(limit: int = 20, scope: str = "complex"):
+    """전국 매물 보유 상위 N개 중개사. realtor_id 기준. scope=complex/resi/comm/all(매물 범위)."""
     if limit < 1 or limit > 100:
         raise HTTPException(400, "limit out of range")
-    ck = f"national:{limit}"
+    ck = f"national:{scope}:{limit}"
     cached = _cache_get(ck)
     if cached is not None:
         return cached
     with _open_db() as c:
+        parts = []
+        if scope in ("complex", "resi", "all"):
+            parts.append("SELECT realtor_id, COUNT(*) n FROM listings_current "
+                         "WHERE realtor_id IS NOT NULL AND realtor_id!='' GROUP BY realtor_id")
+        if scope in ("resi", "all"):
+            parts.append("SELECT realtor_id, (villa_n+house_n) n FROM realtor_region_counts WHERE villa_n+house_n>0")
+        if scope in ("comm", "all"):
+            parts.append("SELECT realtor_id, (sangga_n+office_n) n FROM realtor_region_counts WHERE sangga_n+office_n>0")
+        if not parts:
+            parts.append("SELECT realtor_id, COUNT(*) n FROM listings_current "
+                         "WHERE realtor_id IS NOT NULL AND realtor_id!='' GROUP BY realtor_id")
+        union = " UNION ALL ".join(parts)
         rows = c.execute(
-            """
-            SELECT realtor_id,
-                   MAX(realtor_name) AS realtor_name,
-                   COUNT(*) AS n
-            FROM listings_current
-            WHERE realtor_id IS NOT NULL
-            GROUP BY realtor_id
-            ORDER BY n DESC
-            LIMIT ?
-            """,
+            f"SELECT realtor_id, NULL, SUM(n) AS n FROM ({union}) "
+            "WHERE realtor_id IS NOT NULL AND realtor_id!='' GROUP BY realtor_id ORDER BY n DESC LIMIT ?",
             (limit,),
         ).fetchall()
         # 상위 N개에만 소재지(시도)·소속인원·개업연도를 붙인다. naver_realtors →
         # realtor_match(sys_regno) → vworld_brokers(개업일)/vworld_employees(인원).
         ids = [r[0] for r in rows]
         info: dict[str, dict] = {}
+        rnames: dict = {}
+        if ids:
+            _ph0 = ",".join("?" * len(ids))
+            rnames = {x[0]: x[1] for x in c.execute(
+                f"SELECT realtor_id, realtor_name FROM realtor_names WHERE realtor_id IN ({_ph0})", ids)}
         if ids:
             ph = ",".join("?" * len(ids))
             sido_names = {
@@ -1099,13 +1108,13 @@ def realtors_national(limit: int = 20):
         e = info.get(r[0], {})
         items.append({
             "realtor_id": r[0],
-            "realtor_name": e.get("office_name") or r[1],
+            "realtor_name": e.get("office_name") or rnames.get(r[0]) or r[1] or "공인중개사",
             "count": r[2],
             "sido": e.get("sido"),
             "staff_count": e.get("staff_count"),
             "established_year": e.get("established_year"),
         })
-    out = {"limit": limit, "items": items}
+    out = {"limit": limit, "scope": scope, "items": items}
     _cache_put(ck, out)
     return out
 
@@ -2184,52 +2193,51 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
 
 
 @app.get("/stats/realtors/by-sido")
-def realtors_by_sido(limit: int = 10):
-    """시도별 상위 N개 중개사. 단지 cortar_no 앞 2자리로 시도 묶음."""
+def realtors_by_sido(limit: int = 10, scope: str = "complex"):
+    """시도별 상위 N개 중개사. scope=complex/resi/comm/all(매물 범위). 단지=cortar 앞2자리, 비단지=realtor_region_sido."""
     if limit < 1 or limit > 50:
         raise HTTPException(400, "limit out of range")
-    ck = f"sido:{limit}"
+    ck = f"sido:{scope}:{limit}"
     cached = _cache_get(ck)
     if cached is not None:
         return cached
     with _open_db() as c:
-        sido_names = {
-            r[0][:2]: r[1]
-            for r in c.execute(
-                "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city'"
-            )
-        }
+        sido_names = {r[0][:2]: r[1] for r in c.execute(
+            "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city'")}
+        parts = []
+        if scope in ("complex", "resi", "all"):
+            parts.append("SELECT substr(c.cortar_no,1,2) sido, l.realtor_id rid, COUNT(*) n "
+                         "FROM listings_current l JOIN complexes c ON c.complex_no=l.complex_no "
+                         "WHERE l.realtor_id IS NOT NULL AND l.realtor_id!='' AND c.cortar_no IS NOT NULL "
+                         "GROUP BY substr(c.cortar_no,1,2), l.realtor_id")
+        if scope in ("resi", "all"):
+            parts.append("SELECT sido, realtor_id rid, (villa_n+house_n) n FROM realtor_region_sido WHERE villa_n+house_n>0")
+        if scope in ("comm", "all"):
+            parts.append("SELECT sido, realtor_id rid, (sangga_n+office_n) n FROM realtor_region_sido WHERE sangga_n+office_n>0")
+        if not parts:
+            parts.append("SELECT substr(c.cortar_no,1,2) sido, l.realtor_id rid, COUNT(*) n "
+                         "FROM listings_current l JOIN complexes c ON c.complex_no=l.complex_no "
+                         "WHERE l.realtor_id IS NOT NULL AND c.cortar_no IS NOT NULL "
+                         "GROUP BY substr(c.cortar_no,1,2), l.realtor_id")
+        union = " UNION ALL ".join(parts)
         rows = c.execute(
-            """
-            WITH per_sido AS (
-                SELECT substr(c.cortar_no, 1, 2) AS sido,
-                       l.realtor_id,
-                       l.realtor_name,
-                       COUNT(*) AS n
-                FROM listings_current l
-                JOIN complexes c ON c.complex_no = l.complex_no
-                WHERE l.realtor_id IS NOT NULL AND c.cortar_no IS NOT NULL
-                GROUP BY sido, l.realtor_id
-            ),
-            ranked AS (
-                SELECT *,
-                       ROW_NUMBER() OVER (PARTITION BY sido ORDER BY n DESC) AS rk
-                FROM per_sido
-            )
-            SELECT sido, realtor_id, realtor_name, n
-            FROM ranked
-            WHERE rk <= ?
-            ORDER BY sido, n DESC
-            """,
-            (limit,),
-        ).fetchall()
+            f"""
+            WITH per_sido AS (SELECT sido, rid, SUM(n) n FROM ({union}) WHERE rid IS NOT NULL AND rid!='' GROUP BY sido, rid),
+                 ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY sido ORDER BY n DESC) rk FROM per_sido)
+            SELECT sido, rid, n FROM ranked WHERE rk <= ? ORDER BY sido, n DESC
+            """, (limit,)).fetchall()
+        ids = list({r[1] for r in rows})
+        names = {}
+        if ids:
+            ph = ",".join("?" * len(ids))
+            names = {x[0]: x[1] for x in c.execute(
+                f"SELECT realtor_id, realtor_name FROM realtor_names WHERE realtor_id IN ({ph})", ids)}
     grouped: dict[str, list[dict]] = {}
-    for sido, rid, rname, n in rows:
+    for sido, rid, n in rows:
         name = sido_names.get(sido, sido)
         grouped.setdefault(name, []).append(
-            {"realtor_id": rid, "realtor_name": rname, "count": n}
-        )
-    out = {"limit": limit, "groups": grouped}
+            {"realtor_id": rid, "realtor_name": names.get(rid) or "공인중개사", "count": n})
+    out = {"limit": limit, "scope": scope, "groups": grouped}
     _cache_put(ck, out)
     return out
 

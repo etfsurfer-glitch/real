@@ -67,6 +67,29 @@ def main():
           UNION ALL SELECT realtor_id,0,0,0,COUNT(*) FROM office.listings WHERE realtor_id!='' GROUP BY realtor_id
         ) GROUP BY realtor_id
     """)
+    # 시도별 비단지 집계(랭킹 by-sido scope용)
+    c.execute("CREATE TABLE IF NOT EXISTS realtor_region_sido(realtor_id TEXT, sido TEXT, "
+              "villa_n INT DEFAULT 0, house_n INT DEFAULT 0, sangga_n INT DEFAULT 0, office_n INT DEFAULT 0, "
+              "PRIMARY KEY(realtor_id,sido))")
+    c.execute("DELETE FROM realtor_region_sido")
+    c.execute("""
+        INSERT INTO realtor_region_sido(realtor_id,sido,villa_n,house_n,sangga_n,office_n)
+        SELECT realtor_id, sido, SUM(v),SUM(h),SUM(s),SUM(o) FROM (
+          SELECT realtor_id, substr(cortar_no,1,2) sido, COUNT(*) v,0 h,0 s,0 o FROM villa.listings  WHERE realtor_id!='' AND cortar_no!='' GROUP BY realtor_id, substr(cortar_no,1,2)
+          UNION ALL SELECT realtor_id, substr(cortar_no,1,2) sido,0,COUNT(*),0,0 FROM house.listings  WHERE realtor_id!='' AND cortar_no!='' GROUP BY realtor_id, substr(cortar_no,1,2)
+          UNION ALL SELECT realtor_id, substr(cortar_no,1,2) sido,0,0,COUNT(*),0 FROM sangga.listings WHERE realtor_id!='' AND cortar_no!='' GROUP BY realtor_id, substr(cortar_no,1,2)
+          UNION ALL SELECT realtor_id, substr(cortar_no,1,2) sido,0,0,0,COUNT(*) FROM office.listings WHERE realtor_id!='' AND cortar_no!='' GROUP BY realtor_id, substr(cortar_no,1,2)
+        ) GROUP BY realtor_id, sido
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS rrs_sido_idx ON realtor_region_sido(sido)")
+    # 통합 중개사명(naver_realtors + 비단지 매물명) — 랭킹 이름 표시용.
+    c.execute("CREATE TABLE IF NOT EXISTS realtor_names(realtor_id TEXT PRIMARY KEY, realtor_name TEXT)")
+    c.execute("DELETE FROM realtor_names")
+    c.execute("INSERT OR REPLACE INTO realtor_names SELECT realtor_id, realtor_name FROM naver_realtors "
+              "WHERE realtor_id IS NOT NULL AND realtor_name IS NOT NULL")
+    for alias in ("sangga", "office", "villa", "house"):
+        c.execute(f"INSERT OR IGNORE INTO realtor_names SELECT realtor_id, MAX(realtor_name) "
+                  f"FROM {alias}.listings WHERE realtor_id!='' AND realtor_name!='' GROUP BY realtor_id")
     c.commit()
     rc = c.execute("SELECT COUNT(*) FROM realtor_region_counts").fetchone()[0]
     print(f"realtor_region_counts(비단지 집계): {rc}곳")

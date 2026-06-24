@@ -311,6 +311,7 @@ export default function RealtorRanks() {
   const [sidoFilter, setSidoFilter] = useState<string>(""); // "" = 전국, else cortar_no
   const [searchResults, setSearchResults] = useState<RealtorRow[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [mscope, setMscope] = useState("complex");  // 매물 범위(전국·지역별 랭킹)
 
   useEffect(() => {
     let cancelled = false;
@@ -322,8 +323,8 @@ export default function RealtorRanks() {
     (async () => {
       try {
         const [rNat, rSidoStats, rSidos] = await Promise.all([
-          fetch(`${API_BASE}/stats/realtors/national?limit=20`),
-          fetch(`${API_BASE}/stats/realtors/by-sido?limit=10`),
+          fetch(`${API_BASE}/stats/realtors/national?limit=20&scope=${mscope}`),
+          fetch(`${API_BASE}/stats/realtors/by-sido?limit=10&scope=${mscope}`),
           supabase
             .from("regions")
             .select("cortar_no, cortar_name")
@@ -347,7 +348,7 @@ export default function RealtorRanks() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [mscope]);
 
   // debounce search input
   useEffect(() => {
@@ -465,6 +466,17 @@ export default function RealtorRanks() {
         { to: "/realtors/tenure", label: "업력순위" },
         { to: "/realtors/staff", label: "직원수순위" },
       ]} />
+      {(pathname.endsWith("/national") || pathname.endsWith("/region")) && (
+        <div className="rank-scope" style={{ marginTop: 8 }}>
+          <span>매물 범위</span>
+          <select value={mscope} onChange={(e) => setMscope(e.target.value)}>
+            <option value="complex">단지형 (아파트·오피)</option>
+            <option value="resi">주거 전체 (단지·빌라·단독)</option>
+            <option value="comm">상가·사무실</option>
+            <option value="all">전체</option>
+          </select>
+        </div>
+      )}
       <Outlet context={{ national: national ?? [], sidoEntries }} />
     </div>
   );
