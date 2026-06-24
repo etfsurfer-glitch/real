@@ -190,6 +190,7 @@ export function RealtorByDong() {
           </button>
         </div>
         {mode === "dong" ? (
+          <>
           <div className="hood-region">
             <select value={sido} onChange={(e) => setSido(e.target.value)}>
               <option value="">시·도</option>
@@ -204,6 +205,8 @@ export function RealtorByDong() {
               {dongs.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
             </select>
           </div>
+          <div className="hood-scope"><ScopeSelect value={mscope} onChange={setMscope} dark /></div>
+          </>
         ) : (
           <div className="hood-namesearch">
             <Search size={15} aria-hidden />
@@ -245,7 +248,6 @@ export function RealtorByDong() {
               <b className="scope">{scope}</b>엔 등록 중개사 <b>{data.count.toLocaleString()}곳</b>
               {topL && <> · 매물 1위 <b>{topL.realtor_name}</b> <b className="hot">{topL.listings.toLocaleString()}개</b></>}
             </span>
-            <ScopeSelect value={mscope} onChange={setMscope} dark />
           </div>
           <div className="hood-share"><ShareBar targetRef={shareRef} title={`${scope} 우리동네 중개사`} fileName={`콕집_우리동네중개사_${scope}`} /></div>
           <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>매물·직원·업력 세 기준을 나란히 · 매물 범위는 위에서 선택.</p>

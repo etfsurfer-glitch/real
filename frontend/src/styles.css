@@ -2850,3 +2850,8 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .rank-hero-input input{flex:1;border:0;outline:0;font-size:14px;background:transparent}
 .rank-hero-input button{border:0;background:none;color:var(--c-muted);cursor:pointer;padding:0;display:flex}
 @media(min-width:760px){.rank-hero-searchbox{width:auto;margin-top:0;margin-left:auto;min-width:380px}}
+
+/* 우리동네 히어로 매물 범위 */
+.hood-scope{margin-top:10px;display:flex}
+.hood-scope .scope-sel{width:100%}
+.hood-scope .scope-sel select{flex:1}
