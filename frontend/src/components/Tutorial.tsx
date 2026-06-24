@@ -45,7 +45,7 @@ export default function Tutorial() {
   return (
     <>
       <button className="tut-fab" onClick={() => setOpen(true)} aria-label="이용 가이드">
-        <Compass size={17} strokeWidth={2.3} /> <span>가이드</span>
+        <Compass size={20} strokeWidth={2.4} aria-hidden /> <span>가이드</span>
       </button>
 
       {open && createPortal(
