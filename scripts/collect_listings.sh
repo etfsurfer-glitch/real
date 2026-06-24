@@ -36,11 +36,16 @@ step "step 4: match_clean"            $PY -u scripts/match_clean.py
 step "step 5: build_vworld_phone_index" $PY -u scripts/build_vworld_phone_index.py
 # 6) 중개사 일별 매물수 (매물 변화 추적)
 step "step 6: realtor_daily_count"    $PY -u scripts/realtor_daily_count.py
-# 7) 캐시 갱신 (새 매물 반영) — 실거래 rollup은 02:00 run에서만(여기선 불변)
-step "step 7: build_api_cache"        $PY -u scripts/build_api_cache.py --default-only
 
-# 8) 비단지 매물(상가·사무실·빌라·단독) 전국 멀티IP 수집 — ★별도 4 DB에만 기록(naverreal 무접근).
+# 7) 비단지 매물(11종) 전국 멀티IP 수집 — ★별도 DB에만 기록(naverreal 무접근).
+#    캐시·중개사집계보다 먼저 수집해야 같은 회차 비단지 갱신분이 집계에 반영된다(순서 수정).
 #    step()은 exit만 로깅(비치명적) → 실패/지연돼도 위 매물수집·발행 무영향. A안: 3회 다 전국.
-step "step 8: region_listings(비단지 전국)" $PY -u scripts/collect_region_listings.py --all
+step "step 7: region_listings(비단지 전국)" $PY -u scripts/collect_region_listings.py --all
+
+# 8) 중개사 랭킹·우리동네·매물수 재집계 — 단지형+비단지 새 매물 반영(11·19시에도 갱신, 기존엔 02시만).
+step "step 8: build_realtor_dong"     $PY -u scripts/build_realtor_dong.py
+
+# 9) 캐시 갱신 — 위 단지형·비단지·중개사집계 다 끝난 뒤 마지막에(실거래 rollup은 02:00 run에서만).
+step "step 9: build_api_cache"        $PY -u scripts/build_api_cache.py --default-only
 
 log "listings-only run done collect=$collect_exit"
