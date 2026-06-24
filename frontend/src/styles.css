@@ -1665,11 +1665,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .rh-nav-menu a:hover{color:#1268d3}
 
 /* 콕집 AI 플로팅 버튼(모든 페이지 우하단) */
-.ai-fab{position:fixed;right:18px;bottom:18px;z-index:80;display:inline-flex;align-items:center;gap:6px;
+.ai-fab{position:fixed;right:18px;bottom:18px;z-index:80;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:118px;
   background:linear-gradient(135deg,#1268d3,#0a4ea3);color:#fff;border-radius:30px;padding:12px 18px;
   font-weight:800;font-size:15px;text-decoration:none;box-shadow:0 6px 20px rgba(18,104,211,.42);transition:transform .12s}
 .ai-fab:hover{transform:translateY(-2px)}
-@media(max-width:600px){.ai-fab{right:14px;bottom:14px;padding:11px 15px;font-size:14px}}
+@media(max-width:600px){.ai-fab{right:14px;bottom:14px;padding:11px 15px;font-size:14px;min-width:104px}}
 
 /* ── 우리동네 랜딩 ── */
 .hood{max-width:1080px;margin:0 auto}
@@ -2570,12 +2570,12 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .jvm-cl:hover{background:var(--c-primary-strong)}
 
 /* 이용 가이드(튜토리얼) — AI 플로팅 위, 같은 크기·보조(외곽선) 톤으로 한 세트 */
-.tut-fab{position:fixed;right:18px;bottom:72px;z-index:80;display:inline-flex;align-items:center;gap:6px;
+.tut-fab{position:fixed;right:18px;bottom:72px;z-index:80;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:118px;
   background:#fff;color:var(--c-primary-strong);border:1.5px solid var(--c-primary);border-radius:30px;padding:12px 18px;
   font-weight:800;font-size:15px;cursor:pointer;box-shadow:0 6px 20px rgba(18,104,211,.20);transition:transform .12s}
 .tut-fab svg{color:var(--c-primary)}
 .tut-fab:hover{transform:translateY(-2px)}
-@media(max-width:600px){.tut-fab{right:14px;bottom:64px;padding:11px 15px;font-size:14px}}
+@media(max-width:600px){.tut-fab{right:14px;bottom:64px;padding:11px 15px;font-size:14px;min-width:104px}}
 .tut-ov{position:fixed;inset:0;z-index:1000;background:rgba(15,23,32,.5);backdrop-filter:blur(3px);
   display:flex;align-items:center;justify-content:center;padding:20px;animation:egg-fade .18s ease}
 .tut-card{position:relative;background:#fff;border-radius:var(--r-lg);width:100%;max-width:380px;
