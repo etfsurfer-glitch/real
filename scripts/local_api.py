@@ -5930,6 +5930,174 @@ def admin_users(_admin: dict = Depends(admin_user), page: int = 1, per_page: int
 
 
 # ===========================================================================
+# 관리자: 직원 업무관리 워크플로우 (직원 · 할일/진행중/완료 · 비용지출)
+# ===========================================================================
+_OPS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ops_staff(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, title TEXT,
+  created_at TEXT DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS ops_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, detail TEXT,
+  assignee_id INTEGER, status TEXT DEFAULT 'todo',
+  created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS ops_expenses(id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT, amount INTEGER,
+  spender_id INTEGER, memo TEXT, spent_at TEXT, kind TEXT DEFAULT 'adhoc', category TEXT,
+  created_at TEXT DEFAULT (datetime('now')));
+"""
+
+
+def _ensure_ops(c):
+    c.executescript(_OPS_SCHEMA)
+    # 기존 테이블에 신규 컬럼 보강(있으면 무시)
+    for col, ddl in (("kind", "ALTER TABLE ops_expenses ADD COLUMN kind TEXT DEFAULT 'adhoc'"),
+                     ("category", "ALTER TABLE ops_expenses ADD COLUMN category TEXT")):
+        try:
+            c.execute(ddl)
+        except Exception:
+            pass
+
+
+class OpsStaffBody(BaseModel):
+    name: str
+    title: str = ""
+
+
+class OpsTaskBody(BaseModel):
+    title: str
+    detail: str = ""
+    assignee_id: int | None = None
+    status: str = "todo"
+
+
+class OpsTaskPatch(BaseModel):
+    title: str | None = None
+    detail: str | None = None
+    assignee_id: int | None = None
+    status: str | None = None
+
+
+class OpsExpenseBody(BaseModel):
+    item: str
+    amount: int = 0
+    spender_id: int | None = None
+    memo: str = ""
+    spent_at: str = ""
+    kind: str = "adhoc"          # adhoc(수시) | fixed(월고정)
+    category: str = ""           # 적요: 서버비용/홍보비/세금/기타
+
+
+@app.get("/admin/ops/staff")
+def ops_staff_list(_admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        _ensure_ops(c)
+        rows = c.execute("SELECT id,name,title,created_at FROM ops_staff ORDER BY id").fetchall()
+    return {"staff": [{"id": r[0], "name": r[1], "title": r[2], "created_at": r[3]} for r in rows]}
+
+
+@app.post("/admin/ops/staff")
+def ops_staff_add(body: OpsStaffBody, _admin: dict = Depends(admin_user)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "이름을 입력하세요")
+    with _reviews_db() as c:
+        _ensure_ops(c)
+        cur = c.execute("INSERT INTO ops_staff(name,title) VALUES(?,?)", (name, (body.title or "").strip()))
+        c.commit()
+    return {"id": cur.lastrowid}
+
+
+@app.delete("/admin/ops/staff/{sid}")
+def ops_staff_del(sid: int, _admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        c.execute("DELETE FROM ops_staff WHERE id=?", (sid,)); c.commit()
+    return {"ok": True}
+
+
+@app.get("/admin/ops/tasks")
+def ops_tasks_list(_admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        _ensure_ops(c)
+        rows = c.execute(
+            "SELECT t.id,t.title,t.detail,t.assignee_id,s.name,s.title,t.status,t.created_at,t.updated_at "
+            "FROM ops_tasks t LEFT JOIN ops_staff s ON s.id=t.assignee_id ORDER BY t.updated_at DESC").fetchall()
+    return {"tasks": [{"id": r[0], "title": r[1], "detail": r[2], "assignee_id": r[3], "assignee_name": r[4],
+                       "assignee_title": r[5], "status": r[6], "created_at": r[7], "updated_at": r[8]} for r in rows]}
+
+
+@app.post("/admin/ops/tasks")
+def ops_task_add(body: OpsTaskBody, _admin: dict = Depends(admin_user)):
+    if not (body.title or "").strip():
+        raise HTTPException(400, "업무 내용을 입력하세요")
+    st = body.status if body.status in ("todo", "doing", "done") else "todo"
+    with _reviews_db() as c:
+        _ensure_ops(c)
+        cur = c.execute("INSERT INTO ops_tasks(title,detail,assignee_id,status) VALUES(?,?,?,?)",
+                        (body.title.strip(), (body.detail or "").strip(), body.assignee_id, st))
+        c.commit()
+    return {"id": cur.lastrowid}
+
+
+@app.patch("/admin/ops/tasks/{tid}")
+def ops_task_patch(tid: int, body: OpsTaskPatch, _admin: dict = Depends(admin_user)):
+    sets, params = [], []
+    if body.title is not None:
+        sets.append("title=?"); params.append(body.title.strip())
+    if body.detail is not None:
+        sets.append("detail=?"); params.append(body.detail.strip())
+    if body.assignee_id is not None:
+        sets.append("assignee_id=?"); params.append(body.assignee_id)
+    if body.status is not None and body.status in ("todo", "doing", "done"):
+        sets.append("status=?"); params.append(body.status)
+    if not sets:
+        return {"ok": True}
+    sets.append("updated_at=datetime('now')")
+    with _reviews_db() as c:
+        c.execute(f"UPDATE ops_tasks SET {','.join(sets)} WHERE id=?", (*params, tid)); c.commit()
+    return {"ok": True}
+
+
+@app.delete("/admin/ops/tasks/{tid}")
+def ops_task_del(tid: int, _admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        c.execute("DELETE FROM ops_tasks WHERE id=?", (tid,)); c.commit()
+    return {"ok": True}
+
+
+@app.get("/admin/ops/expenses")
+def ops_exp_list(_admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        _ensure_ops(c)
+        rows = c.execute(
+            "SELECT e.id,e.item,e.amount,e.spender_id,s.name,e.memo,e.spent_at,e.created_at,e.kind,e.category "
+            "FROM ops_expenses e LEFT JOIN ops_staff s ON s.id=e.spender_id "
+            "ORDER BY COALESCE(e.spent_at,e.created_at) DESC, e.id DESC").fetchall()
+    total = sum(r[2] or 0 for r in rows)
+    return {"total": total, "expenses": [{"id": r[0], "item": r[1], "amount": r[2], "spender_id": r[3],
+            "spender_name": r[4], "memo": r[5], "spent_at": r[6], "created_at": r[7],
+            "kind": r[8] or "adhoc", "category": r[9] or ""} for r in rows]}
+
+
+@app.post("/admin/ops/expenses")
+def ops_exp_add(body: OpsExpenseBody, _admin: dict = Depends(admin_user)):
+    if not (body.item or "").strip():
+        raise HTTPException(400, "지출 항목을 입력하세요")
+    kind = body.kind if body.kind in ("adhoc", "fixed") else "adhoc"
+    with _reviews_db() as c:
+        _ensure_ops(c)
+        cur = c.execute(
+            "INSERT INTO ops_expenses(item,amount,spender_id,memo,spent_at,kind,category) VALUES(?,?,?,?,?,?,?)",
+            (body.item.strip(), int(body.amount or 0), body.spender_id, (body.memo or "").strip(),
+             (body.spent_at or "").strip() or None, kind, (body.category or "").strip()))
+        c.commit()
+    return {"id": cur.lastrowid}
+
+
+@app.delete("/admin/ops/expenses/{eid}")
+def ops_exp_del(eid: int, _admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        c.execute("DELETE FROM ops_expenses WHERE id=?", (eid,)); c.commit()
+    return {"ok": True}
+
+
+# ===========================================================================
 # 관리자: 활동 로그 조회 (로그인/조회/AI질문 — 개선 분석용)
 # ===========================================================================
 def _member_map(user_ids) -> dict:

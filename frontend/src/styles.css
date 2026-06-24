@@ -2611,3 +2611,48 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   background:var(--c-primary);color:#fff;border:0;border-radius:var(--r-md);padding:13px;font-size:15px;
   font-weight:800;cursor:pointer;transition:background .12s}
 .tut-g-go:hover{background:var(--c-primary-strong)}
+
+/* 관리자 업무관리(워크플로우·비용) */
+.ops-motto{background:linear-gradient(135deg,#13294b,#1268d3);color:#fff;border-radius:var(--r-md);padding:14px 18px;
+  font-weight:800;font-size:16px;letter-spacing:-.3px;text-align:center;margin:4px 0 14px;box-shadow:var(--sh-sm)}
+.ops-tabs{display:flex;gap:8px;margin-bottom:14px}
+.ops-tabs button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--c-border);background:#fff;
+  border-radius:var(--r-pill);padding:8px 16px;font-weight:700;font-size:13.5px;color:var(--c-muted);cursor:pointer}
+.ops-tabs button.on{background:var(--c-primary);color:#fff;border-color:var(--c-primary)}
+.ops-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.ops-form input,.ops-form select{border:1px solid var(--c-border);border-radius:var(--r-sm);padding:9px 11px;font-size:13.5px;background:#fff}
+.ops-add{display:inline-flex;align-items:center;gap:5px;background:var(--c-primary);color:#fff;border:0;border-radius:var(--r-sm);
+  padding:9px 15px;font-weight:800;font-size:13.5px;cursor:pointer;white-space:nowrap}
+.ops-add:hover{background:var(--c-primary-strong)}
+.ops-period{display:flex;gap:6px;margin-bottom:12px}
+.ops-period button{border:1px solid var(--c-border);background:#fff;border-radius:var(--r-pill);padding:5px 13px;font-size:12.5px;font-weight:700;color:var(--c-muted);cursor:pointer}
+.ops-period button.on{background:var(--c-text);color:#fff;border-color:var(--c-text)}
+.ops-board{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.ops-col{background:var(--c-bg-soft,#f6f8fa);border-radius:var(--r-md);padding:10px;min-height:120px}
+.ops-col-h{font-weight:800;font-size:13.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.ops-col-h span{background:#fff;border-radius:10px;padding:0 7px;font-size:11px;color:var(--c-muted)}
+.ops-empty{color:var(--c-faint);font-size:12.5px;text-align:center;padding:14px 0}
+.ops-task{background:#fff;border:1px solid var(--c-border-soft);border-radius:var(--r-sm);padding:10px;margin-bottom:8px;box-shadow:var(--sh-xs)}
+.ops-task-t{font-weight:700;font-size:13.5px;color:var(--c-text)}
+.ops-task-d{font-size:12px;color:var(--c-muted);margin-top:3px}
+.ops-task-m{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.ops-who{font-size:12px;font-weight:700;color:var(--c-primary-strong)}
+.ops-who em{font-style:normal;color:var(--c-muted);font-weight:500}
+.ops-who.none{color:var(--c-faint);font-weight:500}
+.ops-actions{display:inline-flex;gap:4px}
+.ops-actions button{border:1px solid var(--c-border);background:#fff;border-radius:6px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--c-muted)}
+.ops-actions button:hover{border-color:var(--c-primary);color:var(--c-primary)}
+.ops-month{margin-top:16px}
+.ops-month-h{display:flex;justify-content:space-between;align-items:center;background:var(--c-primary-tint);border-radius:var(--r-sm);padding:8px 13px;font-size:14px}
+.ops-month-h span{font-weight:800;color:var(--c-primary-strong)}
+.ops-exp-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+.ops-exp-table th{text-align:left;font-size:11.5px;color:var(--c-muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--c-border-soft)}
+.ops-exp-table td{padding:8px;border-bottom:1px solid var(--c-border-soft)}
+.ops-memo{color:var(--c-faint);font-size:12px}
+.ops-del{border:0;background:none;color:#c0392b;cursor:pointer;opacity:.6}
+.ops-del:hover{opacity:1}
+.ops-staff-list{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.ops-chip{display:inline-flex;align-items:center;gap:5px;background:var(--c-primary-soft);color:var(--c-text);border-radius:var(--r-pill);padding:5px 11px;font-size:13px;font-weight:700}
+.ops-chip em{font-style:normal;color:var(--c-primary-strong);font-weight:600}
+.ops-chip button{border:0;background:none;color:var(--c-muted);cursor:pointer;font-size:15px;line-height:1;padding:0 0 0 2px}
+@media(max-width:680px){.ops-board{grid-template-columns:1fr}.ops-exp-table{font-size:12px}.ops-exp-table th:nth-child(3),.ops-exp-table td:nth-child(3){max-width:120px}}
