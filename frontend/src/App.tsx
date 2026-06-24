@@ -35,6 +35,7 @@ import AdminTodayStats from "./pages/AdminTodayStats";
 import NonResi from "./pages/NonResi";
 import JeonseCheck from "./pages/JeonseCheck";
 import EasterEgg from "./components/EasterEgg";
+import Tutorial from "./components/Tutorial";
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
 import PresaleTx from "./pages/PresaleTx";
@@ -334,6 +335,7 @@ function AppShell() {
       </ErrorBoundary>
       <Footer />
       <PerfBadge />
+      <Tutorial />
       <AiFab />
     </div>
   );
