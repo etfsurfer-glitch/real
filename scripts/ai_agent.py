@@ -116,6 +116,9 @@ SYSTEM_PROMPT = (
     "★'분양권'이라고만 하면 kind 를 비워(분양권+입주권 둘 다) 호출하라 — 구어로 '분양권'은 입주권을 포함하므로 kind='분양권'으로 좁히면 결과가 비어 보인다. "
     "'입주권만'처럼 명시할 때만 kind 지정. 지역 없으면 전국으로 즉시(되묻지 마라). "
     "프리미엄(분양가 대비 차익)은 데이터가 없으니 '전매 실거래가'로 답하고 프리미엄은 추후 안내.\n"
+    "12.1) [신축·분양권 단지 시세] get_complex_info 결과에서 매매·전세 실거래가 0건이고 '최근분양권실거래'가 있으면, "
+    "'실거래 없음'으로 끝내지 말고 그 분양권/입주권 전매 실거래를 그 단지의 '현재 시세'로 제시하라(신축 입주 전 단지는 분양권 거래가가 곧 시세다). "
+    "예: '탕정푸르지오리버파크는 입주 전 신축이라 매매·전세 실거래는 아직 없고, 분양권 전매가 N억 N건이 최근 거래됐어요.'\n"
     "\n"
     "[할 수 있는 것]\n"
     "- 급매 찾기 (지역·평형·할인율·매매/전세)\n"
@@ -708,6 +711,13 @@ def get_complex_info(complex_name: str, region: str = "") -> dict:
         "월세": (_won(r["monthly_rent"]) if r.get("monthly_rent") else None),
         "구분": ("월세" if r.get("monthly_rent") else "전세"),
     } for r in rents[:6]]
+    # 분양권/입주권 실거래(silv) — 신축 단지는 매매·전세가 없고 분양권만 있어 '실거래 없음'으로
+    # 보이던 문제 수정. 분양권 전매가가 사실상 그 단지의 현재 시세다.
+    silv = tx.get("silv", [])
+    recent_silv = [{
+        "계약일": s.get("deal_ymd"), "전용㎡": s.get("excl_use_ar"), "층": s.get("floor"),
+        "금액": _won(s.get("deal_amount")), "종류": s.get("kind"),
+    } for s in silv[:6]]
     try:
         dres = api.complex_quick_deals(cno, min_discount=0.05, limit=8)
         deals = [{
@@ -725,6 +735,7 @@ def get_complex_info(complex_name: str, region: str = "") -> dict:
         "단지정보": f"/complex/{cno}",   # 프런트 바로가기
         "최근12개월_매매건수": len(sales), "최근실거래": recent,
         "최근12개월_전월세건수": len(rents), "최근전월세": recent_rent,
+        "최근12개월_분양권건수": len(silv), "최근분양권실거래": recent_silv,
         "급매_보유중개사": deals,
     }
 
@@ -1168,6 +1179,25 @@ def _system_for(nickname: str | None) -> str:
             "한 번 친근하게 부르고 시작해라. 매 문장마다 반복하지는 마라.")
 
 
+def _fix_links(text: str) -> str:
+    """모델이 가끔 '이름 [/path]' 같은 비표준 형식으로 링크를 내보냄 → 표준 마크다운 [이름](/path)로
+    정규화해 프런트에서 클릭되게 한다. 이미 올바른 [텍스트](url)는 건드리지 않는다."""
+    if not text:
+        return text
+    out = []
+    for ln in text.split("\n"):
+        # '라벨 [/path]' (한 줄에 라벨+경로브래킷, 이미 마크다운 링크가 아닌 경우)
+        if "](" not in ln:
+            m = re.match(r'^(\s*(?:[-•*]\s*)?)(.+?)\s*\[(/[^\]\s]+)\]\s*$', ln)
+            if m:
+                ln = f"{m.group(1)}[{m.group(2).strip()}]({m.group(3)})"
+        out.append(ln)
+    text = "\n".join(out)
+    # 라벨 없이 떠도는 인라인 '[/path]' → 클릭 가능하게
+    text = re.sub(r'(?<!\])\[(/[^\]\s]+)\](?!\()', r'[\1](\1)', text)
+    return text
+
+
 def _is_blank_response(resp) -> bool:
     """모델이 텍스트도 도구호출도 없이 빈 응답을 준 경우(일시 glitch). 안전차단은 제외(재시도 무의미)."""
     if resp is None:
@@ -1271,7 +1301,7 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
         "total_tokens": getattr(um, "total_token_count", None),
     } if um else {}
 
-    answer = _safe_text(resp)
+    answer = _fix_links(_safe_text(resp))
     # 안전망: 모델이 가끔 영어 거절문을 내뱉음 → 한국어로 치환(고객 노출 방지).
     if answer and ("I'm sorry" in answer or "I cannot" in answer or "I am sorry" in answer
                    or "cannot fulfill" in answer or "unable to" in answer):
@@ -1325,7 +1355,7 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
             out_tok += (um.candidates_token_count or 0)
         fcs = resp.function_calls
         if not fcs:
-            yield {"type": "done", "answer": _safe_text(resp), "tools_used": trace,
+            yield {"type": "done", "answer": _fix_links(_safe_text(resp)), "tools_used": trace,
                    "usage": {"input_tokens": in_tok, "output_tokens": out_tok,
                              "total_tokens": in_tok + out_tok}, "model": MODEL}
             return
