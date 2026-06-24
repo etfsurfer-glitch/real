@@ -5897,15 +5897,20 @@ def admin_users(_admin: dict = Depends(admin_user), page: int = 1, per_page: int
     except _urlerr.URLError:
         raise HTTPException(502, "Supabase에 연결할 수 없습니다")
     # 자체 인증한 휴대폰 번호·회원번호(user_profiles)를 병합 — Supabase 메타데이터보다 우선.
+    # + 중개사 홈페이지 개설자(realtor_homepages)의 slug·공개여부를 함께 노출.
     with _reviews_db() as c:
         prof = {r[0]: (r[1], r[2]) for r in c.execute(
             "SELECT user_id, phone, member_no FROM user_profiles WHERE phone_verified=1").fetchall()}
+        hp = {r[0]: (r[1], r[2], r[3]) for r in c.execute(
+            "SELECT user_id, slug, published, realtor_id FROM realtor_homepages "
+            "WHERE user_id IS NOT NULL AND slug IS NOT NULL").fetchall()}
     out = []
     for u in data.get("users", []):
         m = u.get("user_metadata") or {}
         am = u.get("app_metadata") or {}
         uid = u.get("id")
         vphone, member_no = prof.get(uid, (None, None))
+        hp_slug, hp_pub, hp_rid = hp.get(uid, (None, None, None))
         out.append({
             "id": uid,
             "member_no": member_no,
@@ -5917,6 +5922,9 @@ def admin_users(_admin: dict = Depends(admin_user), page: int = 1, per_page: int
             "provider": am.get("provider"),
             "created_at": u.get("created_at"),
             "last_sign_in_at": u.get("last_sign_in_at"),
+            "homepage_slug": hp_slug,
+            "homepage_published": bool(hp_pub),
+            "homepage_realtor_id": hp_rid,
         })
     return {"count": len(out), "users": out}
 

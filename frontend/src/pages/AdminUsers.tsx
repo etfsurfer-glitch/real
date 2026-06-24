@@ -8,6 +8,7 @@ type U = {
   id: string; member_no?: number | null; email: string | null; phone: string | null;
   phone_verified?: boolean; name: string | null; avatar: string | null; provider: string | null;
   created_at: string | null; last_sign_in_at: string | null;
+  homepage_slug?: string | null; homepage_published?: boolean;
 };
 
 function fmt(ts: string | null): string {
@@ -81,7 +82,7 @@ export default function AdminUsers() {
             <thead>
               <tr>
                 <th>#</th><th>회원번호</th><th>회원</th><th>이메일</th><th>전화</th>
-                <th>가입경로</th><th>가입일</th><th>최근 로그인</th><th>포인트</th>
+                <th>가입경로</th><th>홈페이지</th><th>가입일</th><th>최근 로그인</th><th>포인트</th>
               </tr>
             </thead>
             <tbody>
@@ -107,6 +108,17 @@ export default function AdminUsers() {
                     )}
                   </td>
                   <td><span className="ctx-badge" style={{ background: "#fee500", color: "#3a1d1d" }}>{u.provider ?? "-"}</span></td>
+                  <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                    {u.homepage_slug ? (
+                      <a href={`https://real.koczip.com/${u.homepage_slug}`} target="_blank" rel="noreferrer"
+                        style={{ color: "#1268d3", fontWeight: 700, textDecoration: "none" }}>
+                        /{u.homepage_slug}
+                        <span className="ctx-badge" style={{ marginLeft: 5, background: u.homepage_published ? "#e6f7ed" : "#f1f3f5", color: u.homepage_published ? "#1a7f4b" : "#999" }}>
+                          {u.homepage_published ? "공개" : "비공개"}
+                        </span>
+                      </a>
+                    ) : <span style={{ color: "#ccc" }}>—</span>}
+                  </td>
                   <td className="num" style={{ fontSize: 12 }}>{fmt(u.created_at)}</td>
                   <td className="num" style={{ fontSize: 12 }}>{fmt(u.last_sign_in_at)}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
