@@ -87,6 +87,16 @@ def main():
         c.execute(f"INSERT INTO realtor_region_sido(realtor_id,sido,{','.join(cols)}) "
                   f"SELECT realtor_id,sido,{sums} FROM ({union_s}) GROUP BY realtor_id,sido")
     c.execute("CREATE INDEX IF NOT EXISTS rrs_sido_idx ON realtor_region_sido(sido)")
+    # 단지형(listings_current) 시도×중개사 카운트 미리 집계 — by-sido 랭킹 라이브 풀스캔(2s) 제거.
+    c.execute("DROP TABLE IF EXISTS realtor_complex_sido")
+    c.execute("""
+        CREATE TABLE realtor_complex_sido AS
+        SELECT substr(c.cortar_no,1,2) sido, l.realtor_id, COUNT(*) n
+        FROM listings_current l JOIN complexes c ON c.complex_no=l.complex_no
+        WHERE l.realtor_id IS NOT NULL AND l.realtor_id!='' AND c.cortar_no IS NOT NULL
+        GROUP BY substr(c.cortar_no,1,2), l.realtor_id
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS rcs_sido_idx ON realtor_complex_sido(sido)")
     # 통합 중개사명(naver_realtors + 비단지 매물명) — 랭킹 이름 표시용.
     c.execute("DROP TABLE IF EXISTS realtor_names")
     c.execute("CREATE TABLE realtor_names(realtor_id TEXT PRIMARY KEY, realtor_name TEXT)")

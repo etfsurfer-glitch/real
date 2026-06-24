@@ -2229,10 +2229,7 @@ def realtors_by_sido(limit: int = 10, scope: str = "complex"):
             "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city'")}
         parts = []
         if scope in ("complex", "all"):
-            parts.append("SELECT substr(c.cortar_no,1,2) sido, l.realtor_id rid, COUNT(*) n "
-                         "FROM listings_current l JOIN complexes c ON c.complex_no=l.complex_no "
-                         "WHERE l.realtor_id IS NOT NULL AND l.realtor_id!='' AND c.cortar_no IS NOT NULL "
-                         "GROUP BY substr(c.cortar_no,1,2), l.realtor_id")
+            parts.append("SELECT sido, realtor_id rid, n FROM realtor_complex_sido")
         if scope in ("house", "all"):
             parts.append("SELECT sido, realtor_id rid, (villa_n+house_n) n FROM realtor_region_sido WHERE villa_n+house_n>0")
         if scope in ("comm", "all"):
