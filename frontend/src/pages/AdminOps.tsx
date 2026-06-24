@@ -83,7 +83,7 @@ function WorkBoard({ staff, tasks, H, reload }: { staff: Staff[]; tasks: Task[];
     await fetch(`${API}/admin/ops/tasks`, H({ method: "POST", body: JSON.stringify({ title, detail, assignee_id: assignee ? Number(assignee) : null, status: "todo", due_date: due }) }));
     setTitle(""); setDetail(""); setDue(""); reload();
   };
-  const move = async (t: Task, status: string) => { await fetch(`${API}/admin/ops/tasks/${t.id}`, H({ method: "PATCH", body: JSON.stringify({ status }) })); reload(); };
+  const move = async (t: Task, status: string) => { await fetch(`${API}/admin/ops/tasks/${t.id}`, H({ method: "POST", body: JSON.stringify({ status }) })); reload(); };
   const del = async (t: Task) => { if (!confirm("삭제할까요?")) return; await fetch(`${API}/admin/ops/tasks/${t.id}`, H({ method: "DELETE" })); reload(); };
 
   const seen = tasks.filter((t) => inPeriod(t.updated_at, period));

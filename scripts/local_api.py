@@ -6155,6 +6155,7 @@ def ops_task_add(body: OpsTaskBody, _admin: dict = Depends(admin_user)):
 
 
 @app.patch("/admin/ops/tasks/{tid}")
+@app.post("/admin/ops/tasks/{tid}")
 def ops_task_patch(tid: int, body: OpsTaskPatch, _admin: dict = Depends(admin_user)):
     sets, params = [], []
     if body.title is not None:
