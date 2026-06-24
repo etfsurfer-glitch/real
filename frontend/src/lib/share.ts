@@ -30,12 +30,35 @@ export async function captureToCanvas(el: HTMLElement): Promise<HTMLCanvasElemen
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const html2canvas = (await loadScript(H2C_SRC, "html2canvas")) as any;
   const scale = Math.min(2.5, (window.devicePixelRatio || 1) * 1.5);
-  const src: HTMLCanvasElement = await html2canvas(el, {
-    backgroundColor: "#ffffff", scale, useCORS: true, logging: false,
-    // 공유 바·버튼류는 캡처 이미지에서 제외
-    ignoreElements: (node: Element) =>
-      node.classList?.contains("share-bar") || node.classList?.contains("no-capture"),
+
+  // 가로 스크롤되는 표(.rank-scroll 등)는 보이는 폭만 캡처되므로, 캡처 동안 전체 폭으로 펼친다.
+  const scrollers: HTMLElement[] = [];
+  el.querySelectorAll<HTMLElement>("*").forEach((n) => {
+    const ox = getComputedStyle(n).overflowX;
+    if ((ox === "auto" || ox === "scroll") && n.scrollWidth > n.clientWidth + 1) scrollers.push(n);
   });
+  const saved = scrollers.map((s) => ({ s, css: s.style.cssText }));
+  scrollers.forEach((s) => {
+    s.style.overflow = "visible"; s.style.overflowX = "visible";
+    s.style.width = "max-content"; s.style.maxWidth = "none";
+  });
+  void el.offsetWidth; // 강제 리플로우
+  const fullW = Math.max(el.scrollWidth, el.offsetWidth);
+  const fullH = Math.max(el.scrollHeight, el.offsetHeight);
+
+  let src: HTMLCanvasElement;
+  try {
+    src = await html2canvas(el, {
+      backgroundColor: "#ffffff", scale, useCORS: true, logging: false,
+      width: fullW, height: fullH,
+      windowWidth: Math.max(document.documentElement.clientWidth, fullW),
+      // 공유 바·버튼류는 캡처 이미지에서 제외
+      ignoreElements: (node: Element) =>
+        node.classList?.contains("share-bar") || node.classList?.contains("no-capture"),
+    });
+  } finally {
+    saved.forEach(({ s, css }) => { s.style.cssText = css; }); // 원상복구
+  }
   const foot = Math.round(36 * scale);
   const out = document.createElement("canvas");
   out.width = src.width; out.height = src.height + foot;

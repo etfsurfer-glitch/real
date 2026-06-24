@@ -537,7 +537,7 @@ export function RealtorByStaff() {
       <RankHero icon={<Users size={22} strokeWidth={2.3} />} title="직원수 순위 TOP 20"
         sub="vworld 등록 소속 인원(공인중개사·중개보조원) 기준"
         highlight={top && <><b>{top.realtor_name}</b><span>{top.staff_count ?? "-"}명</span></>} />
-      {rows ? <RealtorTable rows={rows} detailed hideListings /> : <Loading />}
+      {rows ? <RealtorTable rows={rows} detailed hideListings primary="staff" /> : <Loading />}
     </>
   );
 }
@@ -550,17 +550,35 @@ export function RealtorByTenure() {
       <RankHero icon={<CalendarClock size={22} strokeWidth={2.3} />} title="업력 순위 TOP 20"
         sub="vworld 개업신고일 기준 — 가장 오래 영업한 곳"
         highlight={top && <><b>{top.realtor_name}</b><span>{top.established_year ?? "-"}~</span></>} />
-      {rows ? <RealtorTable rows={rows} detailed tenure hideListings /> : <Loading />}
+      {rows ? <RealtorTable rows={rows} detailed tenure hideListings primary="tenure" /> : <Loading />}
     </>
   );
 }
 
 function RealtorTable(
-  { rows, compact = false, detailed = false, tenure = false, search = false, hideListings = false }:
-  { rows: RealtorRow[]; compact?: boolean; detailed?: boolean; tenure?: boolean; search?: boolean; hideListings?: boolean },
+  { rows, compact = false, detailed = false, tenure = false, search = false, hideListings = false,
+    primary = "listings" }:
+  { rows: RealtorRow[]; compact?: boolean; detailed?: boolean; tenure?: boolean; search?: boolean;
+    hideListings?: boolean; primary?: "listings" | "staff" | "tenure" },
 ) {
   if (rows.length === 0) return <div className="muted">데이터 없음</div>;
   const ranked = detailed || compact;  // 순위표(검색결과 제외)에서만 메달 표시
+  // 지표 컬럼 — 랭킹 기준(primary)이 이름 바로 뒤에 오도록 정렬. 매물은 hideListings면 제외.
+  const avail = (["listings", "staff", "tenure"] as const)
+    .filter((k) => (k === "listings" ? !hideListings : detailed));
+  const ordered = [primary, ...avail.filter((k) => k !== primary)].filter((k) => avail.includes(k));
+  const HEAD: Record<string, string> = { listings: "매물", staff: "소속인원", tenure: tenure ? "개업일" : "개업연도" };
+  const mcell = (k: string, r: RealtorRow) => {
+    if (k === "staff") return r.staff_count != null ? `${r.staff_count}명` : "-";
+    if (k === "tenure") return (tenure ? r.established_date : r.established_year) ?? "-";
+    return (
+      <>{(r.count ?? 0).toLocaleString()}
+        {r.total_count != null && r.total_count > (r.count ?? 0) && (
+          <span style={{ color: "#9aa7b8", fontWeight: 400, fontSize: 11 }}><br />전체 {r.total_count.toLocaleString()}</span>
+        )}
+      </>
+    );
+  };
   return (
     <div className="rank-scroll">
     <table>
@@ -568,12 +586,11 @@ function RealtorTable(
         <tr>
           <th style={{ width: 32 }}>#</th>
           <th>중개사무소</th>
+          {!search && ordered.map((k) => <th key={k} className="num">{HEAD[k]}</th>)}
           {detailed && <th>소재지</th>}
+          {search && <th className="num">매물</th>}
           {search && <th>소재지</th>}
           {search && <th>대표</th>}
-          {detailed && <th className="num">소속인원</th>}
-          {detailed && <th className="num">{tenure ? "개업일" : "개업연도"}</th>}
-          {!hideListings && <th className="num">매물</th>}
         </tr>
       </thead>
       <tbody>
@@ -595,7 +612,9 @@ function RealtorTable(
                 <span>{r.realtor_name ?? "-"}</span>
               )}
             </td>
+            {!search && ordered.map((k) => <td key={k} className="num">{mcell(k, r)}</td>)}
             {detailed && <td>{r.sido ?? "-"}</td>}
+            {search && <td className="num">{(r.count ?? 0).toLocaleString()}</td>}
             {search && (
               <td style={{ fontSize: 12, color: "#475569", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                   title={r.address ?? undefined}>
@@ -603,15 +622,6 @@ function RealtorTable(
               </td>
             )}
             {search && <td style={{ fontSize: 12, color: "#475569" }}>{r.representative ?? "-"}</td>}
-            {detailed && <td className="num">{r.staff_count != null ? `${r.staff_count}명` : "-"}</td>}
-            {detailed && <td className="num">{(tenure ? r.established_date : r.established_year) ?? "-"}</td>}
-            {!hideListings && (
-              <td className="num">{(r.count ?? 0).toLocaleString()}
-                {r.total_count != null && r.total_count > r.count && (
-                  <span style={{ color: "#9aa7b8", fontWeight: 400, fontSize: 11 }}><br />전체 {r.total_count.toLocaleString()}</span>
-                )}
-              </td>
-            )}
           </tr>
         ))}
       </tbody>
