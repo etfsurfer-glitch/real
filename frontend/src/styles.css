@@ -2815,7 +2815,15 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .rank-sido-card{border:1px solid var(--c-border-soft);border-radius:var(--r-md);padding:12px 13px 6px;background:#fff;box-shadow:var(--sh-xs)}
 .rank-sido-name{display:flex;align-items:center;gap:5px;font-weight:800;font-size:14px;color:var(--c-text);margin-bottom:8px}
 .rank-sido-name svg{color:var(--c-primary)}
-@media(max-width:600px){.rank-hero-hl{display:none}.rank-hero-tx h2{font-size:17px}}
+@media(max-width:600px){
+  .rank-hero{flex-wrap:wrap;gap:10px 12px;padding:15px 16px}
+  .rank-hero-ic{width:40px;height:40px;border-radius:12px}
+  .rank-hero-tx{flex:1 1 auto;min-width:120px}
+  .rank-hero-tx h2{font-size:16px}
+  .rank-hero-tx p{font-size:11.5px}
+  .rank-hero-hl{display:none}
+  .rank-hero-ctrl{flex:1 1 100%;margin-left:0}
+}
 
 /* 매물 범위 선택(랭킹 히어로 공통) */
 .scope-sel{display:inline-flex;align-items:center;gap:7px;font-size:13px;flex:none}
