@@ -535,7 +535,7 @@ export function RealtorByStaff() {
       <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
         vworld 등록 소속 인원(공인중개사·중개보조원) 기준.
       </div>
-      {rows ? <RealtorTable rows={rows} detailed /> : <Loading />}
+      {rows ? <RealtorTable rows={rows} detailed hideListings /> : <Loading />}
     </>
   );
 }
@@ -548,14 +548,14 @@ export function RealtorByTenure() {
       <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
         vworld 개업신고일 기준 — 가장 오래 영업한 순.
       </div>
-      {rows ? <RealtorTable rows={rows} detailed tenure /> : <Loading />}
+      {rows ? <RealtorTable rows={rows} detailed tenure hideListings /> : <Loading />}
     </>
   );
 }
 
 function RealtorTable(
-  { rows, compact = false, detailed = false, tenure = false, search = false }:
-  { rows: RealtorRow[]; compact?: boolean; detailed?: boolean; tenure?: boolean; search?: boolean },
+  { rows, compact = false, detailed = false, tenure = false, search = false, hideListings = false }:
+  { rows: RealtorRow[]; compact?: boolean; detailed?: boolean; tenure?: boolean; search?: boolean; hideListings?: boolean },
 ) {
   if (rows.length === 0) return <div className="muted">데이터 없음</div>;
   const ranked = detailed || compact;  // 순위표(검색결과 제외)에서만 메달 표시
@@ -571,7 +571,7 @@ function RealtorTable(
           {search && <th>대표</th>}
           {detailed && <th className="num">소속인원</th>}
           {detailed && <th className="num">{tenure ? "개업일" : "개업연도"}</th>}
-          <th className="num">매물</th>
+          {!hideListings && <th className="num">매물</th>}
         </tr>
       </thead>
       <tbody>
@@ -603,7 +603,7 @@ function RealtorTable(
             {search && <td style={{ fontSize: 12, color: "#475569" }}>{r.representative ?? "-"}</td>}
             {detailed && <td className="num">{r.staff_count != null ? `${r.staff_count}명` : "-"}</td>}
             {detailed && <td className="num">{(tenure ? r.established_date : r.established_year) ?? "-"}</td>}
-            <td className="num">{(r.count ?? 0).toLocaleString()}</td>
+            {!hideListings && <td className="num">{(r.count ?? 0).toLocaleString()}</td>}
           </tr>
         ))}
       </tbody>
