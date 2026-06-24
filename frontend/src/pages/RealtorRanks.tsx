@@ -485,11 +485,28 @@ export default function RealtorRanks() {
   );
 }
 
+// 랭킹 하위 페이지 공통 히어로 — 사이트 톤(네이비→블루) 배너 + 1위 하이라이트.
+function RankHero({ icon, title, sub, highlight }: { icon: ReactNode; title: string; sub: string; highlight?: ReactNode }) {
+  return (
+    <div className="rank-hero">
+      <span className="rank-hero-ic">{icon}</span>
+      <div className="rank-hero-tx">
+        <h2>{title}</h2>
+        <p>{sub}</p>
+      </div>
+      {highlight && <div className="rank-hero-hl">{highlight}</div>}
+    </div>
+  );
+}
+
 export function RealtorNational() {
   const { national } = useOutletContext<RealtorCtx>();
+  const top = national[0];
   return (
     <>
-      <div className="section-title">전국 TOP 20</div>
+      <RankHero icon={<Crown size={22} strokeWidth={2.3} />} title="전국 매물보유 순위"
+        sub="매물 범위를 골라 전국 중개사무소를 줄세웁니다 · 단지형 기본"
+        highlight={top && <><b>{top.realtor_name}</b><span>{top.count.toLocaleString()}개</span></>} />
       <RealtorTable rows={national} detailed />
     </>
   );
@@ -499,16 +516,12 @@ export function RealtorBySido() {
   const { sidoEntries } = useOutletContext<RealtorCtx>();
   return (
     <>
-      <div className="section-title" style={{ marginTop: 4 }}>시도별 TOP 10</div>
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-        gap: 16,
-        marginTop: 8,
-      }}>
+      <RankHero icon={<MapPin size={22} strokeWidth={2.3} />} title="지역별 매물보유 순위"
+        sub="시도마다 매물이 많은 중개사무소 TOP 10 · 단지형 기본" />
+      <div className="rank-sido-grid">
         {sidoEntries.map(([sidoName, rows]) => (
-          <div key={sidoName}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>{sidoName}</div>
+          <div key={sidoName} className="rank-sido-card">
+            <div className="rank-sido-name"><MapPin size={13} strokeWidth={2.4} /> {sidoName}</div>
             <RealtorTable rows={rows} compact />
           </div>
         ))}
@@ -532,12 +545,12 @@ function useRealtorList(path: string) {
 
 export function RealtorByStaff() {
   const rows = useRealtorList("/stats/realtors/by-staff?limit=20");
+  const top = rows && rows[0];
   return (
     <>
-      <div className="section-title">직원수 TOP 20</div>
-      <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-        vworld 등록 소속 인원(공인중개사·중개보조원) 기준.
-      </div>
+      <RankHero icon={<Users size={22} strokeWidth={2.3} />} title="직원수 순위 TOP 20"
+        sub="vworld 등록 소속 인원(공인중개사·중개보조원) 기준"
+        highlight={top && <><b>{top.realtor_name}</b><span>{top.staff_count ?? "-"}명</span></>} />
       {rows ? <RealtorTable rows={rows} detailed hideListings /> : <Loading />}
     </>
   );
@@ -545,12 +558,12 @@ export function RealtorByStaff() {
 
 export function RealtorByTenure() {
   const rows = useRealtorList("/stats/realtors/by-tenure?limit=20");
+  const top = rows && rows[0];
   return (
     <>
-      <div className="section-title">업력 TOP 20 (개업 빠른 순)</div>
-      <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-        vworld 개업신고일 기준 — 가장 오래 영업한 순.
-      </div>
+      <RankHero icon={<CalendarClock size={22} strokeWidth={2.3} />} title="업력 순위 TOP 20"
+        sub="vworld 개업신고일 기준 — 가장 오래 영업한 곳"
+        highlight={top && <><b>{top.realtor_name}</b><span>{top.established_year ?? "-"}~</span></>} />
       {rows ? <RealtorTable rows={rows} detailed tenure hideListings /> : <Loading />}
     </>
   );
