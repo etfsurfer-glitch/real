@@ -2619,11 +2619,50 @@ def realtor_detail(realtor_id: str):
         "total": total_count + _v + _h + _s + _o + _l + _f + _b,
     }
 
+    # 대표 분야(최다 유형) 순위 + 전체 매물 순위. 단지형만으로 줄세우던 한계 보완.
+    _TLABEL = {"complex": "단지형", "villa": "빌라", "house": "단독", "sangga": "상가",
+               "office": "사무실", "building": "빌딩", "land": "토지", "factory": "공장"}
+    _tkeys = ["complex", "villa", "house", "sangga", "office", "building", "land", "factory"]
+    top_key = max(_tkeys, key=lambda k: listing_breakdown.get(k, 0))
+    top_n = listing_breakdown.get(top_key, 0)
+    rep_rank = total_rank_out = None
+    if top_n > 0:
+        with _open_db() as c:
+            if top_key == "complex":
+                nrk = c.execute("SELECT COUNT(*)+1 FROM realtor_match WHERE total_listings>?", (top_n,)).fetchone()[0]
+                ntot = c.execute("SELECT COUNT(*) FROM realtor_match WHERE total_listings>0").fetchone()[0]
+                ps = c.execute("SELECT sido,n FROM realtor_complex_sido WHERE realtor_id=? ORDER BY n DESC LIMIT 1",
+                               (realtor_id,)).fetchone()
+                sname = srk = None
+                if ps:
+                    sname = ranks["sido_names"].get(ps[0], ps[0])
+                    srk = c.execute("SELECT COUNT(*)+1 FROM realtor_complex_sido WHERE sido=? AND n>?",
+                                    (ps[0], ps[1])).fetchone()[0]
+            else:
+                col = top_key + "_n"
+                nrk = c.execute(f"SELECT COUNT(*)+1 FROM realtor_region_counts WHERE {col}>?", (top_n,)).fetchone()[0]
+                ntot = c.execute(f"SELECT COUNT(*) FROM realtor_region_counts WHERE {col}>0").fetchone()[0]
+                ps = c.execute(f"SELECT sido,{col} FROM realtor_region_sido WHERE realtor_id=? ORDER BY {col} DESC LIMIT 1",
+                               (realtor_id,)).fetchone()
+                sname = srk = None
+                if ps and ps[1]:
+                    sname = ranks["sido_names"].get(ps[0], ps[0])
+                    srk = c.execute(f"SELECT COUNT(*)+1 FROM realtor_region_sido WHERE sido=? AND {col}>?",
+                                    (ps[0], ps[1])).fetchone()[0]
+            rep_rank = {"type": _TLABEL[top_key], "type_key": top_key, "count": top_n,
+                        "national_rank": nrk, "national_total": ntot, "sido_name": sname, "sido_rank": srk}
+            tn = listing_breakdown["total"]
+            trk = c.execute("SELECT COUNT(*)+1 FROM realtor_total WHERE total_n>?", (tn,)).fetchone()[0]
+            ttot = c.execute("SELECT COUNT(*) FROM realtor_total WHERE total_n>0").fetchone()[0]
+            total_rank_out = {"count": tn, "national_rank": trk, "national_total": ttot}
+
     return {
         "realtor_id": realtor_id,
         "realtor_name": realtor_name,
         "total_count": total_count,
         "listing_breakdown": listing_breakdown,
+        "rep_rank": rep_rank,
+        "total_rank": total_rank_out,
         "national_rank": nat_rank,
         "national_total": ranks["national_total"],
         "by_sido": by_sido_out,

@@ -53,11 +53,15 @@ type NaverInfo = {
 };
 
 type Breakdown = { complex: number; villa: number; house: number; sangga: number; office: number; land: number; factory: number; building: number; total: number };
+type RankInfo = { count: number; national_rank: number; national_total: number };
+type RepRank = RankInfo & { type: string; type_key: string; sido_name: string | null; sido_rank: number | null };
 type RealtorDetail = {
   realtor_id: string;
   realtor_name: string | null;
   total_count: number;
   listing_breakdown?: Breakdown;
+  rep_rank?: RepRank | null;
+  total_rank?: RankInfo | null;
   national_rank: number | null;
   national_total: number;
   by_sido: SidoRank[];
@@ -224,18 +228,21 @@ export default function Realtor() {
             </div>
           </div>
         )}
-        {data.national_rank != null && (
+        {data.rep_rank && (
           <div className="stat-box">
-            <div className="stat-label">전국매물수 기준</div>
-            <div className="stat-value">#{data.national_rank.toLocaleString()}</div>
-            <div className="stat-sub">{data.national_total.toLocaleString()}개 중</div>
+            <div className="stat-label">{data.rep_rank.type} 순위 <span className="stat-tag">대표분야</span></div>
+            <div className="stat-value">#{data.rep_rank.national_rank.toLocaleString()}</div>
+            <div className="stat-sub">
+              전국 {data.rep_rank.national_total.toLocaleString()}곳
+              {data.rep_rank.sido_rank && <> · {data.rep_rank.sido_name} #{data.rep_rank.sido_rank.toLocaleString()}</>}
+            </div>
           </div>
         )}
-        {data.by_sido[0] && (
+        {data.total_rank && (
           <div className="stat-box">
-            <div className="stat-label">{data.by_sido[0].sido_name}매물수 기준</div>
-            <div className="stat-value">#{data.by_sido[0].rank.toLocaleString()}</div>
-            <div className="stat-sub">{data.by_sido[0].total_in_sido.toLocaleString()}개 중</div>
+            <div className="stat-label">전체 매물 순위</div>
+            <div className="stat-value">#{data.total_rank.national_rank.toLocaleString()}</div>
+            <div className="stat-sub">전국 {data.total_rank.national_total.toLocaleString()}곳 중</div>
           </div>
         )}
       </div>

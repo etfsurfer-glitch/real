@@ -97,6 +97,17 @@ def main():
         GROUP BY substr(c.cortar_no,1,2), l.realtor_id
     """)
     c.execute("CREATE INDEX IF NOT EXISTS rcs_sido_idx ON realtor_complex_sido(sido)")
+    # 전체 매물수(단지형+비단지) 합산 — 중개사 세부 '전체 순위'용.
+    c.execute("DROP TABLE IF EXISTS realtor_total")
+    c.execute("""
+        CREATE TABLE realtor_total AS
+        SELECT realtor_id, SUM(n) total_n FROM (
+          SELECT realtor_id, COALESCE(total_listings,0) n FROM realtor_match WHERE total_listings>0
+          UNION ALL
+          SELECT realtor_id, (villa_n+house_n+sangga_n+office_n+land_n+factory_n+building_n) n FROM realtor_region_counts
+        ) WHERE realtor_id IS NOT NULL AND realtor_id!='' GROUP BY realtor_id
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS rt_total_idx ON realtor_total(total_n)")
     # 통합 중개사명(naver_realtors + 비단지 매물명) — 랭킹 이름 표시용.
     c.execute("DROP TABLE IF EXISTS realtor_names")
     c.execute("CREATE TABLE realtor_names(realtor_id TEXT PRIMARY KEY, realtor_name TEXT)")
