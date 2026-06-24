@@ -5,7 +5,7 @@ import { SubNav } from "./components/SubNav";
 import {
   Sparkles, LayoutDashboard, BadgePercent,
   TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert,
-  ClipboardCheck, ClipboardList, ScrollText, Menu as MenuIcon, X as XIcon,
+  ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
   ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, type LucideIcon,
 } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -33,6 +33,7 @@ import AdminDataSources from "./pages/AdminDataSources";
 import AdminPush from "./pages/AdminPush";
 import AdminTodayStats from "./pages/AdminTodayStats";
 import AdminOps from "./pages/AdminOps";
+import AdminKpi from "./pages/AdminKpi";
 import NonResi from "./pages/NonResi";
 import JeonseCheck from "./pages/JeonseCheck";
 import EasterEgg from "./components/EasterEgg";
@@ -317,6 +318,7 @@ function AppShell() {
         <Route path="/admin/push" element={<RequireAdmin><AdminPush /></RequireAdmin>} />
         <Route path="/admin/today" element={<RequireAdmin><AdminTodayStats /></RequireAdmin>} />
         <Route path="/admin/ops" element={<RequireAdmin><AdminOps /></RequireAdmin>} />
+        <Route path="/admin/kpi" element={<RequireAdmin><AdminKpi /></RequireAdmin>} />
         <Route path="/nonresi/:cat" element={<NonResi />} />
         <Route path="/nonresi" element={<NonResi />} />
         <Route path="/jeonse-check" element={<JeonseCheck />} />
@@ -375,6 +377,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/logs", label: "활동 로그", icon: ScrollText },
   { to: "/admin/today", label: "오늘의 접속통계", icon: Activity },
   { to: "/admin/ops", label: "업무관리", icon: ClipboardList },
+  { to: "/admin/kpi", label: "KPI 목표", icon: Target },
   { to: "/admin/data-sources", label: "수집 현황", icon: Database },
   { to: "/admin/push", label: "알림 발송", icon: Bell },
   { to: "/admin/realtor-match", label: "중개사 매칭", icon: Wrench },

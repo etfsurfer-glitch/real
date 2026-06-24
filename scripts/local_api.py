@@ -6132,6 +6132,74 @@ def _member_map(user_ids) -> dict:
         return {}
 
 
+# ===========================================================================
+# 관리자: KPI 목표 추적 (방문자·가입자·홈페이지 / 1·2·3차 목표)
+# ===========================================================================
+_KPI_DEFAULTS = [
+    ("visitors", 1, 1000, "2026-12-31"), ("visitors", 2, 2000, "2027-06-30"), ("visitors", 3, 3000, "2027-12-31"),
+    ("signups", 1, 1000, "2026-12-31"), ("signups", 2, 1500, "2027-06-30"), ("signups", 3, 2000, "2027-12-31"),
+    ("homepages", 1, 100, "2026-12-31"), ("homepages", 2, 200, "2027-06-30"), ("homepages", 3, 300, "2027-12-31"),
+]
+_KPI_META = {
+    "visitors": ("월평균 일간 순수방문자", "명"),
+    "signups": ("누적 가입자", "명"),
+    "homepages": ("중개사 홈페이지", "개"),
+}
+
+
+def _ensure_kpi(c):
+    c.execute("CREATE TABLE IF NOT EXISTS kpi_targets("
+              "metric TEXT, tier INTEGER, target INTEGER, deadline TEXT, PRIMARY KEY(metric,tier))")
+    for m, t, tg, dl in _KPI_DEFAULTS:
+        c.execute("INSERT OR IGNORE INTO kpi_targets(metric,tier,target,deadline) VALUES(?,?,?,?)", (m, t, tg, dl))
+    c.commit()
+
+
+@app.get("/admin/kpi")
+def admin_kpi(_admin: dict = Depends(admin_user)):
+    """KPI 현황 — 방문자(이달 월평균 일간 순방문)·가입자(누적)·홈페이지(개) vs 1·2·3차 목표."""
+    with _logs_db() as lc:
+        vis = lc.execute(
+            "SELECT AVG(daily) FROM (SELECT date(ts,'+9 hours') d, COUNT(DISTINCT ip) daily "
+            "FROM event_log WHERE date(ts,'+9 hours') >= date('now','+9 hours','start of month') GROUP BY d)"
+        ).fetchone()[0]
+    with _reviews_db() as rc:
+        _ensure_kpi(rc)
+        signups = rc.execute("SELECT COUNT(*) FROM user_profiles").fetchone()[0]
+        homepages = rc.execute("SELECT COUNT(*) FROM realtor_homepages WHERE slug IS NOT NULL").fetchone()[0]
+        trows = rc.execute("SELECT metric,tier,target,deadline FROM kpi_targets ORDER BY metric,tier").fetchall()
+    cur = {"visitors": round(vis or 0), "signups": signups, "homepages": homepages}
+    tmap: dict = {}
+    for m, t, tg, dl in trows:
+        tmap.setdefault(m, []).append({"tier": t, "target": tg, "deadline": dl})
+    metrics = []
+    for key in ("visitors", "signups", "homepages"):
+        label, unit = _KPI_META[key]
+        metrics.append({"key": key, "label": label, "unit": unit,
+                        "current": cur[key], "tiers": tmap.get(key, [])})
+    return {"metrics": metrics}
+
+
+class KpiTargetBody(BaseModel):
+    metric: str
+    tier: int
+    target: int
+    deadline: str = ""
+
+
+@app.post("/admin/kpi/target")
+def admin_kpi_target(body: KpiTargetBody, _admin: dict = Depends(admin_user)):
+    """KPI 목표값·기한 수정."""
+    if body.metric not in _KPI_META or body.tier not in (1, 2, 3):
+        raise HTTPException(400, "잘못된 지표/단계")
+    with _reviews_db() as c:
+        _ensure_kpi(c)
+        c.execute("UPDATE kpi_targets SET target=?, deadline=? WHERE metric=? AND tier=?",
+                  (int(body.target), body.deadline.strip(), body.metric, body.tier))
+        c.commit()
+    return {"ok": True}
+
+
 def _page_label(path: str | None) -> str:
     """경로 → 직관적 페이지명. 관리자 대시보드 표시용."""
     if not path:

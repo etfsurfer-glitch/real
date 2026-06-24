@@ -2743,3 +2743,28 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .rank-scope{display:flex;align-items:center;gap:8px;margin:2px 0 10px;font-size:13px}
 .rank-scope span{font-weight:700;color:var(--c-text-soft)}
 .rank-scope select{border:1px solid var(--c-border);border-radius:var(--r-pill);padding:7px 13px;font-size:13px;font-weight:700;background:#fff;color:var(--c-primary-strong);cursor:pointer}
+
+/* 관리자 KPI 추적 */
+.kpi-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.kpi-head h2{display:flex;align-items:center;gap:7px;font-size:18px;font-weight:800}
+.kpi-head h2 svg{color:var(--c-primary)}
+.kpi-edit,.kpi-save{display:inline-flex;align-items:center;gap:5px;border:0;border-radius:var(--r-sm);padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer}
+.kpi-edit{background:var(--c-border-soft);color:var(--c-text-soft)}
+.kpi-save{background:var(--c-jeonse,#1f9d63);color:#fff}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.kpi-card{border:1px solid var(--c-border-soft);border-radius:var(--r-lg);padding:16px;background:#fff;box-shadow:var(--sh-xs)}
+.kpi-label{font-size:13.5px;font-weight:700;color:var(--c-muted)}
+.kpi-cur{font-size:32px;font-weight:900;color:var(--c-text);letter-spacing:-1px;margin:2px 0 12px}
+.kpi-cur span{font-size:15px;font-weight:700;color:var(--c-muted);margin-left:3px}
+.kpi-tier{margin-top:10px}
+.kpi-tier-h{display:flex;align-items:center;gap:7px;font-size:12.5px}
+.kpi-tier-n{font-weight:800;color:var(--c-primary-strong);flex:none;width:28px}
+.kpi-tgt{font-weight:800;color:var(--c-text)}
+.kpi-dl{color:var(--c-faint);font-size:11.5px}
+.kpi-done{margin-left:auto;background:#e6f7ed;color:#1a7f4b;border-radius:5px;padding:1px 7px;font-size:11px;font-weight:800}
+.kpi-bar{position:relative;height:14px;background:var(--c-border-soft);border-radius:8px;margin-top:5px;overflow:hidden}
+.kpi-bar-fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#1268d3,#3b8aff);border-radius:8px;transition:width .4s}
+.kpi-bar-fill.done{background:linear-gradient(90deg,#1a7f4b,#2bb673)}
+.kpi-pct{position:absolute;right:7px;top:0;line-height:14px;font-size:10px;font-weight:800;color:var(--c-text-soft)}
+.kpi-in-num{width:80px;border:1px solid var(--c-border);border-radius:6px;padding:4px 7px;font-size:12.5px}
+.kpi-in-date{flex:1;border:1px solid var(--c-border);border-radius:6px;padding:4px 7px;font-size:12px}
