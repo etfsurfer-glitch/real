@@ -1137,6 +1137,26 @@ def _system_for(nickname: str | None) -> str:
             "한 번 친근하게 부르고 시작해라. 매 문장마다 반복하지는 마라.")
 
 
+def _is_blank_response(resp) -> bool:
+    """모델이 텍스트도 도구호출도 없이 빈 응답을 준 경우(일시 glitch). 안전차단은 제외(재시도 무의미)."""
+    if resp is None:
+        return True
+    try:
+        if (resp.text or "").strip():
+            return False
+    except Exception:  # noqa: BLE001
+        pass  # text 추출 실패(멀티파트/함수콜) → 아래에서 도구이력 확인
+    if getattr(resp, "automatic_function_calling_history", None):
+        return False
+    try:
+        fr = str(getattr(resp.candidates[0], "finish_reason", "") or "").upper()
+        if any(x in fr for x in ("SAFETY", "BLOCK", "RECITATION")):
+            return False  # 안전차단은 재시도해도 동일
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
 def _safe_text(resp) -> str:
     """모델 응답 텍스트를 안전하게 추출. 빈 응답(안전필터·빈 생성)이면 안내 문구로 폴백
     → 프런트에 빈 답('무응답')이 나가지 않게 한다."""
@@ -1190,7 +1210,6 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
     for _attempt in range(3):
         try:
             resp = client.models.generate_content(model=MODEL, contents=contents, config=cfg)
-            break
         except Exception as e:  # noqa: BLE001
             code = getattr(e, "code", None) or 0
             msg = str(e)
@@ -1199,6 +1218,12 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
                 time.sleep(1.2 * (_attempt + 1))
                 continue
             raise
+        # 빈 응답(텍스트·도구호출 둘 다 없음, 안전차단 아님)도 일시 glitch → 재시도.
+        # '질문을 이해하지 못했어요' 폴백이 정상 질문에 뜨던 원인(모델 빈 생성) 보완.
+        if _attempt < 2 and _is_blank_response(resp):
+            time.sleep(1.0 * (_attempt + 1))
+            continue
+        break
 
     # 어떤 도구를 어떤 인자로 호출했는지 추적
     trace = []
