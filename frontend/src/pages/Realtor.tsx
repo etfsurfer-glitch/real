@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MapPin, Phone, Smartphone, MessageSquare } from "lucide-react";
+import { MapPin, Phone, Smartphone, MessageSquare, Search, X } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { RealtorReviews, type ReviewSummary } from "../components/RealtorReviews";
 import { Link, useParams } from "react-router-dom";
@@ -356,18 +356,24 @@ type RLItem = {
 };
 function rlFmtYmd(s: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : s; }
 
+const RL_PAGE = 30;
 function RealtorListings({ realtorId, breakdown }: { realtorId: string; breakdown?: Breakdown }) {
   const [cat, setCat] = useState("");
+  const [trade, setTrade] = useState("");
+  const [sort, setSort] = useState("confirm");
+  const [q, setQ] = useState("");
+  const [shown, setShown] = useState(RL_PAGE);
   const [items, setItems] = useState<RLItem[] | null>(null);
   useEffect(() => {
     if (!API_BASE) { setItems([]); return; }
     let alive = true;
-    setItems(null);
-    fetch(`${API_BASE}/realtor/${encodeURIComponent(realtorId)}/listings?cat=${encodeURIComponent(cat)}&limit=300`)
+    setItems(null); setShown(RL_PAGE);
+    const p = new URLSearchParams({ cat, trade, sort, limit: "1500" });
+    fetch(`${API_BASE}/realtor/${encodeURIComponent(realtorId)}/listings?${p}`)
       .then((r) => r.json()).then((d) => { if (alive) setItems(d.listings || []); })
       .catch(() => { if (alive) setItems([]); });
     return () => { alive = false; };
-  }, [realtorId, cat]);
+  }, [realtorId, cat, trade, sort]);
 
   const b = breakdown;
   const chips: [string, string, number][] = b
@@ -377,38 +383,69 @@ function RealtorListings({ realtorId, breakdown }: { realtorId: string; breakdow
         .filter(([, v, n]) => v === "" || n > 0)
     : [["전체", "", 0]];
 
+  const ql = q.trim();
+  const filtered = (items || []).filter((l) => !ql
+    || (l.complex_name || "").includes(ql) || (l.building_name || "").includes(ql)
+    || (l.address || "").includes(ql) || (l.area_name || "").includes(ql));
+  const visible = filtered.slice(0, shown);
+
   return (
     <>
       <div className="section-title">보유 매물</div>
       <div className="rl-cats">
         {chips.map(([label, v, n]) => (
-          <button key={v || "all"} className={cat === v ? "on" : ""} onClick={() => setCat(v)}>
+          <button key={v || "all"} className={cat === v ? "on" : ""} onClick={() => { setCat(v); setQ(""); }}>
             {label}{n > 0 && <em>{n.toLocaleString()}</em>}
           </button>
         ))}
       </div>
+      <div className="rl-filterbar">
+        <div className="rl-trades">
+          {([["", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]] as const).map(([k, l]) => (
+            <button key={k || "all"} className={trade === k ? "on" : ""} onClick={() => setTrade(k)}>{l}</button>
+          ))}
+        </div>
+        <select className="rl-sort" value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="confirm">최신확인순</option>
+          <option value="price_desc">가격↓</option>
+          <option value="price_asc">가격↑</option>
+        </select>
+        <div className="rl-search">
+          <Search size={14} aria-hidden />
+          <input placeholder="단지·건물·지역 검색" value={q} onChange={(e) => setQ(e.target.value)} />
+          {q && <button onClick={() => setQ("")} aria-label="지우기"><X size={13} /></button>}
+        </div>
+      </div>
       {!items ? <div className="muted" style={{ padding: 16 }}>불러오는 중…</div>
-        : items.length === 0 ? <div className="dong-empty">표시할 매물이 없습니다.</div>
+        : filtered.length === 0 ? <div className="dong-empty">표시할 매물이 없습니다.</div>
         : (
-          <div className="rl-listings">
-            {items.map((l) => (
-              <a key={l.article_no} className="rl-lcard" href={l.naver_url} target="_blank" rel="noreferrer">
-                <div className="rl-lc-head">
-                  <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
-                  <span className="rl-lc-type">{l.type}</span>
-                  <b className="rl-lc-title">{l.complex_name || l.building_name || l.area_name || "매물"}</b>
-                  <span className="rl-lc-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
-                </div>
-                {l.address && <div className="rl-lc-addr"><MapPin size={11} aria-hidden /> {l.address}</div>}
-                <div className="rl-lc-meta">
-                  {[l.area2_m2 ? `전용 ${l.area2_m2}㎡` : "", l.floor_info ? `${l.floor_info}층` : "",
-                    l.direction, l.confirm_ymd ? `확인 ${rlFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ")}
-                </div>
-              </a>
-            ))}
-          </div>
+          <>
+            <div className="rl-count">총 <b>{filtered.length.toLocaleString()}</b>개 {visible.length < filtered.length && `· ${visible.length}개 표시`}</div>
+            <div className="rl-listings">
+              {visible.map((l) => (
+                <a key={l.article_no} className="rl-lcard" href={l.naver_url} target="_blank" rel="noreferrer">
+                  <div className="rl-lc-head">
+                    <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
+                    <span className="rl-lc-type">{l.type}</span>
+                    <b className="rl-lc-title">{l.complex_name || l.building_name || l.area_name || "매물"}</b>
+                    <span className="rl-lc-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
+                  </div>
+                  {l.address && <div className="rl-lc-addr"><MapPin size={11} aria-hidden /> {l.address}</div>}
+                  <div className="rl-lc-meta">
+                    {[l.area2_m2 ? `전용 ${l.area2_m2}㎡` : "", l.floor_info ? `${l.floor_info}층` : "",
+                      l.direction, l.confirm_ymd ? `확인 ${rlFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ")}
+                  </div>
+                </a>
+              ))}
+            </div>
+            {visible.length < filtered.length && (
+              <button className="rl-more" onClick={() => setShown((s) => s + RL_PAGE * 2)}>
+                더보기 ({(filtered.length - visible.length).toLocaleString()}개 더)
+              </button>
+            )}
+          </>
         )}
-      <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>네이버 매물 기준 · 카드를 누르면 네이버 매물로 이동 (유형별 최대 300건)</p>
+      <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>네이버 매물 기준 · 카드를 누르면 네이버 매물로 이동 (유형당 최대 1,500건)</p>
     </>
   );
 }

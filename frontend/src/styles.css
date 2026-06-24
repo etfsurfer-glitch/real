@@ -2878,3 +2878,18 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 
 /* 중개사 세부 자격증 비율 배지 */
 .stat-lic{display:inline-block;margin-left:7px;font-size:11.5px;font-weight:800;color:var(--c-jeonse,#1a7f4b);background:#e6f7ed;border-radius:6px;padding:2px 7px;vertical-align:3px}
+
+/* 중개사 세부 매물 필터바·더보기 */
+.rl-filterbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
+.rl-trades{display:flex;gap:5px}
+.rl-trades button{border:1px solid var(--c-border);background:#fff;border-radius:var(--r-pill);padding:6px 12px;font-size:13px;font-weight:700;color:var(--c-muted);cursor:pointer}
+.rl-trades button.on{background:var(--c-text);color:#fff;border-color:var(--c-text)}
+.rl-sort{border:1px solid var(--c-border);border-radius:var(--r-sm);padding:6px 9px;font-size:13px;background:#fff}
+.rl-search{display:flex;align-items:center;gap:6px;border:1px solid var(--c-border);border-radius:var(--r-pill);padding:5px 11px;flex:1;min-width:140px;background:#fff}
+.rl-search svg{color:var(--c-muted);flex:none}
+.rl-search input{border:0;outline:0;flex:1;font-size:13.5px;background:transparent}
+.rl-search button{border:0;background:none;color:var(--c-muted);cursor:pointer;display:flex;padding:0}
+.rl-count{font-size:12.5px;color:var(--c-muted);margin-bottom:8px}
+.rl-count b{color:var(--c-text)}
+.rl-more{display:block;width:100%;margin-top:12px;border:1px solid var(--c-border);background:#fff;border-radius:var(--r-md);padding:12px;font-weight:700;font-size:13.5px;color:var(--c-primary-strong);cursor:pointer}
+.rl-more:hover{background:var(--c-primary-tint)}
