@@ -26,7 +26,8 @@ from collector.config import settings             # noqa: E402
 DATA_DIR = os.environ.get("KOCZIP_DATA", "data")
 # 유효 필터코드만(DDDGN·DGN은 네이버가 무시하는 노이즈 → 제외). 검증: 5코드 합 = 통합호출 총수.
 # 카테고리 분할 호출 → (1) 각 호출 작아짐 (2) 상단탭 = 코드별 (3) 코드별 무결성 대조.
-CODES = ["VL", "YR", "DDDGG", "SMS", "SG", "TJ", "GJCG", "GM"]
+CODES = ["VL", "YR", "DDDGG", "SMS", "SG", "TJ", "GJCG", "GM",
+         "APTHGJ", "JGB", "SGJT", "JWJT"]  # +지식산업센터·재개발·상가주택·전원주택
 ARTICLES_URL = "https://new.land.naver.com/api/articles"
 PAGE_CAP = 3000   # 안전상한(자연정지가 먼저 멈춰야 정상). 도달하면 truncation = 무결성 위반.
 
@@ -35,10 +36,12 @@ CATEGORIES = {
     "sangga": ("listings_sangga.sqlite", {"상가점포"}, True),
     "office": ("listings_office.sqlite", {"사무실"}, False),
     "villa":  ("listings_villa.sqlite",  {"빌라/연립", "빌라단지-연립", "원룸", "다세대"}, False),
-    "house":  ("listings_house.sqlite",  {"단독/다가구"}, False),
+    "house":  ("listings_house.sqlite",  {"단독/다가구", "전원주택"}, False),   # +전원주택(JWJT)
     "land":     ("listings_land.sqlite",     {"토지/임야"}, False),          # TJ
     "factory":  ("listings_factory.sqlite",  {"공장/창고"}, False),          # GJCG
-    "building": ("listings_building.sqlite", {"빌딩/건물", "상가건물"}, True),  # GM 통건물(권리금 가능)
+    "building": ("listings_building.sqlite", {"빌딩/건물", "상가건물", "상가주택"}, True),  # GM/SGJT 통건물(권리금 가능)
+    "knowledge": ("listings_knowledge.sqlite", {"지식산업센터"}, False),      # APTHGJ 지식산업센터(지산)
+    "redev":     ("listings_redev.sqlite",     {"재개발"}, False),            # JGB 재개발
 }
 
 
@@ -50,8 +53,14 @@ def _name_to_cat(name: str) -> str | None:
             return cat
     if any(k in name for k in ("빌라", "연립", "원룸", "다세대")):
         return "villa"
-    if any(k in name for k in ("단독", "다가구")):
+    if any(k in name for k in ("단독", "다가구", "전원")):
         return "house"
+    if "지식산업" in name:
+        return "knowledge"
+    if "재개발" in name:
+        return "redev"
+    if "상가주택" in name:
+        return "building"
     if "상가" in name:
         return "sangga"
     if "사무" in name:

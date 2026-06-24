@@ -53,14 +53,15 @@ def main():
     REGION = [("villa", "listings_villa.sqlite"), ("house", "listings_house.sqlite"),
               ("sangga", "listings_sangga.sqlite"), ("office", "listings_office.sqlite"),
               ("land", "listings_land.sqlite"), ("factory", "listings_factory.sqlite"),
-              ("building", "listings_building.sqlite")]
+              ("building", "listings_building.sqlite"),
+              ("knowledge", "listings_knowledge.sqlite"), ("redev", "listings_redev.sqlite")]
     present = []
     for alias, fn in REGION:
         p = base / fn
         if p.exists():
             c.execute(f"ATTACH '{p.as_posix()}' AS {alias}")
             present.append(alias)
-    TYPES = ["villa", "house", "sangga", "office", "land", "factory", "building"]
+    TYPES = ["villa", "house", "sangga", "office", "land", "factory", "building", "knowledge", "redev"]
     cols = [t + "_n" for t in TYPES]
     coldefs = ", ".join(f"{c0} INT DEFAULT 0" for c0 in cols)
 
@@ -104,7 +105,7 @@ def main():
         SELECT realtor_id, SUM(n) total_n FROM (
           SELECT realtor_id, COALESCE(total_listings,0) n FROM realtor_match WHERE total_listings>0
           UNION ALL
-          SELECT realtor_id, (villa_n+house_n+sangga_n+office_n+land_n+factory_n+building_n) n FROM realtor_region_counts
+          SELECT realtor_id, (villa_n+house_n+sangga_n+office_n+land_n+factory_n+building_n+knowledge_n+redev_n) n FROM realtor_region_counts
         ) WHERE realtor_id IS NOT NULL AND realtor_id!='' GROUP BY realtor_id
     """)
     c.execute("CREATE INDEX IF NOT EXISTS rt_total_idx ON realtor_total(total_n)")

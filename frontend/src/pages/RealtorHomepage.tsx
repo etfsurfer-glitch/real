@@ -17,7 +17,7 @@ function naverArticleUrl(articleNo: string): string {
   return `https://m.land.naver.com/article/info/${articleNo}`;
 }
 // 우리 6구분 — 상단탭 순서. 아파트·오피=단지기반, 나머지=비단지(딥링크).
-const CATEGORY_ORDER = ["아파트", "오피스텔", "상가", "사무실", "빌라/연립", "단독/다가구", "빌딩", "토지", "공장"];
+const CATEGORY_ORDER = ["아파트", "오피스텔", "상가", "사무실", "빌라/연립", "단독/다가구", "빌딩", "토지", "공장", "지식산업센터", "재개발"];
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
