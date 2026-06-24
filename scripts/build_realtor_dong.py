@@ -61,10 +61,10 @@ def main():
     c.execute("""
         INSERT INTO realtor_region_counts(realtor_id, villa_n, house_n, sangga_n, office_n)
         SELECT realtor_id, SUM(v), SUM(h), SUM(s), SUM(o) FROM (
-          SELECT realtor_id, COUNT(*) v,0 h,0 s,0 o FROM villa.listings  WHERE realtor_id!='' GROUP BY realtor_id
-          UNION ALL SELECT realtor_id,0,COUNT(*),0,0 FROM house.listings  WHERE realtor_id!='' GROUP BY realtor_id
-          UNION ALL SELECT realtor_id,0,0,COUNT(*),0 FROM sangga.listings WHERE realtor_id!='' GROUP BY realtor_id
-          UNION ALL SELECT realtor_id,0,0,0,COUNT(*) FROM office.listings WHERE realtor_id!='' GROUP BY realtor_id
+          SELECT realtor_id, COUNT(*) v,0 h,0 s,0 o FROM villa.listings  WHERE realtor_id!='' AND snapshot_date=(SELECT MAX(snapshot_date) FROM villa.listings)  GROUP BY realtor_id
+          UNION ALL SELECT realtor_id,0,COUNT(*),0,0 FROM house.listings  WHERE realtor_id!='' AND snapshot_date=(SELECT MAX(snapshot_date) FROM house.listings)  GROUP BY realtor_id
+          UNION ALL SELECT realtor_id,0,0,COUNT(*),0 FROM sangga.listings WHERE realtor_id!='' AND snapshot_date=(SELECT MAX(snapshot_date) FROM sangga.listings) GROUP BY realtor_id
+          UNION ALL SELECT realtor_id,0,0,0,COUNT(*) FROM office.listings WHERE realtor_id!='' AND snapshot_date=(SELECT MAX(snapshot_date) FROM office.listings) GROUP BY realtor_id
         ) GROUP BY realtor_id
     """)
     # 시도별 비단지 집계(랭킹 by-sido scope용)
@@ -75,10 +75,10 @@ def main():
     c.execute("""
         INSERT INTO realtor_region_sido(realtor_id,sido,villa_n,house_n,sangga_n,office_n)
         SELECT realtor_id, sido, SUM(v),SUM(h),SUM(s),SUM(o) FROM (
-          SELECT realtor_id, substr(cortar_no,1,2) sido, COUNT(*) v,0 h,0 s,0 o FROM villa.listings  WHERE realtor_id!='' AND cortar_no!='' GROUP BY realtor_id, substr(cortar_no,1,2)
-          UNION ALL SELECT realtor_id, substr(cortar_no,1,2) sido,0,COUNT(*),0,0 FROM house.listings  WHERE realtor_id!='' AND cortar_no!='' GROUP BY realtor_id, substr(cortar_no,1,2)
-          UNION ALL SELECT realtor_id, substr(cortar_no,1,2) sido,0,0,COUNT(*),0 FROM sangga.listings WHERE realtor_id!='' AND cortar_no!='' GROUP BY realtor_id, substr(cortar_no,1,2)
-          UNION ALL SELECT realtor_id, substr(cortar_no,1,2) sido,0,0,0,COUNT(*) FROM office.listings WHERE realtor_id!='' AND cortar_no!='' GROUP BY realtor_id, substr(cortar_no,1,2)
+          SELECT realtor_id, substr(cortar_no,1,2) sido, COUNT(*) v,0 h,0 s,0 o FROM villa.listings  WHERE realtor_id!='' AND cortar_no!='' AND snapshot_date=(SELECT MAX(snapshot_date) FROM villa.listings)  GROUP BY realtor_id, substr(cortar_no,1,2)
+          UNION ALL SELECT realtor_id, substr(cortar_no,1,2) sido,0,COUNT(*),0,0 FROM house.listings  WHERE realtor_id!='' AND cortar_no!='' AND snapshot_date=(SELECT MAX(snapshot_date) FROM house.listings)  GROUP BY realtor_id, substr(cortar_no,1,2)
+          UNION ALL SELECT realtor_id, substr(cortar_no,1,2) sido,0,0,COUNT(*),0 FROM sangga.listings WHERE realtor_id!='' AND cortar_no!='' AND snapshot_date=(SELECT MAX(snapshot_date) FROM sangga.listings) GROUP BY realtor_id, substr(cortar_no,1,2)
+          UNION ALL SELECT realtor_id, substr(cortar_no,1,2) sido,0,0,0,COUNT(*) FROM office.listings WHERE realtor_id!='' AND cortar_no!='' AND snapshot_date=(SELECT MAX(snapshot_date) FROM office.listings) GROUP BY realtor_id, substr(cortar_no,1,2)
         ) GROUP BY realtor_id, sido
     """)
     c.execute("CREATE INDEX IF NOT EXISTS rrs_sido_idx ON realtor_region_sido(sido)")
