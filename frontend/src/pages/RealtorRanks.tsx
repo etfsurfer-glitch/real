@@ -411,38 +411,26 @@ export default function RealtorRanks() {
     <div ref={shareRef} className="share-target">
       <Link to="/overview" className="back">← 전국현황</Link>
       {!onDong && <>
-      <h2 style={{ margin: "0 0 4px" }}>중개사무소 매물 보유 순위</h2>
-      <div className="muted" style={{ marginBottom: 16 }}>
-        중개사무소별 보유 매물 수 기준. 같은 상호라도 사무소가 다르면 따로 집계됩니다.
+      <div className="rank-hero rank-hero-search">
+        <span className="rank-hero-ic"><Search size={22} strokeWidth={2.3} /></span>
+        <div className="rank-hero-tx">
+          <h2>중개사무소 검색</h2>
+          <p>이름으로 전국 중개사무소를 찾아 매물·직원·업력을 확인하세요</p>
+        </div>
+        <div className="rank-hero-searchbox">
+          <select value={sidoFilter} onChange={(e) => setSidoFilter(e.target.value)}>
+            <option value="">전국</option>
+            {sidos.map((s) => <option key={s.cortar_no} value={s.cortar_no}>{s.cortar_name}</option>)}
+          </select>
+          <div className="rank-hero-input">
+            <Search size={15} aria-hidden />
+            <input placeholder="중개사무소 이름 (예: 래미안, 자이…)"
+              value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+            {searchInput && <button onClick={() => setSearchInput("")} aria-label="지우기"><X size={14} /></button>}
+          </div>
+        </div>
       </div>
-      <ShareBar targetRef={shareRef} title="중개사무소 매물 보유 순위" fileName="콕집_중개사무소랭킹" />
-
-      <div className="section-title">중개사무소 검색</div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "8px 0" }}>
-        <select
-          value={sidoFilter}
-          onChange={(e) => setSidoFilter(e.target.value)}
-          style={{
-            padding: "6px 10px",
-            border: "1px solid #ccc",
-            borderRadius: 6,
-            fontSize: 13,
-            background: "white",
-          }}
-        >
-          <option value="">전국</option>
-          {sidos.map((s) => (
-            <option key={s.cortar_no} value={s.cortar_no}>{s.cortar_name}</option>
-          ))}
-        </select>
-        <input
-          className="search"
-          placeholder="중개사무소 이름 (예: 래미안, 자이, 현대…)"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          style={{ flex: 1, margin: 0 }}
-        />
-      </div>
+      <div className="hood-share"><ShareBar targetRef={shareRef} title="중개사무소 매물 보유 순위" fileName="콕집_중개사무소랭킹" /></div>
       {(searchInput.trim().length > 0 || searchResults !== null) && (
         <div style={{ marginBottom: 24 }}>
           {(searching || searchInput.trim() !== searchTerm) && (
