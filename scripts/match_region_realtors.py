@@ -11,9 +11,14 @@
     python scripts/match_region_realtors.py --commit    # 실제 INSERT
 """
 from __future__ import annotations
-import argparse, sqlite3, sys, datetime
+import argparse, re, sqlite3, sys, datetime
 from collections import defaultdict
 from pathlib import Path
+
+
+def _norm(s: str) -> str:
+    """법인 표기·공백 정규화 — '(주)미스터' == '주식회사 미스터'. 유일성 검증으로 정확성 보존."""
+    return re.sub(r"\(주\)|\(유\)|주식회사|유한회사|\s", "", s or "")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from collector.config import settings  # noqa: E402
 
@@ -63,7 +68,7 @@ def main():
     for sysno, bn, sgg, status in m.execute(
             "SELECT sys_regno, business_name, sgg_cd, status FROM vworld_brokers "
             "WHERE business_name IS NOT NULL AND sgg_cd IS NOT NULL"):
-        vw[(bn, sgg)].add(sysno)
+        vw[(_norm(bn), sgg)].add(sysno)
         vw_meta[sysno] = (bn, status)
 
     # 4) 정확매칭 — 대표 구(최다 매물 sgg)에서 이름 유일일치
@@ -74,7 +79,7 @@ def main():
         nm = d["name"]
         psgg = max(d["sgg"], key=d["sgg"].get)
         pcnt = d["sgg"][psgg]
-        sysset = vw.get((nm, psgg))
+        sysset = vw.get((_norm(nm), psgg))
         if not sysset:
             noname += 1
             continue
