@@ -2893,3 +2893,8 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .rl-count b{color:var(--c-text)}
 .rl-more{display:block;width:100%;margin-top:12px;border:1px solid var(--c-border);background:#fff;border-radius:var(--r-md);padding:12px;font-weight:700;font-size:13.5px;color:var(--c-primary-strong);cursor:pointer}
 .rl-more:hover{background:var(--c-primary-tint)}
+
+/* 히어로 설명문(우리동네·우리단지찾기 공통) */
+.hood-sub{font-size:13px;line-height:1.55;color:rgba(255,255,255,.86);margin:-8px 0 12px;font-weight:500;position:relative;z-index:1}
+.hood-sub b{color:#fff;font-weight:700}
+@media(max-width:600px){.hood-sub{font-size:12px;margin:-4px 0 10px}}

@@ -43,14 +43,14 @@ export default function MyComplex() {
 
   return (
     <div className="mc">
-      <div className="mc-hero">
-        <h1 className="mc-h1"><Search size={20} strokeWidth={2.5} aria-hidden /> 우리단지 찾기</h1>
-        <p className="mc-sub">아파트·오피스텔 단지를 검색하면 <b>실거래가 추이·평형별 시세·매물 현황·급매·중개사</b>까지 한 번에 분석해 드려요.</p>
-        <div className="mc-search">
-          <Search size={18} strokeWidth={2.2} className="mc-search-ic" aria-hidden />
-          <input ref={inputRef} className="mc-input" placeholder="단지명 검색 (예: 헬리오시티, 은마, 크로바)"
+      <div className="hood-hero">
+        <h1 className="hood-h1">우리단지를<br />콕집이 분석해 드립니다</h1>
+        <p className="hood-sub">아파트·오피스텔 단지를 검색하면 <b>실거래가 추이·평형별 시세·매물·급매·중개사</b>까지 한 번에.</p>
+        <div className="hood-namesearch">
+          <Search size={16} strokeWidth={2.2} aria-hidden />
+          <input ref={inputRef} placeholder="단지명 검색 (예: 헬리오시티, 은마, 크로바)"
             value={q} onChange={(e) => setQ(e.target.value)} />
-          {q && <button className="mc-clear" onClick={() => { setQ(""); inputRef.current?.focus(); }} aria-label="지우기"><X size={16} /></button>}
+          {q && <button onClick={() => { setQ(""); inputRef.current?.focus(); }} aria-label="지우기"><X size={14} /></button>}
         </div>
       </div>
 
