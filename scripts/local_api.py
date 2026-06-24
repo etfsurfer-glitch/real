@@ -8251,7 +8251,7 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
                "l.area1_m2,l.area2_m2,l.floor_info,l.direction,l.deal_or_warrant_price_text,l.rent_price_text,"
                "l.deal_or_warrant_price,l.article_confirm_ymd,l.building_name,l.tag_list_json,l.same_addr_cnt,"
                "l.same_addr_min_price,l.same_addr_max_price,l.article_feature_desc,l.cp_pc_article_url,"
-               "l.cp_name,l.verification_type,l.latitude,l.longitude "
+               "l.cp_name,l.verification_type,l.latitude,l.longitude,c.dong_name,c.road_address,c.detail_address "
                "FROM listings_current l LEFT JOIN complexes c ON c.complex_no=l.complex_no "
                f"WHERE {' AND '.join(w)}")
         with _open_db() as dc:
@@ -8264,6 +8264,9 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
                 tags = _json.loads(r[15]) if r[15] else []
             except Exception:
                 tags = []
+            dong = r[25] or ""
+            addr = (r[26] or r[27] or "").strip()  # 도로명 우선, 없으면 지번
+            full_addr = " ".join(x for x in [dong, addr] if x).strip()
             items.append({
                 "article_no": r[0], "complex_no": r[1], "complex_name": r[2],
                 "trade_type": _TRADE_KOR.get(r[3], r[3]), "type": tkor, "area_name": r[5],
@@ -8272,6 +8275,7 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
                 "building_name": r[14], "tags": tags, "same_addr_cnt": r[16], "same_addr_min": r[17],
                 "same_addr_max": r[18], "feature_desc": r[19], "naver_url": r[20], "cp_name": r[21],
                 "verification_type": r[22], "lat": r[23], "lng": r[24],
+                "dong": dong, "address": full_addr,
             })
 
     # 2) 비단지 매물(빌라·상가·사무실·단독) — 별도 DB
@@ -8288,21 +8292,45 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
             rconn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
             rrows = rconn.execute(
                 "SELECT article_no,real_estate_type_name,trade_type,deal_or_warrant_price,rent_price,"
-                "area1_m2,area2_m2,floor_info,direction,building_name,article_confirm_ymd,latitude,longitude "
-                f"FROM listings WHERE {' AND '.join(w)}", p).fetchall()
+                "area1_m2,area2_m2,floor_info,direction,building_name,article_confirm_ymd,latitude,longitude,"
+                "cortar_no,raw FROM listings "
+                f"WHERE {' AND '.join(w)}", p).fetchall()
             rconn.close()
         except Exception:
             rrows = []
+        cortars = {r[13] for r in rrows if r[13]}
+        dongmap: dict = {}
+        if cortars:
+            with _open_db() as dc:
+                ph = ",".join("?" * len(cortars))
+                dongmap = {x[0]: x[1] for x in dc.execute(
+                    f"SELECT cortar_no, cortar_name FROM regions WHERE cortar_no IN ({ph})", list(cortars)).fetchall()}
         for r in rrows:
+            # 비단지 raw(풍부)에서 특징·태그·동일주소·검증 추출
+            feat, tags, sa_cnt, sa_min, sa_max, vtype = "", [], 0, 0, 0, ""
+            try:
+                rw = _json.loads(r[14]) if r[14] else {}
+                feat = rw.get("articleFeatureDesc") or ""
+                tags = rw.get("tagList") or []
+                sa_cnt = int(rw.get("sameAddrCnt") or 0)
+                sa_min = int(rw.get("sameAddrMinPrc") or 0)
+                sa_max = int(rw.get("sameAddrMaxPrc") or 0)
+                vtype = rw.get("verificationTypeName") or rw.get("verificationTypeCode") or ""
+            except Exception:
+                pass
+            dong = dongmap.get(r[13], "") or ""
+            full_addr = " ".join(x for x in [dong, r[9] or ""] if x).strip()
             items.append({
                 "article_no": r[0], "complex_no": None, "complex_name": None,
                 "trade_type": _TRADE_KOR.get(r[2], r[2]), "type": ckor,
                 "area_name": r[1] or ckor, "area1_m2": r[5], "area2_m2": r[6], "floor_info": r[7] or "",
                 "direction": r[8] or "", "price_text": _ml_price_text(r[3]),
                 "rent_price_text": _ml_price_text(r[4]), "price": r[3] or 0, "confirm_ymd": r[10] or "",
-                "building_name": r[9] or "", "tags": [], "same_addr_cnt": 0, "same_addr_min": 0,
-                "same_addr_max": 0, "feature_desc": "", "naver_url": f"https://m.land.naver.com/article/info/{r[0]}",
-                "cp_name": "", "verification_type": "", "lat": r[11], "lng": r[12],
+                "building_name": r[9] or "", "tags": tags, "same_addr_cnt": sa_cnt, "same_addr_min": sa_min,
+                "same_addr_max": sa_max, "feature_desc": feat,
+                "naver_url": f"https://m.land.naver.com/article/info/{r[0]}",
+                "cp_name": "", "verification_type": vtype, "lat": r[11], "lng": r[12],
+                "dong": dong, "address": full_addr,
             })
 
     # 메모/연락처/담당자 결합 → 검색·담당자 필터 → 정렬 → 컷

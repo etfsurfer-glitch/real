@@ -4,7 +4,7 @@ import { useAuth } from "../auth";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
-  LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw } from "lucide-react";
+  MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw } from "lucide-react";
 
 const TT: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 type ChgItem = { article_no: string; complex_no: string; complex_name?: string | null;
@@ -1142,6 +1142,7 @@ type MLItem = {
   building_name: string; tags: string[]; same_addr_cnt: number; same_addr_min: number; same_addr_max: number;
   price_change_state: string; feature_desc: string; naver_url: string; cp_name: string;
   verification_type: string; lat: number; lng: number; memo: string; contact: string; manager: string;
+  dong: string; address: string;
 };
 type Manager = { name: string; position: string; role: string };
 function fmtYmd(s: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : s; }
@@ -1163,6 +1164,7 @@ function ListingsTab({ authH, office }: { authH: () => Record<string, string>; o
   const [sort, setSort] = useState("confirm");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<Record<string, boolean>>({});
+  const [detail, setDetail] = useState<MLItem | null>(null);
 
   useEffect(() => {
     fetch(`${API_BASE}/lounge/managers`, { headers: authH() })
@@ -1238,15 +1240,17 @@ function ListingsTab({ authH, office }: { authH: () => Record<string, string>; o
         <div className="mlj-list">
           {items.map((l) => (
             <div key={l.article_no} className="mlj-card">
-              <div className="mlj-head">
+              <div className="mlj-head" onClick={() => setDetail(l)} style={{ cursor: "pointer" }}>
                 <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
                 {l.type && <span className="mlj-type">{l.type}</span>}
-                <b className="mlj-title">{l.complex_name || l.building_name || l.area_name || "매물"}</b>
+                <b className="mlj-title">{l.complex_name || l.building_name || l.area_name || "매물"} <ChevronRight size={13} style={{ verticalAlign: "-2px", color: "#bbb" }} /></b>
                 <span className="mlj-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
               </div>
+              {l.address && <div className="mlj-addr"><MapPin size={12} aria-hidden /> {l.address}{l.building_name && l.complex_name && l.building_name !== l.complex_name ? ` · ${l.building_name}` : ""}</div>}
               <div className="mlj-meta">
+                {l.area1_m2 ? <span>공급 {l.area1_m2}㎡</span> : null}
+                {l.area2_m2 ? <span>전용 {l.area2_m2}㎡</span> : null}
                 {l.area_name && <span>{l.area_name}</span>}
-                {l.area2_m2 ? <span>{l.area2_m2}㎡</span> : null}
                 {l.floor_info && <span>{l.floor_info}층</span>}
                 {l.direction && <span>{l.direction}</span>}
                 {l.confirm_ymd && <span>확인 {fmtYmd(l.confirm_ymd)}</span>}
@@ -1276,6 +1280,52 @@ function ListingsTab({ authH, office }: { authH: () => Record<string, string>; o
           ))}
         </div>
       )}
+      {detail && <ListingDetail l={detail} onClose={() => setDetail(null)} />}
+    </div>
+  );
+}
+
+// 매물 상세 모달 — 주소·가격·면적·층·방향·확인일·검증·태그·특징·동일주소·지도·바로가기 전부
+function ListingDetail({ l, onClose }: { l: MLItem; onClose: () => void }) {
+  const kakao = l.lat && l.lng ? `https://map.kakao.com/link/map/${encodeURIComponent(l.complex_name || l.building_name || "매물")},${l.lat},${l.lng}` : "";
+  const route = l.lat && l.lng ? `https://map.kakao.com/link/to/${encodeURIComponent(l.complex_name || l.building_name || "매물")},${l.lat},${l.lng}` : "";
+  const Row = ({ k, v }: { k: string; v: string | null }) => v ? <div className="mld-row"><span className="mld-k">{k}</span><span className="mld-v">{v}</span></div> : null;
+  return (
+    <div className="mld-ov" onClick={onClose}>
+      <div className="mld" onClick={(e) => e.stopPropagation()}>
+        <button className="mld-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
+        <div className="mld-top">
+          <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
+          {l.type && <span className="mlj-type">{l.type}</span>}
+          <span className="mld-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
+        </div>
+        <h3 className="mld-title">{l.complex_name || l.building_name || l.area_name || "매물"}</h3>
+        {l.address && <div className="mld-addr"><MapPin size={13} /> {l.address}</div>}
+        <div className="mld-rows">
+          <Row k="유형" v={l.type} />
+          <Row k="거래" v={l.trade_type === "월세" ? `월세 보증 ${l.price_text} / 월 ${l.rent_price_text}` : `${l.trade_type} ${l.price_text}`} />
+          <Row k="공급면적" v={l.area1_m2 ? `${l.area1_m2}㎡` : null} />
+          <Row k="전용면적" v={l.area2_m2 ? `${l.area2_m2}㎡` : null} />
+          <Row k="평형" v={l.area_name} />
+          <Row k="층" v={l.floor_info ? `${l.floor_info}층` : null} />
+          <Row k="방향" v={l.direction} />
+          <Row k="확인일" v={l.confirm_ymd ? fmtYmd(l.confirm_ymd) : null} />
+          <Row k="검증" v={l.verification_type} />
+          <Row k="건물명" v={l.building_name} />
+          <Row k="동일주소" v={l.same_addr_cnt ? `${l.same_addr_cnt}건 · ${eok(l.same_addr_min)} ~ ${eok(l.same_addr_max)}` : null} />
+          <Row k="담당자" v={l.manager} />
+          <Row k="연락처" v={l.contact} />
+        </div>
+        {l.tags?.length > 0 && <div className="mlj-tags" style={{ marginTop: 10 }}>{l.tags.map((t, i) => <span key={i}>{t}</span>)}</div>}
+        {l.feature_desc && <div className="mld-feat">{l.feature_desc}</div>}
+        {l.memo && <div className="mld-memo"><b>메모</b> {l.memo}</div>}
+        <div className="mld-actions">
+          {l.contact && <a className="mlj-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}><Phone size={14} /> 전화</a>}
+          {kakao && <a className="mlj-naver" href={kakao} target="_blank" rel="noreferrer"><MapIcon size={14} /> 지도</a>}
+          {route && <a className="mlj-naver" href={route} target="_blank" rel="noreferrer"><MapPin size={14} /> 길찾기</a>}
+          {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> 네이버 매물</a>}
+        </div>
+      </div>
     </div>
   );
 }

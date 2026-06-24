@@ -2768,3 +2768,25 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .kpi-pct{position:absolute;right:7px;top:0;line-height:14px;font-size:10px;font-weight:800;color:var(--c-text-soft)}
 .kpi-in-num{width:80px;border:1px solid var(--c-border);border-radius:6px;padding:4px 7px;font-size:12.5px}
 .kpi-in-date{flex:1;border:1px solid var(--c-border);border-radius:6px;padding:4px 7px;font-size:12px}
+
+/* 매물장 주소·상세모달 */
+.mlj-addr{display:flex;align-items:center;gap:4px;margin-top:6px;font-size:12.5px;color:var(--c-text-soft);font-weight:600}
+.mlj-addr svg{color:var(--c-muted);flex:none}
+.mld-ov{position:fixed;inset:0;z-index:1000;background:rgba(15,23,32,.5);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:18px;animation:egg-fade .18s ease}
+.mld{position:relative;background:#fff;border-radius:var(--r-lg);width:100%;max-width:440px;max-height:88vh;overflow-y:auto;padding:22px 20px 18px;box-shadow:var(--sh-lg)}
+.mld-x{position:absolute;top:12px;right:12px;border:0;background:var(--c-border-soft);border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--c-muted)}
+.mld-top{display:flex;align-items:center;gap:7px}
+.mld-price{margin-left:auto;font-size:18px;font-weight:900;color:var(--c-primary-strong)}
+.mld-title{font-size:18px;font-weight:800;margin:10px 0 4px}
+.mld-addr{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--c-text-soft);font-weight:600;margin-bottom:12px}
+.mld-addr svg{color:var(--c-primary)}
+.mld-rows{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--c-border-soft);border:1px solid var(--c-border-soft);border-radius:var(--r-md);overflow:hidden}
+.mld-row{display:flex;gap:8px;background:#fff;padding:9px 11px;font-size:12.5px}
+.mld-k{color:var(--c-muted);flex:none;min-width:52px}
+.mld-v{color:var(--c-text);font-weight:600}
+.mld-feat{margin-top:12px;font-size:13px;color:var(--c-text-soft);line-height:1.6;background:var(--c-primary-tint);border-radius:var(--r-md);padding:12px 14px}
+.mld-memo{margin-top:10px;font-size:12.5px;color:var(--c-text-soft);line-height:1.5}
+.mld-memo b{color:var(--c-primary-strong)}
+.mld-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.mld-actions a{flex:1;justify-content:center;min-width:90px;padding:11px}
+@media(max-width:480px){.mld-rows{grid-template-columns:1fr}}
