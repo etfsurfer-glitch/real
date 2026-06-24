@@ -1,7 +1,7 @@
 import { useState, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import { ImageDown, Copy, Link2, MessagesSquare } from "lucide-react";
-import { downloadImage, copyImage, copyText, shareKakao, shareNative, captureToDataUrl, stashForumImage } from "../lib/share";
+import { saveImage, copyImage, copyText, shareKakao, shareNative, captureToDataUrl, stashForumImage } from "../lib/share";
 import { useAuth } from "../auth";
 
 // 섹션 공유 바 — 이미지 저장/복사, 카카오 공유, URL 복사. 이미지엔 콕집+URL 워터마크.
@@ -18,9 +18,11 @@ export default function ShareBar({ targetRef, title, fileName }: {
   const onSave = async () => {
     if (!targetRef.current || busy) return;
     setBusy(true);
-    try { await downloadImage(targetRef.current, fileName); flash("이미지 저장됨"); }
-    catch { flash("이미지 생성 실패"); }
-    finally { setBusy(false); }
+    try {
+      const r = await saveImage(targetRef.current, fileName);
+      flash(r === "album" ? "‘이미지 저장’을 누르면 앨범에 저장돼요"
+        : r === "download" ? "이미지 저장됨" : "이미지 생성 실패");
+    } finally { setBusy(false); }
   };
   const onCopyImg = async () => {
     if (!targetRef.current || busy) return;

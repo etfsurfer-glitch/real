@@ -90,6 +90,32 @@ export async function downloadImage(el: HTMLElement, name: string): Promise<void
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
+// 이미지 저장 — 모바일은 OS 공유시트(파일)로 → 사용자가 '이미지 저장' 누르면 사진 앨범에 들어간다.
+// 파일 공유 미지원(데스크탑 등)이면 기존 파일 다운로드로 폴백.
+export async function saveImage(el: HTMLElement, name: string): Promise<"album" | "download" | "fail"> {
+  try {
+    const blob = await toBlob(await captureToCanvas(el));
+    const file = new File([blob], `${name}.png`, { type: "image/png" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nav = navigator as any;
+    if (nav.canShare && nav.canShare({ files: [file] })) {
+      try {
+        await nav.share({ files: [file], title: name });
+        return "album";
+      } catch (e) {
+        // 사용자가 시트를 닫음(취소)은 정상. 그 외 오류면 다운로드 폴백.
+        if ((e as { name?: string })?.name === "AbortError") return "album";
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${name}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    return "download";
+  } catch { return "fail"; }
+}
+
 export async function copyImage(el: HTMLElement): Promise<boolean> {
   try {
     const blob = await toBlob(await captureToCanvas(el));
