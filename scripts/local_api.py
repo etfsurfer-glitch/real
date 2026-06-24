@@ -8105,56 +8105,147 @@ def lounge_status(user: dict = Depends(current_user)):
 
 def _ensure_lounge_notes(c):
     c.execute("CREATE TABLE IF NOT EXISTS lounge_notes(realtor_id TEXT, article_no TEXT, "
-              "memo TEXT, contact TEXT, updated_at TEXT, PRIMARY KEY(realtor_id,article_no))")
+              "memo TEXT, contact TEXT, manager TEXT, updated_at TEXT, PRIMARY KEY(realtor_id,article_no))")
+    try:
+        c.execute("ALTER TABLE lounge_notes ADD COLUMN manager TEXT")
+    except Exception:
+        pass
+
+
+def _office_managers(rid: str) -> list:
+    """사무소(realtor_id)의 vworld 등록 담당자 이름들(대표 우선)."""
+    with _open_db() as dc:
+        rows = dc.execute(
+            "SELECT ve.employee_name, ve.position, ve.role FROM vworld_employees ve "
+            "JOIN realtor_match rm ON rm.sys_regno=ve.sys_regno "
+            "WHERE rm.realtor_id=? AND ve.employee_name IS NOT NULL AND ve.employee_name!='' "
+            "ORDER BY CASE WHEN ve.position='대표' THEN 0 ELSE 1 END, ve.employee_name", (rid,)).fetchall()
+    seen: set = set(); out = []
+    for nm, pos, role in rows:
+        if nm in seen:
+            continue
+        seen.add(nm); out.append({"name": nm, "position": pos or "", "role": role or ""})
+    return out
+
+
+@app.get("/lounge/managers")
+def lounge_managers(user: dict = Depends(current_user)):
+    """매물장 담당자 후보 — 사무소 vworld 등록 직원 전원."""
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+    return {"managers": _office_managers(rid)}
+
+
+_TRADE_CODE = {"매매": "A1", "전세": "B1", "월세": "B2", "단기임대": "B3"}
+_TRADE_KOR = {"A1": "매매", "B1": "전세", "B2": "월세", "B3": "단기임대", "B4": "월세"}
+_RET_KOR = {"APT": "아파트", "JGC": "아파트", "OPST": "오피스텔", "ABYG": "분양권", "OBYG": "분양권"}
+_REGION_CATS = [("빌라", "villa"), ("상가", "sangga"), ("사무실", "office"), ("단독", "house")]
+
+
+def _ml_price_text(v) -> str:
+    v = int(v or 0)
+    if not v:
+        return ""
+    e, man = divmod(v, 10000)
+    return (f"{e}억" + (f" {man:,}" if man else "")) if e else f"{man:,}"
 
 
 @app.get("/lounge/listings")
 def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str = "",
-                    sort: str = "confirm", limit: int = 800):
-    """매물장 — 내가 속한 중개사무소(realtor_id)의 네이버 매물 전체 + 메모/연락처.
-    중개사가 빠르게 찾고 메모·연락 추가하는 용도. 사무소 단위로 메모 공유."""
+                    cat: str = "", manager: str = "", sort: str = "confirm", limit: int = 1500):
+    """매물장 — 내 중개사무소(realtor_id)의 매물 통합(단지 아파트·오피스텔·분양권 + 비단지 빌라·상가·사무실·단독).
+    trade=매매/전세/월세(코드 A1/B1/B2 매핑), cat=유형, manager=담당자(자기 매물장). 메모·연락·담당자는 사무소 공유."""
     with _reviews_db() as rc:
         rid = _require_member(rc, user["id"])
         _ensure_lounge_notes(rc)
-        notes = {r[0]: (r[1], r[2]) for r in rc.execute(
-            "SELECT article_no, memo, contact FROM lounge_notes WHERE realtor_id=?", (rid,)).fetchall()}
-    where = ["l.realtor_id=?"]; params: list = [rid]
-    if trade in ("매매", "전세", "월세", "단기임대"):
-        where.append("l.trade_type=?"); params.append(trade)
-    if q.strip():
-        where.append("(c.complex_name LIKE ? OR l.building_name LIKE ? OR l.article_feature_desc LIKE ? OR l.area_name LIKE ?)")
-        params += [f"%{q.strip()}%"] * 4
-    order = {"confirm": "l.article_confirm_ymd DESC", "price_desc": "l.deal_or_warrant_price DESC",
-             "price_asc": "l.deal_or_warrant_price ASC"}.get(sort, "l.article_confirm_ymd DESC")
-    sql = ("SELECT l.article_no,l.complex_no,c.complex_name,l.trade_type,l.real_estate_type,l.area_name,"
-           "l.area1_m2,l.area2_m2,l.floor_info,l.direction,l.deal_or_warrant_price_text,l.rent_price_text,"
-           "l.deal_or_warrant_price,l.article_confirm_ymd,l.building_name,l.tag_list_json,l.same_addr_cnt,"
-           "l.same_addr_min_price,l.same_addr_max_price,l.price_change_state,l.article_feature_desc,"
-           "l.cp_pc_article_url,l.cp_name,l.verification_type,l.latitude,l.longitude "
-           "FROM listings_current l LEFT JOIN complexes c ON c.complex_no=l.complex_no "
-           f"WHERE {' AND '.join(where)} ORDER BY l.trade_type, {order} LIMIT ?")
-    params.append(min(max(int(limit), 1), 3000))
-    with _open_db() as dc:
-        rows = dc.execute(sql, params).fetchall()
-    out = []
-    for r in rows:
-        an = r[0]
-        memo, contact = notes.get(an, ("", ""))
+        notes = {r[0]: (r[1], r[2], r[3]) for r in rc.execute(
+            "SELECT article_no, memo, contact, manager FROM lounge_notes WHERE realtor_id=?", (rid,)).fetchall()}
+    code = _TRADE_CODE.get(trade)
+    items: list = []
+
+    # 1) 단지 매물(아파트·오피스텔·분양권) — listings_current
+    if cat in ("", "아파트", "오피스텔", "분양권"):
+        w = ["l.realtor_id=?"]; p: list = [rid]
+        if code:
+            w.append("l.trade_type=?"); p.append(code)
+        sql = ("SELECT l.article_no,l.complex_no,c.complex_name,l.trade_type,l.real_estate_type,l.area_name,"
+               "l.area1_m2,l.area2_m2,l.floor_info,l.direction,l.deal_or_warrant_price_text,l.rent_price_text,"
+               "l.deal_or_warrant_price,l.article_confirm_ymd,l.building_name,l.tag_list_json,l.same_addr_cnt,"
+               "l.same_addr_min_price,l.same_addr_max_price,l.article_feature_desc,l.cp_pc_article_url,"
+               "l.cp_name,l.verification_type,l.latitude,l.longitude "
+               "FROM listings_current l LEFT JOIN complexes c ON c.complex_no=l.complex_no "
+               f"WHERE {' AND '.join(w)}")
+        with _open_db() as dc:
+            rows = dc.execute(sql, p).fetchall()
+        for r in rows:
+            tkor = _RET_KOR.get(r[4], "아파트")
+            if cat and cat != tkor:
+                continue
+            try:
+                tags = _json.loads(r[15]) if r[15] else []
+            except Exception:
+                tags = []
+            items.append({
+                "article_no": r[0], "complex_no": r[1], "complex_name": r[2],
+                "trade_type": _TRADE_KOR.get(r[3], r[3]), "type": tkor, "area_name": r[5],
+                "area1_m2": r[6], "area2_m2": r[7], "floor_info": r[8], "direction": r[9],
+                "price_text": r[10], "rent_price_text": r[11], "price": r[12] or 0, "confirm_ymd": r[13] or "",
+                "building_name": r[14], "tags": tags, "same_addr_cnt": r[16], "same_addr_min": r[17],
+                "same_addr_max": r[18], "feature_desc": r[19], "naver_url": r[20], "cp_name": r[21],
+                "verification_type": r[22], "lat": r[23], "lng": r[24],
+            })
+
+    # 2) 비단지 매물(빌라·상가·사무실·단독) — 별도 DB
+    for ckor, dbkey in _REGION_CATS:
+        if cat and cat != ckor:
+            continue
+        path = DB_PATH.parent / _NONRESI_DB[dbkey]
+        if not path.exists():
+            continue
+        w = ["realtor_id=?"]; p = [rid]
+        if code:
+            w.append("trade_type=?"); p.append(code)
         try:
-            tags = _json.loads(r[15]) if r[15] else []
+            rconn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            rrows = rconn.execute(
+                "SELECT article_no,real_estate_type_name,trade_type,deal_or_warrant_price,rent_price,"
+                "area1_m2,area2_m2,floor_info,direction,building_name,article_confirm_ymd,latitude,longitude "
+                f"FROM listings WHERE {' AND '.join(w)}", p).fetchall()
+            rconn.close()
         except Exception:
-            tags = []
-        out.append({
-            "article_no": an, "complex_no": r[1], "complex_name": r[2], "trade_type": r[3],
-            "real_estate_type": r[4], "area_name": r[5], "area1_m2": r[6], "area2_m2": r[7],
-            "floor_info": r[8], "direction": r[9], "price_text": r[10], "rent_price_text": r[11],
-            "price": r[12], "confirm_ymd": r[13], "building_name": r[14], "tags": tags,
-            "same_addr_cnt": r[16], "same_addr_min": r[17], "same_addr_max": r[18],
-            "price_change_state": r[19], "feature_desc": r[20], "naver_url": r[21],
-            "cp_name": r[22], "verification_type": r[23], "lat": r[24], "lng": r[25],
-            "memo": memo or "", "contact": contact or "",
-        })
-    return {"realtor_id": rid, "count": len(out), "listings": out}
+            rrows = []
+        for r in rrows:
+            items.append({
+                "article_no": r[0], "complex_no": None, "complex_name": None,
+                "trade_type": _TRADE_KOR.get(r[2], r[2]), "type": ckor,
+                "area_name": r[1] or ckor, "area1_m2": r[5], "area2_m2": r[6], "floor_info": r[7] or "",
+                "direction": r[8] or "", "price_text": _ml_price_text(r[3]),
+                "rent_price_text": _ml_price_text(r[4]), "price": r[3] or 0, "confirm_ymd": r[10] or "",
+                "building_name": r[9] or "", "tags": [], "same_addr_cnt": 0, "same_addr_min": 0,
+                "same_addr_max": 0, "feature_desc": "", "naver_url": f"https://m.land.naver.com/article/info/{r[0]}",
+                "cp_name": "", "verification_type": "", "lat": r[11], "lng": r[12],
+            })
+
+    # 메모/연락처/담당자 결합 → 검색·담당자 필터 → 정렬 → 컷
+    for it in items:
+        m, ct, mg = notes.get(it["article_no"], ("", "", ""))
+        it["memo"], it["contact"], it["manager"] = m or "", ct or "", mg or ""
+    if q.strip():
+        ql = q.strip()
+        items = [it for it in items if ql in ((it["complex_name"] or "") + (it["building_name"] or "")
+                 + (it["area_name"] or "") + (it["feature_desc"] or ""))]
+    if manager == "미지정":
+        items = [it for it in items if not it["manager"]]
+    elif manager:
+        items = [it for it in items if it["manager"] == manager]
+    if sort == "price_desc":
+        items.sort(key=lambda x: x["price"] or 0, reverse=True)
+    elif sort == "price_asc":
+        items.sort(key=lambda x: x["price"] or 0)
+    else:
+        items.sort(key=lambda x: x["confirm_ymd"] or "", reverse=True)
+    items = items[:min(max(int(limit), 1), 3000)]
+    return {"realtor_id": rid, "count": len(items), "listings": items}
 
 
 @app.get("/lounge/listings/{article_no}/raw")
@@ -8177,18 +8268,20 @@ class LoungeNoteBody(BaseModel):
     article_no: str
     memo: str = ""
     contact: str = ""
+    manager: str = ""
 
 
 @app.post("/lounge/listings/note")
 def lounge_listing_note(body: LoungeNoteBody, user: dict = Depends(current_user)):
-    """매물장 메모·연락처 저장(사무소 단위 공유)."""
+    """매물장 메모·연락처·담당자 저장(사무소 단위 공유)."""
     with _reviews_db() as c:
         rid = _require_member(c, user["id"])
         _ensure_lounge_notes(c)
-        c.execute("INSERT INTO lounge_notes(realtor_id,article_no,memo,contact,updated_at) "
-                  "VALUES(?,?,?,?,datetime('now')) ON CONFLICT(realtor_id,article_no) "
-                  "DO UPDATE SET memo=excluded.memo,contact=excluded.contact,updated_at=excluded.updated_at",
-                  (rid, body.article_no.strip(), body.memo.strip(), body.contact.strip()))
+        c.execute("INSERT INTO lounge_notes(realtor_id,article_no,memo,contact,manager,updated_at) "
+                  "VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(realtor_id,article_no) "
+                  "DO UPDATE SET memo=excluded.memo,contact=excluded.contact,manager=excluded.manager,"
+                  "updated_at=excluded.updated_at",
+                  (rid, body.article_no.strip(), body.memo.strip(), body.contact.strip(), body.manager.strip()))
         c.commit()
     return {"ok": True}
 

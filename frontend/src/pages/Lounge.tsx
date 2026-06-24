@@ -1136,13 +1136,14 @@ function leadBadge(s: string) {
 
 // ───────── 매물장: 내 사무소 매물 전체 + 메모/연락처 ─────────
 type MLItem = {
-  article_no: string; complex_no: string; complex_name: string | null; trade_type: string;
-  real_estate_type: string; area_name: string; area1_m2: number; area2_m2: number; floor_info: string;
+  article_no: string; complex_no: string | null; complex_name: string | null; trade_type: string;
+  type: string; area_name: string; area1_m2: number; area2_m2: number; floor_info: string;
   direction: string; price_text: string; rent_price_text: string; price: number; confirm_ymd: string;
   building_name: string; tags: string[]; same_addr_cnt: number; same_addr_min: number; same_addr_max: number;
   price_change_state: string; feature_desc: string; naver_url: string; cp_name: string;
-  verification_type: string; lat: number; lng: number; memo: string; contact: string;
+  verification_type: string; lat: number; lng: number; memo: string; contact: string; manager: string;
 };
+type Manager = { name: string; position: string; role: string };
 function fmtYmd(s: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : s; }
 function eok(v: number) {
   if (!v) return "-";
@@ -1150,32 +1151,50 @@ function eok(v: number) {
   return e ? `${e}억${man ? " " + man.toLocaleString() : ""}` : `${v.toLocaleString()}만`;
 }
 
+const ML_CATS = ["", "아파트", "오피스텔", "분양권", "빌라", "상가", "사무실", "단독"];
+
 function ListingsTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
   const [items, setItems] = useState<MLItem[] | null>(null);
+  const [managers, setManagers] = useState<Manager[]>([]);
   const [q, setQ] = useState("");
   const [trade, setTrade] = useState("");
+  const [cat, setCat] = useState("");
+  const [manager, setManager] = useState("");
   const [sort, setSort] = useState("confirm");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<Record<string, boolean>>({});
 
+  useEffect(() => {
+    fetch(`${API_BASE}/lounge/managers`, { headers: authH() })
+      .then((r) => r.json()).then((d) => setManagers(d.managers || [])).catch(() => {});
+  }, [authH]);
+
   const load = useCallback(() => {
     setBusy(true);
-    const p = new URLSearchParams({ q, trade, sort });
+    const p = new URLSearchParams({ q, trade, cat, manager, sort });
     fetch(`${API_BASE}/lounge/listings?${p}`, { headers: authH() })
       .then((r) => r.json()).then((d) => setItems(d.listings || [])).catch(() => setItems([]))
       .finally(() => setBusy(false));
-  }, [authH, q, trade, sort]);
-  useEffect(() => { load(); }, [trade, sort]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authH, q, trade, cat, manager, sort]);
+  useEffect(() => { load(); }, [trade, cat, manager, sort]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const patch = (an: string, k: "memo" | "contact", v: string) =>
+  const patch = (an: string, k: "memo" | "contact" | "manager", v: string) =>
     setItems((its) => its ? its.map((x) => x.article_no === an ? { ...x, [k]: v } : x) : its);
   const saveNote = async (l: MLItem) => {
     await fetch(`${API_BASE}/lounge/listings/note`, {
       method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
-      body: JSON.stringify({ article_no: l.article_no, memo: l.memo, contact: l.contact }),
+      body: JSON.stringify({ article_no: l.article_no, memo: l.memo, contact: l.contact, manager: l.manager }),
     });
     setSaved((s) => ({ ...s, [l.article_no]: true }));
     setTimeout(() => setSaved((s) => ({ ...s, [l.article_no]: false })), 1500);
+  };
+  // 담당자 즉시 배정(저장까지)
+  const assignManager = async (l: MLItem, v: string) => {
+    patch(l.article_no, "manager", v);
+    await fetch(`${API_BASE}/lounge/listings/note`, {
+      method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+      body: JSON.stringify({ article_no: l.article_no, memo: l.memo, contact: l.contact, manager: v }),
+    });
   };
 
   return (
@@ -1198,6 +1217,20 @@ function ListingsTab({ authH, office }: { authH: () => Record<string, string>; o
           </select>
         </div>
       </div>
+      <div className="mlj-filters mlj-cats">
+        {ML_CATS.map((c) => (
+          <button key={c || "all"} className={cat === c ? "on" : ""} onClick={() => setCat(c)}>{c || "전체유형"}</button>
+        ))}
+      </div>
+      <div className="mlj-mgr-bar">
+        <span>담당자</span>
+        <select value={manager} onChange={(e) => setManager(e.target.value)}>
+          <option value="">전체</option>
+          <option value="미지정">미지정</option>
+          {managers.map((m) => <option key={m.name} value={m.name}>{m.name}{m.position === "대표" ? " (대표)" : ""}</option>)}
+        </select>
+        <span className="mlj-mgr-hint">담당자를 고르면 그 사람 매물장만 보여요</span>
+      </div>
       <div className="mlj-count">{office.realtor_name ?? "내 사무소"} · 총 <b>{items?.length ?? 0}</b>개 {busy && "불러오는 중…"}</div>
       {!items ? <Loading /> : items.length === 0 ? (
         <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 매물장에 나옵니다.</div>
@@ -1207,11 +1240,11 @@ function ListingsTab({ authH, office }: { authH: () => Record<string, string>; o
             <div key={l.article_no} className="mlj-card">
               <div className="mlj-head">
                 <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
+                {l.type && <span className="mlj-type">{l.type}</span>}
                 <b className="mlj-title">{l.complex_name || l.building_name || l.area_name || "매물"}</b>
                 <span className="mlj-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
               </div>
               <div className="mlj-meta">
-                {l.real_estate_type && <span>{l.real_estate_type}</span>}
                 {l.area_name && <span>{l.area_name}</span>}
                 {l.area2_m2 ? <span>{l.area2_m2}㎡</span> : null}
                 {l.floor_info && <span>{l.floor_info}층</span>}
@@ -1225,6 +1258,10 @@ function ListingsTab({ authH, office }: { authH: () => Record<string, string>; o
                 <div className="mlj-same">동일주소 {l.same_addr_cnt}건 · {eok(l.same_addr_min)} ~ {eok(l.same_addr_max)}</div>
               ) : null}
               <div className="mlj-actions">
+                <select className="mlj-assign" value={l.manager} onChange={(e) => assignManager(l, e.target.value)}>
+                  <option value="">담당자 미지정</option>
+                  {managers.map((m) => <option key={m.name} value={m.name}>{m.name}{m.position === "대표" ? " (대표)" : ""}</option>)}
+                </select>
                 <input className="mlj-contact" placeholder="연락처(집주인·세입자 등)" value={l.contact}
                   onChange={(e) => patch(l.article_no, "contact", e.target.value)} />
                 {l.contact && <a className="mlj-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}><Phone size={13} /> 전화</a>}
