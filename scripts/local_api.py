@@ -5813,6 +5813,12 @@ def ai_ask_post(body: AiAskBody, request: Request, user: dict = Depends(current_
     except Exception as e:
         _log_ai(user, q, status=500, error=e,
                 duration_ms=int((_time.perf_counter() - t0) * 1000), request=request)
+        _refund_ai(user["id"])   # 실패 시 차감 포인트 환불 — 답 못 받았는데 P만 빠지는 일 방지
+        msg = str(e)
+        transient = "503" in msg or "UNAVAILABLE" in msg or "overloaded" in msg or "429" in msg or "RESOURCE_EXHAUSTED" in msg
+        if transient:   # 일시 과부하 → 친절 안내(200), 포인트 환불됨
+            return {"answer": "지금 AI 이용이 잠시 몰려서 답변을 못 드렸어요. 잠시 후 다시 시도해 주세요. "
+                              "(포인트는 차감되지 않았어요)", "tools_used": [], "usage": {}, "model": "", "retry": True}
         raise HTTPException(500, f"AI 처리 실패: {e}")
 
 
@@ -5848,8 +5854,13 @@ def ai_ask_stream(body: AiAskBody, request: Request, user: dict = Depends(curren
                 yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
         except Exception as e:
             err = str(e)
-            yield f"data: {_json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            transient = any(x in err for x in ("503", "UNAVAILABLE", "overloaded", "429", "RESOURCE_EXHAUSTED"))
+            emsg = ("지금 AI 이용이 잠시 몰려서 답변을 못 드렸어요. 잠시 후 다시 시도해 주세요. (포인트는 차감되지 않았어요)"
+                    if transient else "AI 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요. (포인트는 차감되지 않았어요)")
+            yield f"data: {_json.dumps({'type': 'error', 'error': emsg, 'retry': transient}, ensure_ascii=False)}\n\n"
         finally:
+            if err:
+                _refund_ai(user["id"])   # 실패 시 차감 포인트 환불
             _log_ai(user, q, answer=fin["answer"], tools=fin["tools"], usage=fin["usage"],
                     status=(500 if err else 200), error=err,
                     duration_ms=int((_time.perf_counter() - t0) * 1000), request=request)
@@ -7163,7 +7174,7 @@ def _user_points(c: sqlite3.Connection, user_id: str) -> tuple[int, int]:
     """(현재 잔액, 누적 획득) — 누적은 ledger 의 양수 합."""
     bal = c.execute("SELECT points FROM user_profiles WHERE user_id=?", (user_id,)).fetchone()
     earned = c.execute(
-        "SELECT COALESCE(SUM(delta),0) FROM point_ledger WHERE user_id=? AND delta>0",
+        "SELECT COALESCE(SUM(delta),0) FROM point_ledger WHERE user_id=? AND delta>0 AND reason!='ai_refund'",
         (user_id,)).fetchone()[0]
     return (bal[0] if bal else 0), earned
 
@@ -7245,6 +7256,16 @@ def _spend_ai(user_id: str) -> int:
         new_bal = _award_points(c, user_id, "ai_use")
         c.commit()
     return new_bal
+
+
+def _refund_ai(user_id: str) -> None:
+    """AI 처리 실패 시 차감한 포인트 환불(누적획득·계급엔 미반영). 실패해도 조용히 넘어간다."""
+    try:
+        with _reviews_db() as c:
+            _award_points(c, user_id, "ai_refund", delta=AI_COST)
+            c.commit()
+    except Exception:
+        pass
 
 
 # (인증/관리자 의존성 current_user·admin_user 는 파일 앞부분 _open_db 근처에 정의됨)
