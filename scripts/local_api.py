@@ -9072,54 +9072,20 @@ _REGION_DBS = {
 
 
 def _homepage_listings(realtor_id: str, limit: int = 1000) -> list[dict]:
-    """홈페이지 매물 — 우리 6구분(아파트·오피스텔·상가·사무실·빌라/연립·단독/다가구) 통합.
-    아파트/오피=listings_current(단지기반), 나머지=비단지 4DB(realtor 귀속분만). 각 항목에 category."""
+    """홈페이지 매물 — 매물장과 동일한 풍부한 개별 매물(주소·면적·층·방향·확인일·특징·네이버링크).
+    _collect_realtor_listings 재사용 + 우리 카테고리(category) 매핑."""
     if realtor_id == "koczip-test":
         return _KOCZIP_TEST_LISTINGS
-    tt = {"A1": "매매", "B1": "전세", "B2": "월세"}
-    items: list[dict] = []
-    # 1) 아파트·오피스텔 (단지기반) — real_estate_type 으로 구분
-    with _open_db() as c:
-        rows = c.execute(
-            "SELECT l.complex_no, cx.complex_name, l.trade_type, "
-            "MIN(l.deal_or_warrant_price), l.area2_m2, l.area_name, COUNT(*), l.real_estate_type, "
-            "MAX(l.rent_price) "   # ★월세 매물의 월세금액 — 누락 시 '월세 0'으로 표기되던 버그 수정
-            "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
-            "WHERE l.realtor_id=? AND l.deal_or_warrant_price>0 "
-            "GROUP BY l.complex_no, l.trade_type, ROUND(l.area2_m2) "
-            "ORDER BY l.deal_or_warrant_price DESC LIMIT ?", (realtor_id, limit)).fetchall()
-    for r in rows:
-        cat = "오피스텔" if r[7] in ("OPST", "OBYG") else "아파트"
-        items.append({"category": cat, "complex_no": r[0], "complex_name": r[1],
-                      "trade_type": tt.get(r[2], r[2]), "price": r[3],
-                      "rent_price": r[8] or None,
-                      "excl_use_ar": round(r[4]) if r[4] else None,
-                      "area_name": r[5], "count": r[6], "article_no": None})
-    # 2) 비단지(상가·사무실·빌라/연립·단독/다가구) — realtor 귀속분만, 별도 DB(읽기전용)
-    for cat, dbfile in _REGION_DBS.items():
-        path = DB_PATH.parent / dbfile
-        if not path.exists():
-            continue
-        try:
-            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
-                rows = rc.execute(
-                    "SELECT building_name, trade_type, MIN(deal_or_warrant_price), MIN(rent_price), "
-                    "area1_m2, real_estate_type_name, COUNT(*), MIN(article_no) "
-                    "FROM listings WHERE realtor_id=? AND deal_or_warrant_price>0 "
-                    "GROUP BY COALESCE(building_name,''), trade_type, ROUND(area1_m2) "
-                    "ORDER BY deal_or_warrant_price DESC LIMIT ?", (realtor_id, limit)).fetchall()
-            for r in rows:
-                # 비단지 DB는 만원 단위 저장 → 아파트(원)·프런트 won()과 맞추려 ×10000(원으로 통일).
-                items.append({"category": cat, "complex_no": None,
-                              "complex_name": r[0] or r[5], "trade_type": tt.get(r[1], r[1]),
-                              "price": (r[2] or 0) * 10000,
-                              "rent_price": (r[3] * 10000) if r[3] else None,
-                              "excl_use_ar": round(r[4]) if r[4] else None,
-                              "area_name": r[5], "count": r[6],
-                              "article_no": r[7]})  # 네이버 딥링크용
-        except Exception:
-            continue
-    return items
+    type2cat = {"아파트": "아파트", "오피스텔": "오피스텔", "분양권": "아파트",
+                "빌라": "빌라/연립", "단독": "단독/다가구", "상가": "상가",
+                "사무실": "사무실", "빌딩": "빌딩", "토지": "토지", "공장": "공장"}
+    items = _sort_listings(_collect_realtor_listings(realtor_id, None, ""), "confirm")[:limit]
+    out = []
+    for it in items:
+        ar = it.get("area2_m2") or it.get("area1_m2")
+        out.append({**it, "category": type2cat.get(it.get("type"), it.get("type") or "기타"),
+                    "excl_use_ar": round(ar) if ar else None, "count": 1})
+    return out
 
 
 def _homepage_row(c, realtor_id):

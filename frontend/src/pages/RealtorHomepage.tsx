@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { Phone, MessageCircle, MapPin, Building2, Folder, ChevronDown } from "lucide-react";
+import { Phone, MessageCircle, MapPin, Building2 } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { useAuth } from "../auth";
 import { openListingPopup } from "../lib/listingPopup";
@@ -17,12 +17,18 @@ function naverArticleUrl(articleNo: string): string {
   return `https://m.land.naver.com/article/info/${articleNo}`;
 }
 // 우리 6구분 — 상단탭 순서. 아파트·오피=단지기반, 나머지=비단지(딥링크).
-const CATEGORY_ORDER = ["아파트", "오피스텔", "상가", "사무실", "빌라/연립", "단독/다가구"];
+const CATEGORY_ORDER = ["아파트", "오피스텔", "상가", "사무실", "빌라/연립", "단독/다가구", "빌딩", "토지", "공장"];
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
 type Office = { realtor_id: string; realtor_name: string | null; address?: string | null; representative?: string | null; tel?: string | null; cell?: string | null; latitude?: number | null; longitude?: number | null };
-type Listing = { category?: string; complex_no: string | null; complex_name: string; trade_type: string; price: number; rent_price?: number | null; excl_use_ar: number | null; area_name: string | null; count: number; article_no?: string | null };
+type Listing = {
+  category?: string; type?: string; complex_no: string | null; complex_name: string | null;
+  building_name?: string | null; trade_type: string; price: number; rent_price?: number | null;
+  price_text?: string; rent_price_text?: string; excl_use_ar: number | null; area_name: string | null;
+  count: number; article_no?: string | null; floor_info?: string; direction?: string;
+  confirm_ymd?: string; address?: string; feature_desc?: string; naver_url?: string;
+};
 type Cfg = {
   realtor_id: string; slug: string | null; slogan: string | null; intro: string | null;
   specialties: string | null; biz_hours: string | null; kakao_url: string | null;
@@ -173,110 +179,83 @@ export default function RealtorHomepage() {
 }
 
 const TRADE_ORDER = ["매매", "전세", "월세"];
-const FOLDER_CAP = 40;   // 단지 많을 때 처음엔 이만큼만(더보기로 전체)
-type Group = { complex_no: string; complex_name: string; items: Listing[]; count: number };
 
+const RH_PAGE = 24;
+function rhFmtYmd(s?: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : (s || ""); }
 function ListingsSection({ listings }: { listings: Listing[] }) {
   const [cat, setCat] = useState("전체");
   const [trade, setTrade] = useState("전체");
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState<"count" | "name">("count");
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [showAll, setShowAll] = useState(false);
+  const [shown, setShown] = useState(RH_PAGE);
+  const reset = () => setShown(RH_PAGE);
 
-  // 카테고리(우리 6구분) 상단탭 — 보유한 것만
+  // 카테고리 상단탭 — 보유한 것만
   const presentCats = CATEGORY_ORDER.filter((c) => listings.some((l) => (l.category || "아파트") === c));
   const catTabs = presentCats.length > 1 ? ["전체", ...presentCats] : presentCats;
   const byCat = cat === "전체" ? listings : listings.filter((l) => (l.category || "아파트") === cat);
 
   const present = TRADE_ORDER.filter((t) => byCat.some((l) => l.trade_type === t));
   const tabs = present.length > 1 ? ["전체", ...present] : present;
-  const byTrade = trade === "전체" ? byCat : byCat.filter((l) => l.trade_type === trade);
-
-  // 그룹(단지/건물) + 매물수 합산. 단지는 complex_no, 비단지는 건물명(complex_name)으로 그룹.
-  const map = new Map<string, Group>();
-  for (const l of byTrade) {
-    const key = l.complex_no || `b:${l.complex_name}`;
-    let g = map.get(key);
-    if (!g) { g = { complex_no: key, complex_name: l.complex_name, items: [], count: 0 }; map.set(key, g); }
-    g.items.push(l); g.count += (l.count || 1);
-  }
-  let groups = Array.from(map.values());
-  const ql = q.trim().toLowerCase();
-  if (ql) groups = groups.filter((g) => g.complex_name.toLowerCase().includes(ql));
-  groups.sort(sort === "count"
-    ? (a, b) => b.count - a.count
-    : (a, b) => a.complex_name.localeCompare(b.complex_name, "ko"));
-  const totalCount = byTrade.reduce((s, l) => s + (l.count || 1), 0);
-  const autoOpen = groups.length <= 2;
-  const shown = showAll || ql ? groups : groups.slice(0, FOLDER_CAP);
+  let rows = trade === "전체" ? byCat : byCat.filter((l) => l.trade_type === trade);
+  const ql = q.trim();
+  if (ql) rows = rows.filter((l) => (l.complex_name || "").includes(ql) || (l.building_name || "").includes(ql)
+    || (l.address || "").includes(ql) || (l.area_name || "").includes(ql));
+  const visible = rows.slice(0, shown);
 
   return (
     <section className="rh-sec">
       <div className="rh-listings-head">
-        <h2>보유 매물 <span className="muted">{totalCount.toLocaleString()}건 · {groups.length}개 {cat === "전체" || cat === "아파트" || cat === "오피스텔" ? "단지" : "곳"}</span></h2>
+        <h2>보유 매물 <span className="muted">{rows.length.toLocaleString()}건</span></h2>
         {catTabs.length > 1 && (
           <div className="rh-cat-filter">
             {catTabs.map((c) => (
               <button key={c} className={cat === c ? "on" : ""}
-                onClick={() => { setCat(c); setTrade("전체"); setShowAll(false); }}>{c}</button>
+                onClick={() => { setCat(c); setTrade("전체"); reset(); }}>{c}</button>
             ))}
           </div>
         )}
         {tabs.length > 0 && (
           <div className="rh-trade-filter">
             {tabs.map((t) => (
-              <button key={t} className={trade === t ? "on" : ""} onClick={() => { setTrade(t); setShowAll(false); }}>{t}</button>
+              <button key={t} className={trade === t ? "on" : ""} onClick={() => { setTrade(t); reset(); }}>{t}</button>
             ))}
           </div>
         )}
       </div>
-      {map.size > 6 && (
+      {listings.length > 8 && (
         <div className="rh-list-tools">
-          <input className="rh-search" placeholder="단지 검색" value={q} onChange={(e) => setQ(e.target.value)} />
-          <div className="rh-sort">
-            <button className={sort === "count" ? "on" : ""} onClick={() => setSort("count")}>매물 많은순</button>
-            <button className={sort === "name" ? "on" : ""} onClick={() => setSort("name")}>단지명순</button>
-          </div>
+          <input className="rh-search" placeholder="단지·건물·지역 검색" value={q}
+            onChange={(e) => { setQ(e.target.value); reset(); }} />
         </div>
       )}
-      <div className="rh-folders">
-        {shown.map((g) => {
-          const isOpen = open[g.complex_no] ?? autoOpen;
+      <div className="rl-listings">
+        {visible.map((l, i) => {
+          const url = l.complex_no ? naverComplexUrl(l.complex_no, l.trade_type)
+            : (l.article_no ? naverArticleUrl(l.article_no) : (l.naver_url || null));
+          const price = l.trade_type === "월세" && l.rent_price_text
+            ? `${l.price_text || won(l.price)}/${l.rent_price_text}`
+            : (l.price_text || won(l.price));
+          const meta = [l.excl_use_ar ? `전용 ${l.excl_use_ar}㎡` : "", l.floor_info ? `${l.floor_info}층` : "",
+            l.direction, l.confirm_ymd ? `확인 ${rhFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ");
           return (
-            <div className="rh-folder" key={g.complex_no}>
-              <button className="rh-folder-head"
-                onClick={() => setOpen((o) => ({ ...o, [g.complex_no]: !(o[g.complex_no] ?? autoOpen) }))}>
-                <span className="rh-folder-name"><Folder size={15} aria-hidden /> {g.complex_name || "기타"} 물건보기</span>
-                <span className="rh-folder-n">{g.count.toLocaleString()}건
-                  <ChevronDown size={15} aria-hidden style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: ".15s" }} />
-                </span>
-              </button>
-              {isOpen && (
-                <div className="rh-folder-body">
-                  {g.items.map((l, i) => {
-                    const url = l.complex_no
-                      ? naverComplexUrl(l.complex_no, l.trade_type)
-                      : (l.article_no ? naverArticleUrl(l.article_no) : null);
-                    return (
-                    <a key={i} className="rh-item" href={url || "#"}
-                      target="_blank" rel="noreferrer"
-                      onClick={(e) => { e.preventDefault(); if (url) openListingPopup(url); }}>
-                      <span className={`rh-item-badge ${l.trade_type === "매매" ? "t-sale" : l.trade_type === "전세" ? "t-jeonse" : "t-wolse"}`}>{l.trade_type}</span>
-                      <span className="rh-item-area">{l.excl_use_ar ? `전용 ${l.excl_use_ar}㎡` : ""}{l.count > 1 ? ` · ${l.count}건` : ""}</span>
-                      <span className="rh-item-price">{won(l.price)}{l.trade_type === "월세" && l.rent_price ? `/${won(l.rent_price)}` : l.trade_type === "월세" ? "~" : ""}</span>
-                      <span className="rh-item-go">네이버 매물 보기 →</span>
-                    </a>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <a key={l.article_no || i} className="rl-lcard" href={url || "#"} target="_blank" rel="noreferrer"
+              onClick={(e) => { e.preventDefault(); if (url) openListingPopup(url); }}>
+              <div className="rl-lc-head">
+                <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
+                {l.type && <span className="rl-lc-type">{l.type}</span>}
+                <b className="rl-lc-title">{l.complex_name || l.building_name || l.area_name || "매물"}</b>
+                <span className="rl-lc-price">{price}</span>
+              </div>
+              {l.address && <div className="rl-lc-addr"><MapPin size={11} aria-hidden /> {l.address}</div>}
+              {meta && <div className="rl-lc-meta">{meta}</div>}
+            </a>
           );
         })}
       </div>
-      {!showAll && !ql && groups.length > FOLDER_CAP && (
-        <button className="rh-more" onClick={() => setShowAll(true)}>단지 더보기 (+{groups.length - FOLDER_CAP})</button>
+      {visible.length < rows.length && (
+        <button className="rh-more" onClick={() => setShown((s) => s + RH_PAGE * 2)}>
+          더보기 (+{(rows.length - visible.length).toLocaleString()}건)
+        </button>
       )}
     </section>
   );
