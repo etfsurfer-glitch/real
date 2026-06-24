@@ -2663,7 +2663,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   background:radial-gradient(120% 120% at 50% 40%,#fff 0%,#eef3fb 100%)}
 .intro-brand{display:flex;align-items:center;gap:9px;font-size:30px;font-weight:900;color:#13294b;letter-spacing:-1px;
   animation:introFeat .5s ease 1.0s both}
-.intro-feats{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;max-width:300px}
+.intro-feats{display:flex;flex-direction:column;align-items:center;gap:9px}
 .intro-feat{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #d8e3f2;color:#1268d3;
   border-radius:30px;padding:7px 13px;font-size:13.5px;font-weight:800;box-shadow:0 3px 10px rgba(18,104,211,.12);
   opacity:0;animation:introFeat .42s cubic-bezier(.2,.7,.3,1) both}
