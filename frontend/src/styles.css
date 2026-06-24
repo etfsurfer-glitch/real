@@ -2875,3 +2875,6 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 
 /* 중개사 세부 대표분야 태그 */
 .stat-tag{font-size:10px;font-weight:800;background:var(--c-primary);color:#fff;border-radius:5px;padding:1px 5px;margin-left:4px;vertical-align:2px}
+
+/* 중개사 세부 자격증 비율 배지 */
+.stat-lic{display:inline-block;margin-left:7px;font-size:11.5px;font-weight:800;color:var(--c-jeonse,#1a7f4b);background:#e6f7ed;border-radius:6px;padding:2px 7px;vertical-align:3px}

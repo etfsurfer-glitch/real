@@ -120,6 +120,12 @@ export default function Realtor() {
     { A1: 0, B1: 0, B2: 0 },
   );
   const grandTotal = tradeTotals.A1 + tradeTotals.B1 + tradeTotals.B2;
+  // 업력 / 자격증 비율
+  const regYear = data.vworld?.registered_ymd
+    ? parseInt(String(data.vworld.registered_ymd).replace(/[^\d]/g, "").slice(0, 4), 10) : null;
+  const tenureYears = regYear && regYear > 1900 ? new Date().getFullYear() - regYear + 1 : null;
+  const emp = data.vworld?.employees;
+  const licPct = emp && emp.total > 0 ? Math.round((emp.licensed / emp.total) * 100) : null;
 
   // 연락처: vworld phone 우선, 없으면 naver tel/cell
   const office = data.vworld?.phone || data.naver?.tel || null;
@@ -209,40 +215,43 @@ export default function Realtor() {
 
       {/* ── 핵심 지표 ── */}
       <div className="stat-grid">
-        <div className="stat-box">
-          <div className="stat-label">단지형 매물</div>
-          <div className="stat-value">{(data.listing_breakdown?.complex ?? grandTotal).toLocaleString()}</div>
-          <div className="stat-sub">
-            {data.by_complex.length}개 단지
-            {data.listing_breakdown && data.listing_breakdown.total > data.listing_breakdown.complex
-              && <> · 전체 {data.listing_breakdown.total.toLocaleString()}</>}
-          </div>
-        </div>
-        {data.vworld?.employees && data.vworld.employees.total > 0 && (
-          <div className="stat-box">
-            <div className="stat-label">소속 인원</div>
-            <div className="stat-value">{data.vworld.employees.total}<span style={{ fontSize: 14 }}>명</span></div>
-            <div className="stat-sub">
-              공인중개사 {data.vworld.employees.licensed}
-              {data.vworld.employees.assistant > 0 && `, 중개보조 ${data.vworld.employees.assistant}`}
-            </div>
-          </div>
-        )}
+        {/* 1. 대표 분야 순위 (단지 수는 단지형이 대표일 때만) */}
         {data.rep_rank && (
           <div className="stat-box">
             <div className="stat-label">{data.rep_rank.type} 순위 <span className="stat-tag">대표분야</span></div>
             <div className="stat-value">#{data.rep_rank.national_rank.toLocaleString()}</div>
             <div className="stat-sub">
-              전국 {data.rep_rank.national_total.toLocaleString()}곳
+              {data.rep_rank.count.toLocaleString()}개
+              {data.rep_rank.type_key === "complex" && ` · ${data.by_complex.length}개 단지`}
+              {" · "}전국 {data.rep_rank.national_total.toLocaleString()}곳
               {data.rep_rank.sido_rank && <> · {data.rep_rank.sido_name} #{data.rep_rank.sido_rank.toLocaleString()}</>}
             </div>
           </div>
         )}
+        {/* 2. 전체 매물 순위 */}
         {data.total_rank && (
           <div className="stat-box">
             <div className="stat-label">전체 매물 순위</div>
             <div className="stat-value">#{data.total_rank.national_rank.toLocaleString()}</div>
-            <div className="stat-sub">전국 {data.total_rank.national_total.toLocaleString()}곳 중</div>
+            <div className="stat-sub">{data.total_rank.count.toLocaleString()}개 · 전국 {data.total_rank.national_total.toLocaleString()}곳</div>
+          </div>
+        )}
+        {/* 3. 소속 인원 + 자격증 비율 */}
+        {emp && emp.total > 0 && (
+          <div className="stat-box">
+            <div className="stat-label">소속 인원</div>
+            <div className="stat-value">{emp.total}<span style={{ fontSize: 14 }}>명</span>
+              {licPct != null && <span className="stat-lic">자격증 {licPct}%</span>}
+            </div>
+            <div className="stat-sub">공인중개사 {emp.licensed}{emp.assistant > 0 && ` · 중개보조 ${emp.assistant}`}</div>
+          </div>
+        )}
+        {/* 4. 업력 */}
+        {tenureYears != null && (
+          <div className="stat-box">
+            <div className="stat-label">업력</div>
+            <div className="stat-value">{tenureYears}<span style={{ fontSize: 14 }}>년차</span></div>
+            <div className="stat-sub">개업 {regYear}년</div>
           </div>
         )}
       </div>
