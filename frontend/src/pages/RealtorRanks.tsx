@@ -81,7 +81,7 @@ function DongModal({ data, onClose }: { data: DongResp; onClose: () => void }) {
               <span className="drow-main">
                 <span className="drow-name">{r.realtor_name}{r.realtor_id && <span className="drow-go">매물보기 ›</span>}</span>
                 <span className="drow-metrics">
-                  <span><Building2 size={12.5} aria-hidden /> 매물 <b>{r.listings.toLocaleString()}</b>{r.total_listings && r.total_listings > r.listings ? <em style={{ color: "#9aa7b8", fontWeight: 400, fontStyle: "normal" }}> · 전체 {r.total_listings.toLocaleString()}</em> : null}</span>
+                  <span><Building2 size={12.5} aria-hidden /> 매물 <b>{r.listings.toLocaleString()}</b></span>
                   <span><Users size={12.5} aria-hidden /> 직원 <b>{r.staff_count ?? "-"}</b></span>
                   <span><CalendarClock size={12.5} aria-hidden /> 업력 <b>{r.tenure_years ?? "-"}</b>년</span>
                 </span>
@@ -229,7 +229,7 @@ export function RealtorByDong() {
                 <RealtorRowLink key={r.sys_regno} r={r} className="dong-row">
                   <span className="dong-rank">{i + 1}</span>
                   <span className="dong-name">{r.realtor_name}{r.sido && <em style={{ color: "#9aa7b8", fontWeight: 400 }}> {r.sido}</em>}</span>
-                  <span className="dong-m">매물 {r.listings.toLocaleString()}{r.total_listings && r.total_listings > r.listings ? ` · 전체 ${r.total_listings.toLocaleString()}` : ""}</span>
+                  <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
                   <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
                   <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
                 </RealtorRowLink>
@@ -251,7 +251,7 @@ export function RealtorByDong() {
           <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>매물·직원·업력 세 기준을 나란히 · 매물 범위는 위에서 선택.</p>
           <div className="rank-wrap">
             <RealtorRankCard title="매물 많은 곳" sub="현재 보유" icon={<Building2 size={16} strokeWidth={2.3} />} accent="blue"
-              items={items} val={(r) => r.listings} valText={(r) => `${r.listings.toLocaleString()}개${r.total_listings && r.total_listings > r.listings ? ` · 전체 ${r.total_listings.toLocaleString()}` : ""}`} />
+              items={items} val={(r) => r.listings} valText={(r) => `${r.listings.toLocaleString()}개`} />
             <RealtorRankCard title="직원 많은 곳" sub="소속 인원" icon={<Users size={16} strokeWidth={2.3} />} accent="red"
               items={items} val={(r) => r.staff_count} valText={(r) => `${r.staff_count ?? "-"}명`} />
             <RealtorRankCard title="업력 깊은 곳" sub="개설 등록" icon={<CalendarClock size={16} strokeWidth={2.3} />} accent="gold"
