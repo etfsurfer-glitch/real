@@ -11,6 +11,7 @@
 `from __future__ import annotations` 를 쓰면 안 된다(힌트가 문자열이 되어 깨짐).
 """
 import os
+import re
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -812,11 +813,21 @@ def find_realtor(name: str, region: str = "") -> dict:
         region: 지역(선택). 같은 이름이 많으니 지역을 주면 정확.
     """
     import scripts.local_api as api
-    reg = _resolve_region((region + " " + name).strip())
-    toks = [t for t in name.split() if not _resolve_region(t)]
-    q = (" ".join(toks)).strip() or name.strip()
-    res = api.realtors_search(q=q, sido=(reg["sido_code"] if reg else ""), limit=10)
-    cands = res.get("items", [])
+    # 사무소 유형어 제거 — '제이에스부동산중개'의 '부동산'이 동(대구 '부동')으로 오매칭돼
+    # 엉뚱한 지역으로 스코핑되던 버그 방지. 지역해석·검색 모두 핵심명 기준.
+    _office = r"(공인중개사사무소|공인중개사|부동산중개법인|부동산중개|중개사무소|부동산|공인|중개사|중개|사무소|법인|주식회사)"
+    name_clean = re.sub(_office, " ", name).strip()
+    reg = _resolve_region((region + " " + name_clean).strip())
+    toks = [t for t in name_clean.split() if not _resolve_region(t)]
+    q = (" ".join(toks)).strip() or name_clean or name.strip()
+    sido = (reg["sido_code"] if reg else "")
+    cands = api.realtors_search(q=q, sido=sido, limit=10).get("items", [])
+    if not cands:
+        # 접미사 차이 보정: '제이에스부동산중개'→'제이에스'(실제명 '제이에스공인중개사')처럼
+        # 사무소 유형어를 떼고 핵심명으로 재검색.
+        core = re.sub(r"(공인중개사사무소|공인중개사|부동산중개법인|부동산중개|중개사무소|부동산|공인|중개사|중개|사무소|법인|주식회사)", "", q).strip()
+        if core and core != q:
+            cands = api.realtors_search(q=core, sido=sido, limit=10).get("items", [])
     if not cands:
         return {"error": f"'{name}' 중개사를 찾지 못했습니다. 지역을 함께 알려주세요."}
     det = api.realtor_detail(cands[0]["realtor_id"])
