@@ -1093,29 +1093,39 @@ def realtors_national(limit: int = 20, scope: str = "complex"):
             parts.append("SELECT realtor_id, COUNT(*) n FROM listings_current "
                          "WHERE realtor_id IS NOT NULL AND realtor_id!='' GROUP BY realtor_id")
         union = " UNION ALL ".join(parts)
-        rows = c.execute(
+        # 후보 풀을 limit 보다 넉넉히(+100) 뽑는다. 정렬 1순위=해당 scope 매물수(n),
+        # 동률 시 2순위=전체매물수(total). LIMIT 경계에서 동률이 잘려 더 큰 사무소가
+        # 누락되지 않도록 풀에서 뽑은 뒤 파이썬에서 (n DESC, total DESC) 재정렬한다.
+        pool = c.execute(
             f"SELECT realtor_id, NULL, SUM(n) AS n FROM ({union}) "
             "WHERE realtor_id IS NOT NULL AND realtor_id!='' GROUP BY realtor_id ORDER BY n DESC LIMIT ?",
-            (limit,),
+            (limit + 100,),
         ).fetchall()
-        # 상위 N개에만 소재지(시도)·소속인원·개업연도를 붙인다. naver_realtors →
-        # realtor_match(sys_regno) → vworld_brokers(개업일)/vworld_employees(인원).
-        ids = [r[0] for r in rows]
-        info: dict[str, dict] = {}
-        rnames: dict = {}
+        # 전체매물(total) = 단지형(listings_current) + 비단지(realtor_region_counts) 합산.
+        # 동률 타이브레이크에 쓰이므로 풀 전체에 대해 먼저 계산한다.
         totals: dict = {}
-        if ids:
-            _ph0 = ",".join("?" * len(ids))
-            rnames = {x[0]: x[1] for x in c.execute(
-                f"SELECT realtor_id, realtor_name FROM realtor_names WHERE realtor_id IN ({_ph0})", ids)}
+        pool_ids = [r[0] for r in pool]
+        if pool_ids:
+            _php = ",".join("?" * len(pool_ids))
             for x in c.execute(f"SELECT realtor_id, COUNT(*) FROM listings_current "
-                               f"WHERE realtor_id IN ({_ph0}) GROUP BY realtor_id", ids):
+                               f"WHERE realtor_id IN ({_php}) GROUP BY realtor_id", pool_ids):
                 totals[x[0]] = x[1]
             for x in c.execute(f"SELECT realtor_id, COALESCE(villa_n,0)+COALESCE(house_n,0)+"
                                f"COALESCE(sangga_n,0)+COALESCE(office_n,0)+COALESCE(land_n,0)+"
                                f"COALESCE(factory_n,0)+COALESCE(building_n,0)+COALESCE(knowledge_n,0)+COALESCE(redev_n,0) "
-                               f"FROM realtor_region_counts WHERE realtor_id IN ({_ph0})", ids):
+                               f"FROM realtor_region_counts WHERE realtor_id IN ({_php})", pool_ids):
                 totals[x[0]] = totals.get(x[0], 0) + (x[1] or 0)
+        # 동률은 전체매물 많은 쪽이 상위. 그 다음 동률은 id 로 안정 정렬.
+        rows = sorted(pool, key=lambda r: (-(r[2] or 0), -totals.get(r[0], r[2] or 0), r[0]))[:limit]
+        # 상위 N개에만 소재지(시도)·소속인원·개업연도+별칭을 붙인다. naver_realtors →
+        # realtor_match(sys_regno) → vworld_brokers(개업일)/vworld_employees(인원).
+        ids = [r[0] for r in rows]
+        info: dict[str, dict] = {}
+        rnames: dict = {}
+        if ids:
+            _ph0 = ",".join("?" * len(ids))
+            rnames = {x[0]: x[1] for x in c.execute(
+                f"SELECT realtor_id, realtor_name FROM realtor_names WHERE realtor_id IN ({_ph0})", ids)}
         if ids:
             ph = ",".join("?" * len(ids))
             sido_names = {
@@ -2493,7 +2503,22 @@ def _build_ranks() -> dict:
                 "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city'"
             )
         }
-    nat_sorted = sorted(nat_rows, key=lambda r: -r[2])
+        # 동률 타이브레이크용 비단지 매물수(전체매물 = 단지 n + 비단지). national
+        # 리스트(/stats/realtors/national)와 순위가 어긋나지 않도록 같은 기준 적용.
+        reg_total: dict[str, int] = {}
+        try:
+            for rid, x in c.execute(
+                "SELECT realtor_id, COALESCE(villa_n,0)+COALESCE(house_n,0)+"
+                "COALESCE(sangga_n,0)+COALESCE(office_n,0)+COALESCE(land_n,0)+"
+                "COALESCE(factory_n,0)+COALESCE(building_n,0)+COALESCE(knowledge_n,0)+"
+                "COALESCE(redev_n,0) FROM realtor_region_counts"
+            ):
+                if rid:
+                    reg_total[rid] = x or 0
+        except sqlite3.Error:
+            reg_total = {}     # 비단지 테이블 없으면 단지 매물수만으로 정렬
+    # 1순위=단지 매물수(n), 동률 시 2순위=전체매물(n+비단지) DESC, 그 다음 id 안정정렬.
+    nat_sorted = sorted(nat_rows, key=lambda r: (-r[2], -(r[2] + reg_total.get(r[0], 0)), r[0]))
     national: dict[str, tuple[int, int, str]] = {
         rid: (i + 1, n, name) for i, (rid, name, n) in enumerate(nat_sorted)
     }
