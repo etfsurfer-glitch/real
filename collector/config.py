@@ -19,9 +19,15 @@ class Settings:
     naver_delay_ms: int
     naver_timeout_sec: int
     naver_user_agent: str
+    naver_source_ips: str  # 멀티 IP 병렬 수집용 소스 IP(쉼표구분). 비면 단일(기본 라우팅).
     local_db_path: Path
     snapshot_dir: Path
     data_go_kr_service_key: str
+    admin_emails: str   # 관리자 카카오 로그인 이메일(쉼표구분). 관리자 페이지 접근 허용 목록.
+    admin_user_ids: str  # 관리자 user_id(uid) 쉼표구분 — 글·리뷰에 '관리자' 표시용(타인에게 노출)
+    aligo_api_key: str  # 알리고 SMS API 키 (전화번호 인증). 미설정 시 dev 모드(코드 응답 노출).
+    aligo_user_id: str  # 알리고 계정 아이디
+    aligo_sender: str   # 알리고 발신번호(사전등록 필요)
 
     @classmethod
     def load(cls) -> "Settings":
@@ -43,9 +49,16 @@ class Settings:
                 "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
             ),
+            naver_source_ips=os.getenv("NAVER_SOURCE_IPS", ""),
             local_db_path=_resolve("LOCAL_DB_PATH", "./data/naverreal.sqlite"),
             snapshot_dir=_resolve("SNAPSHOT_DIR", "./data/snapshots"),
             data_go_kr_service_key=os.getenv("DATA_GO_KR_SERVICE_KEY", ""),
+            admin_emails=os.getenv("ADMIN_EMAILS", ""),
+            admin_user_ids=os.getenv(
+                "ADMIN_USER_IDS", "434bd1e7-2b64-4c48-a30e-762d254582c8"),
+            aligo_api_key=os.getenv("ALIGO_API_KEY", ""),
+            aligo_user_id=os.getenv("ALIGO_USER_ID", ""),
+            aligo_sender=os.getenv("ALIGO_SENDER", ""),
         )
 
 

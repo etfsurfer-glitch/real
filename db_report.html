@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>naverreal — 데이터 수집 & 테이블 보고서</title>
+<style>
+:root { color-scheme: light; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+       max-width: 1100px; margin: 24px auto; padding: 0 16px; color: #1a1a1a; }
+h1 { font-size: 24px; border-bottom: 2px solid #1268d3; padding-bottom: 8px; }
+h2 { font-size: 18px; margin-top: 28px; color: #1268d3; }
+h3 { font-size: 14px; margin: 18px 0 4px; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0 18px; font-size: 13px; background: white;
+        border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
+th, td { padding: 6px 10px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
+th { background: #f6f8fa; font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.src { display: inline-block; padding: 1px 6px; margin-right: 4px; border-radius: 3px; font-size: 11px;
+       font-weight: 600; }
+.src.Naver { background: #03c75a; color: white; }
+.src.vworld { background: #2a6cdf; color: white; }
+.src.data\.go\.kr { background: #e67e22; color: white; }
+.src.derived { background: #555; color: white; }
+.src.meta { background: #aaa; color: white; }
+.box { background: #f8fafc; padding: 12px 16px; border-left: 4px solid #1268d3; margin: 12px 0;
+       border-radius: 0 6px 6px 0; }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 12px 0; }
+.card { background: white; border: 1px solid #e3e3e3; border-radius: 6px; padding: 12px; }
+.card .lbl { font-size: 12px; color: #666; }
+.card .val { font-size: 20px; font-weight: 700; margin-top: 2px; }
+.card .sub { font-size: 11px; color: #999; margin-top: 2px; }
+.muted { color: #888; font-size: 12px; }
+.flow { font-family: "SF Mono", Consolas, monospace; font-size: 12px; background: #f0f3f7;
+        padding: 10px; border-radius: 4px; white-space: pre; overflow-x: auto; }
+.cols { font-family: "SF Mono", Consolas, monospace; font-size: 11px; color: #555; }
+</style>
+</head>
+<body>
+
+<h1>naverreal — 데이터 수집 & 테이블 보고서</h1>
+<p class='muted'>생성: 2026-05-22 12:33:16 · DB: D:\auto\naverreal\data\naverreal.sqlite</p>
+<h2>📊 현재 상태</h2>
+<div class='row'>
+<div class='card'><div class='lbl'>현재 매물</div><div class='val'>2,226,644</div></div>
+<div class='card'><div class='lbl'>단지</div><div class='val'>64,102</div></div>
+<div class='card'><div class='lbl'>실거래 매매</div><div class='val'>1,418,545</div></div>
+<div class='card'><div class='lbl'>실거래 전월세</div><div class='val'>610,634</div></div>
+<div class='card'><div class='lbl'>vworld 사무소</div><div class='val'>107,797</div><div class='sub'>phone: 99,718 (92.5%)</div></div>
+<div class='card'><div class='lbl'>vworld 직원</div><div class='val'>179,899</div></div>
+<div class='card'><div class='lbl'>Naver 중개사</div><div class='val'>52,747</div></div>
+<div class='card'><div class='lbl'>매칭 1:1</div><div class='val'>52,667</div><div class='sub'>99.81% · 정지/휴업 4</div></div>
+</div>
+<h2>🔄 데이터 수집 파이프라인</h2>
+<div class='box'>
+<p><b>매일 02:00 (또는 수동) <code>daily_run.ps1</code> 실행</b> — 6단계:</p>
+<ol style='margin: 4px 0; padding-left: 20px;'>
+<li><b>run_collect.py --all</b> — Naver 매물 전국 수집 (~5h, 192k 단지×거래유형)</li>
+<li><b>upload_to_supabase.py</b> — 클라우드 동기화 (현재 schema 미확정)</li>
+<li><b>archive_listings.py</b> — 일별 raw parquet 백업</li>
+<li><b>backfill_realprice.py --months 6</b> — 매매 실거래 incremental (~10분)</li>
+<li><b>backfill_rentals.py --months 6</b> — 아파트 전월세 (~10분)</li>
+<li><b>backfill_offi.py --months 6</b> — 오피스텔 매매+전월세 (~12분)</li>
+</ol>
+</div>
+<h3>외부 데이터 소스</h3>
+<table><tr><th>소스</th><th>endpoint / 파일</th><th>역할</th><th>수집 주기</th></tr>
+<tr><td><span class='src Naver'>Naver</span></td><td><code>new.land.naver.com/api/regions/list</code></td><td>행정구역 트리</td><td>1회성 (수동)</td></tr>
+<tr><td><span class='src Naver'>Naver</span></td><td><code>/api/regions/complexes</code></td><td>동 단위 단지 목록</td><td>14일 캐시 (daily_run에서 만료 시 갱신)</td></tr>
+<tr><td><span class='src Naver'>Naver</span></td><td><code>/api/articles/complex/{complexNo}</code></td><td>단지 매물 페이지네이션</td><td><b>매일</b> (daily_run step 1, ~5h)</td></tr>
+<tr><td><span class='src Naver'>Naver</span></td><td><code>/api/articles/{articleNo}</code></td><td>매물 detail — articleRealtor (등록번호 포함)</td><td>1회성 / 신규 realtor 발견 시 (fetch_naver_realtors.py)</td></tr>
+<tr><td><span class='src Naver'>Naver</span></td><td><code>/api/realtors/{realtorId}</code></td><td>중개사 정보 (article 만료 무관)</td><td>1회성 / 만료된 realtor 회복 시 (fetch_naver_realtors_direct.py)</td></tr>
+<tr><td><span class='src vworld'>vworld</span></td><td><code>vworld.kr/dtld/broker/dtld_list_s001.do</code></td><td>사무소 list (시군구별, 영업중만 default)</td><td>1회성 / 분기별 추천 (crawl_vworld_brokers.py --list)</td></tr>
+<tr><td><span class='src vworld'>vworld</span></td><td><code>/dtld/broker/dtld_view_d001.do</code></td><td>사무소 detail — phone</td><td>1회성 / list 갱신 후 (--detail)</td></tr>
+<tr><td><span class='src vworld'>vworld</span></td><td><code>list_s001.do?svcCode=118</code></td><td>직원/공인중개사 list (정지/휴업 노출)</td><td>1회성 / 정지·휴업 lookup 시 (find_suspended_brokers.py)</td></tr>
+<tr><td><span class='src data.go.kr'>data.go.kr</span></td><td><code>RTMSDataSvcAptTrade</code> 등 4종</td><td>매매·전월세·오피매매·오피전월세 실거래</td><td><b>매일</b> (daily_run step 4·5·6, 최근 6개월 incremental)</td></tr>
+</table>
+<h2>🔗 중개사 매칭 결과</h2>
+<table><tr><th>match_type</th><th>건수</th><th>%</th><th>설명</th></tr>
+<tr><td><code>regno_exact</code></td><td class='num'>49,539</td><td class='num'>93.88%</td><td>등록번호 정확 일치 (공인중개사법 13조의2 분사무소 일련번호 포함)</td></tr>
+<tr><td><code>addr_name</code></td><td class='num'>1,670</td><td class='num'>3.16%</td><td>시도+시군구+동+상호명 정규화 일치</td></tr>
+<tr><td><code>sgg_name</code></td><td class='num'>1,272</td><td class='num'>2.41%</td><td>시도+시군구+상호명 정규화 일치 (동 정보 없을 때)</td></tr>
+<tr><td><code>rep_phone</code></td><td class='num'>182</td><td class='num'>0.34%</td><td>대표자명 + 전화번호 substring 일치</td></tr>
+<tr><td><code>none</code></td><td class='num'>101</td><td class='num'>0.19%</td><td>매칭 실패 (등록 안 됨/폐업/정지 등)</td></tr>
+</table>
+<h2>🗂️ 테이블 구조</h2>
+<h3><code>article_events</code> · 매물 이벤트 (NEW/PRICE/DELISTED) · <span class='muted'>973,851 rows</span></h3>
+<p><span class='src derived'>derived</span></p>
+<p class='muted'>변동 추적용. listings_current 비교로 자동 생성.</p>
+<div class='cols'>
+event_id <span style='color:#aaa'>INTEGER</span> · event_date <span style='color:#aaa'>TEXT</span> · article_no <span style='color:#aaa'>TEXT</span> · complex_no <span style='color:#aaa'>TEXT</span> · trade_type <span style='color:#aaa'>TEXT</span> · event_type <span style='color:#aaa'>TEXT</span> · old_price <span style='color:#aaa'>INTEGER</span> · new_price <span style='color:#aaa'>INTEGER</span> · old_rent <span style='color:#aaa'>INTEGER</span> · new_rent <span style='color:#aaa'>INTEGER</span> · details <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>articles</code> · 매물 이력 (시계열) · <span class='muted'>2,228,044 rows</span></h3>
+<p><span class='src Naver'>Naver</span> <span class='src derived'>derived</span></p>
+<p class='muted'>listings_current 변경 시 자동 기록 (가격 변동, 신규/삭제).</p>
+<div class='cols'>
+article_no <span style='color:#aaa'>TEXT</span> · complex_no <span style='color:#aaa'>TEXT</span> · trade_type <span style='color:#aaa'>TEXT</span> · real_estate_type <span style='color:#aaa'>TEXT</span> · area_name <span style='color:#aaa'>TEXT</span> · area1_m2 <span style='color:#aaa'>REAL</span> · area2_m2 <span style='color:#aaa'>REAL</span> · floor_info <span style='color:#aaa'>TEXT</span> · direction <span style='color:#aaa'>TEXT</span> · building_name <span style='color:#aaa'>TEXT</span> · realtor_name <span style='color:#aaa'>TEXT</span> · realtor_id <span style='color:#aaa'>TEXT</span> · cp_name <span style='color:#aaa'>TEXT</span> · cp_pc_article_url <span style='color:#aaa'>TEXT</span> · verification_type <span style='color:#aaa'>TEXT</span> · latitude <span style='color:#aaa'>REAL</span> · longitude <span style='color:#aaa'>REAL</span> · tag_list_json <span style='color:#aaa'>TEXT</span> · same_addr_cnt <span style='color:#aaa'>INTEGER</span> · same_addr_min_price <span style='color:#aaa'>INTEGER</span> · same_addr_max_price <span style='color:#aaa'>INTEGER</span> · deal_or_warrant_price <span style='color:#aaa'>INTEGER</span> · deal_or_warrant_price_text <span style='color:#aaa'>TEXT</span> · rent_price <span style='color:#aaa'>INTEGER</span> · rent_price_text <span style='color:#aaa'>TEXT</span> · price_change_state <span style='color:#aaa'>TEXT</span> · is_price_modification <span style='color:#aaa'>INTEGER</span> · article_status <span style='color:#aaa'>TEXT</span> · article_feature_desc <span style='color:#aaa'>TEXT</span> · article_confirm_ymd <span style='color:#aaa'>TEXT</span> · first_seen_date <span style='color:#aaa'>TEXT</span> · last_seen_date <span style='color:#aaa'>TEXT</span> · is_active <span style='color:#aaa'>INTEGER</span>
+</div>
+<h3><code>collection_log</code> · 수집 완료 로그 · <span class='muted'>821,823 rows</span></h3>
+<p><span class='src meta'>meta</span></p>
+<p class='muted'>단지×거래유형별 성공/실패 기록. 중단 시 이어받기.</p>
+<div class='cols'>
+run_date <span style='color:#aaa'>TEXT</span> · complex_no <span style='color:#aaa'>TEXT</span> · trade_type <span style='color:#aaa'>TEXT</span> · article_count <span style='color:#aaa'>INTEGER</span> · status <span style='color:#aaa'>TEXT</span> · error <span style='color:#aaa'>TEXT</span> · completed_at <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>complex_daily_agg</code> · 단지별 일별 매물 집계 · <span class='muted'>765,411 rows</span></h3>
+<p><span class='src derived'>derived</span></p>
+<p class='muted'>일별 스냅샷 — 단지×거래유형 행수/최저/평균/최고가.</p>
+<div class='cols'>
+snapshot_date <span style='color:#aaa'>TEXT</span> · complex_no <span style='color:#aaa'>TEXT</span> · area_name <span style='color:#aaa'>TEXT</span> · trade_type <span style='color:#aaa'>TEXT</span> · listing_count <span style='color:#aaa'>INTEGER</span> · price_min <span style='color:#aaa'>INTEGER</span> · price_max <span style='color:#aaa'>INTEGER</span> · price_avg <span style='color:#aaa'>INTEGER</span> · rent_min <span style='color:#aaa'>INTEGER</span> · rent_max <span style='color:#aaa'>INTEGER</span> · rent_avg <span style='color:#aaa'>INTEGER</span>
+</div>
+<h3><code>complexes</code> · 아파트/오피스텔 단지 마스터 · <span class='muted'>64,102 rows</span></h3>
+<p><span class='src Naver'>Naver</span></p>
+<p class='muted'>수집 단계 1. naver `/api/regions/complexes` 동 단위 호출 → 단지 메타데이터. detail_address/lat/lon/세대수/준공일.</p>
+<div class='cols'>
+complex_no <span style='color:#aaa'>TEXT</span> · complex_name <span style='color:#aaa'>TEXT</span> · cortar_no <span style='color:#aaa'>TEXT</span> · real_estate_type <span style='color:#aaa'>TEXT</span> · real_estate_type_name <span style='color:#aaa'>TEXT</span> · detail_address <span style='color:#aaa'>TEXT</span> · latitude <span style='color:#aaa'>REAL</span> · longitude <span style='color:#aaa'>REAL</span> · total_household_count <span style='color:#aaa'>INTEGER</span> · total_building_count <span style='color:#aaa'>INTEGER</span> · high_floor <span style='color:#aaa'>INTEGER</span> · low_floor <span style='color:#aaa'>INTEGER</span> · use_approve_ymd <span style='color:#aaa'>TEXT</span> · raw <span style='color:#aaa'>TEXT</span> · first_seen_date <span style='color:#aaa'>TEXT</span> · last_seen_date <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>listings_current</code> · 현재 매물 (최신 스냅샷) · <span class='muted'>2,226,644 rows</span></h3>
+<p><span class='src Naver'>Naver</span></p>
+<p class='muted'>수집 단계 2 (run_collect.py). 단지×거래유형(매매/전세/월세)별 `/api/articles/complex/{cno}` 페이지네이션. 일별 갱신 시 upsert.</p>
+<div class='cols'>
+article_no <span style='color:#aaa'>TEXT</span> · complex_no <span style='color:#aaa'>TEXT</span> · trade_type <span style='color:#aaa'>TEXT</span> · real_estate_type <span style='color:#aaa'>TEXT</span> · area_name <span style='color:#aaa'>TEXT</span> · area1_m2 <span style='color:#aaa'>REAL</span> · area2_m2 <span style='color:#aaa'>REAL</span> · floor_info <span style='color:#aaa'>TEXT</span> · direction <span style='color:#aaa'>TEXT</span> · deal_or_warrant_price_text <span style='color:#aaa'>TEXT</span> · deal_or_warrant_price <span style='color:#aaa'>INTEGER</span> · rent_price_text <span style='color:#aaa'>TEXT</span> · rent_price <span style='color:#aaa'>INTEGER</span> · article_confirm_ymd <span style='color:#aaa'>TEXT</span> · realtor_name <span style='color:#aaa'>TEXT</span> · realtor_id <span style='color:#aaa'>TEXT</span> · cp_name <span style='color:#aaa'>TEXT</span> · verification_type <span style='color:#aaa'>TEXT</span> · building_name <span style='color:#aaa'>TEXT</span> · tag_list_json <span style='color:#aaa'>TEXT</span> · same_addr_cnt <span style='color:#aaa'>INTEGER</span> · latitude <span style='color:#aaa'>REAL</span> · longitude <span style='color:#aaa'>REAL</span> · raw <span style='color:#aaa'>TEXT</span> · snapshot_date <span style='color:#aaa'>TEXT</span> · same_addr_min_price <span style='color:#aaa'>INTEGER</span> · same_addr_max_price <span style='color:#aaa'>INTEGER</span> · price_change_state <span style='color:#aaa'>TEXT</span> · is_price_modification <span style='color:#aaa'>INTEGER</span> · article_status <span style='color:#aaa'>TEXT</span> · article_feature_desc <span style='color:#aaa'>TEXT</span> · cp_pc_article_url <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>match_suggestions</code> · 실거래↔단지 매칭 후보 (관리) · <span class='muted'>104 rows</span></h3>
+<p><span class='src meta'>meta</span></p>
+<p class='muted'>auto/manual review용.</p>
+<div class='cols'>
+suggestion_id <span style='color:#aaa'>INTEGER</span> · apt_nm <span style='color:#aaa'>TEXT</span> · sgg_cd <span style='color:#aaa'>TEXT</span> · umd_nm <span style='color:#aaa'>TEXT</span> · tx_count <span style='color:#aaa'>INTEGER</span> · suggested_complex_no <span style='color:#aaa'>TEXT</span> · suggested_method <span style='color:#aaa'>TEXT</span> · suggested_score <span style='color:#aaa'>REAL</span> · details <span style='color:#aaa'>TEXT</span> · status <span style='color:#aaa'>TEXT</span> · reviewed_at <span style='color:#aaa'>TEXT</span> · created_at <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>naver_realtors</code> · Naver 중개사 마스터 · <span class='muted'>52,747 rows</span></h3>
+<p><span class='src Naver'>Naver</span></p>
+<p class='muted'>두 채널: `/api/articles/{no}` 의 articleRealtor (등록번호 포함) + `/api/realtors/{id}` (article 무관).</p>
+<div class='cols'>
+realtor_id <span style='color:#aaa'>TEXT</span> · realtor_name <span style='color:#aaa'>TEXT</span> · representative_name <span style='color:#aaa'>TEXT</span> · address <span style='color:#aaa'>TEXT</span> · establish_registration_no <span style='color:#aaa'>TEXT</span> · representative_tel_no <span style='color:#aaa'>TEXT</span> · cell_phone_no <span style='color:#aaa'>TEXT</span> · cortar_no <span style='color:#aaa'>TEXT</span> · latitude <span style='color:#aaa'>REAL</span> · longitude <span style='color:#aaa'>REAL</span> · deal_count <span style='color:#aaa'>INTEGER</span> · lease_count <span style='color:#aaa'>INTEGER</span> · rent_count <span style='color:#aaa'>INTEGER</span> · home_page_url <span style='color:#aaa'>TEXT</span> · profile_image_url <span style='color:#aaa'>TEXT</span> · raw_json <span style='color:#aaa'>TEXT</span> · sample_article_no <span style='color:#aaa'>TEXT</span> · fetched_at <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>offi_rentals</code> · 오피스텔 실거래 전월세 · <span class='muted'>138,908 rows</span></h3>
+<p><span class='src data.go.kr'>data.go.kr</span></p>
+<p class='muted'>오피스텔 별도 endpoint.</p>
+<div class='cols'>
+rental_id <span style='color:#aaa'>TEXT</span> · deal_ymd <span style='color:#aaa'>TEXT</span> · deal_year <span style='color:#aaa'>INTEGER</span> · deal_month <span style='color:#aaa'>INTEGER</span> · deal_day <span style='color:#aaa'>INTEGER</span> · deposit <span style='color:#aaa'>INTEGER</span> · monthly_rent <span style='color:#aaa'>INTEGER</span> · sgg_cd <span style='color:#aaa'>TEXT</span> · umd_nm <span style='color:#aaa'>TEXT</span> · offi_nm <span style='color:#aaa'>TEXT</span> · jibun <span style='color:#aaa'>TEXT</span> · floor <span style='color:#aaa'>INTEGER</span> · excl_use_ar <span style='color:#aaa'>REAL</span> · build_year <span style='color:#aaa'>INTEGER</span> · contract_type <span style='color:#aaa'>TEXT</span> · contract_term <span style='color:#aaa'>TEXT</span> · use_rr_right <span style='color:#aaa'>TEXT</span> · pre_deposit <span style='color:#aaa'>INTEGER</span> · pre_monthly_rent <span style='color:#aaa'>INTEGER</span> · matched_complex_no <span style='color:#aaa'>TEXT</span> · matched_method <span style='color:#aaa'>TEXT</span> · matched_score <span style='color:#aaa'>REAL</span> · match_details <span style='color:#aaa'>TEXT</span> · manual_override <span style='color:#aaa'>INTEGER</span> · matched_at <span style='color:#aaa'>TEXT</span> · raw <span style='color:#aaa'>TEXT</span> · inserted_at <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>offi_transactions</code> · 오피스텔 실거래 매매 · <span class='muted'>19,155 rows</span></h3>
+<p><span class='src data.go.kr'>data.go.kr</span></p>
+<p class='muted'>오피스텔 별도 endpoint.</p>
+<div class='cols'>
+deal_id <span style='color:#aaa'>TEXT</span> · deal_ymd <span style='color:#aaa'>TEXT</span> · deal_year <span style='color:#aaa'>INTEGER</span> · deal_month <span style='color:#aaa'>INTEGER</span> · deal_day <span style='color:#aaa'>INTEGER</span> · deal_amount <span style='color:#aaa'>INTEGER</span> · sgg_cd <span style='color:#aaa'>TEXT</span> · umd_nm <span style='color:#aaa'>TEXT</span> · offi_nm <span style='color:#aaa'>TEXT</span> · jibun <span style='color:#aaa'>TEXT</span> · floor <span style='color:#aaa'>INTEGER</span> · excl_use_ar <span style='color:#aaa'>REAL</span> · build_year <span style='color:#aaa'>INTEGER</span> · dealing_gbn <span style='color:#aaa'>TEXT</span> · buyer_gbn <span style='color:#aaa'>TEXT</span> · sler_gbn <span style='color:#aaa'>TEXT</span> · matched_complex_no <span style='color:#aaa'>TEXT</span> · matched_method <span style='color:#aaa'>TEXT</span> · matched_score <span style='color:#aaa'>REAL</span> · match_details <span style='color:#aaa'>TEXT</span> · manual_override <span style='color:#aaa'>INTEGER</span> · matched_at <span style='color:#aaa'>TEXT</span> · raw <span style='color:#aaa'>TEXT</span> · inserted_at <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>realtor_match</code> · Naver↔vworld 매칭 결과 · <span class='muted'>52,768 rows</span></h3>
+<p><span class='src derived'>derived</span></p>
+<p class='muted'>3단계 규칙: 등록번호→주소+동+이름→대표+전화. + vworld_status (정지/휴업 표시).</p>
+<div class='cols'>
+realtor_id <span style='color:#aaa'>TEXT</span> · naver_name <span style='color:#aaa'>TEXT</span> · primary_sgg_cd <span style='color:#aaa'>TEXT</span> · primary_sgg_count <span style='color:#aaa'>INTEGER</span> · total_listings <span style='color:#aaa'>INTEGER</span> · sys_regno <span style='color:#aaa'>TEXT</span> · vworld_name <span style='color:#aaa'>TEXT</span> · vworld_rep <span style='color:#aaa'>TEXT</span> · match_type <span style='color:#aaa'>TEXT</span> · candidates_json <span style='color:#aaa'>TEXT</span> · matched_at <span style='color:#aaa'>TEXT</span> · vworld_status <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>region_daily_agg</code> · 시군구별 일별 집계 · <span class='muted'>33,429 rows</span></h3>
+<p><span class='src derived'>derived</span></p>
+<p class='muted'>일별 스냅샷 — 시군구×거래유형 매물수/단지수.</p>
+<div class='cols'>
+snapshot_date <span style='color:#aaa'>TEXT</span> · cortar_no <span style='color:#aaa'>TEXT</span> · trade_type <span style='color:#aaa'>TEXT</span> · listing_count <span style='color:#aaa'>INTEGER</span> · complex_count <span style='color:#aaa'>INTEGER</span>
+</div>
+<h3><code>regions</code> · 행정구역 트리 (시도/시군구/동/리) · <span class='muted'>5,339 rows</span></h3>
+<p><span class='src Naver'>Naver</span></p>
+<p class='muted'>수집 단계 0. naver `/api/regions/list` 재귀 호출로 트리 구축. cortar_no 10자리(2-3-3-2).</p>
+<div class='cols'>
+cortar_no <span style='color:#aaa'>TEXT</span> · cortar_name <span style='color:#aaa'>TEXT</span> · cortar_type <span style='color:#aaa'>TEXT</span> · parent_cortar_no <span style='color:#aaa'>TEXT</span> · center_lat <span style='color:#aaa'>REAL</span> · center_lon <span style='color:#aaa'>REAL</span>
+</div>
+<h3><code>rentals</code> · 아파트 실거래 전월세 (국토부) · <span class='muted'>471,726 rows</span></h3>
+<p><span class='src data.go.kr'>data.go.kr</span></p>
+<p class='muted'>전월세 신고. 갱신/재계약은 별도 행.</p>
+<div class='cols'>
+rental_id <span style='color:#aaa'>TEXT</span> · deal_ymd <span style='color:#aaa'>TEXT</span> · deal_year <span style='color:#aaa'>INTEGER</span> · deal_month <span style='color:#aaa'>INTEGER</span> · deal_day <span style='color:#aaa'>INTEGER</span> · deposit <span style='color:#aaa'>INTEGER</span> · monthly_rent <span style='color:#aaa'>INTEGER</span> · sgg_cd <span style='color:#aaa'>TEXT</span> · umd_nm <span style='color:#aaa'>TEXT</span> · apt_nm <span style='color:#aaa'>TEXT</span> · jibun <span style='color:#aaa'>TEXT</span> · floor <span style='color:#aaa'>INTEGER</span> · excl_use_ar <span style='color:#aaa'>REAL</span> · build_year <span style='color:#aaa'>INTEGER</span> · contract_type <span style='color:#aaa'>TEXT</span> · contract_term <span style='color:#aaa'>TEXT</span> · use_rr_right <span style='color:#aaa'>TEXT</span> · pre_deposit <span style='color:#aaa'>INTEGER</span> · pre_monthly_rent <span style='color:#aaa'>INTEGER</span> · matched_complex_no <span style='color:#aaa'>TEXT</span> · matched_method <span style='color:#aaa'>TEXT</span> · matched_score <span style='color:#aaa'>REAL</span> · match_details <span style='color:#aaa'>TEXT</span> · manual_override <span style='color:#aaa'>INTEGER</span> · matched_at <span style='color:#aaa'>TEXT</span> · raw <span style='color:#aaa'>TEXT</span> · inserted_at <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>transactions</code> · 아파트 실거래 매매 (국토부) · <span class='muted'>1,399,390 rows</span></h3>
+<p><span class='src data.go.kr'>data.go.kr</span></p>
+<p class='muted'>data.go.kr 4개 endpoint (매매·전월세·오피매매·오피전월세). 시군구×월 단위.</p>
+<div class='cols'>
+deal_id <span style='color:#aaa'>TEXT</span> · deal_ymd <span style='color:#aaa'>TEXT</span> · deal_year <span style='color:#aaa'>INTEGER</span> · deal_month <span style='color:#aaa'>INTEGER</span> · deal_day <span style='color:#aaa'>INTEGER</span> · deal_amount <span style='color:#aaa'>INTEGER</span> · sgg_cd <span style='color:#aaa'>TEXT</span> · umd_nm <span style='color:#aaa'>TEXT</span> · apt_nm <span style='color:#aaa'>TEXT</span> · apt_seq <span style='color:#aaa'>TEXT</span> · jibun <span style='color:#aaa'>TEXT</span> · road_nm <span style='color:#aaa'>TEXT</span> · floor <span style='color:#aaa'>INTEGER</span> · excl_use_ar <span style='color:#aaa'>REAL</span> · build_year <span style='color:#aaa'>INTEGER</span> · dealing_gbn <span style='color:#aaa'>TEXT</span> · buyer_gbn <span style='color:#aaa'>TEXT</span> · sler_gbn <span style='color:#aaa'>TEXT</span> · matched_complex_no <span style='color:#aaa'>TEXT</span> · matched_method <span style='color:#aaa'>TEXT</span> · matched_score <span style='color:#aaa'>REAL</span> · match_details <span style='color:#aaa'>TEXT</span> · manual_override <span style='color:#aaa'>INTEGER</span> · matched_at <span style='color:#aaa'>TEXT</span> · raw <span style='color:#aaa'>TEXT</span> · inserted_at <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>vworld_brokers</code> · 국토부 부동산중개업 사무소 · <span class='muted'>107,797 rows</span></h3>
+<p><span class='src vworld'>vworld</span></p>
+<p class='muted'>vworld 직접 크롤 (`dtld_list_s001.do` 시군구별). detail 페이지에서 phone 보강.</p>
+<div class='cols'>
+sys_regno <span style='color:#aaa'>TEXT</span> · ra_regno <span style='color:#aaa'>TEXT</span> · sgg_cd <span style='color:#aaa'>TEXT</span> · business_name <span style='color:#aaa'>TEXT</span> · address <span style='color:#aaa'>TEXT</span> · representative <span style='color:#aaa'>TEXT</span> · registered_ymd <span style='color:#aaa'>TEXT</span> · status <span style='color:#aaa'>TEXT</span> · phone <span style='color:#aaa'>TEXT</span> · classification <span style='color:#aaa'>TEXT</span> · detail_fetched_at <span style='color:#aaa'>TEXT</span> · list_fetched_at <span style='color:#aaa'>TEXT</span> · normalized_name <span style='color:#aaa'>TEXT</span> · dong_name <span style='color:#aaa'>TEXT</span> · normalized_loose <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>vworld_crawl_log</code> · vworld 시군구 크롤 로그 · <span class='muted'>255 rows</span></h3>
+<p><span class='src meta'>meta</span></p>
+<p class='muted'>재실행/누락 보강 추적.</p>
+<div class='cols'>
+sgg_cd <span style='color:#aaa'>TEXT</span> · last_listed_at <span style='color:#aaa'>TEXT</span> · total_count <span style='color:#aaa'>INTEGER</span> · rows_seen <span style='color:#aaa'>INTEGER</span> · note <span style='color:#aaa'>TEXT</span>
+</div>
+<h3><code>vworld_employees</code> · 사무소 소속 직원 · <span class='muted'>179,899 rows</span></h3>
+<p><span class='src vworld'>vworld</span></p>
+<p class='muted'>vworld svcCode=118 (직원 검색). 사무소(sys_regno) FK.</p>
+<div class='cols'>
+sys_regno <span style='color:#aaa'>TEXT</span> · sgg_cd <span style='color:#aaa'>TEXT</span> · ra_regno <span style='color:#aaa'>TEXT</span> · business_name <span style='color:#aaa'>TEXT</span> · employee_name <span style='color:#aaa'>TEXT</span> · role <span style='color:#aaa'>TEXT</span> · position <span style='color:#aaa'>TEXT</span> · status <span style='color:#aaa'>TEXT</span> · fetched_at <span style='color:#aaa'>TEXT</span>
+</div>
+</body></html>

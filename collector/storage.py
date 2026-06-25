@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS complexes (
     last_seen_date TEXT
 );
 CREATE INDEX IF NOT EXISTS complexes_cortar_idx ON complexes(cortar_no);
+-- 지도보기(in-bounds): 화면 영역 bbox 로 단지 조회.
+CREATE INDEX IF NOT EXISTS complexes_geo_idx ON complexes(latitude, longitude);
 
 CREATE TABLE IF NOT EXISTS listings_current (
     article_no TEXT PRIMARY KEY,
@@ -78,6 +80,14 @@ CREATE TABLE IF NOT EXISTS listings_current (
 CREATE INDEX IF NOT EXISTS listings_complex_trade_idx ON listings_current(complex_no, trade_type);
 CREATE INDEX IF NOT EXISTS listings_snapshot_idx ON listings_current(snapshot_date);
 CREATE INDEX IF NOT EXISTS listings_area_idx ON listings_current(complex_no, area_name);
+-- 호가 집계용 커버링 인덱스 (tx-asking-vs-real 의 asking CTE: 단지×공급면적별 평균호가).
+-- 없으면 area1_m2·호가가 인덱스에 없어 풀스캔 → 콜드 31s. 인덱스전용 스캔으로 <1s.
+CREATE INDEX IF NOT EXISTS listings_asking_idx ON listings_current(trade_type, complex_no, area1_m2, deal_or_warrant_price);
+-- 급매찾기(quick-deals)의 listing_groups: trade_type 필터 + (단지,평형) GROUP BY +
+-- 호가/면적 집계를 인덱스전용으로. 없으면 전국 1.79M 풀스캔+정렬 → 16.5s.
+CREATE INDEX IF NOT EXISTS listings_qd_idx ON listings_current(trade_type, complex_no, area_name, deal_or_warrant_price, area1_m2);
+-- 오늘의매물(today-deals/stats)이 최신 매물 확인일로 필터 — 1.84M 풀스캔(콜드 ~38s) 회피.
+CREATE INDEX IF NOT EXISTS listings_confirm_idx ON listings_current(article_confirm_ymd);
 
 CREATE TABLE IF NOT EXISTS complex_daily_agg (
     snapshot_date TEXT NOT NULL,
@@ -89,6 +99,26 @@ CREATE TABLE IF NOT EXISTS complex_daily_agg (
     rent_min INTEGER, rent_max INTEGER, rent_avg INTEGER,
     PRIMARY KEY (snapshot_date, complex_no, area_name, trade_type)
 );
+-- 단지상세 가격이력 차트가 complex_no 로 조회 — PK 선두가 snapshot_date 라
+-- 이 인덱스 없으면 447만행 풀스캔(콜드 ~16s). (complex_no, snapshot_date) 시크용.
+CREATE INDEX IF NOT EXISTS cda_complex_idx ON complex_daily_agg(complex_no, snapshot_date);
+
+-- 실거래 평형별 일단위 사전집계 (scripts/build_tx_rollups.py 가 매일 재빌드).
+-- quick_deals 등 "단지×평형 실거래평균" 쿼리의 바닥 계산을 1회로 대체.
+-- 일 단위 보존이라 임의 일수 윈도우의 AVG/COUNT/MIN/MAX 를 정확히 재구성.
+CREATE TABLE IF NOT EXISTS tx_avg_rollup (
+  kind       TEXT NOT NULL,      -- sale | jeonse | offi_sale | offi_jeonse
+  complex_no TEXT NOT NULL,
+  pyeong     TEXT NOT NULL,      -- complex_areas.pyeong_name (= listings area_name)
+  deal_ymd   TEXT NOT NULL,
+  n          INTEGER NOT NULL,
+  sum_amt    INTEGER NOT NULL,
+  min_amt    INTEGER NOT NULL,
+  max_amt    INTEGER NOT NULL,
+  sum_excl   REAL    NOT NULL,
+  PRIMARY KEY (kind, complex_no, pyeong, deal_ymd)
+);
+CREATE INDEX IF NOT EXISTS txr_kind_ymd_idx ON tx_avg_rollup(kind, deal_ymd);
 
 CREATE TABLE IF NOT EXISTS region_daily_agg (
     snapshot_date TEXT NOT NULL,
@@ -97,6 +127,15 @@ CREATE TABLE IF NOT EXISTS region_daily_agg (
     listing_count INTEGER NOT NULL,
     complex_count INTEGER NOT NULL,
     PRIMARY KEY (snapshot_date, cortar_no, trade_type)
+);
+
+-- 시군구별 실거래 월세 상한 기준(원). scripts/build_tx_rollups.py 가 야간에 채움.
+-- 매물 월세 이상치(보증금 오입력·제주 년세 등)를 지역 적응적으로 컷하는 데 사용.
+-- 여기선 LEFT JOIN 안전을 위해 테이블 존재만 보장(빈 테이블이면 fallback 상한 적용).
+CREATE TABLE IF NOT EXISTS rent_ref_sgg (
+    sgg5 TEXT PRIMARY KEY,
+    rent_cap INTEGER NOT NULL,
+    n INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS collection_log (
@@ -373,12 +412,16 @@ def save_article_states(
                     [snapshot_date, *chunk],
                 )
 
-        # Full path: upsert only the rows that actually changed.
-        if upsert_rows:
+        # Full path: upsert only the rows that actually changed. SQLite caps
+        # bound parameters at 32766; with 33 cols per row that's ~990 rows per
+        # statement. Chunk well under the limit.
+        UPSERT_BATCH = 500
+        for batch_start in range(0, len(upsert_rows), UPSERT_BATCH):
+            batch = upsert_rows[batch_start:batch_start + UPSERT_BATCH]
             placeholders = ",".join(
-                ["(" + ",".join(["?"] * 33) + ")"] * len(upsert_rows)
+                ["(" + ",".join(["?"] * 33) + ")"] * len(batch)
             )
-            flat = [v for row in upsert_rows for v in row]
+            flat = [v for row in batch for v in row]
             conn.execute(
                 f"""
                 INSERT INTO articles({_ARTICLE_COLS})
@@ -616,9 +659,13 @@ def save_articles(
     """
     rows = [_article_row(complex_no, trade, snapshot_date, it) for it in items]
     with _LOCK:
+        # 이 (complex, trade) 의 기존 행을 '전부' 지우고 이번 배치로 교체한다.
+        # snapshot_date 까지 걸어 오늘 것만 지우면, 어제 있다가 오늘 내려간(delisted)
+        # 매물이 옛 snapshot_date 로 영원히 남아 listings_current 가 누적·뻥튀기됨
+        # (중개사 매물수가 실제의 3배 등). listings_current 는 '현재 스냅샷'이어야 함.
         conn.execute(
-            "DELETE FROM listings_current WHERE complex_no=? AND trade_type=? AND snapshot_date=?",
-            (complex_no, trade, snapshot_date),
+            "DELETE FROM listings_current WHERE complex_no=? AND trade_type=?",
+            (complex_no, trade),
         )
         if rows:
             conn.executemany(
@@ -709,15 +756,22 @@ def compute_complex_daily_agg(conn: sqlite3.Connection, snapshot_date: str) -> i
                 rent_min, rent_max, rent_avg
             )
             SELECT
-                snapshot_date, complex_no, COALESCE(area_name, ''), trade_type,
+                lc.snapshot_date, lc.complex_no, COALESCE(lc.area_name, ''), lc.trade_type,
                 COUNT(*),
-                MIN(deal_or_warrant_price), MAX(deal_or_warrant_price),
-                CAST(AVG(deal_or_warrant_price) AS INTEGER),
-                MIN(rent_price), MAX(rent_price),
-                CAST(AVG(rent_price) AS INTEGER)
-            FROM listings_current
-            WHERE snapshot_date=? AND complex_no IS NOT NULL
-            GROUP BY snapshot_date, complex_no, COALESCE(area_name, ''), trade_type
+                MIN(lc.deal_or_warrant_price), MAX(lc.deal_or_warrant_price),
+                CAST(AVG(lc.deal_or_warrant_price) AS INTEGER),
+                -- 월세료 이상치 제외 — 시군구별 '실거래 월세 상한'(rent_ref_sgg, 깨끗한
+                -- 실거래 p99×1.5)을 넘는 호가는 보증금 오입력·제주 년세 등으로 보고 제외.
+                -- rent_ref 없는 시군구는 3만~1천만원/월 fallback. 지역 적응적이라
+                -- 강남 고가월세는 허용하고 제주 년세는 자동으로 걸러낸다.
+                MIN(CASE WHEN lc.rent_price BETWEEN 30000 AND COALESCE(rr.rent_cap, 10000000) THEN lc.rent_price END),
+                MAX(CASE WHEN lc.rent_price BETWEEN 30000 AND COALESCE(rr.rent_cap, 10000000) THEN lc.rent_price END),
+                CAST(AVG(CASE WHEN lc.rent_price BETWEEN 30000 AND COALESCE(rr.rent_cap, 10000000) THEN lc.rent_price END) AS INTEGER)
+            FROM listings_current lc
+            LEFT JOIN complexes cx ON cx.complex_no = lc.complex_no
+            LEFT JOIN rent_ref_sgg rr ON rr.sgg5 = substr(cx.cortar_no,1,5)
+            WHERE lc.snapshot_date=? AND lc.complex_no IS NOT NULL
+            GROUP BY lc.snapshot_date, lc.complex_no, COALESCE(lc.area_name, ''), lc.trade_type
             """,
             (snapshot_date,),
         )

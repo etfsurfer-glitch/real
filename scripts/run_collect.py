@@ -28,6 +28,7 @@ logged as successful. Use --reset-today to force re-collection.
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import sys
 import threading
@@ -117,13 +118,101 @@ def _cached_complex_nos(conn, dongs: list[str]) -> list[str]:
     return out
 
 
+# ── 단일 실행 잠금 (수동/예약 수집 동시 실행 충돌 방지) ──────────────────────
+# OS 배타적 파일락 — 프로세스가 죽으면(크래시/강제종료 포함) 락이 자동 해제돼
+# stale lock 문제가 없다. 이미 수집이 돌고 있으면 두 번째 인스턴스는 즉시 종료.
+_LOCK_PATH = Path(settings.local_db_path).resolve().parent / "run_collect.lock"
+_lock_handle = None  # 프로세스 수명 동안 유지(GC 방지) — 락 유지용
+
+
+def _acquire_singleton_lock() -> bool:
+    """이미 수집이 실행 중이면 False, 락 획득에 성공하면 True."""
+    global _lock_handle
+    f = None
+    try:
+        f = open(_LOCK_PATH, "a+")
+        if sys.platform.startswith("win"):
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        if f is not None:
+            try: f.close()
+            except Exception: pass
+        return False
+    try:
+        f.seek(0)
+        f.write(f"{os.getpid()}\n")
+        f.flush()
+    except Exception:
+        pass
+    _lock_handle = f  # 닫지 않고 보관 → 프로세스 끝날 때까지 락 유지
+    return True
+
+
+# ── 완결성 게이트 (부분 수집이 '완전한 하루'로 집계/발행되는 것을 방지) ──────
+COMPLETENESS_THRESHOLD = 0.97   # 이번 run 성공 task 비율 하한
+COVERAGE_THRESHOLD = 0.90       # task 수가 직전 최다수집일 대비 이 비율 미만이면 불완전(Phase1 누락)
+
+
+def _recent_task_baseline(conn: sqlite3.Connection, run_date: str) -> int:
+    """직전 날짜들 중 '가장 많이 수집된 날'의 성공 task 수 — 정상 수집 규모 기준선."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM collection_log "
+        "WHERE status='success' AND run_date < ? GROUP BY run_date ORDER BY n DESC LIMIT 1",
+        (run_date,),
+    ).fetchone()
+    return row[0] if row else 0
+
+
+RESUME_MAX_AGE_DAYS = 2   # 미완 수집을 며칠 전까지 이어받을지 상한
+
+
+def _pick_run_date(conn: sqlite3.Connection) -> str:
+    """수집 대상 snapshot_date 결정.
+
+    자정을 넘겨 재시작하면 date.today() 기준으론 '새 날짜'로 새 스냅샷을 시작해
+    직전(크래시된) 날의 부분 데이터가 고아가 된다. 그래서 가장 최근 run 이
+    '명백히 미완'(성공 task 가 정상 규모의 COVERAGE_THRESHOLD 미만)이고 최근
+    RESUME_MAX_AGE_DAYS 일 이내면 그 날짜를 이어받아 같은 스냅샷으로 완주한다.
+    """
+    today = date.today().isoformat()
+    row = conn.execute(
+        "SELECT run_date, COUNT(*) AS n FROM collection_log WHERE status='success' "
+        "GROUP BY run_date ORDER BY run_date DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        return today
+    last_date, last_n = row[0], row[1]
+    if last_date >= today:
+        return today  # 오늘 것 이미 진행/완료 중
+    baseline = conn.execute(
+        "SELECT MAX(n) FROM (SELECT COUNT(*) AS n FROM collection_log "
+        "WHERE status='success' GROUP BY run_date)"
+    ).fetchone()[0] or 0
+    from datetime import date as _date
+    gap = (_date.fromisoformat(today) - _date.fromisoformat(last_date)).days
+    if baseline and last_n < baseline * COVERAGE_THRESHOLD and gap <= RESUME_MAX_AGE_DAYS:
+        print(f"[resume] 직전 미완 수집 {last_date} (성공 {last_n:,}/{baseline:,}) 이어받기 "
+              f"— 새 스냅샷 대신 같은 날로 완주")
+        return last_date
+    return today
+
+
 def main() -> int:
     args = parse_args()
-    run_date = date.today().isoformat()
+    if not _acquire_singleton_lock():
+        print(f"[lock] 이미 다른 수집이 실행 중입니다 ({_LOCK_PATH}) — 이 인스턴스는 종료합니다.")
+        return 3
     t_start = time.time()
 
     conn = storage.open_db(settings.local_db_path)
     storage.init_schema(conn)
+    # snapshot_date 결정 — reset-today 면 무조건 오늘, 아니면 직전 미완 수집 이어받기.
+    run_date = date.today().isoformat() if args.reset_today else _pick_run_date(conn)
     creds = ensure_creds()
 
     dongs = resolve_dongs(conn, args)
@@ -133,8 +222,10 @@ def main() -> int:
         dongs = dongs[: args.limit]
 
     refresh_listing, refresh_reason = _should_refresh_listing(conn, args.listing_max_age)
+    _ips = [s.strip() for s in settings.naver_source_ips.split(",") if s.strip()]
     print(f"[*] run_date={run_date}  dongs={len(dongs)}  "
-          f"concurrency={settings.naver_concurrency}  jitter≤{settings.naver_delay_ms}ms")
+          f"concurrency={settings.naver_concurrency}×{max(1,len(_ips))}IP={settings.naver_concurrency*max(1,len(_ips))}  "
+          f"jitter≤{settings.naver_delay_ms}ms  src_ips={_ips or 'default'}")
     print(f"[*] Phase 1: {'REFRESH' if refresh_listing else 'SKIP (use cache)'} ({refresh_reason})")
     if not dongs:
         print("[!] no dongs to process — did you run build_region_tree.py?")
@@ -185,9 +276,16 @@ def main() -> int:
         prog = {"n": 0, "items": 0, "errs": 0}
         plock = threading.Lock()
 
-        def worker(cno: str, trade: str) -> tuple[str, str, int, str | None]:
+        # 멀티 IP 병렬: NAVER_SOURCE_IPS 에 소스 IP 들을 주면 task 를 IP 에 round-robin
+        # 분산하고 각 요청을 그 IP 로 바인딩(interface=). IP당 naver_concurrency 워커.
+        # 데이터 정확성은 그대로 — 같은 단지는 어느 IP로 받아도 동일 응답, 쓰기는
+        # storage._LOCK 으로 직렬화. 비어있으면 단일(interface=None, 기존 동작).
+        src_ips = [s.strip() for s in settings.naver_source_ips.split(",") if s.strip()]
+        n_ip = max(1, len(src_ips))
+
+        def worker(cno: str, trade: str, ip: str | None) -> tuple[str, str, int, str | None]:
             try:
-                items = list(articles_for_complex(cno, trade, creds))
+                items = list(articles_for_complex(cno, trade, creds, interface=ip))
                 storage.save_articles(conn, cno, trade, items, run_date)
                 storage.log_completion(conn, run_date, cno, trade, len(items), "success", None)
                 return cno, trade, len(items), None
@@ -195,8 +293,11 @@ def main() -> int:
                 storage.log_completion(conn, run_date, cno, trade, 0, "error", str(e)[:300])
                 return cno, trade, 0, f"{type(e).__name__}: {str(e)[:80]}"
 
-        with ThreadPoolExecutor(max_workers=settings.naver_concurrency) as exe:
-            futs = [exe.submit(worker, c, t) for c, t in remaining]
+        with ThreadPoolExecutor(max_workers=settings.naver_concurrency * n_ip) as exe:
+            futs = [
+                exe.submit(worker, c, t, (src_ips[i % n_ip] if src_ips else None))
+                for i, (c, t) in enumerate(remaining)
+            ]
             for fut in as_completed(futs):
                 cno, trade, n, err = fut.result()
                 with plock:
@@ -217,7 +318,30 @@ def main() -> int:
                         line += f"  ({rate:.1f}/s  items={prog['items']}  errs={prog['errs']})"
                         print(line)
 
-    # Phase 3 — DELISTED detection + aggregates + log trim
+    # ── 완결성 게이트 ──────────────────────────────────────────────
+    # 부분 수집분이 집계(complex/region_daily_agg)로 새어나가면 홈페이지가 '가짜
+    # 폭락'을 표시한다. 성공 task 비율과 수집 규모가 충분할 때만 Phase 3 진행.
+    # 불완전이면 직전 완전 스냅샷을 그대로 두고 exit 2 (daily_run.ps1 이 업로드/
+    # 아카이브를 건너뛰는 신호). 같은 날 재실행하면 resume 으로 이어서 완성.
+    n_success = len(storage.get_completed_for_run(conn, run_date))
+    n_expected = len(all_tasks)
+    ratio = n_success / n_expected if n_expected else 0.0
+    baseline = _recent_task_baseline(conn, run_date)
+    coverage = (n_expected / baseline) if baseline else 1.0
+    complete = (n_expected > 0 and ratio >= COMPLETENESS_THRESHOLD
+                and coverage >= COVERAGE_THRESHOLD)
+    print(f"\n[gate] 성공 {n_success}/{n_expected} = {ratio:.1%}  "
+          f"규모 {n_expected} vs 기준 {baseline} = {coverage:.0%}  list_err={list_errors}")
+    if not complete:
+        reason = ("성공률 부족" if ratio < COMPLETENESS_THRESHOLD
+                  else "수집 규모 부족(Phase1 누락 의심)")
+        print(f"[gate] 불완전({reason}) — 집계/삭제/발행을 건너뜁니다. "
+              f"직전 완전 스냅샷 유지. 같은 날 재실행하면 이어서 수집합니다.")
+        elapsed = time.time() - t_start
+        print(f"[done-incomplete] {elapsed:.0f}s  success={ratio:.1%}")
+        return 2
+
+    # Phase 3 — DELISTED detection + aggregates + log trim (완전 수집일에만)
     print("\n[3/3] aggregates + deletions")
     n_delisted = storage.finalize_deletions(conn, run_date)
     print(f"  articles delisted today: {n_delisted}")

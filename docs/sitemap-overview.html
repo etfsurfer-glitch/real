@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>콕집 사이트맵 — 페이지·표시·선택지</title>
+<style>
+  :root{--blue:#1268d3;--red:#c0392b;--green:#1a7f4b;--ink:#1f2a37;--mut:#6b7785;--bd:#e6ecf4;--bg:#f5f7fa;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Apple SD Gothic Neo","Malgun Gothic",sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+  header{background:linear-gradient(135deg,#1268d3,#0b4ea2);color:#fff;padding:22px 24px}
+  header h1{margin:0;font-size:22px}
+  header p{margin:6px 0 0;opacity:.9;font-size:13px}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px 16px 80px}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 24px}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;background:#eef2f7;color:#51606f}
+  .chip.a1{background:#fdecea;color:var(--red)} .chip.b1{background:#e8f0fe;color:var(--blue)} .chip.b2{background:#e9f6ee;color:var(--green)}
+  .chip.adm{background:#f3e8ff;color:#7c3aed}
+  .sec{margin:26px 0 8px;font-size:16px;font-weight:800;color:#0b4ea2;display:flex;align-items:center;gap:8px}
+  .sec .ic{width:9px;height:18px;background:var(--blue);border-radius:3px;display:inline-block}
+  .grp{border-left:2px dashed #cdd9e8;margin:10px 0 10px 6px;padding-left:14px}
+  details.page{background:#fff;border:1px solid var(--bd);border-radius:11px;margin:9px 0;overflow:hidden}
+  details.page[open]{box-shadow:0 3px 14px rgba(20,50,90,.07)}
+  summary{cursor:pointer;list-style:none;padding:11px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸";color:var(--blue);font-size:12px;transition:.15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  .route{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;background:#eef3fb;color:#1268d3;padding:2px 8px;border-radius:6px;font-weight:700}
+  .comp{font-size:11.5px;color:#8a94a2}
+  .ttl{font-weight:800;font-size:14.5px}
+  .body{padding:2px 16px 14px;border-top:1px solid #f0f3f7}
+  .row{display:flex;gap:10px;padding:7px 0;font-size:13.5px;border-bottom:1px solid #f5f7fa}
+  .row:last-child{border-bottom:none}
+  .row b{flex:none;width:66px;color:#51606f;font-size:12px;padding-top:1px}
+  .row .v{flex:1;min-width:0}
+  .opts{display:flex;flex-wrap:wrap;gap:6px}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:#f5f7fa;border:1px solid #eef2f7;border-radius:5px;padding:1px 6px;color:#334155}
+  .api code{display:block;margin:3px 0;background:#0f172a;color:#9ad0ff;border:none;padding:5px 9px;border-radius:6px;font-size:11.5px;overflow-x:auto}
+  .muted{color:var(--mut);font-size:12.5px}
+  .nav-tree{background:#fff;border:1px solid var(--bd);border-radius:11px;padding:14px 16px;font-size:13px}
+  .nav-tree ul{margin:4px 0;padding-left:18px} .nav-tree li{margin:2px 0}
+  .nav-tree a{color:var(--blue);text-decoration:none} .nav-tree a:hover{text-decoration:underline}
+  .toolbar{display:flex;gap:8px;margin:0 0 14px}
+  .toolbar button{font-size:12px;border:1px solid var(--bd);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer}
+  .toolbar button:hover{background:#eef3fb;color:var(--blue)}
+  .pill{font-size:11px;background:#fff7e6;color:#9a6a00;border:1px solid #ffe1a6;border-radius:999px;padding:1px 8px;font-weight:700}
+</style>
+</head>
+<body>
+<header>
+  <h1>콕집 사이트맵</h1>
+  <p>페이지별 표시 내용 · 사용자 선택지 · 호출 API — 계층식 정리 (2026-06-14)</p>
+</header>
+<div class="wrap">
+
+  <div class="legend">
+    <span class="chip a1">매매 A1</span><span class="chip b1">전세 B1</span><span class="chip b2">월세 B2</span>
+    <span class="chip">자산: apt / offi</span><span class="chip">면적: all·10s·20s·30s·40s·over50</span>
+    <span class="chip">거래방식: 중개거래/직거래</span><span class="chip adm">관리자 전용</span>
+  </div>
+
+  <div class="toolbar">
+    <button onclick="document.querySelectorAll('details').forEach(d=>d.open=true)">전체 펼치기</button>
+    <button onclick="document.querySelectorAll('details').forEach(d=>d.open=false)">전체 접기</button>
+  </div>
+
+  <div class="nav-tree">
+    <b>메인 메뉴</b>
+    <ul>
+      <li>🤖 <a href="#p-ai">AI 분석</a> <code>/</code></li>
+      <li>📅 TODAY <code>/today</code>
+        <ul><li><a href="#p-today-deals">오늘의 실거래(신고가)</a> <code>/today/deals</code></li>
+            <li><a href="#p-today-listings">오늘의 매물(급매)</a> <code>/today/listings</code></li></ul></li>
+      <li>🗺 <a href="#p-map">지도보기</a> <code>/map</code></li>
+      <li>🔥 <a href="#p-dealmap">급매지도</a> <code>/deal-map</code></li>
+      <li>🏷 <a href="#p-quick">급매찾기</a> <code>/quick-deals</code></li>
+      <li>📉 <a href="#p-recovery">저평가단지</a> <code>/recovery</code></li>
+      <li>📈 <a href="#p-changes">가격 변동</a> <code>/changes</code></li>
+      <li>📊 실거래 통계 <code>/tx-stats</code> <span class="muted">— 12개 탭(아래)</span></li>
+      <li>🚫 <a href="#p-cancelled">취소거래</a> <code>/cancelled</code></li>
+      <li>🏆 <a href="#p-realtors">중개사 랭킹</a> <code>/realtors</code></li>
+      <li>💬 <a href="#p-forum">토론장</a> <code>/forum</code></li>
+    </ul>
+    <b>상세/동적 페이지</b>
+    <ul>
+      <li><a href="#p-complex">단지 상세</a> <code>/complex/:no</code></li>
+      <li><a href="#p-realtor">중개사 상세</a> <code>/realtor/:id</code></li>
+    </ul>
+    <b>관리자</b> <span class="chip adm">admin</span>
+    <ul><li><a href="#p-admin">사용자 · 활동로그 · 중개사매칭 · 의심중개사 · 리뷰검수 · 입주민인증</a></li></ul>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 메인 페이지</div>
+  <div class="grp">
+  <details class="page" id="p-ai" open>
+    <summary><span class="route">/</span> <span class="ttl">AI 분석</span> <span class="comp">AiChat</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">부동산 AI 챗봇(멀티턴·SSE 스트리밍). 사용된 도구·토큰 표시. 데이터 요약. 답변마다 공유바.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip">자유 질문(≤500자)</span><span class="chip">지역 기반 추천질문 칩</span></div></div>
+      <div class="row"><b>게이트</b><div class="v">전화번호 인증 필수 · 포인트 차감(부족 시 402)</div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /ai/region</code><code>POST /ai/ask-stream  (SSE)</code></div></div>
+    </div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> TODAY <span class="muted" style="font-weight:500">— 호버 오버레이 하위메뉴</span></div>
+  <div class="grp">
+  <details class="page" id="p-today-deals">
+    <summary><span class="route">/today/deals</span> <span class="ttl">오늘의 실거래 (신고가)</span> <span class="comp">TodayDeals</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">최근 공개 실거래 중 해당 단지·평형 역대 최고가(신고가) 카드뉴스(순위·단지·지역·면적·층·거래일·신고가·직전최고가·미니 스파크라인). 하단 지역별 거래량·국민평형 시세.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip a1">매매</span><span class="chip b1">전세</span><span class="chip b2">월세</span><span class="chip">정렬: 거래가격순(기본)·증가율순</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/tx-record-high?days=7&trade=&order=&min_prior=1&limit=12</code><code>GET /stats/tx-region-pulse · /stats/region-compare</code></div></div>
+    </div>
+  </details>
+  <details class="page" id="p-today-listings">
+    <summary><span class="route">/today/listings</span> <span class="ttl">오늘의 매물 (급매)</span> <span class="comp">TodayListings</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">오늘 신규 등록 급매 카드(할인율 뱃지·단지·면적·층/향·호가·실거래평균·네이버 바로가기). 하단 통계: 신규수·매/전/월·지역별 상위·가격대 분포.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip a1">매매</span><span class="chip b1">전세</span><span class="chip b2">월세</span><span class="chip">정렬: 금액순(기본)·할인율순</span><span class="chip">공유바</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/today-deals?trade=&min_discount=0.05&limit=24&sort=</code><code>GET /stats/today-listings-stats</code></div></div>
+    </div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 지도</div>
+  <div class="grp">
+  <details class="page" id="p-map">
+    <summary><span class="route">/map</span> <span class="ttl">지도보기</span> <span class="comp">MapView</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">Leaflet 지도. 단지 마커(매/전/월 매물수). 툴팁: 단지명·매물수·최고호가·최고실거래·세대수. 영역 자동 조회.</div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /complexes/in-bounds?bbox&limit=1000</code></div></div>
+    </div>
+  </details>
+  <details class="page" id="p-dealmap">
+    <summary><span class="route">/deal-map</span> <span class="ttl">급매지도</span> <span class="comp">DealMap</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">급매 단지만 Leaflet 지도. 불꽃 마커+할인율%(-10%↑ 강조). 툴팁: 단지+면적·호가↓평균·할인율·매물/거래수.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip a1">매매</span><span class="chip b1">전세</span><span class="chip">할인 5%↑·10%↑</span><span class="chip">기간 90·180일</span><span class="chip">평형 전체·10·20·30·40+</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/quick-deals-map?bbox&trade_type&min_discount&days&pyeong</code></div></div>
+    </div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 급매 · 저평가</div>
+  <div class="grp">
+  <details class="page" id="p-quick">
+    <summary><span class="route">/quick-deals</span> <span class="ttl">급매찾기</span> <span class="comp">QuickDeals</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">테이블: 단지·지역·면적·매물수·호가범위·실거래평균·거래수·할인율. 와이드 캐시 후 브라우저 세부필터(표본≥5·매물≥3).</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip a1">매매</span><span class="chip b1">전세</span><span class="chip">시도 선택</span><span class="chip">시군구 선택</span><span class="chip">면적 전체·10·20·30·40+</span><span class="chip">기간 3·6개월</span><span class="chip">할인 5%↑·10%↑</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/quick-deals?days&trade_type&sido|sigungu&min_discount=0.03&limit=500</code></div></div>
+    </div>
+  </details>
+  <details class="page" id="p-recovery">
+    <summary><span class="route">/recovery</span> <span class="ttl">저평가단지</span> <span class="comp">TxRecovery</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">전고점 대비 회복률 순위 테이블(단지·평형·전고점·최근평균·회복률%·거래수). 색: 80%↓ 빨강·95%↓ 주황·95%↑ 초록.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip">정렬: 저평가순(기본)·회복순</span><span class="chip">시도 선택</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/tx-recovery?order&sido&limit=200</code></div></div>
+    </div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 가격 변동</div>
+  <div class="grp">
+  <details class="page" id="p-changes">
+    <summary><span class="route">/changes</span> <span class="ttl">가격 변동</span> <span class="comp">Changes</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">①요약카드(매물수·매/전/월 평균·전일대비%) ②60일 추이 차트 ③지역별 순위표 ④상승/하락 Top5.</div></div>
+      <div class="row"><b>전역필터</b><div class="v opts"><span class="chip">시도</span><span class="chip">시군구</span></div></div>
+      <div class="row"><b>차트</b><div class="v opts"><span class="chip a1">매매</span><span class="chip b1">전세</span><span class="chip b2">월세보증금</span><span class="chip b2">월세</span> <span class="muted">토글</span></div></div>
+      <div class="row"><b>지역순위</b><div class="v opts"><span class="chip">단위 시도·시군구·동</span><span class="chip a1">매매</span><span class="chip b1">전세</span><span class="chip b2">월세</span><span class="chip">면적타입</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/changes/summary</code><code>GET /stats/avg-price-trend?days=60</code><code>GET /stats/changes/region-rank · /stats/changes/movers</code></div></div>
+    </div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 실거래 통계 <code>/tx-stats</code> <span class="muted" style="font-weight:500">— 12개 탭</span></div>
+  <div class="grp">
+    <p class="muted" style="margin:4px 0 8px">공통(탭별 상이): 기간(7·30·90·180·365·전체) · 거래(매/전/월) · 자산(통합/아파트/오피스텔) · 거래방식(전체/중개/직거래) · 면적타입 · 정렬(높은/낮은순)</p>
+  <details class="page">
+    <summary><span class="route">/tx-stats/region-pulse</span> <span class="ttl">지역별 거래량(분위기)</span> <span class="comp">TxRegionPulse</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">시도별 거래량(이번달 vs 지난달/전년/3년평균/예측) + 국민평형(전용 59·84㎡) 평균가 카드.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip">자산 apt·offi·통합</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/tx-region-pulse?asset=</code><code>GET /stats/region-compare?days=30&trade=A1</code></div></div>
+    </div>
+  </details>
+  <details class="page">
+    <summary><span class="route">/tx-stats/*</span> <span class="ttl">랭킹 탭 11종</span></summary>
+    <div class="body">
+      <div class="row"><b>탭</b><div class="v opts">
+        <span class="chip">top-price 최고가</span><span class="chip">record-high 신고가</span><span class="chip">top-volume 거래량</span>
+        <span class="chip">low-price 저가(증여의심)</span><span class="chip">gap 갭(매매-전세)</span><span class="chip">jeonse-rate 전세율</span>
+        <span class="chip">price-change 변동률</span><span class="chip">asking-vs-real 호가갭</span><span class="chip">pyeong-price 평당가</span>
+        <span class="chip">turnover 회전율</span><span class="chip">yield 월세수익률</span>
+      </div></div>
+      <div class="row"><b>선택지</b><div class="v">각 탭마다 기간·자산·면적타입·정렬. 결과는 단지×평형 순위 테이블.</div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/tx-top-price · tx-record-high · tx-top-volume · tx-low-price</code><code>GET /stats/tx-gap-rank · tx-jeonse-rate · tx-price-change · tx-asking-vs-real · tx-pyeong-price · tx-turnover · tx-yield</code></div></div>
+      <div class="row"><b>참고</b><div class="v"><span class="pill">롤업 전환됨</span> gap·jeonse-rate·price-change·pyeong-price·turnover·yield·record-high → 콜드 0.1~1초</div></div>
+    </div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 취소거래 · 중개사</div>
+  <div class="grp">
+  <details class="page" id="p-cancelled">
+    <summary><span class="route">/cancelled</span> <span class="ttl">취소거래</span> <span class="comp">CancelledTx</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">국토부 해제 실거래. 통계(전체·중개·직거래·이중신고·금액정정·단순취소) + 테이블(구분·거래방식·단지·지역·전용·층·등기·금액·계약일·해제일) + 페이지네이션.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip">아파트·오피스텔·전체</span><span class="chip">기간 1·3·6달·최대</span><span class="chip">전체·중개·직거래</span><span class="chip">시도</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/cancelled-summary · /stats/cancelled-transactions</code></div></div>
+    </div>
+  </details>
+  <details class="page" id="p-realtors">
+    <summary><span class="route">/realtors</span> <span class="ttl">중개사 랭킹</span> <span class="comp">RealtorRanks</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">전국 매물보유 TOP20(사무소·소재지·인원·개업연도·매물) + 시도별 TOP10.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip">중개사 검색</span><span class="chip">시도 필터</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /stats/realtors/national · /by-sido · /search?q&sido</code></div></div>
+    </div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 토론장</div>
+  <div class="grp">
+  <details class="page" id="p-forum">
+    <summary><span class="route">/forum</span> <span class="ttl">토론장 목록</span> <span class="comp">ForumList</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">글 목록(추천점수·제목·요약·이미지칩·닉네임·시간·댓글수) + 글쓰기 버튼.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip">정렬 최신순·인기순</span><span class="chip">제목·내용·닉네임 검색</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /forum/posts?sort&q&limit=40</code></div></div>
+    </div>
+  </details>
+  <details class="page">
+    <summary><span class="route">/forum/new</span> <span class="ttl">글쓰기</span> <span class="comp">ForumCompose</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">제목·본문 + 이미지 첨부(공유→토론장 이미지 자동). 닉네임 필수. 작성 시 +10P(하루 10건 cap).</div></div>
+      <div class="row api"><b>API</b><div class="v"><code>POST /forum/posts  (multipart)</code></div></div>
+    </div>
+  </details>
+  <details class="page">
+    <summary><span class="route">/forum/:id</span> <span class="ttl">글 상세</span> <span class="comp">ForumPost</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">글 본문(추천/비추천·첨부이미지) + 댓글 목록·작성 폼.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip">추천/비추천(토글)</span><span class="chip">댓글 작성</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /forum/posts/{id}</code><code>POST /forum/vote · /forum/posts/{id}/comments</code></div></div>
+    </div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 상세 · 동적 페이지</div>
+  <div class="grp">
+  <details class="page" id="p-complex">
+    <summary><span class="route">/complex/:no</span> <span class="ttl">단지 상세</span> <span class="comp">ComplexDetail</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">기본정보(세대·준공·주소)·면적별 매물/시세 카드·60일 추이 차트·실거래 테이블(면적탭)·거래 분포 산점도·단지 리뷰.</div></div>
+      <div class="row"><b>선택지</b><div class="v opts"><span class="chip a1">매매</span><span class="chip b1">전세</span><span class="chip b2">월세</span><span class="chip">면적타입 탭</span></div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /complex/{no}/agg · /trend · /areas · /transactions</code><code>GET/POST /complex/{no}/reviews · /resident-verify</code></div></div>
+    </div>
+  </details>
+  <details class="page" id="p-realtor">
+    <summary><span class="route">/realtor/:id</span> <span class="ttl">중개사 상세</span> <span class="comp">Realtor</span></summary>
+    <div class="body">
+      <div class="row"><b>표시</b><div class="v">프로필(이름·대표·상태·등록번호·연락처)·통계(매물·인원·순위)·매/전/월 분포·지역별 활동·단지별 보유매물·vworld 매칭 경고·리뷰.</div></div>
+      <div class="row api"><b>API</b><div class="v"><code>GET /realtor/{id}</code><code>GET/POST /realtor/{id}/reviews</code></div></div>
+    </div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 관리자 <span class="chip adm">로그인 + is_admin</span></div>
+  <div class="grp" id="p-admin">
+  <details class="page">
+    <summary><span class="route">/admin/users</span> <span class="ttl">사용자</span></summary>
+    <div class="body"><div class="row"><b>표시</b><div class="v">회원 테이블(회원번호·이름·이메일·전화/인증·가입경로·가입일·최근로그인).</div></div>
+    <div class="row api"><b>API</b><div class="v"><code>GET /admin/users?per_page=500</code></div></div></div>
+  </details>
+  <details class="page">
+    <summary><span class="route">/admin/logs</span> <span class="ttl">활동 로그</span></summary>
+    <div class="body"><div class="row"><b>표시</b><div class="v">통계카드(총활동·AI·로그인·활성자)·종류별 분포·일별 추이·상위 단지/중개사·이벤트 테이블.</div></div>
+    <div class="row"><b>선택지</b><div class="v opts"><span class="chip">종류 필터</span><span class="chip">검색</span></div></div>
+    <div class="row api"><b>API</b><div class="v"><code>GET /admin/logs/stats · /admin/logs?kind&q</code></div></div></div>
+  </details>
+  <details class="page">
+    <summary><span class="route">/admin/realtor-match</span> <span class="ttl">중개사 매칭</span></summary>
+    <div class="body"><div class="row"><b>표시</b><div class="v">좌: 미매칭 큐 / 우: 후보 + 국토부(vworld) 검색. 매칭/미매칭 처리.</div></div>
+    <div class="row api"><b>API</b><div class="v"><code>GET /admin/realtor-match/unmatched · /candidates · /admin/vworld/search · POST /admin/realtor-match/{id}</code></div></div></div>
+  </details>
+  <details class="page">
+    <summary><span class="route">/admin/suspicious</span> <span class="ttl">의심 중개사</span></summary>
+    <div class="body"><div class="row"><b>표시</b><div class="v">분류(A~E) 필터 + 테이블. E=영업정지/휴업·A=정보없음·B=등록번호없음·C=이상포맷·D=vworld미등록.</div></div>
+    <div class="row api"><b>API</b><div class="v"><code>GET /admin/suspicious-realtors?limit=500</code></div></div></div>
+  </details>
+  <details class="page">
+    <summary><span class="route">/admin/reviews</span> <span class="ttl">리뷰 검수</span></summary>
+    <div class="body"><div class="row"><b>표시</b><div class="v">대기 인증리뷰 카드(별점·본문·서류) + 승인/거부.</div></div>
+    <div class="row api"><b>API</b><div class="v"><code>GET /admin/reviews/pending · POST .../approve|reject</code></div></div></div>
+  </details>
+  <details class="page">
+    <summary><span class="route">/admin/resident</span> <span class="ttl">입주민 인증</span></summary>
+    <div class="body"><div class="row"><b>표시</b><div class="v">대기 인증 테이블(회원·단지·서류·신청일) + 승인(+50P·입주민뱃지)/거부. 승인 시 서류 폐기.</div></div>
+    <div class="row api"><b>API</b><div class="v"><code>GET /admin/resident-verifications · POST .../approve|reject</code></div></div></div>
+  </details>
+  </div>
+
+  <div class="sec"><span class="ic"></span> 전역 컴포넌트 (모든 페이지 공통)</div>
+  <div class="grp">
+  <details class="page">
+    <summary><span class="ttl">헤더 · 계정</span> <span class="comp">AccountMenu / PhoneVerify / NicknameModal</span></summary>
+    <div class="body">
+      <div class="row"><b>계정메뉴</b><div class="v">아바타·닉네임·인증뱃지 → 드롭다운(회원번호·계급/포인트·다음계급까지·친구초대 링크·전화인증 상태·로그아웃).</div></div>
+      <div class="row"><b>전화인증</b><div class="v">미인증 시 상단 배너 + 모달(번호→인증번호). <span class="pill">깜빡임 버그 수정됨</span></div></div>
+      <div class="row"><b>닉네임</b><div class="v">최초 로그인 시 닉네임 설정 모달(중복검사). 글·리뷰·AI 호칭에 사용.</div></div>
+    </div>
+  </details>
+  <details class="page">
+    <summary><span class="ttl">공유바 · 리뷰</span> <span class="comp">ShareBar / ComplexReviews</span></summary>
+    <div class="body">
+      <div class="row"><b>공유바</b><div class="v opts"><span class="chip">이미지 저장</span><span class="chip">이미지 복사</span><span class="chip">카카오 공유</span><span class="chip">URL 복사</span><span class="chip">토론장으로 보내기</span> <span class="muted">— 워터마크 '콕집'+URL</span></div></div>
+      <div class="row"><b>리뷰</b><div class="v">단지/중개사 리뷰(별점·본문·입주민 인증 뱃지). 작성 시 +30P. 단지당 1건.</div></div>
+    </div>
+  </details>
+  </div>
+
+  <p class="muted" style="margin-top:30px">색상: <span class="chip a1">매매</span> <span class="chip b1">전세</span> <span class="chip b2">월세</span> · 포인트: 가입+100·글+10·리뷰+30·추천+100·입주민+50·AI−10 · 계급 15단계(부린이→대통령).</p>
+
+</div>
+<script>
+  function openHash(){const id=location.hash.slice(1);if(id){const el=document.getElementById(id);if(el&&el.tagName==='DETAILS')el.open=true;}}
+  window.addEventListener('hashchange',openHash); openHash();
+  document.querySelectorAll('.nav-tree a').forEach(a=>a.addEventListener('click',()=>setTimeout(openHash,0)));
+</script>
+</body>
+</html>

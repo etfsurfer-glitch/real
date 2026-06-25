@@ -1,0 +1,86 @@
+[
+  {
+    "naver": {
+      "realtor_id": "2373203",
+      "name": "한영숙공인중개사사무소",
+      "rep": "한영숙",
+      "listings": 20,
+      "regno": "가-31-71-869",
+      "addr": "울산 울주군 온양읍 대안리498-1 1층"
+    },
+    "vworld_suspended": {
+      "sys_regno": null,
+      "ra_regno": null,
+      "sgg_cd": null,
+      "business_name": "한영숙공인중개사사무소",
+      "employee_name": "한영숙",
+      "role": "공인중개사",
+      "position": "대표",
+      "status": "정지",
+      "status_title": "업무정지"
+    }
+  },
+  {
+    "naver": {
+      "realtor_id": "m5540034",
+      "name": "힐스테이트천안아산역퍼스트공인중개사사무소",
+      "rep": "이수지",
+      "listings": 13,
+      "regno": "1722",
+      "addr": "충청남도 아산시 배방읍 장재리 1813 (연화로 156) B 106호"
+    },
+    "vworld_suspended": {
+      "sys_regno": null,
+      "ra_regno": null,
+      "sgg_cd": null,
+      "business_name": "힐스테이트천안아산역퍼스트공인중개사사무소",
+      "employee_name": "이수지",
+      "role": "공인중개사",
+      "position": "대표",
+      "status": "정지",
+      "status_title": "업무정지"
+    }
+  },
+  {
+    "naver": {
+      "realtor_id": "top6922023",
+      "name": "브리티시탑공인중개사사무소",
+      "rep": "정경진",
+      "listings": 2,
+      "regno": "41220-2022-00034",
+      "addr": "경기 평택시 지제동삭1로 41,131동 1호"
+    },
+    "vworld_suspended": {
+      "sys_regno": null,
+      "ra_regno": null,
+      "sgg_cd": null,
+      "business_name": "브리티시탑공인중개사사무소",
+      "employee_name": "정경진",
+      "role": "공인중개사",
+      "position": "대표",
+      "status": "정지",
+      "status_title": "업무정지"
+    }
+  },
+  {
+    "naver": {
+      "realtor_id": "sang5884625",
+      "name": "오렌지부동산중개사무소",
+      "rep": "박지영",
+      "listings": 1,
+      "regno": "27260-2022-00149",
+      "addr": "대구광역시 수성구 달구벌대로 2436 상가 103호 (범어동, 수성 범어W)"
+    },
+    "vworld_suspended": {
+      "sys_regno": null,
+      "ra_regno": null,
+      "sgg_cd": null,
+      "business_name": "오렌지부동산중개사무소",
+      "employee_name": "박지영",
+      "role": "공인중개사",
+      "position": "대표",
+      "status": "휴업(연장)",
+      "status_title": "휴업(연장)"
+    }
+  }
+]

@@ -1,0 +1,34 @@
+{
+  "realtor": {
+    "realtorId": "hwk5659",
+    "realtorName": "위드힐탑공인중개사사무소",
+    "representativeName": "정강진",
+    "address": "대전광역시 동구 천동 540 상가 104호",
+    "dealCount": 138,
+    "leaseCount": 4,
+    "rentCount": 17,
+    "shortTermRentCount": 0,
+    "tradeCompleteCount": 0,
+    "ownerArticleCount": 128,
+    "badgeType": "noBadge",
+    "latitude": 36.315502,
+    "longitude": 127.442736,
+    "representativeTelNo": "042-282-3349",
+    "cellPhoneNo": "010-5777-5964",
+    "isCellPhoneExposure": true,
+    "isRepresentativeTelExposure": true,
+    "cortarNo": "3011010400",
+    "homePageUrl": "https://home.woori-house.co.kr/41301"
+  },
+  "realEstateTypeList": [
+    "APT",
+    "JGC",
+    "ABYG",
+    "VL",
+    "DDDGG",
+    "SG",
+    "GM",
+    "SGJT",
+    "TJ"
+  ]
+}

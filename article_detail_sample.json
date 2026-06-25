@@ -1,0 +1,9 @@
+{
+  "@type": "response",
+  "@service": "LAND",
+  "@version": "1.0.0",
+  "error": {
+    "code": "errorCode.NotExistInformation",
+    "message": "해당하는 매물 정보가 존재하지 않습니다."
+  }
+}

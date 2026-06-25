@@ -12,7 +12,7 @@ from typing import Iterator
 
 from .http import get_json
 
-REAL_ESTATE_DEFAULT = "APT:ABYG:JGC:PBJT"  # 아파트+분양권+재건축+분양완료
+REAL_ESTATE_DEFAULT = "APT:ABYG:JGC:PBJT:OPST:OBYG"  # 아파트+분양권+재건축+분양완료+오피스텔+오피스텔분양
 TRADE_TYPES = ("A1", "B1", "B2")  # 매매, 전세, 월세
 
 
@@ -39,7 +39,7 @@ def complexes_in_region(cortar_no: str, creds: dict) -> list[dict]:
         creds,
         params={
             "cortarNo": cortar_no,
-            "realEstateType": "APT:PRE:JGC:ABYG:OBYG",
+            "realEstateType": "APT:PRE:JGC:ABYG:OBYG:OPST",
             "order": "date",
         },
     )
@@ -54,7 +54,12 @@ def articles_for_complex(
     trade: str,
     creds: dict,
     real_estate_type: str = REAL_ESTATE_DEFAULT,
-    max_pages: int = 100,
+    # naver returns isMoreData=False (or a short page) once a complex is fully
+    # walked, so this is just a safety stop. 100 was visibly truncating very
+    # large complexes (~2,000 = 100 × 20 items/page) — set high enough that
+    # naver-side stop fires first.
+    max_pages: int = 1000,
+    interface: str | None = None,   # 소스 IP 바인딩(멀티 IP 병렬 수집용)
 ) -> Iterator[dict]:
     url = f"https://new.land.naver.com/api/articles/complex/{complex_no}"
     page = 1
@@ -68,7 +73,7 @@ def articles_for_complex(
             "page": page,
             "complexNo": complex_no,
         }
-        status, data = get_json(url, creds, params=params)
+        status, data = get_json(url, creds, params=params, interface=interface)
         if status != 200 or not isinstance(data, dict):
             break
         items = (

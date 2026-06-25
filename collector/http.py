@@ -54,6 +54,7 @@ def get_json(
     creds: dict,
     params: dict[str, Any] | None = None,
     max_retries: int = 3,
+    interface: str | None = None,
 ) -> tuple[int, Any]:
     """GET with jitter + retry on network/timeout + 429 backoff + 401 recapture.
 
@@ -70,12 +71,14 @@ def get_json(
     for attempt in range(max_retries):
         _jitter()
         try:
+            _kw = {"interface": interface} if interface else {}
             r = creq.get(
                 url,
                 params=params,
                 headers=build_headers(creds),
                 impersonate="chrome120",
                 timeout=settings.naver_timeout_sec,
+                **_kw,
             )
         except Exception:  # noqa: BLE001 — curl_cffi raises CurlError on timeout/conn
             if attempt < max_retries - 1:
