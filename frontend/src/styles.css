@@ -2913,3 +2913,9 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   .stat-value{font-size:22px}
   .stat-label{white-space:normal}
 }
+
+/* 중개사 세부 모바일: 전화/휴대폰 버튼 가로 2개 배열(세로 쌓임 → 가로) */
+@media(max-width:600px){
+  .realtor-contacts{flex-direction:row;width:100%;margin-top:4px}
+  .realtor-contacts .contact-btn{flex:1;min-width:0}
+}
