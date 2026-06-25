@@ -61,6 +61,37 @@ bubblewrap build
 ※ 콕집은 아파트·오피스텔·분양권 실거래/매물을 다룹니다.
 ```
 
+### 출시 노트 (릴리스 노트, 500자 이내 · 버전마다 작성)
+
+**ko-KR (권장)**
+```
+콕집 첫 출시 🎉
+
+· 급매찾기 — 실거래 평균보다 싸게 나온 매물 자동 탐색
+· 실거래가 분석 — 단지별 시세·신고가·거래량·전세가율
+· 빌라 깡통전세지수 — 전세 위험 판정
+· 우리동네 중개사 랭킹
+· 콕집 AI — 자연어로 묻는 부동산 분석
+· 관심단지·사무소 알림
+```
+
+**ko-KR (짧은 버전)**
+```
+콕집 첫 출시! 아파트 급매·실거래가·깡통전세·중개사 랭킹과 AI 분석을 한 앱에서.
+```
+
+**en-US (다국어 등록 시)**
+```
+First release of 콕집 (Koczip).
+
+· Find below-market deals from real transaction data
+· Apartment price trends, peak prices, volume
+· Villa jeonse risk index
+· Local realtor rankings
+· AI-powered property Q&A
+· Alerts for favorite complexes & offices
+```
+
 ### 카테고리
 - 앱 카테고리: **하우스 & 홈** (또는 금융/라이프스타일)
 - 태그: 부동산, 아파트, 실거래가, 급매
