@@ -17,6 +17,7 @@ import Overview from "./pages/Overview";
 import ComplexDetail from "./pages/ComplexDetail";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
+import DeleteAccount from "./pages/DeleteAccount";
 import { ChangesLayout, ChangesTrend, ChangesRegion, ChangesMovers } from "./pages/Changes";
 import QuickDeals from "./pages/QuickDeals";
 import RealtorRanks, { RealtorNational, RealtorBySido, RealtorByTenure, RealtorByStaff, RealtorByDong } from "./pages/RealtorRanks";
@@ -313,6 +314,7 @@ function AppShell() {
         <Route path="/realtor/:realtorId" element={<Realtor />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
+        <Route path="/delete-account" element={<DeleteAccount />} />
         <Route path="/forum" element={<ForumList />} />
         <Route path="/forum/new" element={<ForumCompose />} />
         <Route path="/forum/:id" element={<ForumPost />} />

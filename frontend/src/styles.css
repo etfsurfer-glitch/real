@@ -2948,3 +2948,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 /* AI 게이트 둘러보기 */
 .ai-gate-skip{display:block;width:100%;text-align:center;background:none;border:none;color:#64748b;font-size:13px;font-weight:600;margin-top:12px;padding:8px;cursor:pointer;font-family:inherit}
 .ai-gate-skip:hover{color:#1268d3}
+
+/* 계정 삭제 페이지 전용 */
+.legal-danger-btn{display:inline-flex;align-items:center;gap:7px;background:#dc2626;color:#fff;border:none;border-radius:10px;padding:12px 20px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin:8px 0}
+.legal-danger-btn:hover{background:#b91c1c}
+.legal-danger-btn:disabled{opacity:.6;cursor:default}
+.legal-mail{display:inline-flex;align-items:center;gap:7px;background:var(--c-primary,#1268d3);color:#fff;border-radius:10px;padding:11px 18px;font-size:14px;font-weight:700;text-decoration:none;margin:6px 0}
+.legal-note{color:#6b7280;font-size:12.5px;margin:10px 0}
+.legal-box.ok{display:flex;align-items:center;gap:9px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:12px;padding:16px;font-weight:700;font-size:15px}
