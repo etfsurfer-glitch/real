@@ -161,6 +161,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === "SIGNED_IN" && API) {
           fetch(`${API}/events/login`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
         }
+        // 온보딩에서 알림 받기로 했고(권한 허용) 아직 구독 안 됐으면 — 로그인 시 조용히 구독 저장.
+        // (1번 일반 사용자가 권한만 먼저 받고 로그인은 나중에 한 경우 자동 연결)
+        import("./lib/push").then((m) => m.maybeAutoSubscribe(token)).catch(() => {});
         // 라운지 인증 회원은 로그인 직후 라운지로 바로 이동 (로그인 1회당 1번, 탭복원·토큰갱신 제외)
         if (event === "SIGNED_IN" && info.isRealtorMember && !loungeRedirectedRef.current) {
           loungeRedirectedRef.current = true;

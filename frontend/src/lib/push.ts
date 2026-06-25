@@ -46,6 +46,39 @@ export async function enablePush(token: string): Promise<{ ok: boolean; reason?:
   return r.ok ? { ok: true } : { ok: false, reason: "구독 저장 실패" };
 }
 
+const OPTIN_KEY = "koczip_push_optin";
+
+/** 알림 받기로 선택했는지(soft-ask 수락 플래그). 로그인 전 1번 사용자가 권한만 미리 받은 경우 포함. */
+export function pushOptedIn(): boolean {
+  try { return localStorage.getItem(OPTIN_KEY) === "1"; } catch { return false; }
+}
+
+/** soft-ask 수락 — OS 권한 요청. 로그인(token) 있으면 바로 구독 저장, 없으면 권한만 받고 플래그 기록
+ *  (이후 로그인 시 maybeAutoSubscribe 가 구독 저장). */
+export async function acceptPush(token?: string | null): Promise<{ ok: boolean; reason?: string }> {
+  if (!pushSupported()) return { ok: false, reason: "이 기기/브라우저는 알림을 지원하지 않아요." };
+  if (token) {
+    const r = await enablePush(token);   // 권한+구독+저장 한 번에
+    if (r.ok) { try { localStorage.setItem(OPTIN_KEY, "1"); } catch { /* */ } }
+    return r;
+  }
+  // 미로그인: OS 권한만 미리 받아둠(구독은 로그인 후)
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") return { ok: false, reason: "알림 권한이 거부됐어요. 나중에 설정에서 켤 수 있어요." };
+  try { localStorage.setItem(OPTIN_KEY, "1"); } catch { /* */ }
+  return { ok: true };
+}
+
+/** 로그인 직후 호출 — 알림 받기로 했고 권한 허용 상태인데 아직 구독 안 됐으면 조용히 구독 저장. */
+export async function maybeAutoSubscribe(token: string): Promise<void> {
+  try {
+    if (!token || !pushOptedIn() || !pushSupported()) return;
+    if (Notification.permission !== "granted") return;
+    if (await isPushSubscribed()) return;
+    await enablePush(token);
+  } catch { /* ignore */ }
+}
+
 export async function disablePush(token: string): Promise<void> {
   try {
     const reg = await navigator.serviceWorker.ready;

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Search, Building2, ChevronRight } from "lucide-react";
+import { Search, Building2, ChevronRight, Bell } from "lucide-react";
 import { useAuth, loginKakao, loginGoogle } from "../auth";
 import { PhoneModal } from "./PhoneVerify";
+import { acceptPush, pushSupported } from "../lib/push";
 
 // 안드로이드 '앱'(TWA/설치형) 첫 실행 1회만 — 사용자 구분 온보딩.
 //  1) 일반(실거래·급매 조회) → 로그인 없이 바로 사용. AI는 이용 시 로그인 안내(AiChat 게이트가 처리).
@@ -29,7 +30,10 @@ export default function Onboarding() {
   const [show, setShow] = useState(() => {
     try { return isAndroidApp() && (isForced() || !localStorage.getItem(DONE_KEY)); } catch { return false; }
   });
-  const [step, setStep] = useState<"choose" | "realtor" | "phone">("choose");
+  // choose→(general)→notify / choose→realtor→phone→notify
+  const [step, setStep] = useState<"choose" | "realtor" | "phone" | "notify">("choose");
+  const [utype, setUtype] = useState<"general" | "realtor">("general");
+  const [pushBusy, setPushBusy] = useState(false);
 
   // 중개사 흐름에서 로그인 완료되면 번호인증 단계로 자동 전환
   useEffect(() => {
@@ -37,21 +41,29 @@ export default function Onboarding() {
   }, [step, user, token]);
 
   const finish = () => {
-    try { localStorage.setItem(DONE_KEY, "1"); } catch { /* ignore */ }
+    try { localStorage.setItem(DONE_KEY, "1"); localStorage.setItem("koczip_user_type", utype); } catch { /* ignore */ }
     setShow(false);
+  };
+  // 알림 soft-ask 단계로(권한 미지원 기기면 바로 종료)
+  const toNotify = () => { if (pushSupported()) setStep("notify"); else finish(); };
+  const onAcceptPush = async () => {
+    setPushBusy(true);
+    await acceptPush(token);   // 로그인(중개사)이면 구독까지, 미로그인(일반)이면 권한만+플래그→로그인 시 자동구독
+    setPushBusy(false);
+    finish();
   };
 
   if (!show) return null;
 
-  // 번호인증 단계: PhoneModal(자체 모달) 단독 표시 — 완료(onDone)·스킵(onClose) 모두 온보딩 종료(사무소 연결은 라운지가 처리).
+  // 번호인증 단계: PhoneModal(자체 모달) 단독 표시 — 완료/스킵 모두 알림 단계로(사무소 연결은 라운지가 처리).
   if (step === "phone" && token) {
-    return <PhoneModal token={token} onClose={finish} onDone={finish} />;
+    return <PhoneModal token={token} onClose={toNotify} onDone={toNotify} />;
   }
 
   return createPortal(
     <div className="onb">
       <div className="onb-card">
-        {step === "choose" ? (
+        {step === "choose" && (
           <>
             <div className="onb-brand">
               <img src="/logo.svg" alt="" width={30} height={30} />
@@ -60,7 +72,7 @@ export default function Onboarding() {
             <h2 className="onb-title">어떻게 이용하시나요?</h2>
             <p className="onb-sub">맞는 걸 고르면 딱 맞게 시작해 드려요.</p>
 
-            <button className="onb-opt" onClick={finish}>
+            <button className="onb-opt" onClick={() => { setUtype("general"); toNotify(); }}>
               <span className="onb-opt-ic a"><Search size={22} strokeWidth={2.2} /></span>
               <span className="onb-opt-tx">
                 <b>실거래·급매를 보고 싶어요</b>
@@ -69,7 +81,7 @@ export default function Onboarding() {
               <ChevronRight size={18} className="onb-opt-go" />
             </button>
 
-            <button className="onb-opt" onClick={() => setStep("realtor")}>
+            <button className="onb-opt" onClick={() => { setUtype("realtor"); setStep("realtor"); }}>
               <span className="onb-opt-ic b"><Building2 size={22} strokeWidth={2.2} /></span>
               <span className="onb-opt-tx">
                 <b>중개사입니다</b>
@@ -80,8 +92,9 @@ export default function Onboarding() {
 
             <button className="onb-skip" onClick={finish}>건너뛰기</button>
           </>
-        ) : (
-          // realtor: 카카오/구글 가입
+        )}
+
+        {step === "realtor" && (
           <>
             <div className="onb-brand"><Building2 size={26} strokeWidth={2.2} /><span>중개사 가입</span></div>
             <h2 className="onb-title">카카오 또는 구글로 시작하기</h2>
@@ -95,6 +108,29 @@ export default function Onboarding() {
               </button>
             </div>
             <button className="onb-back" onClick={() => setStep("choose")}>← 뒤로</button>
+          </>
+        )}
+
+        {step === "notify" && (
+          <>
+            <div className="onb-brand"><Bell size={24} strokeWidth={2.2} /><span>알림 받기</span></div>
+            {utype === "realtor" ? (
+              <>
+                <h2 className="onb-title">중요한 변동을 놓치지 마세요</h2>
+                <p className="onb-sub">관심 단지·관심 사무소의 <b>매물 변동, 신고가·급매, 상담 신청</b>을 바로 알려드려요.</p>
+              </>
+            ) : (
+              <>
+                <h2 className="onb-title">관심 단지 알림을 받아보세요</h2>
+                <p className="onb-sub">찜한 단지의 <b>신고가·급매 등장</b>을 매일 체크해 알려드려요. (로그인 후 적용)</p>
+              </>
+            )}
+            <div className="onb-auth">
+              <button className="auth-btn kakao" disabled={pushBusy} onClick={onAcceptPush}>
+                <Bell size={15} /> {pushBusy ? "설정 중…" : "알림 받기"}
+              </button>
+            </div>
+            <button className="onb-skip" onClick={finish}>나중에 할게요</button>
           </>
         )}
       </div>
