@@ -22,10 +22,11 @@ function urlB64ToUint8Array(base64: string): Uint8Array {
   return arr;
 }
 
-/** 알림 권한 요청 + 구독 생성 + 서버 저장. 성공 시 {ok:true}. */
-export async function enablePush(token: string): Promise<{ ok: boolean; reason?: string }> {
+/** 권한 요청 + 구독 생성 + 서버 저장. token 없으면 익명 구독으로 저장(로그인 시 자동 승격).
+ *  성공 시 {ok:true}. */
+export async function enablePush(token?: string | null): Promise<{ ok: boolean; reason?: string }> {
   if (!pushSupported()) return { ok: false, reason: "이 기기/브라우저는 알림을 지원하지 않아요." };
-  if (!API || !token) return { ok: false, reason: "로그인이 필요해요." };
+  if (!API) return { ok: false, reason: "서버가 설정되지 않았어요." };
   const perm = await Notification.requestPermission();
   if (perm !== "granted") return { ok: false, reason: "알림 권한이 거부됐어요. 브라우저 설정에서 허용해 주세요." };
   const reg = await navigator.serviceWorker.ready;
@@ -38,10 +39,11 @@ export async function enablePush(token: string): Promise<{ ok: boolean; reason?:
       applicationServerKey: urlB64ToUint8Array(keyRes.key) as BufferSource,
     });
   }
+  // 로그인 안 했어도 익명으로 저장(인증 헤더 생략) — 공지·급매 알림 수신. 로그인 시 같은 endpoint가 user로 승격.
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
   const r = await fetch(`${API}/push/subscribe`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ subscription: sub.toJSON() }),
+    method: "POST", headers, body: JSON.stringify({ subscription: sub.toJSON() }),
   });
   return r.ok ? { ok: true } : { ok: false, reason: "구독 저장 실패" };
 }
@@ -53,20 +55,12 @@ export function pushOptedIn(): boolean {
   try { return localStorage.getItem(OPTIN_KEY) === "1"; } catch { return false; }
 }
 
-/** soft-ask 수락 — OS 권한 요청. 로그인(token) 있으면 바로 구독 저장, 없으면 권한만 받고 플래그 기록
- *  (이후 로그인 시 maybeAutoSubscribe 가 구독 저장). */
+/** soft-ask 수락 — 권한 요청 + 구독 저장. 로그인이면 user 구독, 미로그인이면 익명 구독으로 즉시 저장
+ *  (로그인 안 해도 공지·급매 알림 수신. 이후 로그인 시 같은 endpoint가 user로 자동 승격). */
 export async function acceptPush(token?: string | null): Promise<{ ok: boolean; reason?: string }> {
-  if (!pushSupported()) return { ok: false, reason: "이 기기/브라우저는 알림을 지원하지 않아요." };
-  if (token) {
-    const r = await enablePush(token);   // 권한+구독+저장 한 번에
-    if (r.ok) { try { localStorage.setItem(OPTIN_KEY, "1"); } catch { /* */ } }
-    return r;
-  }
-  // 미로그인: OS 권한만 미리 받아둠(구독은 로그인 후)
-  const perm = await Notification.requestPermission();
-  if (perm !== "granted") return { ok: false, reason: "알림 권한이 거부됐어요. 나중에 설정에서 켤 수 있어요." };
-  try { localStorage.setItem(OPTIN_KEY, "1"); } catch { /* */ }
-  return { ok: true };
+  const r = await enablePush(token);   // token 없으면 익명 저장
+  if (r.ok) { try { localStorage.setItem(OPTIN_KEY, "1"); } catch { /* */ } }
+  return r;
 }
 
 /** 로그인 직후 호출 — 알림 받기로 했고 권한 허용 상태인데 아직 구독 안 됐으면 조용히 구독 저장. */

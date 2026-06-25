@@ -7416,19 +7416,24 @@ def push_vapid_public_key():
 
 
 @app.post("/push/subscribe")
-def push_subscribe(body: dict, request: Request, user: dict = Depends(current_user)):
-    """브라우저 PushSubscription 저장(로그인 필요)."""
+def push_subscribe(body: dict, request: Request, user: dict | None = Depends(current_user_optional)):
+    """브라우저 PushSubscription 저장. 로그인 불필요 — 미로그인은 익명(user_id='')으로 저장해
+    공지·오늘의 급매 같은 일반 알림을 받게 한다. 로그인하면 같은 endpoint가 그 user_id로 승격
+    (ON CONFLICT) 되어 관심단지 등 개인 알림까지 받는다."""
     sub = body.get("subscription") or body
     ep = sub.get("endpoint")
     keys = sub.get("keys") or {}
     if not ep or not keys.get("p256dh") or not keys.get("auth"):
         raise HTTPException(400, "invalid subscription")
+    uid = user["id"] if user else ""   # 익명 구독은 빈 문자열
     with _reviews_db() as c:
+        # 미로그인 재구독이 기존 로그인 구독을 익명으로 덮어쓰지 않게: uid가 빈 값이면 user_id 유지.
         c.execute(
             "INSERT INTO push_subscriptions(user_id,endpoint,p256dh,auth,ua) VALUES(?,?,?,?,?) "
-            "ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, "
-            "auth=excluded.auth",
-            (user["id"], ep, keys["p256dh"], keys["auth"],
+            "ON CONFLICT(endpoint) DO UPDATE SET "
+            "user_id=CASE WHEN excluded.user_id!='' THEN excluded.user_id ELSE push_subscriptions.user_id END, "
+            "p256dh=excluded.p256dh, auth=excluded.auth",
+            (uid, ep, keys["p256dh"], keys["auth"],
              (request.headers.get("user-agent") or "")[:200]))
     return {"ok": True}
 
@@ -7453,11 +7458,12 @@ class PushSendBody(BaseModel):
 
 @app.post("/admin/push/send")
 def admin_push_send(req: PushSendBody, _admin: dict = Depends(admin_user)):
-    """관리자 수동 푸시 발송. target=all(구독 전체) 또는 user:<uid>."""
+    """관리자 수동 푸시 발송. target=all(구독 전체·익명 포함) 또는 user:<uid>."""
     if req.target.startswith("user:"):
         ids = [req.target.split(":", 1)[1]]
     else:
         with _reviews_db() as c:
+            # 익명('') 포함 모든 구독 — 로그인 안 한 사용자도 공지·급매 알림 받음
             ids = [r[0] for r in c.execute("SELECT DISTINCT user_id FROM push_subscriptions").fetchall()]
     res = _send_web_push(ids, req.title.strip(), req.body.strip(), req.url or "/", tag="admin")
     return {"targets": len(ids), **res}
