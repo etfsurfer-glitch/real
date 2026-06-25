@@ -7,10 +7,13 @@ import { PhoneModal } from "./PhoneVerify";
 // 안드로이드 '앱'(TWA/설치형) 첫 실행 1회만 — 사용자 구분 온보딩.
 //  1) 일반(실거래·급매 조회) → 로그인 없이 바로 사용. AI는 이용 시 로그인 안내(AiChat 게이트가 처리).
 //  2) 중개사(매물장·홈페이지) → 카카오/구글 가입 → 번호인증(사무소 연결, 스킵 가능).
+function isForced(): boolean {
+  try { return new URLSearchParams(window.location.search).get("onboard") === "1"; } catch { return false; }
+}
 function isAndroidApp(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    if (new URLSearchParams(window.location.search).get("onboard") === "1") return true; // 테스트 강제
+    if (isForced()) return true; // 테스트 강제
     const ua = navigator.userAgent || "";
     const isAndroid = /Android/i.test(ua);
     const twa = document.referrer.startsWith("android-app://");
@@ -24,7 +27,7 @@ const DONE_KEY = "koczip_onboarded";
 export default function Onboarding() {
   const { user, token } = useAuth();
   const [show, setShow] = useState(() => {
-    try { return isAndroidApp() && !localStorage.getItem(DONE_KEY); } catch { return false; }
+    try { return isAndroidApp() && (isForced() || !localStorage.getItem(DONE_KEY)); } catch { return false; }
   });
   const [step, setStep] = useState<"choose" | "realtor" | "phone">("choose");
 
