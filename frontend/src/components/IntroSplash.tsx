@@ -31,7 +31,7 @@ export default function IntroSplash() {
   useEffect(() => {
     if (!show) return;
     try { sessionStorage.setItem("koczip_intro", "1"); } catch { /* ignore */ }
-    const t = setTimeout(() => setShow(false), 2250);
+    const t = setTimeout(() => setShow(false), 3000);
     return () => clearTimeout(t);
   }, [show]);
 
