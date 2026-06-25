@@ -39,6 +39,32 @@ def main():
         LEFT JOIN realtor_match m ON m.sys_regno = v.sys_regno
         WHERE v.dong_name IS NOT NULL
     """)
+    # 2차: dong_name 비어있는 건(도로명주소만 크롤됨) → 주소에 등장하는 동/면명으로 매핑.
+    #      탕정면처럼 dong_name 누락된 189곳 등이 우리동네에서 0으로 빠지던 문제 보완.
+    #      같은 sgg 내 '가장 긴' cortar_name 일치를 채택(부분일치 오매칭 최소화).
+    c.execute("""
+        INSERT OR IGNORE INTO realtor_dong(sys_regno, cortar_no, realtor_id, dong_name, sgg_cd)
+        SELECT v.sys_regno,
+               (SELECT r.cortar_no FROM regions r
+                WHERE substr(r.cortar_no,1,5)=v.sgg_cd AND r.cortar_type='sec'
+                  AND length(r.cortar_name)>=2 AND v.address LIKE '%'||r.cortar_name||'%'
+                ORDER BY length(r.cortar_name) DESC LIMIT 1),
+               m.realtor_id,
+               (SELECT r.cortar_name FROM regions r
+                WHERE substr(r.cortar_no,1,5)=v.sgg_cd AND r.cortar_type='sec'
+                  AND length(r.cortar_name)>=2 AND v.address LIKE '%'||r.cortar_name||'%'
+                ORDER BY length(r.cortar_name) DESC LIMIT 1),
+               v.sgg_cd
+        FROM vworld_brokers v
+        LEFT JOIN realtor_match m ON m.sys_regno = v.sys_regno
+        WHERE (v.dong_name IS NULL OR v.dong_name='')
+          AND v.address IS NOT NULL AND v.address!=''
+          AND v.sys_regno NOT IN (SELECT sys_regno FROM realtor_dong)
+          AND (SELECT r.cortar_no FROM regions r
+               WHERE substr(r.cortar_no,1,5)=v.sgg_cd AND r.cortar_type='sec'
+                 AND length(r.cortar_name)>=2 AND v.address LIKE '%'||r.cortar_name||'%'
+               LIMIT 1) IS NOT NULL
+    """)
     c.execute("CREATE INDEX realtor_dong_cortar_idx ON realtor_dong(cortar_no)")
     c.execute("CREATE INDEX realtor_dong_rid_idx ON realtor_dong(realtor_id)")
     c.commit()
