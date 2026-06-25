@@ -48,7 +48,14 @@ export default function Onboarding() {
   const toNotify = () => { if (pushSupported()) setStep("notify"); else finish(); };
   const onAcceptPush = async () => {
     setPushBusy(true);
-    await acceptPush(token);   // 로그인(중개사)이면 구독까지, 미로그인(일반)이면 권한만+플래그→로그인 시 자동구독
+    // 권한 OK 후 구독이 멈춰도(FCM/SW 지연) 온보딩은 반드시 닫는다 — 무한 '설정 중…' 방지.
+    // 바깥 타임아웃(9s)은 enablePush 내부 타임아웃이 모두 실패해도 동작하는 최후 안전장치.
+    try {
+      await Promise.race([
+        acceptPush(token),   // 로그인(중개사)=구독까지, 미로그인(일반)=권한+플래그→로그인 시 자동구독
+        new Promise((res) => setTimeout(res, 9000)),
+      ]);
+    } catch { /* 무시 — 알림 실패해도 진행 */ }
     setPushBusy(false);
     finish();
   };
