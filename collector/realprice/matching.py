@@ -135,10 +135,15 @@ def name_variants(name: str) -> set[str]:
 
 
 def normalize_jibun(s: str) -> str:
-    """'0055-0012' → '55-12'. Both bonbun-bubun and Naver detail_address."""
+    """'0055-0012' → '55-12'. data.go.kr jibun('1968') 과 Naver detail_address('신대리 1968').
+    detail_address 는 동/리명이 앞에 붙는 경우가 많아('신대리 1968','역삼동 718-3') 끝의 지번만
+    뽑아 둘을 일치시킨다. (이게 안 되면 '리명 지번' 단지가 지번매칭에서 통째로 빠져 오매칭됨)"""
     if not s:
         return ""
     s = s.strip()
+    m = re.search(r"(\d+(?:-\d+)?)\s*$", s)   # 끝의 지번(본번 또는 본번-부번) 추출
+    if m:
+        s = m.group(1)
     parts = s.split("-")
     if all(p.isdigit() for p in parts):
         return "-".join(_LEADING_ZEROS_RE.sub("", p) or "0" for p in parts)
