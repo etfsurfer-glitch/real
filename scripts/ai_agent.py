@@ -174,7 +174,9 @@ SYSTEM_PROMPT = (
     "사용자가 AI를 더 쓰지 않고도 사이트를 둘러보며 정보를 모으게, 답변에 클릭 가능한 링크를 넣어라.\n"
     "- 도구 결과에 '단지정보'(예: /complex/5986) 나 '중개사정보'(예: /realtor/abc) 경로가 있으면, "
     "그 항목 줄 끝에 마크다운 링크로 반드시 붙여라. 예) '- 크로바 23.5억 [단지정보 →](/complex/5986)'.\n"
-    "- 목록형 답변(급매·신고가·순위 등)은 각 단지마다 해당 [단지정보 →] 링크를 붙인다.\n"
+    "  ★링크 라벨은 경로에 맞춰라: /complex/* 는 '[단지정보 →]', /realtor/* 는 '[중개사 정보 →]'. "
+    "중개사 순위·검색 결과(/realtor 경로)에 '단지정보'라고 잘못 붙이지 마라.\n"
+    "- 목록형 답변(급매·신고가·순위 등)은 각 항목마다 해당 [단지정보 →]/[중개사 정보 →] 링크를 붙인다.\n"
     "- 답변 맨 끝에 '관련 페이지'로 1~2개를 [이름](경로) 형식으로 제안하라. 사이트 페이지:\n"
     "  오늘의 실거래 /today · 전국현황 /overview · 급매찾기 /quick-deals · 깡통전세지수 /jeonse-check · 급매지도 /deal-map · "
     "실거래 취소조회 /cancelled · 실거래 통계 /tx-stats · 지도보기 /map · 중개사 랭킹 /realtors · "
@@ -1089,15 +1091,17 @@ def rank_realtors(metric: str = "직원수", region: str = "", limit: int = 20) 
         items = api.realtors_by_tenure(limit=50, region=pref).get("items", [])
         title = "업력(개업 오래된) 순위"
     elif "매물" in m or "보유" in m or "listing" in m or "national" in m:
-        # 매물보유는 전국 랭킹만 정확 — 지역 지정 시 시도 단위 best-effort 후필터.
-        items = api.realtors_national(limit=100 if reg else 50).get("items", [])
-        if reg:
-            f = [x for x in items if _in_region(x.get("sido") or "", reg)]
-            if f:
-                items = f
-            else:
-                scope = "전국"  # 해당 지역 매물보유 데이터 없음 → 전국으로 정직 표기
-        title = "보유 매물 많은 순위"
+        # 매물보유 순위 — 전체매물(단지형+비단지) 기준. 시도 지정 시 그 시도 랭킹을 직접 쓴다.
+        # (예전엔 전국 top100을 시도로 후필터해 '서울 2곳'처럼 거의 비어버리던 버그 수정.)
+        if reg and reg.get("sido"):
+            groups = api.realtors_by_sido(limit=lim, scope="all").get("groups", {})
+            items = groups.get(reg["sido"], [])
+            if reg.get("sigungu") or reg.get("dong"):
+                scope = reg["sido"]  # 구·동 단위 매물보유 랭킹은 미지원 → 시도 기준으로 정직 표기
+            title = f"{reg['sido']} 보유 매물 많은 순위(전체 매물)"
+        else:
+            items = api.realtors_national(limit=lim, scope="all").get("items", [])
+            title = "전국 보유 매물 많은 순위(전체 매물)"
     elif "비율" in m or "ratio" in m:
         items = api.realtors_by_staff(limit=50, region=pref, by="ratio").get("items", [])
         title = "공인중개사 비율 높은 순위(인원 3명+)"
@@ -1116,7 +1120,8 @@ def rank_realtors(metric: str = "직원수", region: str = "", limit: int = 20) 
         d = {"중개사무소": x.get("realtor_name"), "지역": x.get("sido"),
              "직원수": x.get("staff_count"), "공인중개사수": x.get("licensed_count"),
              "보조원수": x.get("assistant_count"), "공인중개사비율": x.get("licensed_ratio"),
-             "보유매물": x.get("count"), "개업연도": x.get("established_year")}
+             "보유매물(전체)": x.get("total_count") or x.get("count"),
+             "단지형매물": x.get("count"), "개업연도": x.get("established_year")}
         if x.get("realtor_id"):
             d["중개사정보"] = f"/realtor/{x['realtor_id']}"
         rows.append({k: v for k, v in d.items() if v is not None})
