@@ -119,13 +119,14 @@ header.top nav::-webkit-scrollbar { display: none; }
 .mdrawer-parent {
   display: flex; align-items: center; gap: 9px; padding: 12px;
   font-size: 15px; font-weight: 700; color: #1f2a37; border-radius: 9px;
+  line-height: 1.35; word-break: keep-all;   /* 한국어 단어 단위 줄바꿈 — '빌라 깡통전세지수' 가독성 */
 }
 .mdrawer-parent svg { flex: none; opacity: .8; }
 .mdrawer-parent.active { background: var(--c-primary); color: #fff; }
 .mdrawer-parent.active svg { opacity: 1; }
 .mdrawer-parent:hover, .mdrawer-child:hover { text-decoration: none; }
 .mdrawer-children { display: flex; flex-direction: column; padding: 2px 0 6px 32px; }
-.mdrawer-child { padding: 9px 12px; font-size: 14px; color: #51606f; border-radius: 8px; }
+.mdrawer-child { padding: 9px 12px; font-size: 14px; color: #51606f; border-radius: 8px; line-height: 1.35; word-break: keep-all; }
 .mdrawer-child.active { color: var(--c-primary); font-weight: 700; background: var(--c-primary-soft); }
 
 /* 호버 오버레이 하위메뉴 */
@@ -2664,9 +2665,12 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .intro-brand{display:flex;align-items:center;gap:9px;font-size:30px;font-weight:900;color:#13294b;letter-spacing:-1px;
   animation:introFeat .5s ease 1.0s both}
 .intro-feats{display:flex;flex-direction:column;align-items:center;gap:9px}
-.intro-feat{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #d8e3f2;color:#1268d3;
-  border-radius:30px;padding:7px 13px;font-size:13.5px;font-weight:800;box-shadow:0 3px 10px rgba(18,104,211,.12);
-  opacity:0;animation:introFeat .42s cubic-bezier(.2,.7,.3,1) both}
+/* 알약 너비 통일 — 글자 길이가 달라도(급매찾기 vs 빌라 깡통전세지수) 같은 폭으로 */
+.intro-feat{display:flex;align-items:center;justify-content:center;gap:6px;width:200px;box-sizing:border-box;
+  background:#fff;border:1px solid #d8e3f2;color:#1268d3;
+  border-radius:30px;padding:8px 14px;font-size:13.5px;font-weight:800;box-shadow:0 3px 10px rgba(18,104,211,.12);
+  white-space:nowrap;opacity:0;animation:introFeat .42s cubic-bezier(.2,.7,.3,1) both}
+.intro-feat svg{flex:none}
 .intro-feat svg{color:#1268d3}
 .intro-panel{position:absolute;left:0;width:100%;height:50%;z-index:2;
   background:linear-gradient(135deg,#13294b,#1268d3)}
