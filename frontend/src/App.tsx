@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
-import { AuthProvider, useAuth, logout, loginKakao, loginGoogle, isInAppBrowser } from "./auth";
+import { AuthProvider, useAuth, logout, loginKakao, loginGoogle, isInAppBrowser, authClient } from "./auth";
 import PhoneVerify from "./components/PhoneVerify";
 import AccountMenu from "./components/AccountMenu";
 import Overview from "./pages/Overview";
@@ -153,6 +153,16 @@ function AppShell() {
     if (p.get("login") === "google" && !isInAppBrowser()) {
       window.history.replaceState({}, "", window.location.pathname);
       loginGoogle();
+    }
+    // Play 심사용 데모 로그인 — ?demo=<키> 면 백엔드에서 데모 세션 받아 자동 로그인
+    const demoKey = p.get("demo");
+    const apiBase = import.meta.env.VITE_API_BASE;
+    if (demoKey && authClient && apiBase) {
+      window.history.replaceState({}, "", window.location.pathname);
+      fetch(`${apiBase}/auth/demo-login?key=${encodeURIComponent(demoKey)}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+        .then((t) => authClient!.auth.setSession({ access_token: t.access_token, refresh_token: t.refresh_token }))
+        .catch(() => {});
     }
   }, []);
   // real.koczip.com 은 중개사 홈페이지 전용 호스트 — 루트 /{slug} 가 곧 홈페이지.

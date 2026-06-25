@@ -487,6 +487,35 @@ def verified_user(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+# ── Play 심사용 데모 로그인 ──────────────────────────────────────────────
+# Google Play 심사자가 OAuth 없이 로그인-게이트 기능(AI 등)을 검토할 수 있게,
+# 비밀키가 든 URL로 데모 계정 세션을 발급한다. 비번은 서버에만 있고 프런트 번들엔 노출 안 됨.
+_DEMO_EMAIL = "demo.review@koczip.com"
+_DEMO_PASSWORD = "KoczipDemo2026!"
+_DEMO_KEY = "play-review-2026"   # ?demo=<이 값> 일 때만 발급
+
+@app.get("/auth/demo-login")
+def demo_login(key: str = ""):
+    """심사용 데모 세션 발급. key 일치 시 데모 계정 password grant → 토큰 반환."""
+    if key != _DEMO_KEY:
+        raise HTTPException(403, "invalid demo key")
+    if not settings.supabase_url or not settings.supabase_anon_key:
+        raise HTTPException(503, "auth not configured")
+    body = _authjson.dumps({"email": _DEMO_EMAIL, "password": _DEMO_PASSWORD}).encode()
+    req = _urlreq.Request(
+        f"{settings.supabase_url}/auth/v1/token?grant_type=password",
+        data=body,
+        headers={"apikey": settings.supabase_anon_key, "Content-Type": "application/json"},
+        method="POST")
+    try:
+        with _urlreq.urlopen(req, timeout=10) as resp:
+            t = _authjson.loads(resp.read().decode("utf-8"))
+    except _urlerr.HTTPError as e:
+        raise HTTPException(502, f"demo login failed: {e.code}")
+    return {"access_token": t.get("access_token"), "refresh_token": t.get("refresh_token"),
+            "expires_in": t.get("expires_in")}
+
+
 def _validate_cols(table: str, cols_str: str) -> str:
     s = cols_str.strip()
     if s == "*":
