@@ -39,6 +39,7 @@ import JeonseCheck from "./pages/JeonseCheck";
 import EasterEgg from "./components/EasterEgg";
 import Tutorial from "./components/Tutorial";
 import IntroSplash from "./components/IntroSplash";
+import Onboarding from "./components/Onboarding";
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
 import PresaleTx from "./pages/PresaleTx";
@@ -179,6 +180,7 @@ function AppShell() {
   return (
     <div className="layout">
       <IntroSplash />
+      <Onboarding />
       <header className="top">
         <div className="brand-wrap">
           <h1>

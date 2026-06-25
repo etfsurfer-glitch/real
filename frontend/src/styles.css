@@ -2919,3 +2919,28 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   .realtor-contacts{flex-direction:row;width:100%;margin-top:4px}
   .realtor-contacts .contact-btn{flex:1;min-width:0}
 }
+
+/* ── 안드로이드 앱 첫실행 온보딩(사용자 구분) ── */
+.onb{position:fixed;inset:0;z-index:9000;background:linear-gradient(160deg,#13294b 0%,#1268d3 100%);display:flex;align-items:center;justify-content:center;padding:24px}
+.onb-card{width:100%;max-width:400px;background:#fff;border-radius:22px;padding:26px 22px 18px;box-shadow:0 20px 60px -15px rgba(0,0,0,.5);animation:onb-in .3s ease}
+@keyframes onb-in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.onb-brand{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:800;color:#13294b;margin-bottom:18px}
+.onb-brand svg{color:#1268d3}
+.onb-title{font-size:20px;font-weight:800;color:#13294b;margin:0 0 4px;letter-spacing:-.3px}
+.onb-sub{font-size:13px;color:#64748b;margin:0 0 18px;line-height:1.5}
+.onb-opt{display:flex;align-items:center;gap:13px;width:100%;text-align:left;border:1.5px solid var(--c-border,#e3e8ef);background:#fff;border-radius:16px;padding:15px 14px;margin-bottom:11px;cursor:pointer;transition:border-color .15s,transform .12s,box-shadow .15s}
+.onb-opt:hover,.onb-opt:active{border-color:#1268d3;transform:translateY(-1px);box-shadow:0 6px 18px -8px rgba(18,104,211,.4)}
+.onb-opt-ic{flex:none;width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;color:#fff}
+.onb-opt-ic.a{background:linear-gradient(135deg,#1268d3,#3b88e8)}
+.onb-opt-ic.b{background:linear-gradient(135deg,#13294b,#2a5a9e)}
+.onb-opt-tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.onb-opt-tx b{font-size:15px;font-weight:800;color:#1a2b45}
+.onb-opt-tx em{font-size:12px;font-style:normal;color:#7a8aa0;line-height:1.4}
+.onb-opt-go{flex:none;color:#9aa7b8}
+.onb-skip,.onb-back{display:block;width:100%;text-align:center;background:none;border:none;color:#94a3b8;font-size:13px;font-weight:600;padding:12px 0 4px;cursor:pointer;font-family:inherit}
+.onb-back{color:#1268d3}
+.onb-auth{display:flex;flex-direction:column;gap:10px;margin:6px 0 4px}
+.onb-auth .auth-btn{justify-content:center;padding:13px;font-size:15px;border-radius:12px}
+/* AI 게이트 둘러보기 */
+.ai-gate-skip{display:block;width:100%;text-align:center;background:none;border:none;color:#64748b;font-size:13px;font-weight:600;margin-top:12px;padding:8px;cursor:pointer;font-family:inherit}
+.ai-gate-skip:hover{color:#1268d3}

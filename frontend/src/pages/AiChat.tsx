@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Sparkles, MapPin, SendHorizonal, Lock, ShieldCheck } from "lucide-react";
 import { useAuth, loginKakao, loginGoogle } from "../auth";
 import { PhoneModal } from "../components/PhoneVerify";
@@ -128,6 +128,7 @@ function AiTurn({ t, children }: { t: Turn; children?: ReactNode }) {
 
 export default function AiChat() {
   const { user, token, ready, configured, refreshMe, isAdmin } = useAuth();
+  const navigate = useNavigate();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -265,8 +266,8 @@ export default function AiChat() {
       {needLogin && (
         <div className="ai-gate">
           <div className="ai-gate-ic"><Lock size={20} strokeWidth={2.2} /></div>
-          <div className="ai-gate-t">콕집 AI는 회원 전용이에요</div>
-          <div className="ai-gate-sub">카카오 또는 구글로 가입하고, 전화번호 인증하면 바로 이용할 수 있어요.</div>
+          <div className="ai-gate-t">AI 질문은 로그인이 필요해요</div>
+          <div className="ai-gate-sub">실거래·급매 조회는 로그인 없이 이용할 수 있어요. AI 질문만 가입이 필요해요.</div>
           <div className="ai-gate-btns">
             <button className="auth-btn kakao" onClick={() => loginKakao()}>
               <svg className="kakao-icon" aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -284,6 +285,7 @@ export default function AiChat() {
               구글로 시작
             </button>
           </div>
+          <button className="ai-gate-skip" onClick={() => navigate("/")}>로그인 없이 둘러보기 →</button>
         </div>
       )}
       {needVerify && (
