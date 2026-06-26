@@ -9133,39 +9133,90 @@ def lounge_complex_search(q: str, user: dict = Depends(current_user)):
     return {"items": items}
 
 
-@app.get("/complexes/search")
-def complexes_search(q: str, limit: int = 20):
-    """공개 단지명 검색 — 우리단지찾기용. 위치(시도·시군구·동)·세대수·현재 매물수 포함."""
-    kw = (q or "").strip()
-    if len(kw) < 2:
-        return {"items": []}
-    limit = max(1, min(limit, 40))
-    norm = kw.replace("아파트", "").replace(" ", "").strip()
-    like = f"%{norm or kw}%"
+def _norm_search(s: str) -> str:
+    """검색 정규화 — 소문자·공백/'아파트' 제거 + 브랜드 표기 통일(영문↔한글)."""
+    s = (s or "").lower().replace(" ", "").replace("아파트", "")
+    # 'e편한세상' 처럼 영문/한글 혼용 표기를 한글로 통일(사용자가 '이편한'으로 쳐도 잡히게)
+    s = s.replace("e편한", "이편한").replace("thesharp", "더샵").replace("the-sharp", "더샵")
+    return s
+
+
+def _csearch_score(kw: str, norm_name: str, norm_region: str) -> int:
+    """단지 검색 점수 — 0이면 불일치. 이름 연속일치 > 지역+이름 연속 > 공백토큰 AND > 무공백 2분할 AND.
+    '위례이편한' 처럼 지역+단지 토큰이 떨어져 있어도(중간에 '래미안') 분할 매칭으로 잡는다."""
+    hay = norm_name + norm_region
+    nq = _norm_search(kw)
+    if not nq:
+        return 0
+    if nq in norm_name:
+        return 100                          # 이름에 그대로 포함(가장 정확)
+    if nq in hay:
+        return 80                           # 지역까지 합치면 연속 포함
+    # 공백으로 친 토큰(각 2자+)이 모두 지역+이름 어딘가에 있으면 매치
+    toks = [t for t in (_norm_search(x) for x in kw.split()) if len(t) >= 2]
+    if len(toks) >= 2 and all(t in hay for t in toks):
+        return 60
+    # 공백 없이 붙여 친 경우: 모든 2분할(양쪽 2자+)을 시도해 둘 다 포함되면 매치
+    n = len(nq)
+    for i in range(2, n - 1):
+        if nq[:i] in hay and nq[i:] in hay:
+            return 50
+    return 0
+
+
+# 단지 검색 인덱스(이름/지역 정규화본) — 매 검색마다 64k행+조인 재실행 대신 캐시.
+_CSEARCH_IDX: dict = {"built": 0.0, "rows": None}
+
+
+def _complex_search_index():
+    """(complex_no, name, households, region, norm_name, norm_region) 리스트. 30분 TTL 캐시."""
+    now = _time.time()
+    if _CSEARCH_IDX["rows"] is not None and (now - _CSEARCH_IDX["built"]) < 1800:
+        return _CSEARCH_IDX["rows"]
     with _open_db() as d:
-        rows = d.execute(
+        raw = d.execute(
             "SELECT cx.complex_no, cx.complex_name, cx.total_household_count, "
             "       rsi.cortar_name, rsg.cortar_name, rdo.cortar_name "
             "FROM complexes cx "
             "LEFT JOIN regions rsi ON rsi.cortar_no = substr(cx.cortar_no,1,2)||'00000000' "
             "LEFT JOIN regions rsg ON rsg.cortar_no = substr(cx.cortar_no,1,5)||'00000' "
-            "LEFT JOIN regions rdo ON rdo.cortar_no = cx.cortar_no "
-            "WHERE REPLACE(cx.complex_name,' ','') LIKE ? "
-            "ORDER BY cx.total_household_count DESC LIMIT ?",
-            (like, limit)).fetchall()
-        counts = {}
-        cnos = [r[0] for r in rows]
-        if cnos:
+            "LEFT JOIN regions rdo ON rdo.cortar_no = cx.cortar_no"
+        ).fetchall()
+    rows = []
+    for r in raw:
+        region = " ".join(x for x in [_SIDO_SHORT.get(r[3], r[3]), r[4], r[5]] if x)
+        rows.append((r[0], r[1], r[2] or 0, region, _norm_search(r[1]), _norm_search(region)))
+    _CSEARCH_IDX["rows"] = rows
+    _CSEARCH_IDX["built"] = now
+    return rows
+
+
+@app.get("/complexes/search")
+def complexes_search(q: str, limit: int = 20):
+    """공개 단지명 검색 — 우리단지찾기용. 위치(시도·시군구·동)·세대수·현재 매물수 포함.
+    지역명+단지명 조합, 토큰 분리(공백 없어도), 영문/한글 브랜드 표기차를 포괄해 매칭."""
+    kw = (q or "").strip()
+    if len(kw) < 2:
+        return {"items": []}
+    limit = max(1, min(limit, 40))
+    scored = []
+    for (cno, name, hh, region, nn, nr) in _complex_search_index():
+        sc = _csearch_score(kw, nn, nr)
+        if sc:
+            scored.append((sc, hh, cno, name, region))
+    scored.sort(key=lambda x: (-x[0], -x[1]))   # 점수 → 세대수 순
+    top = scored[:limit]
+    counts = {}
+    cnos = [t[2] for t in top]
+    if cnos:
+        with _open_db() as d:
             qm = ",".join("?" * len(cnos))
             for cno, n in d.execute(
                 f"SELECT complex_no, COUNT(*) FROM listings_current WHERE complex_no IN ({qm}) GROUP BY complex_no",
                 cnos):
                 counts[cno] = n
-    items = []
-    for r in rows:
-        region = " ".join(x for x in [_SIDO_SHORT.get(r[3], r[3]), r[4], r[5]] if x)
-        items.append({"complex_no": r[0], "complex_name": r[1], "households": r[2],
-                      "region": region, "listings": counts.get(r[0], 0)})
+    items = [{"complex_no": t[2], "complex_name": t[3], "households": t[1],
+              "region": t[4], "listings": counts.get(t[2], 0)} for t in top]
     return {"items": items}
 
 
