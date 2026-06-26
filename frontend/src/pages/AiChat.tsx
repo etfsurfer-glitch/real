@@ -42,20 +42,41 @@ function inline(s: string): ReactNode[] {
     } else {
       const m = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
       const text = m ? m[1] : tok, url = m ? m[2] : "#";
-      if (url.startsWith("/")) out.push(<Link key={k++} to={url} className="ai-link">{text}</Link>);
-      else out.push(<a key={k++} href={url} target="_blank" rel="noreferrer" className="ai-link">{text}</a>);
+      // 행 전체 클릭(Bullet)과 겹치지 않게 stopPropagation — 보조 링크(예: 중개사)는 자기 경로로.
+      const stop = (e: React.MouseEvent) => e.stopPropagation();
+      if (url.startsWith("/")) out.push(<Link key={k++} to={url} className="ai-link" onClick={stop}>{text}</Link>);
+      else out.push(<a key={k++} href={url} target="_blank" rel="noreferrer" className="ai-link" onClick={stop}>{text}</a>);
     }
     last = re.lastIndex;
   }
   if (last < s.length) out.push(<span key={k++}>{s.slice(last)}</span>);
   return out;
 }
+// 목록 한 줄에 들어있는 첫 내부 경로(단지/중개사 등) — 그 줄 전체를 탭하면 여기로 이동.
+function firstInternalLink(s: string): string | null {
+  const m = /\]\((\/[^)]+)\)/.exec(s);
+  return m ? m[1] : null;
+}
+// 목록 항목: 단지/중개사 링크가 있으면 줄 전체를 클릭 가능하게(이름을 눌러도 이동). 모바일 탭 타깃 확대.
+function Bullet({ text }: { text: string }) {
+  const navigate = useNavigate();
+  const path = firstInternalLink(text);
+  return (
+    <li
+      className={path ? "ai-li-go" : undefined}
+      onClick={path ? () => navigate(path) : undefined}
+      role={path ? "link" : undefined}
+    >
+      {inline(text)}
+    </li>
+  );
+}
 function renderMd(text: string): ReactNode[] {
   const out: ReactNode[] = [];
   let bullets: string[] = [];
   const flush = () => {
     if (bullets.length) {
-      out.push(<ul key={`u${out.length}`} className="ai-ul">{bullets.map((b, i) => <li key={i}>{inline(b)}</li>)}</ul>);
+      out.push(<ul key={`u${out.length}`} className="ai-ul">{bullets.map((b, i) => <Bullet key={i} text={b} />)}</ul>);
       bullets = [];
     }
   };

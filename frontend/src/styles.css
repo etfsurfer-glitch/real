@@ -838,6 +838,10 @@ input.search:focus { outline: none; border-color: var(--c-primary); box-shadow: 
   margin: 0; padding: 8px 2px 8px 14px; position: relative; border-bottom: 1px solid #f3f5f7;
 }
 .ai-a .ai-ul li:last-child { border-bottom: none; }
+/* 단지/중개사 링크가 있는 목록 줄은 줄 전체가 탭 가능(이름을 눌러도 이동) */
+.ai-a .ai-ul li.ai-li-go { cursor: pointer; border-radius: 8px; transition: background .12s; }
+.ai-a .ai-ul li.ai-li-go:hover { background: #f6f9fe; }
+.ai-a .ai-ul li.ai-li-go:active { background: #eaf2ff; }
 .ai-a .ai-ul li::before {
   content: ""; position: absolute; left: 2px; top: 15px;
   width: 4px; height: 4px; border-radius: 50%; background: #c0392b;
