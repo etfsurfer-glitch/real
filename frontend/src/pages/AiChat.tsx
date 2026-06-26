@@ -157,6 +157,10 @@ export default function AiChat() {
   const [geoExamples, setGeoExamples] = useState<string[] | null>(null);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 대화 복원/저장 — 사용자별 키(공용 기기에서 타인 대화 노출 방지)
+  const histKey = user ? `koczip_ai_turns:${user.id}` : null;
+  const restoredKeyRef = useRef<string | null>(null);
+  const seededKeyRef = useRef<string | null>(null);
 
   // AI는 로그인만 하면 이용 가능(전화인증 불필요). 포인트로 사용 제한.
   const needLogin = configured && ready && !user;
@@ -177,6 +181,45 @@ export default function AiChat() {
       .catch(() => {});
     return () => { alive = false; };
   }, []);
+
+  // (1) 복원: localStorage 우선(즉시) — 페이지 이동 후 돌아오거나 앱 재실행 시 대화 유지
+  useEffect(() => {
+    if (!histKey || restoredKeyRef.current === histKey) return;
+    restoredKeyRef.current = histKey;
+    try {
+      const raw = localStorage.getItem(histKey);
+      const arr = raw ? JSON.parse(raw) : null;
+      setTurns(Array.isArray(arr) ? arr : []);
+    } catch { setTurns([]); }
+  }, [histKey]);
+
+  // (2) 서버 시드: 로컬에 없을 때만(/ai/history) — 재로그인·다른 기기에서도 과거 답 복원
+  useEffect(() => {
+    if (!histKey || !token || !API_BASE) return;
+    if (seededKeyRef.current === histKey) return;
+    seededKeyRef.current = histKey;
+    let hasLocal = false;
+    try { hasLocal = !!localStorage.getItem(histKey); } catch { /* */ }
+    if (hasLocal) return;
+    fetch(`${API_BASE}/ai/history?limit=30`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d: { items?: Turn[] }) => {
+        if (d.items && d.items.length) {
+          setTurns(d.items);
+          try { localStorage.setItem(histKey, JSON.stringify(d.items)); } catch { /* */ }
+        }
+      })
+      .catch(() => {});
+  }, [histKey, token]);
+
+  // 저장: 완료된 턴만(로딩/스트리밍 중 제외), 최근 30개
+  useEffect(() => {
+    if (!histKey) return;
+    const done = turns.filter((t) => !t.loading && (t.answer || t.error)).slice(-30);
+    try {
+      if (done.length) localStorage.setItem(histKey, JSON.stringify(done));
+    } catch { /* 용량초과 등 무시 */ }
+  }, [turns, histKey]);
 
   const examples = geoExamples ?? EXAMPLES;
 

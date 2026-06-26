@@ -5938,6 +5938,39 @@ def ai_ask_stream(body: AiAskBody, request: Request, user: dict = Depends(curren
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.get("/ai/history")
+def ai_history(request: Request, user: dict = Depends(current_user), limit: int = 30):
+    """로그인 사용자의 과거 AI 질문-답변 이력(최신순으로 가져와 오래된→최신으로 반환).
+    event_log(ai_ask)를 재사용 — 재로그인·다른 기기에서도 과거 답변을 복원한다."""
+    if limit < 1 or limit > 100:
+        limit = 30
+    uid = user.get("id")
+    if not uid:
+        return {"items": []}
+    items: list[dict] = []
+    try:
+        with _logs_db() as c:
+            rows = c.execute(
+                "SELECT detail FROM event_log WHERE kind='ai_ask' AND user_id=? "
+                "AND status=200 ORDER BY id DESC LIMIT ?",
+                (uid, limit),
+            ).fetchall()
+        for r in rows:
+            try:
+                j = _json.loads(r[0] or "{}")
+            except Exception:  # noqa: BLE001
+                continue
+            ans = j.get("answer")
+            q = j.get("question")
+            if not ans or not q:
+                continue   # 답이 없는(실패) 기록은 제외
+            items.append({"q": q, "answer": ans, "tools": j.get("tools"), "usage": j.get("usage")})
+        items.reverse()   # 오래된 → 최신(화면 표시 순서)
+    except sqlite3.Error:
+        return {"items": []}
+    return {"items": items}
+
+
 # ===========================================================================
 # 관리자: naver 중개사 ↔ vworld 등록정보 수작업 매칭
 # ===========================================================================
