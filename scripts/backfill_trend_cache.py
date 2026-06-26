@@ -22,13 +22,16 @@ from fastapi.encoders import jsonable_encoder  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from scripts.local_api import app, _CACHE_DB_PATH  # noqa: E402
-from scripts.build_api_cache import make_key, _list_sidos  # noqa: E402
+from scripts.build_api_cache import make_key, _list_sidos, _list_sigungus  # noqa: E402
 
 
-def main(workers: int = 6) -> None:
+def main(workers: int = 5, include_sigungu: bool = True) -> None:
     client = TestClient(app)
     sidos = _list_sidos(client)
     regions = [{}] + [{"sido": s} for s in sidos]   # 전국 + 시도
+    if include_sigungu:
+        for s in sidos:
+            regions += [{"sigungu": sg} for sg in _list_sigungus(client, s)]
     specs: list[tuple[str, dict]] = []
     for asset in ("apt", "offi"):
         for reg in regions:
