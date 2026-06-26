@@ -182,15 +182,29 @@ function formatKoCount(v: number): string {
 
 function AvgPriceChart({ region, regionLabel, asset }: { region: RegionFilter; regionLabel: string; asset: string }) {
   const [series, setSeries] = useState<AvgPoint[]>([]);
+  const [loading, setLoading] = useState(true);
   const [visible, setVisible] = useState<Record<TradeKey, boolean>>({
     A1: true, B1: true, B2: true, B2R: true,
   });
   useEffect(() => {
     if (!API_BASE) return;
     const qs = regionQueryString(region);
+    setLoading(true);
     fetch(`${API_BASE}/stats/avg-price-trend?days=60&asset=${asset}${qs ? "&" + qs : ""}`)
-      .then((r) => r.json()).then((d) => setSeries(d.series || [])).catch(() => {});
+      .then((r) => r.json()).then((d) => setSeries(d.series || []))
+      .catch(() => {}).finally(() => setLoading(false));
   }, [region.sido, region.sigungu, asset]);
+  // 로딩 중에는 박스만 먼저 뜨고 그래프가 비는 대신 스켈레톤+진행바를 보여준다.
+  if (loading && series.length < 2) {
+    return (
+      <Section title={`${regionLabel} 매물평균 호가`} desc="일별 거래유형별 가중평균 호가를 불러오는 중입니다.">
+        <div className="chart-skeleton" style={{ height: 240 }}>
+          <div className="chart-skeleton-bar" />
+          <span className="chart-skeleton-text">그래프 불러오는 중…</span>
+        </div>
+      </Section>
+    );
+  }
   if (series.length < 2) return null;
   const toggle = (k: TradeKey) => setVisible((v) => ({ ...v, [k]: !v[k] }));
 

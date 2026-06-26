@@ -748,6 +748,12 @@ def avg_price_trend(days: int = 60, sido: str | None = None, sigungu: str | None
     """
     if days < 1 or days > 365:
         raise HTTPException(400, "days out of range")
+    # 인메모리 캐시(24h) — 60일×전단지 GROUP BY 라 콜드 7~11s. 프리빌드 키와 어긋나는
+    # 조합(시군구·동 등)도 첫 호출 후 즉시화. 데이터는 하루 1번만 갱신(daily 빌드가 비움).
+    _ck = f"avgtrend:{days}:{sido or ''}:{sigungu or ''}:{dong or ''}:{asset or ''}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
 
     # 지역 필터 (summary 와 동일 패턴)
     region_join = ""
@@ -817,7 +823,9 @@ def avg_price_trend(days: int = 60, sido: str | None = None, sigungu: str | None
         by_date.setdefault(
             d, {"snapshot_date": d, "A1": None, "B1": None, "B2": None, "B2R": None}
         )[k] = p
-    return {"days": days, "series": list(by_date.values())}
+    result = {"days": days, "series": list(by_date.values())}
+    _cache_put(_ck, result)
+    return result
 
 
 @app.get("/stats/top-listings")

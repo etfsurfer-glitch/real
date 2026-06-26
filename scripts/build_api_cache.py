@@ -303,14 +303,18 @@ def build_all(limit: int = 0, scope: str = "stats", workers: int = 8,
     for s in sidos:
         targets.append(("/stats/sigungu-list", {"sido": s}))
 
-    # avg-price-trend(days=60) · changes/summary : 전국 + 시도 + 시군구
+    # avg-price-trend(days=60) · changes/summary : 전국 + 시도 + 시군구, asset(apt/offi)별.
+    # ★asset 필수 — 프런트(Changes.tsx)가 항상 asset=apt/offi 를 붙여 보내므로, asset
+    #   없이 캐싱하면 키가 어긋나 100% 미스(콜드 8~11s)였다.
     for ep, base in (("/stats/avg-price-trend", {"days": 60}),
                      ("/stats/changes/summary", {})):
-        targets.append((ep, dict(base) or None))
-        for s in sidos:
-            targets.append((ep, {**base, "sido": s}))
-            for sg in sigungus_by_sido[s]:
-                targets.append((ep, {**base, "sigungu": sg}))
+        for asset in ("apt", "offi"):
+            b = {**base, "asset": asset}
+            targets.append((ep, dict(b)))
+            for s in sidos:
+                targets.append((ep, {**b, "sido": s}))
+                for sg in sigungus_by_sido[s]:
+                    targets.append((ep, {**b, "sigungu": sg}))
 
     # changes/region-rank : level × trade × area × (전국+시도)
     for level in ["sido", "sigungu", "dong"]:
@@ -415,8 +419,8 @@ def build_all(limit: int = 0, scope: str = "stats", workers: int = 8,
             ("/stats/top-complexes", {"days": 7}),
             ("/stats/top-listings", {"limit": 5}),
             ("/stats/listing-trend", {"days": 60}),
-            ("/stats/avg-price-trend", {"days": 60}),
-            ("/stats/changes/summary", None),
+            ("/stats/avg-price-trend", {"days": 60, "asset": "apt"}),
+            ("/stats/changes/summary", {"asset": "apt"}),
             ("/stats/changes/sido-list", None),
             ("/stats/sigungu-list", None),
             ("/stats/realtors/national", {"limit": 20}),
@@ -475,8 +479,8 @@ def build_all(limit: int = 0, scope: str = "stats", workers: int = 8,
             D.append(("/stats/tx-recovery", {"order": o, "limit": 200}))
         # 시도 선택 첫 화면 (national + 시도별 요약/추이)
         for s in sidos:
-            D.append(("/stats/changes/summary", {"sido": s}))
-            D.append(("/stats/avg-price-trend", {"days": 60, "sido": s}))
+            D.append(("/stats/changes/summary", {"sido": s, "asset": "apt"}))
+            D.append(("/stats/avg-price-trend", {"days": 60, "sido": s, "asset": "apt"}))
         targets = D
 
     # ── 지역/AI 보강 캐시 (단독 모드: 이것만 빌드) ──
