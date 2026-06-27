@@ -52,6 +52,8 @@ step "step 4: backfill_rentals (전월세)"   $PY -u scripts/backfill_rentals.py
 step "step 5: backfill_offi (오피스텔)"     $PY -u scripts/backfill_offi.py      --all --months 6; offi_exit=$?
 step "step 5b: backfill_silv (분양권/입주권)" $PY -u scripts/backfill_silv.py      --all --months 6; silv_exit=$?
 step "step 5c: backfill_villa (빌라 매매·전월세)" $PY -u scripts/backfill_villa.py    --all --months 6; villa_exit=$?
+step "step 5d: backfill_nonresi house (단독 매매·전월세)" $PY -u scripts/backfill_nonresi.py --kind house --all --months 6; house_exit=$?
+step "step 5e: backfill_nonresi comm (상가/사무실 매매)"   $PY -u scripts/backfill_nonresi.py --kind comm  --all --months 6; comm_exit=$?
 
 # 실거래 성공 마커 — backfill 후 data.go.kr 이 살아있으면 '오늘 실거래 수집됨' 기록.
 # DOWN(장애)이면 미기록 → catchup(koczip-catchup.timer)이 낮에 회복 시 채운다.
@@ -91,4 +93,4 @@ step "step 13: region_listings(비단지 전국)" $PY -u scripts/collect_region_
 #      여기서 한 번 더 돌려 realtor_region_counts·랭킹·우리동네에 오늘 비단지까지 반영(재발방지).
 step "step 13b: build_realtor_dong (비단지 반영)" $PY -u scripts/build_realtor_dong.py; rdong2_exit=$?
 
-log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} villa=${villa_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} trendcache=${trendcache_exit:-NA} region=${region_exit:-NA}"
+log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} villa=${villa_exit:-NA} house=${house_exit:-NA} comm=${comm_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} trendcache=${trendcache_exit:-NA} region=${region_exit:-NA}"
