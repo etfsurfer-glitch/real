@@ -181,6 +181,7 @@ def main() -> int:
     conn = sqlite3.connect(str(settings.local_db_path),
                            check_same_thread=False, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA journal_size_limit=1073741824")  # WAL 상한 1GB(체크포인트 후 자동 축소)
 
     t0 = time.time()
     all_stats = {}

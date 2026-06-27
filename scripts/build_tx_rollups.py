@@ -270,6 +270,8 @@ def build_rent_ref(c: sqlite3.Connection) -> tuple[int, float]:
 def main() -> None:
     t_all = time.perf_counter()
     with sqlite3.connect(DB) as c:
+        # WAL 파일 상한 1GB — 롤업 재빌드(수백만 행)가 WAL을 GB로 부풀린 뒤 안 줄던 문제 방지.
+        c.execute("PRAGMA journal_size_limit=1073741824")
         c.executescript(SCHEMA)
         c.executescript(SCHEMA_AREA)
         c.executescript(SCHEMA_RECORD)

@@ -127,6 +127,7 @@ def main() -> int:
     # Allow cross-thread connection use; storage uses its own lock to serialize writes.
     conn = sqlite3.connect(str(settings.local_db_path), check_same_thread=False, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA journal_size_limit=1073741824")  # WAL 상한 1GB(체크포인트 후 자동 축소)
     conn.execute("PRAGMA synchronous=NORMAL")
     rp_storage.init_schema(conn)
 

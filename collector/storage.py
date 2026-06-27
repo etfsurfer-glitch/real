@@ -215,6 +215,9 @@ def open_db(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), check_same_thread=False, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    # WAL 파일 상한 1GB — 체크포인트 후 SQLite가 WAL을 이 크기까지 자동 축소(truncate).
+    # 라이브 트래픽이 리더를 계속 잡아 WAL이 11GB까지 고착되던 문제 방지(무중단).
+    conn.execute("PRAGMA journal_size_limit=1073741824")
     return conn
 
 

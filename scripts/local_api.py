@@ -356,6 +356,9 @@ def _open_db() -> sqlite3.Connection:
         # temp_store=MEMORY 는 quick-deals 등 대형 GROUP BY 의 temp B-tree 를 RAM 에
         # 쌓아 OOM(6GB+) 유발 → 기본값(파일 temp) 유지. mmap 으로 충분히 빠름.
         c.execute("PRAGMA busy_timeout=5000")
+        # WAL 파일 상한 1GB — 체크포인트 후 자동 축소. 라이브 리더가 WAL을 11GB로
+        # 고착시키던 문제 방지(무중단). writer(collector.open_db)에도 동일 설정.
+        c.execute("PRAGMA journal_size_limit=1073741824")
     except Exception:
         pass
     return c
