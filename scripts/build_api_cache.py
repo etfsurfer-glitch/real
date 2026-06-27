@@ -481,11 +481,9 @@ def build_all(limit: int = 0, scope: str = "stats", workers: int = 8,
         for s in sidos:
             D.append(("/stats/changes/summary", {"sido": s, "asset": "apt"}))
             D.append(("/stats/avg-price-trend", {"days": 60, "sido": s, "asset": "apt"}))
-            # 시군구도 프리빌드 — avg-price-trend 가 지역무관 60일 전단지 스캔이라
-            # 시군구도 콜드 7s. asset=apt(기본)만 — offi 는 엔드포인트 인메모리 캐시가 커버.
-            for sg in sigungus_by_sido.get(s, []):
-                D.append(("/stats/changes/summary", {"sigungu": sg, "asset": "apt"}))
-                D.append(("/stats/avg-price-trend", {"days": 60, "sigungu": sg, "asset": "apt"}))
+        # 시군구 avg-price-trend/changes/summary 는 default-only(핵심 빌드)를 무겁게
+        # 하지 않도록 여기서 제외 — daily_run.sh step12b(backfill_trend_cache, 재개가능·
+        # gentle·no-wipe)가 step12 직후 덧쌓는다.
         targets = D
 
     # ── 지역/AI 보강 캐시 (단독 모드: 이것만 빌드) ──

@@ -77,6 +77,12 @@ step "step 11: build_tx_rollups"           $PY -u scripts/build_tx_rollups.py; r
 # 12) 캐시 (기본화면만 — quick-deals 최적화로 시군구 급매캐시 불필요)
 step "step 12: build_api_cache --default-only" $PY -u scripts/build_api_cache.py --default-only; cache_exit=$?
 
+# 12b) 매물가격추이 시군구 캐시 백필 — step12(default-only)는 전국+시도만 캐시하므로
+#      시군구 avg-price-trend/changes/summary(asset apt/offi)를 덧쌓는다(no-wipe).
+#      재개가능(이미 캐시된 키 skip)+주기커밋+3워커(gentle). step()은 비치명적이라
+#      실패/지연돼도 step12 캐시는 그대로 남아 안전.
+step "step 12b: backfill_trend_cache (시군구 호가추이)" $PY -u scripts/backfill_trend_cache.py --workers 3; trendcache_exit=$?
+
 # 13) 비단지 매물(11종) 전국 멀티IP — ★별도 DB에만 기록(naverreal 무접근).
 #     step()은 exit만 로깅(비치명적) → 실패/지연돼도 위 전체수집·발행 무영향. A안: 3회 다 전국.
 step "step 13: region_listings(비단지 전국)" $PY -u scripts/collect_region_listings.py --all; region_exit=$?
@@ -84,4 +90,4 @@ step "step 13: region_listings(비단지 전국)" $PY -u scripts/collect_region_
 #      여기서 한 번 더 돌려 realtor_region_counts·랭킹·우리동네에 오늘 비단지까지 반영(재발방지).
 step "step 13b: build_realtor_dong (비단지 반영)" $PY -u scripts/build_realtor_dong.py; rdong2_exit=$?
 
-log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} region=${region_exit:-NA}"
+log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} trendcache=${trendcache_exit:-NA} region=${region_exit:-NA}"
