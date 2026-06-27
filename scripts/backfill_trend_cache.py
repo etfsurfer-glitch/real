@@ -38,13 +38,19 @@ def main(workers: int = 5, include_sigungu: bool = True) -> None:
             specs.append(("/stats/avg-price-trend", {"days": 60, "asset": asset, **reg}))
             specs.append(("/stats/changes/summary", {"asset": asset, **reg}))
     func_by_path = {r.path: r.endpoint for r in app.routes if getattr(r, "endpoint", None)}
-    print(f"specs: {len(specs)}  workers={workers}", flush=True)
 
     conn = sqlite3.connect(str(_CACHE_DB_PATH), check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
+    # 재개 가능 — 이미 캐시에 있는 키는 건너뛴다(OOM 등으로 죽어도 재실행하면 이어짐).
+    have = {r[0] for r in conn.execute(
+        "SELECT cache_key FROM api_cache WHERE path IN "
+        "('/stats/avg-price-trend','/stats/changes/summary')")}
+    todo = [(p, pr) for (p, pr) in specs if make_key(p, pr)[0] not in have]
+    print(f"specs: {len(specs)}  todo: {len(todo)}  workers={workers}", flush=True)
+
     import threading
     lock = threading.Lock()
-    cnt = {"ok": 0, "err": 0}
+    cnt = {"ok": 0, "err": 0, "done": 0}
     t0 = time.perf_counter()
 
     def work(item):
@@ -56,12 +62,12 @@ def main(workers: int = 5, include_sigungu: bool = True) -> None:
             res = func(**params)
         except HTTPException:
             with lock:
-                cnt["err"] += 1
+                cnt["err"] += 1; cnt["done"] += 1
             return
         except Exception as e:  # noqa: BLE001
             print(f"  ERR {path} {params} -- {e}", file=sys.stderr, flush=True)
             with lock:
-                cnt["err"] += 1
+                cnt["err"] += 1; cnt["done"] += 1
             return
         key, qs = make_key(path, params)
         body = json.dumps(jsonable_encoder(res), ensure_ascii=False).encode("utf-8")
@@ -72,14 +78,24 @@ def main(workers: int = 5, include_sigungu: bool = True) -> None:
                 "VALUES (?, ?, ?, ?, ?, 0, datetime('now'))",
                 (key, path, qs, body, len(body)),
             )
-            cnt["ok"] += 1
+            cnt["ok"] += 1; cnt["done"] += 1
+            # 주기적 커밋 — 중간에 죽어도 여기까지 살아남아 재개 가능.
+            if cnt["done"] % 20 == 0:
+                conn.commit()
+            if cnt["done"] % 50 == 0:
+                print(f"  {cnt['done']}/{len(todo)}  ok={cnt['ok']} err={cnt['err']}  "
+                      f"{time.perf_counter()-t0:.0f}s", flush=True)
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        list(ex.map(work, specs))
+        list(ex.map(work, todo))
     conn.commit()
     conn.close()
     print(f"DONE ok={cnt['ok']} err={cnt['err']}  {time.perf_counter()-t0:.0f}s", flush=True)
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--workers", type=int, default=3)
+    args = ap.parse_args()
+    main(workers=args.workers)

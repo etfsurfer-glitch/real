@@ -481,6 +481,11 @@ def build_all(limit: int = 0, scope: str = "stats", workers: int = 8,
         for s in sidos:
             D.append(("/stats/changes/summary", {"sido": s, "asset": "apt"}))
             D.append(("/stats/avg-price-trend", {"days": 60, "sido": s, "asset": "apt"}))
+            # 시군구도 프리빌드 — avg-price-trend 가 지역무관 60일 전단지 스캔이라
+            # 시군구도 콜드 7s. asset=apt(기본)만 — offi 는 엔드포인트 인메모리 캐시가 커버.
+            for sg in sigungus_by_sido.get(s, []):
+                D.append(("/stats/changes/summary", {"sigungu": sg, "asset": "apt"}))
+                D.append(("/stats/avg-price-trend", {"days": 60, "sigungu": sg, "asset": "apt"}))
         targets = D
 
     # ── 지역/AI 보강 캐시 (단독 모드: 이것만 빌드) ──
