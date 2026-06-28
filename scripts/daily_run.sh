@@ -11,9 +11,13 @@ LOG="$ROOT/logs/daily_$(date +%Y%m%d_%H%M).log"
 export PYTHONUNBUFFERED=1
 cd "$ROOT" || exit 1
 
-# 단일 락 — catchup·다른 daily_run 과 동시 실행 금지(동시 DB writer 0 → 꼬임 방지)
+# 단일 락 — catchup·다른 daily_run 과 동시 실행 금지(동시 DB writer 0 → 꼬임 방지).
+# ★대기(-w)로 획득: 비차단(-n)이면 catchup(*:0/30)과 daily(02:00)가 같은 초에 발동할 때
+#   락경쟁에 져 daily 가 하루치를 통째로 건너뛰던 버그(2026-06-28 발생). catchup 은 보통
+#   <1s, 길어야 당일 실거래 수집 ~30분 내 락을 푸므로, daily 는 끝나길 기다렸다 이어받는다.
+#   여전히 순차 실행(동시 writer 0). 60분 내 못 잡으면(비정상) 로그 남기고 종료.
 exec 9>"$ROOT/data/pipeline.lock"
-flock -n 9 || { echo "another pipeline holds the lock — exit"; exit 0; }
+flock -w 3600 9 || { echo "pipeline lock 60분 대기 초과 — 종료"; exit 0; }
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 step() {  # step "label" cmd...
