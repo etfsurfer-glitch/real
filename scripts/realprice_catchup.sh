@@ -34,7 +34,11 @@ $PY -u scripts/backfill_realprice.py --all --months 6 >>"$LOG" 2>&1; r1=$?
 $PY -u scripts/backfill_rentals.py   --all --months 6 >>"$LOG" 2>&1; r2=$?
 $PY -u scripts/backfill_offi.py      --all --months 6 >>"$LOG" 2>&1; r3=$?
 $PY -u scripts/backfill_silv.py      --all --months 6 >>"$LOG" 2>&1; r4=$?
-log "backfill exit: realprice=$r1 rentals=$r2 offi=$r3 silv=$r4"
+# 비단지 실거래도 catchup에 포함 — daily가 어떤 이유로 스킵돼도 아파트류처럼 복원력 확보.
+$PY -u scripts/backfill_villa.py     --all --months 6 >>"$LOG" 2>&1; r5=$?
+$PY -u scripts/backfill_nonresi.py --kind house --all --months 6 >>"$LOG" 2>&1; r6=$?
+$PY -u scripts/backfill_nonresi.py --kind comm  --all --months 6 >>"$LOG" 2>&1; r7=$?
+log "backfill exit: realprice=$r1 rentals=$r2 offi=$r3 silv=$r4 villa=$r5 house=$r6 comm=$r7"
 
 # 수집 직후 재확인 — 중간에 죽었으면(부분수집) 마커 미기록
 if $PY scripts/dgk_health.py >>"$LOG" 2>&1; then
