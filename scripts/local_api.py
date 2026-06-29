@@ -9248,8 +9248,9 @@ def _audit_keys():
     return vw, [k for k in dks if k]
 
 
-def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None) -> dict:
-    """매물행(listings)+상세(네이버)+대장(led) → 점검엔진 입력필드 병합."""
+def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None, dong_set: bool = False) -> dict:
+    """매물행(listings)+상세(네이버)+대장(led) → 점검엔진 입력필드 병합.
+    dong_set=True(단지형): 동별 총층·사용승인 집합으로 대조(오탐방지), 주차 대조는 생략(총괄표제부 필요)."""
     f = {
         "article_no": r.get("article_no"),
         "real_estate_type": r.get("real_estate_type"),
@@ -9276,9 +9277,12 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None) -> dic
         "direction_base": det.get("direction_base"),
     }
     if led:
-        f["led_total_floor"] = led.get("grnd_flr")
-        f["led_use_apr_day"] = led.get("use_apr_day")
-        f["led_parking"] = led.get("parking")
+        # 총층·사용승인은 동별 집합 매칭(같은 지번 다동/단지내상가 오탐 방지 — 어느 동과도
+        # 안 맞을 때만 불일치). 주차는 비단지만(단지형 주차는 총괄표제부 필요 → 생략).
+        f["led_total_floor"] = led.get("grnd_flr_all") or led.get("grnd_flr")
+        f["led_use_apr_day"] = led.get("use_apr_all") or led.get("use_apr_day")
+        if not dong_set:
+            f["led_parking"] = led.get("parking")
     return f
 
 
@@ -9289,22 +9293,26 @@ def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends
     from collector.creds import ensure_creds
     from collector.article_detail import fetch_and_extract
     from collector.listing_audit import audit_listing, is_saengsuk
-    from collector.ondemand_ledger import ledger_for_coord
+    from collector.ondemand_ledger import ledger_for_coord, ledger_for_jibun
     creds = ensure_creds()
     vw, dks = _audit_keys()
     results = []
 
-    # 단지형(아파트·오피) — 대장 미사용
+    # 단지형(아파트·오피) — 주요사항(총층·사용승인) 대장 확인(지번 직접조회·확인차원)
     with _open_db() as c:
         rows = [dict(x) for x in c.execute(
             "SELECT l.article_no, l.complex_no, l.real_estate_type, l.trade_type, l.floor_info, "
             "l.area2_m2, l.deal_or_warrant_price, l.building_name, l.direction, cx.complex_name, "
-            "cx.use_approve_ymd, cx.dong_name, cx.detail_address "
+            "cx.use_approve_ymd, cx.dong_name, cx.detail_address, cx.cortar_no "
             "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
             "WHERE l.realtor_id=? LIMIT ?", (realtor_id, limit)).fetchall()]
+    # 단지형은 면적·총층·사용승인·주차가 CP 자동입력(권위)이라 표시여부 '확인'만 한다.
+    # (대장 대조는 단지가 여러 지번에 걸치는 '○번지 일대'에서 동 누락→오탐 → 비단지 전용)
     for r in rows:
         det = fetch_and_extract(r["article_no"], r["complex_no"], creds) or {}
-        res = audit_listing(_audit_merge(r, det, saengsuk=is_saengsuk(r.get("complex_name")), led=None))
+        res = audit_listing(
+            _audit_merge(r, det, saengsuk=is_saengsuk(r.get("complex_name")), led=None),
+            cp_autofilled=True)
         res["kind"] = "단지형"
         res["building"] = r.get("complex_name")
         results.append(res)

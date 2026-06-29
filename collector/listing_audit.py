@@ -25,12 +25,42 @@ def _floor_is_approx(floor_info: str | None) -> bool:
     return floor_info.split("/")[0].strip() in ("저", "중", "고")
 
 
+def _ledger_mismatch(val, led, *, digits=False) -> bool:
+    """광고값 vs 대장값 불일치 여부. 대장 없으면 False(대조 생략). led는 스칼라 또는
+    집합(단지형=동별 총층·사용승인). 집합이면 '어느 동과도 안 맞을 때'만 불일치(오탐방지).
+    digits=True면 숫자만 비교(날짜 형식차 무시)."""
+    if led is None or led == "" or led == []:
+        return False
+
+    def norm(x):
+        s = str(x or "")
+        return "".join(c for c in s if c.isdigit()) if digits else s.strip()
+
+    v = norm(val)
+    if not v:
+        return False
+    if isinstance(led, (list, set, tuple)):
+        opts = {norm(x) for x in led if norm(x)}
+        return bool(opts) and v not in opts
+    lv = norm(led)
+    return bool(lv) and v != lv
+
+
+def _fmt_led(led) -> str:
+    if isinstance(led, (list, set, tuple)):
+        return "/".join(str(x) for x in led)
+    return str(led)
+
+
 # 주택·준주택(방수+욕실수 필요). 그 외 건축물(생숙·상가 등)은 욕실수만 표시 가능.
 _RESIDENTIAL_TYPES = {"아파트", "오피스텔", "빌라/연립", "빌라단지-연립", "단독/다가구", "다세대"}
 
 
-def audit_listing(f: dict) -> dict:
+def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     """매물 1건 점검. f = listings + complexes + 상세추출 + is_saengsuk 병합 dict.
+
+    cp_autofilled=True(단지형 아파트·오피): 면적·총층·사용승인·주차가 콘텐츠제공자(CP)
+    자동입력이라 수기 오류가 없음 → 해당 4항목은 '단지정보 자동입력(확인)'으로 통과 처리.
 
     필요 키: article_no, real_estate_type/realestate_type_name, trade_type, floor_info,
     area_exclusive, price, total_floor, movein_type, room_count, bathroom_count,
@@ -61,8 +91,11 @@ def audit_listing(f: dict) -> dict:
         add(1, "소재지·지번/동", "주의", "지번·동 정보 부족")
 
     # ② 면적(전용㎡)
-    add(2, "면적(전용㎡)", "통과" if _has(f.get("area_exclusive")) else "위반",
-        "" if _has(f.get("area_exclusive")) else "전용면적(㎡) 미표시")
+    if cp_autofilled:
+        add(2, "면적(전용㎡)", "통과", "단지정보 자동입력(확인)")
+    else:
+        add(2, "면적(전용㎡)", "통과" if _has(f.get("area_exclusive")) else "위반",
+            "" if _has(f.get("area_exclusive")) else "전용면적(㎡) 미표시")
 
     # ③ 가격
     add(3, "가격", "통과" if _has(f.get("price")) else "위반",
@@ -80,12 +113,14 @@ def audit_listing(f: dict) -> dict:
     add(5, "거래형태", "통과" if _has(f.get("trade_type")) else "위반",
         "" if _has(f.get("trade_type")) else "거래형태 미표시")
 
-    # ⑥ 총 층수 (대장 기준 대조 — 광고값≠대장이면 주의)
+    # ⑥ 총 층수 (단지형=CP자동입력 확인 / 비단지=대장 대조)
     led_tf = f.get("led_total_floor")
-    if not _has(f.get("total_floor")):
+    if cp_autofilled:
+        add(6, "총 층수", "통과", "단지정보 자동입력(확인)")
+    elif not _has(f.get("total_floor")):
         add(6, "총 층수", "위반", "총 층수 미표시")
-    elif led_tf and str(f.get("total_floor")) != str(led_tf):
-        add(6, "총 층수", "주의", f"광고 총층({f.get('total_floor')}) ≠ 대장({led_tf})")
+    elif _ledger_mismatch(f.get("total_floor"), led_tf):
+        add(6, "총 층수", "주의", f"광고 총층({f.get('total_floor')}) ≠ 대장({_fmt_led(led_tf)})")
     else:
         add(6, "총 층수", "통과")
 
@@ -110,27 +145,29 @@ def audit_listing(f: dict) -> dict:
         add(8, "욕실수", "통과" if has_bath else "위반",
             "" if has_bath else "욕실 수 미표시(필수)")
 
-    # ⑨ 사용승인일 (대장 대조 — 오입력 적발)
+    # ⑨ 사용승인일 (대장 대조 — 오입력 적발. 단지형은 동별 집합 매칭)
     ua = f.get("use_approve_ymd")
     led_ua = f.get("led_use_apr_day")
-    _dig = lambda x: "".join(ch for ch in str(x or "") if ch.isdigit())
-    if not _has(ua):
+    if cp_autofilled:
+        add(9, "사용승인일", "통과", "단지정보 자동입력(확인)")
+    elif not _has(ua):
         add(9, "사용승인일", "위반", "사용승인일 미표시")
-    elif led_ua and _dig(ua) and _dig(led_ua) and _dig(ua) != _dig(led_ua):
-        add(9, "사용승인일", "주의", f"광고({ua}) ≠ 대장({led_ua}) — 오입력 확인")
+    elif _ledger_mismatch(ua, led_ua, digits=True):
+        add(9, "사용승인일", "주의", f"광고({ua}) ≠ 대장({_fmt_led(led_ua)}) — 오입력 확인")
     else:
         add(9, "사용승인일", "통과")
 
     # ⑩ 주차 (대장 기준: 대장에 주차 없으면 '주차불가' 표시해야)
     led_pk = f.get("led_parking")              # 대장 총주차(None=미수집)
     pk_possible = f.get("parking_possible")    # 네이버 parkingPossibleYN
-    if led_pk is not None and (led_pk or 0) == 0 and pk_possible == "Y":
+    if cp_autofilled:
+        add(10, "주차", "통과", "단지정보 자동입력(확인)")
+    elif led_pk is not None and (led_pk or 0) == 0 and pk_possible == "Y":
         add(10, "주차", "위반", "대장상 주차대수 없음 → '주차불가' 표시 필요(대장 기준)")
     elif not _has(f.get("parking_count")):
         add(10, "주차", "위반", "주차대수 미표시")
-    elif led_pk and str(f.get("parking_count")) != str(led_pk):
-        add(10, "주차", "주의", f"광고 주차({f.get('parking_count')}) ≠ 대장 총주차({led_pk})")
     else:
+        # 정확한 대수 대조는 같은 지번 다동 모호성으로 생략(표시여부·주차불가만 점검)
         add(10, "주차", "통과")
 
     # ⑪ 관리비 (미표기/없음 구분 + 이상치 + 정액 10만원↑ 세부표시)

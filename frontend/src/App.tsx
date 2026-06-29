@@ -24,6 +24,7 @@ import RealtorRanks, { RealtorNational, RealtorBySido, RealtorByTenure, RealtorB
 import Realtor from "./pages/Realtor";
 import SuspiciousRealtors from "./pages/SuspiciousRealtors";
 import AdminDashboard from "./pages/AdminDashboard";
+import AuditRealtor from "./pages/AuditRealtor";
 import AdminReviews from "./pages/AdminReviews";
 import AdminRealtorMatch from "./pages/AdminRealtorMatch";
 import AdminUsers from "./pages/AdminUsers";
@@ -330,6 +331,7 @@ function AppShell() {
         <Route path="/admin/logs" element={<RequireAdmin><AdminLogs /></RequireAdmin>} />
         <Route path="/admin/data-sources" element={<RequireAdmin><AdminDataSources /></RequireAdmin>} />
         <Route path="/admin/push" element={<RequireAdmin><AdminPush /></RequireAdmin>} />
+        <Route path="/admin/audit" element={<RequireAdmin><AuditRealtor /></RequireAdmin>} />
         <Route path="/admin/today" element={<RequireAdmin><AdminTodayStats /></RequireAdmin>} />
         <Route path="/admin/ops" element={<RequireAdmin><AdminOps /></RequireAdmin>} />
         <Route path="/admin/kpi" element={<RequireAdmin><AdminKpi /></RequireAdmin>} />

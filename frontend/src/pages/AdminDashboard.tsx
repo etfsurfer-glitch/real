@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Users, ScrollText, Wrench, ShieldAlert, ClipboardCheck, Home as HomeIcon,
-  UserCheck, Coins, Bot, LogIn, MessagesSquare, Star, Layers,
+  UserCheck, Coins, Bot, LogIn, MessagesSquare, Star, Layers, ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { Loading } from "../components/Loading";
@@ -44,6 +44,7 @@ const TOOLS: { to: string; label: string; icon: typeof Users; desc: string;
   { to: "/admin/realtor-match", label: "중개사 매칭", icon: Wrench, desc: "vworld 매칭 검토",
     badge: (o) => o.moderation.realtors_unmatched },
   { to: "/admin/suspicious", label: "의심 중개사", icon: ShieldAlert, desc: "허위/중복 의심 탐지" },
+  { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck, desc: "표시·광고 체크리스트 자동점검 (가오픈)" },
 ];
 
 export default function AdminDashboard() {

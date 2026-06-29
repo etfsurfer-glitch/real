@@ -98,6 +98,9 @@ def ledger_ref(sgg, bjd, plat, bun, ji, datago_keys) -> dict | None:
     pick = max(mains, key=lambda it: float(g(it, "totArea") or 0))
     park = sum(filter(None, (_int(g(pick, k)) for k in
               ("indrMechUtcnt", "oudrMechUtcnt", "indrAutoUtcnt", "oudrAutoUtcnt"))))
+    # 다동단지(단지형) 대조용 — 동마다 총층·사용승인 다름 → 집합으로 'any 동 일치' 판정
+    floors_all = sorted({_int(g(it, "grndFlrCnt")) for it in items if _int(g(it, "grndFlrCnt"))})
+    useaps_all = sorted({g(it, "useAprDay") for it in items if g(it, "useAprDay")})
     return {
         "main_purps": g(pick, "mainPurpsCdNm"),
         "etc_purps": g(pick, "etcPurps"),
@@ -106,8 +109,46 @@ def ledger_ref(sgg, bjd, plat, bun, ji, datago_keys) -> dict | None:
         "parking": park or None,
         "bld_nm": g(pick, "bldNm"),
         "tot_area": float(g(pick, "totArea") or 0) or None,
+        "grnd_flr_all": floors_all,     # 동별 총층 집합(단지형 대조)
+        "use_apr_all": useaps_all,       # 동별 사용승인 집합
         "n_records": len(items),
     }
+
+
+def _parse_jibun(cortar_no, detail_address):
+    """cortar_no(법정동10)+detail_address('1597-6'/'산23') → (sgg,plat,bun4,ji4,bjd) or None."""
+    if not cortar_no or len(str(cortar_no)) < 10 or not detail_address:
+        return None
+    da = str(detail_address).strip().split()[0]   # "18번지 일대"→"18번지", "1597-6 외"→"1597-6"
+    plat = "0"
+    if da.startswith("산"):
+        plat, da = "1", da[1:]
+    da = da.replace("번지", "")
+    m = re.match(r"(\d+)(?:-(\d+))?", da)          # 선두 본번[-부번]만, 후행 텍스트 무시
+    if not m:
+        return None
+    bun = int(m.group(1))
+    ji = int(m.group(2)) if m.group(2) else 0
+    if bun <= 0:
+        return None
+    cn = str(cortar_no)
+    return cn[:5], plat, f"{bun:04d}", f"{ji:04d}", cn[5:10]
+
+
+def ledger_for_jibun(cortar_no, detail_address, datago_keys) -> dict | None:
+    """지번 보유(단지형 등) → 건축물대장 기준값(캐시). 좌표·역지오코딩 불필요."""
+    j = _parse_jibun(cortar_no, detail_address)
+    if not j:
+        return None
+    sgg, plat, bun, ji, bjd = j
+    ck = f"{sgg}{bjd}{plat}{bun}{ji}"
+    if ck in _cache:
+        return _cache[ck]
+    ref = ledger_ref(sgg, bjd, plat, bun, ji, datago_keys)
+    if ref is not None:
+        ref["jibun_key"] = ck
+    _cache[ck] = ref
+    return ref
 
 
 def ledger_for_coord(lat, lon, vworld_key, datago_keys) -> dict | None:
