@@ -4,7 +4,7 @@ import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from "rea
 import { SubNav } from "./components/SubNav";
 import {
   Sparkles, LayoutDashboard, BadgePercent,
-  TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert,
+  TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
   ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, type LucideIcon,
 } from "lucide-react";
@@ -401,6 +401,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/reviews", label: "리뷰 검수", icon: ClipboardCheck },
   { to: "/admin/resident", label: "입주민 인증", icon: HomeIcon },
   { to: "/admin/realtor-requests", label: "중개사 라운지", icon: Building2 },
+  { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck },
 ];
 
 function AdminBar() {
