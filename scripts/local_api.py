@@ -2856,7 +2856,8 @@ def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int 
         dlat = radius_km / 111.0
         dlon = radius_km / (111.0 * max(math.cos(math.radians(lat0)), 0.01))
         cands = c.execute(
-            "SELECT complex_no, complex_name, latitude, longitude, real_estate_type, dong_name "
+            "SELECT complex_no, complex_name, latitude, longitude, real_estate_type, dong_name, "
+            "total_household_count, use_approve_ymd "
             "FROM complexes WHERE complex_no<>? AND latitude BETWEEN ? AND ? "
             "AND longitude BETWEEN ? AND ?",
             (complex_no, lat0 - dlat, lat0 + dlat, lon0 - dlon, lon0 + dlon)).fetchall()
@@ -2902,16 +2903,15 @@ def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int 
             for d, r in near:
                 deals = by.get(r["complex_no"], [])
                 amts = [x["deal_amount"] for x in deals if x["deal_amount"]]
-                window_max = max(amts) if amts else None     # 최근 12개월 최고
-                atmax = allmax.get(r["complex_no"])           # 역대 최고가
                 result.append({
                     "complex_no": r["complex_no"], "complex_name": r["complex_name"],
                     "dong_name": r["dong_name"], "distance_m": round(d * 1000),
+                    "households": r["total_household_count"],
+                    "use_approve_ymd": r["use_approve_ymd"],
                     "deal_count": len(deals),
                     "avg_amount": round(sum(amts) / len(amts)) if amts else None,
-                    "max_amount": atmax,                       # 역대 최고가(전체 data)
-                    # 신고가 = 최근 12개월에 역대최고가가 나옴(=현재 기록 보유)
-                    "is_record": bool(window_max and atmax and window_max >= atmax),
+                    "max_amount": max(amts) if amts else None,   # 최근 12개월 최고
+                    "all_time_max": allmax.get(r["complex_no"]),  # 역대 최고(거래내역 표시용)
                     "recent": deals[:5],
                 })
     return {"complex_no": complex_no, "target_name": tgt["complex_name"],

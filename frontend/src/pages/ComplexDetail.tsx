@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Flame, ExternalLink, Phone } from "lucide-react";
+import { Flame, ExternalLink, Phone, MapPin } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { Link, useParams } from "react-router-dom";
 import ComplexDashboard from "./ComplexDashboard";
@@ -462,9 +462,18 @@ export default function ComplexDetail() {
 type NearbyDeal = { deal_ymd: string; deal_amount: number | null; excl_use_ar: number | null; floor: number | null };
 type NearbyComplex = {
   complex_no: string; complex_name: string; dong_name: string | null; distance_m: number;
+  households: number | null; use_approve_ymd: string | null;
   deal_count: number; avg_amount: number | null; max_amount: number | null;
-  is_record: boolean; recent: NearbyDeal[];
+  all_time_max: number | null; recent: NearbyDeal[];
 };
+
+// 사용승인 "202608"/"20140403" → "2026.08"
+function fmtApprove(v: string | null): string {
+  if (!v) return "";
+  const s = String(v);
+  if (s.length >= 6) return `${s.slice(0, 4)}.${s.slice(4, 6)}`;
+  return s;
+}
 type NearbyAreaOpt = { pyeong_name: string; exclusive_area: number; household_count: number | null };
 type NearbyResp = { target_name: string | null; areas: NearbyAreaOpt[]; nearby: NearbyComplex[] };
 
@@ -501,10 +510,11 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
   const shown = (data?.nearby ?? []).filter((n) => area === 0 || n.deal_count > 0);
 
   return (
-    <div style={{ marginTop: 32, borderTop: "1px solid #eef2f5", paddingTop: 18 }}>
-      <div className="section-title">
-        인근 단지 실거래가{" "}
-        <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>· 반경 1.5km · 평균=최근 12개월 · 최고=역대(신고가 표시)</span>
+    <div style={{ marginTop: 18 }}>
+      <div className="cdash-h">
+        <h3><MapPin size={15} strokeWidth={2.3} /> 인근 단지 실거래{" "}
+          <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>· 반경 1.5km · 최근 12개월 매매</span>
+        </h3>
       </div>
       <div className="chip-row" style={{ marginBottom: 12, flexWrap: "wrap", gap: 6 }}>
         <button type="button" className={`chip ${area === 0 ? "active" : ""}`} onClick={() => setArea(0)}>전체 평형</button>
@@ -525,7 +535,7 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
           <thead>
             <tr>
               <th>단지</th>
-              <th className="num" style={{ width: 100 }}>역대최고</th>
+              <th className="num" style={{ width: 84 }}>최고</th>
               <th className="num" style={{ width: 84 }}>평균</th>
               <th className="num" style={{ width: 48 }}>거래</th>
               <th className="num" style={{ width: 60 }}>거리</th>
@@ -536,21 +546,21 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
               <React.Fragment key={n.complex_no}>
                 <tr style={{ cursor: "pointer" }}
                   onClick={() => setOpen(open === n.complex_no ? null : n.complex_no)}>
-                  <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <span className="muted" style={{ marginRight: 4, fontSize: 11 }}>{open === n.complex_no ? "▾" : "▸"}</span>
-                    <span style={{ fontWeight: 600 }}>{n.complex_name}</span>
-                    {n.dong_name && <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>{n.dong_name}</span>}
-                  </td>
-                  <td className="num">
-                    {formatWon(n.max_amount)}
-                    {n.is_record && (
-                      <span style={{
-                        marginLeft: 4, fontSize: 10, fontWeight: 700, color: "#d4380d",
-                        background: "#fff1f0", border: "1px solid #ffccc7",
-                        borderRadius: 4, padding: "0 4px", whiteSpace: "nowrap",
-                      }}>신고가</span>
+                  <td>
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span className="muted" style={{ marginRight: 4, fontSize: 11 }}>{open === n.complex_no ? "▾" : "▸"}</span>
+                      <span style={{ fontWeight: 600 }}>{n.complex_name}</span>
+                      {n.dong_name && <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>{n.dong_name}</span>}
+                    </div>
+                    {(n.households || n.use_approve_ymd) && (
+                      <div className="muted" style={{ fontSize: 10, marginLeft: 16, lineHeight: 1.4 }}>
+                        {n.households ? `${n.households.toLocaleString()}세대` : ""}
+                        {n.households && n.use_approve_ymd ? " · " : ""}
+                        {n.use_approve_ymd ? `사용승인 ${fmtApprove(n.use_approve_ymd)}` : ""}
+                      </div>
                     )}
                   </td>
+                  <td className="num">{formatWon(n.max_amount)}</td>
                   <td className="num">{formatWon(n.avg_amount)}</td>
                   <td className="num">{n.deal_count || "-"}</td>
                   <td className="num muted">{n.distance_m < 1000 ? `${n.distance_m}m` : `${(n.distance_m / 1000).toFixed(1)}km`}</td>
@@ -562,7 +572,16 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
                         <td className="muted" style={{ paddingLeft: 20 }}>
                           {d.deal_ymd} · {d.floor != null ? `${d.floor}층` : "-"} · {d.excl_use_ar != null ? `${Math.round(d.excl_use_ar)}㎡` : ""}
                         </td>
-                        <td className="num" colSpan={4} style={{ fontWeight: 600 }}>{formatWon(d.deal_amount)}</td>
+                        <td className="num" colSpan={4} style={{ fontWeight: 600 }}>
+                          {formatWon(d.deal_amount)}
+                          {n.all_time_max != null && d.deal_amount != null && d.deal_amount >= n.all_time_max && (
+                            <span style={{
+                              marginLeft: 4, fontSize: 10, fontWeight: 700, color: "#d4380d",
+                              background: "#fff1f0", border: "1px solid #ffccc7",
+                              borderRadius: 4, padding: "0 4px", whiteSpace: "nowrap",
+                            }}>역대최고</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                     <tr style={{ background: "#fafbfc" }}>
