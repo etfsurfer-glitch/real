@@ -9367,6 +9367,19 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None, dong_s
     return f
 
 
+def _ledger_brief(led: dict | None) -> dict | None:
+    """결과에 실을 건축물대장 기준값 요약(주용도·건물명·총층들·사용승인들·주차)."""
+    if not led:
+        return None
+    return {
+        "main_purps": led.get("main_purps"),
+        "bld_nm": led.get("bld_nm"),
+        "grnd_flr": led.get("grnd_flr_all") or ([led["grnd_flr"]] if led.get("grnd_flr") else []),
+        "use_apr_day": led.get("use_apr_all") or ([led["use_apr_day"]] if led.get("use_apr_day") else []),
+        "parking": led.get("parking"),
+    }
+
+
 @app.get("/admin/audit/realtor")
 def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends(admin_user)):
     """중개사 매물 표시·광고 점검(관리자 가오픈). 단지형=네이버 수기항목(면적·주차·층·
@@ -9387,15 +9400,21 @@ def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends
             "cx.use_approve_ymd, cx.dong_name, cx.detail_address, cx.cortar_no "
             "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
             "WHERE l.realtor_id=? LIMIT ?", (realtor_id, limit)).fetchall()]
-    # 단지형은 면적·총층·사용승인·주차가 CP 자동입력(권위)이라 표시여부 '확인'만 한다.
-    # (대장 대조는 단지가 여러 지번에 걸치는 '○번지 일대'에서 동 누락→오탐 → 비단지 전용)
+    # 단지형: 면적·총층·사용승인·주차는 CP 자동입력(권위) → 위반판정 안 하고 '확인'만.
+    # 단, 건축물대장(지번) 총층·사용승인 실제값을 조회해 함께 표시(투명성). 다동단지는
+    # 동별 집합으로 보여줘 오탐 없이 참고값 제공.
     for r in rows:
         det = fetch_and_extract(r["article_no"], r["complex_no"], creds) or {}
+        led = None
+        if dks and r.get("cortar_no") and r.get("detail_address"):
+            led = ledger_for_jibun(r["cortar_no"], r["detail_address"], dks)
         res = audit_listing(
-            _audit_merge(r, det, saengsuk=is_saengsuk(r.get("complex_name")), led=None),
+            _audit_merge(r, det, saengsuk=is_saengsuk(r.get("complex_name")), led=led, dong_set=True),
             cp_autofilled=True)
         res["kind"] = "단지형"
         res["building"] = r.get("complex_name")
+        res["ledger_matched"] = bool(led)
+        res["ledger"] = _ledger_brief(led)
         results.append(res)
 
     # 비단지(빌라·단독·상가 등) — 좌표 온디맨드 건축물대장 대조
@@ -9422,6 +9441,7 @@ def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends
             res["kind"] = _NONRESI_LABEL.get(cat, cat)
             res["building"] = r.get("building_name")
             res["ledger_matched"] = bool(led)
+            res["ledger"] = _ledger_brief(led)
             results.append(res)
 
     return {

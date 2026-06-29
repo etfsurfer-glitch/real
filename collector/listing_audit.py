@@ -52,6 +52,13 @@ def _fmt_led(led) -> str:
     return str(led)
 
 
+def _led_note(led, unit="") -> str:
+    """미표시 위반·통과 안내에 붙일 건축물대장 값(있을 때만)."""
+    if led is None or led == "" or led == []:
+        return ""
+    return f" → 건축물대장: {_fmt_led(led)}{unit}"
+
+
 # 주택·준주택(방수+욕실수 필요). 그 외 건축물(생숙·상가 등)은 욕실수만 표시 가능.
 _RESIDENTIAL_TYPES = {"아파트", "오피스텔", "빌라/연립", "빌라단지-연립", "단독/다가구", "다세대"}
 
@@ -113,16 +120,21 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     add(5, "거래형태", "통과" if _has(f.get("trade_type")) else "위반",
         "" if _has(f.get("trade_type")) else "거래형태 미표시")
 
-    # ⑥ 총 층수 (단지형=CP자동입력 확인 / 비단지=대장 대조)
+    # ⑥ 총 층수 (단지형=CP자동입력+대장값표시 / 비단지=대장 대조)
     led_tf = f.get("led_total_floor")
     if cp_autofilled:
-        add(6, "총 층수", "통과", "단지정보 자동입력(확인)")
+        if led_tf:
+            note = f"CP 자동입력(광고 {f.get('total_floor')}층) · 건축물대장 {_fmt_led(led_tf)}층"
+            add(6, "총 층수", "통과",
+                note + ("" if not _ledger_mismatch(f.get("total_floor"), led_tf) else " (동별 상이)"))
+        else:
+            add(6, "총 층수", "통과", "CP 자동입력(확인)")
     elif not _has(f.get("total_floor")):
-        add(6, "총 층수", "위반", "총 층수 미표시")
+        add(6, "총 층수", "위반", "총 층수 미표시" + _led_note(led_tf, "층"))
     elif _ledger_mismatch(f.get("total_floor"), led_tf):
-        add(6, "총 층수", "주의", f"광고 총층({f.get('total_floor')}) ≠ 대장({_fmt_led(led_tf)})")
+        add(6, "총 층수", "주의", f"광고 총층({f.get('total_floor')}) ≠ 건축물대장({_fmt_led(led_tf)}층)")
     else:
-        add(6, "총 층수", "통과")
+        add(6, "총 층수", "통과", f"건축물대장 {_fmt_led(led_tf)}층 일치" if led_tf else "")
 
     # ⑦ 입주가능일 (즉시입주 + 협의가능 동시표기 금지)
     mv, neg = f.get("movein_type"), str(f.get("movein_negotiable") or "")
@@ -149,26 +161,31 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     ua = f.get("use_approve_ymd")
     led_ua = f.get("led_use_apr_day")
     if cp_autofilled:
-        add(9, "사용승인일", "통과", "단지정보 자동입력(확인)")
+        if led_ua:
+            add(9, "사용승인일", "통과",
+                f"CP 자동입력(광고 {ua or '-'}) · 건축물대장 {_fmt_led(led_ua)}")
+        else:
+            add(9, "사용승인일", "통과", "CP 자동입력(확인)")
     elif not _has(ua):
-        add(9, "사용승인일", "위반", "사용승인일 미표시")
+        add(9, "사용승인일", "위반", "사용승인일 미표시" + _led_note(led_ua))
     elif _ledger_mismatch(ua, led_ua, digits=True):
-        add(9, "사용승인일", "주의", f"광고({ua}) ≠ 대장({_fmt_led(led_ua)}) — 오입력 확인")
+        add(9, "사용승인일", "주의", f"광고({ua}) ≠ 건축물대장({_fmt_led(led_ua)}) — 오입력 확인")
     else:
-        add(9, "사용승인일", "통과")
+        add(9, "사용승인일", "통과", f"건축물대장 {_fmt_led(led_ua)} 일치" if led_ua else "")
 
     # ⑩ 주차 (대장 기준: 대장에 주차 없으면 '주차불가' 표시해야)
     led_pk = f.get("led_parking")              # 대장 총주차(None=미수집)
     pk_possible = f.get("parking_possible")    # 네이버 parkingPossibleYN
     if cp_autofilled:
-        add(10, "주차", "통과", "단지정보 자동입력(확인)")
+        add(10, "주차", "통과", "CP 자동입력(확인)")
     elif led_pk is not None and (led_pk or 0) == 0 and pk_possible == "Y":
-        add(10, "주차", "위반", "대장상 주차대수 없음 → '주차불가' 표시 필요(대장 기준)")
+        add(10, "주차", "위반", "건축물대장상 주차대수 없음 → '주차불가' 표시 필요(대장 기준)")
     elif not _has(f.get("parking_count")):
-        add(10, "주차", "위반", "주차대수 미표시")
+        add(10, "주차", "위반", "주차대수 미표시"
+            + (f" → 건축물대장 총주차: {led_pk}대" if led_pk else ""))
     else:
         # 정확한 대수 대조는 같은 지번 다동 모호성으로 생략(표시여부·주차불가만 점검)
-        add(10, "주차", "통과")
+        add(10, "주차", "통과", f"건축물대장 총주차 {led_pk}대" if led_pk else "")
 
     # ⑪ 관리비 (미표기/없음 구분 + 이상치 + 정액 10만원↑ 세부표시)
     cost = f.get("monthly_management_cost")
