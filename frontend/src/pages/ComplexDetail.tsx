@@ -483,6 +483,14 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
 
   if (!API_BASE) return null;
   const areas = data?.areas ?? [];
+  // 전용면적 기준으로 묶기 — 같은 전용은 하나로(타입 A/B/C 분리 안 함). [반올림㎡, 대표전용]
+  const areaChips: [number, number][] = [];
+  const seenAreas = new Set<number>();
+  for (const a of areas) {
+    const k = Math.round(a.exclusive_area);
+    if (!seenAreas.has(k)) { seenAreas.add(k); areaChips.push([k, a.exclusive_area]); }
+  }
+  areaChips.sort((x, y) => x[0] - y[0]);
   // 전체평형이면 거리순 전부, 특정평형이면 그 평형 거래 있는 단지만.
   const shown = (data?.nearby ?? []).filter((n) => area === 0 || n.deal_count > 0);
 
@@ -494,11 +502,11 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
       </div>
       <div className="chip-row" style={{ marginBottom: 12, flexWrap: "wrap", gap: 6 }}>
         <button type="button" className={`chip ${area === 0 ? "active" : ""}`} onClick={() => setArea(0)}>전체 평형</button>
-        {areas.map((a) => (
-          <button type="button" key={a.exclusive_area}
-            className={`chip ${area === a.exclusive_area ? "active" : ""}`}
-            onClick={() => setArea(a.exclusive_area)}>
-            {a.pyeong_name} <span className="muted">{Math.round(a.exclusive_area)}㎡</span>
+        {areaChips.map(([k, ex]) => (
+          <button type="button" key={k}
+            className={`chip ${area === ex ? "active" : ""}`}
+            onClick={() => setArea(ex)}>
+            전용 {k}㎡
           </button>
         ))}
       </div>
@@ -511,10 +519,10 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
           <thead>
             <tr>
               <th>단지</th>
-              <th className="num" style={{ width: 64 }}>거리</th>
-              <th className="num" style={{ width: 52 }}>거래</th>
-              <th className="num" style={{ width: 88 }}>평균</th>
               <th className="num" style={{ width: 88 }}>최고</th>
+              <th className="num" style={{ width: 88 }}>평균</th>
+              <th className="num" style={{ width: 52 }}>거래</th>
+              <th className="num" style={{ width: 64 }}>거리</th>
             </tr>
           </thead>
           <tbody>
@@ -528,10 +536,10 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
                     </Link>
                     {n.dong_name && <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>{n.dong_name}</span>}
                   </td>
-                  <td className="num muted">{n.distance_m < 1000 ? `${n.distance_m}m` : `${(n.distance_m / 1000).toFixed(1)}km`}</td>
-                  <td className="num">{n.deal_count || "-"}</td>
-                  <td className="num">{formatWon(n.avg_amount)}</td>
                   <td className="num">{formatWon(n.max_amount)}</td>
+                  <td className="num">{formatWon(n.avg_amount)}</td>
+                  <td className="num">{n.deal_count || "-"}</td>
+                  <td className="num muted">{n.distance_m < 1000 ? `${n.distance_m}m` : `${(n.distance_m / 1000).toFixed(1)}km`}</td>
                 </tr>
                 {open === n.complex_no && n.recent.map((d, i) => (
                   <tr key={i} style={{ background: "#fafbfc", fontSize: 12 }}>
