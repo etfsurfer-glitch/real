@@ -45,8 +45,10 @@ def _call(params: dict, timeout=20) -> str | None:
     p = {"serviceKey": KEY, **params}
     try:
         url = BASE + "?" + urllib.parse.urlencode(p)
+        # ★ Accept: application/xml 필수 — 없으면 data.go.kr 건축HUB가 빈응답(HTTP200 len0)을 줌.
+        #   (실거래 api.py 와 동일 패턴. User-Agent 만 보내면 빈응답.)
         b = urllib.request.urlopen(
-            urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}),
+            urllib.request.Request(url, headers={"Accept": "application/xml"}),
             timeout=timeout).read()
         t = b.decode("utf-8", "replace")
         return t if (t.strip() and "resultCode>00" in t) else None
