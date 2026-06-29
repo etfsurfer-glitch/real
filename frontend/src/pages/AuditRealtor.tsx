@@ -8,12 +8,20 @@ import { useAuth } from "../auth";
 const API_BASE = import.meta.env.VITE_API_BASE;
 
 type Finding = { no: number; item: string; status: string; reason: string };
+type Ledger = {
+  main_purps: string | null;
+  bld_nm: string | null;
+  grnd_flr: number[];
+  use_apr_day: string[];
+  parking: number | null;
+};
 type Result = {
   article_no: string;
   kind: string;
   building: string | null;
   is_saengsuk: boolean;
   ledger_matched?: boolean;
+  ledger?: Ledger | null;
   findings: Finding[];
   violation_count: number;
   warning_count: number;
@@ -162,6 +170,15 @@ export default function AuditRealtor() {
                       {ok && <span className="text-emerald-600 font-medium inline-flex items-center gap-1"><CheckCircle2 size={13} />통과</span>}
                     </span>
                   </div>
+                  {r.ledger && (
+                    <div className="px-3 py-1.5 text-[11px] text-sky-700 bg-sky-50/60 border-b border-sky-100 flex flex-wrap gap-x-3 gap-y-0.5">
+                      <span className="font-semibold">건축물대장</span>
+                      {r.ledger.main_purps && <span>용도 {r.ledger.main_purps}</span>}
+                      {r.ledger.grnd_flr?.length > 0 && <span>지상 {r.ledger.grnd_flr.join("/")}층</span>}
+                      {r.ledger.use_apr_day?.length > 0 && <span>사용승인 {r.ledger.use_apr_day.join("/")}</span>}
+                      {r.ledger.parking != null && <span>총주차 {r.ledger.parking}대</span>}
+                    </div>
+                  )}
                   {shown.length > 0 && (
                     <ul className="divide-y divide-slate-50">
                       {shown.map((f, j) => (
