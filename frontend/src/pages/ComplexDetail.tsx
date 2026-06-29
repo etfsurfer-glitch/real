@@ -200,7 +200,7 @@ export default function ComplexDetail() {
   const [tx, setTx] = useState<TxBundle | null>(null);
   // 분양권/입주권은 별도 탭이 아니라 매매 실거래에 통합(레코드별 뱃지) — 사용자에겐 "실거래" 하나.
   const [txTab, setTxTab] = useState<"A1" | "B1" | "B2">("A1");
-  const [section, setSection] = useState<"summary" | "info" | "tx" | "trend" | "realtor" | "review">("summary");
+  const [section, setSection] = useState<"summary" | "info" | "tx" | "nearby" | "trend" | "realtor" | "review">("summary");
   const [realtors, setRealtors] = useState<RealtorRow[] | null>(null);
   const [deals, setDeals] = useState<DealRow[] | null>(null);
   const [areaTypes, setAreaTypes] = useState<AreaType[]>([]);
@@ -342,6 +342,7 @@ export default function ComplexDetail() {
           ["summary", "종합"],
           ["info", "시세"],
           ["tx", "실거래"],
+          ["nearby", "인근단지"],
           ["trend", "호가추이"],
           ["realtor", "중개사무소"],
           ["review", "리뷰"],
@@ -355,8 +356,13 @@ export default function ComplexDetail() {
       </nav>
 
       {section === "summary" && complexNo && (
-        <ComplexDashboard complexNo={complexNo} onGo={setSection} />
+        <>
+          <ComplexDashboard complexNo={complexNo} onGo={setSection} />
+          <NearbyTransactions complexNo={complexNo} />
+        </>
       )}
+
+      {section === "nearby" && complexNo && <NearbyTransactions complexNo={complexNo} />}
 
       {section === "info" && (
         <>
@@ -449,7 +455,6 @@ export default function ComplexDetail() {
       )}
 
       {section === "review" && complexNo && <ComplexReviews complexNo={complexNo} />}
-      {complexNo && <NearbyTransactions complexNo={complexNo} />}
     </>
   );
 }
@@ -457,7 +462,8 @@ export default function ComplexDetail() {
 type NearbyDeal = { deal_ymd: string; deal_amount: number | null; excl_use_ar: number | null; floor: number | null };
 type NearbyComplex = {
   complex_no: string; complex_name: string; dong_name: string | null; distance_m: number;
-  deal_count: number; avg_amount: number | null; max_amount: number | null; recent: NearbyDeal[];
+  deal_count: number; avg_amount: number | null; max_amount: number | null;
+  is_record: boolean; recent: NearbyDeal[];
 };
 type NearbyAreaOpt = { pyeong_name: string; exclusive_area: number; household_count: number | null };
 type NearbyResp = { target_name: string | null; areas: NearbyAreaOpt[]; nearby: NearbyComplex[] };
@@ -498,7 +504,7 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
     <div style={{ marginTop: 32, borderTop: "1px solid #eef2f5", paddingTop: 18 }}>
       <div className="section-title">
         인근 단지 실거래가{" "}
-        <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>· 반경 1.5km · 최근 12개월 매매</span>
+        <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>· 반경 1.5km · 평균=최근 12개월 · 최고=역대(신고가 표시)</span>
       </div>
       <div className="chip-row" style={{ marginBottom: 12, flexWrap: "wrap", gap: 6 }}>
         <button type="button" className={`chip ${area === 0 ? "active" : ""}`} onClick={() => setArea(0)}>전체 평형</button>
@@ -519,36 +525,56 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
           <thead>
             <tr>
               <th>단지</th>
-              <th className="num" style={{ width: 88 }}>최고</th>
-              <th className="num" style={{ width: 88 }}>평균</th>
-              <th className="num" style={{ width: 52 }}>거래</th>
-              <th className="num" style={{ width: 64 }}>거리</th>
+              <th className="num" style={{ width: 100 }}>역대최고</th>
+              <th className="num" style={{ width: 84 }}>평균</th>
+              <th className="num" style={{ width: 48 }}>거래</th>
+              <th className="num" style={{ width: 60 }}>거리</th>
             </tr>
           </thead>
           <tbody>
             {shown.map((n) => (
               <React.Fragment key={n.complex_no}>
-                <tr style={{ cursor: n.deal_count ? "pointer" : "default" }}
-                  onClick={() => n.deal_count && setOpen(open === n.complex_no ? null : n.complex_no)}>
+                <tr style={{ cursor: "pointer" }}
+                  onClick={() => setOpen(open === n.complex_no ? null : n.complex_no)}>
                   <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <Link to={`/complex/${n.complex_no}`} onClick={(e) => e.stopPropagation()} style={{ fontWeight: 600 }}>
-                      {n.complex_name}
-                    </Link>
+                    <span className="muted" style={{ marginRight: 4, fontSize: 11 }}>{open === n.complex_no ? "▾" : "▸"}</span>
+                    <span style={{ fontWeight: 600 }}>{n.complex_name}</span>
                     {n.dong_name && <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>{n.dong_name}</span>}
                   </td>
-                  <td className="num">{formatWon(n.max_amount)}</td>
+                  <td className="num">
+                    {formatWon(n.max_amount)}
+                    {n.is_record && (
+                      <span style={{
+                        marginLeft: 4, fontSize: 10, fontWeight: 700, color: "#d4380d",
+                        background: "#fff1f0", border: "1px solid #ffccc7",
+                        borderRadius: 4, padding: "0 4px", whiteSpace: "nowrap",
+                      }}>신고가</span>
+                    )}
+                  </td>
                   <td className="num">{formatWon(n.avg_amount)}</td>
                   <td className="num">{n.deal_count || "-"}</td>
                   <td className="num muted">{n.distance_m < 1000 ? `${n.distance_m}m` : `${(n.distance_m / 1000).toFixed(1)}km`}</td>
                 </tr>
-                {open === n.complex_no && n.recent.map((d, i) => (
-                  <tr key={i} style={{ background: "#fafbfc", fontSize: 12 }}>
-                    <td className="muted" style={{ paddingLeft: 14 }}>
-                      {d.deal_ymd} · {d.floor != null ? `${d.floor}층` : "-"} · {d.excl_use_ar != null ? `${Math.round(d.excl_use_ar)}㎡` : ""}
-                    </td>
-                    <td className="num" colSpan={4} style={{ fontWeight: 600 }}>{formatWon(d.deal_amount)}</td>
-                  </tr>
-                ))}
+                {open === n.complex_no && (
+                  <>
+                    {n.recent.map((d, i) => (
+                      <tr key={i} style={{ background: "#fafbfc", fontSize: 12 }}>
+                        <td className="muted" style={{ paddingLeft: 20 }}>
+                          {d.deal_ymd} · {d.floor != null ? `${d.floor}층` : "-"} · {d.excl_use_ar != null ? `${Math.round(d.excl_use_ar)}㎡` : ""}
+                        </td>
+                        <td className="num" colSpan={4} style={{ fontWeight: 600 }}>{formatWon(d.deal_amount)}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: "#fafbfc" }}>
+                      <td colSpan={5} style={{ paddingLeft: 20, paddingTop: 4, paddingBottom: 7 }}>
+                        {n.deal_count === 0 && <span className="muted" style={{ fontSize: 12, marginRight: 10 }}>최근 12개월 거래 없음</span>}
+                        <Link to={`/complex/${n.complex_no}`} className="chip" style={{ fontSize: 12 }}>
+                          해당 단지 상세보기 →
+                        </Link>
+                      </td>
+                    </tr>
+                  </>
+                )}
               </React.Fragment>
             ))}
           </tbody>

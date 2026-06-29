@@ -2887,15 +2887,31 @@ def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int 
                 by.setdefault(r["cno"], []).append(
                     {"deal_ymd": r["deal_ymd"], "deal_amount": r["deal_amount"],
                      "excl_use_ar": r["excl_use_ar"], "floor": r["floor"]})
+            # 역대 최고가(전체 기간, 같은 area band) — 신고가 판정용
+            am_params: list = [*ids]
+            am_area = ""
+            if area and area > 0:
+                am_area = " AND excl_use_ar BETWEEN ? AND ?"
+                am_params += [area - 3.5, area + 3.5]
+            allmax: dict = {}
+            for r in c.execute(
+                f"SELECT matched_complex_no AS cno, MAX(deal_amount) AS mx FROM {tbl} "
+                f"WHERE matched_complex_no IN ({ph}){am_area} AND is_cancelled=0 "
+                f"GROUP BY matched_complex_no", am_params):
+                allmax[r["cno"]] = r["mx"]
             for d, r in near:
                 deals = by.get(r["complex_no"], [])
                 amts = [x["deal_amount"] for x in deals if x["deal_amount"]]
+                window_max = max(amts) if amts else None     # 최근 12개월 최고
+                atmax = allmax.get(r["complex_no"])           # 역대 최고가
                 result.append({
                     "complex_no": r["complex_no"], "complex_name": r["complex_name"],
                     "dong_name": r["dong_name"], "distance_m": round(d * 1000),
                     "deal_count": len(deals),
                     "avg_amount": round(sum(amts) / len(amts)) if amts else None,
-                    "max_amount": max(amts) if amts else None,
+                    "max_amount": atmax,                       # 역대 최고가(전체 data)
+                    # 신고가 = 최근 12개월에 역대최고가가 나옴(=현재 기록 보유)
+                    "is_record": bool(window_max and atmax and window_max >= atmax),
                     "recent": deals[:5],
                 })
     return {"complex_no": complex_no, "target_name": tgt["complex_name"],
