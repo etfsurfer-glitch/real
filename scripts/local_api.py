@@ -9231,6 +9231,119 @@ def complexes_search(q: str, limit: int = 20):
     return {"items": items}
 
 
+# ── 매물 표시·광고 점검(중개대상물 인터넷 표시광고 체크리스트) — 관리자 가오픈 ──
+def _audit_keys():
+    """점검용 키: (vworld, [data.go.kr 키...]). .env 직접 로드."""
+    vw, dks = "", []
+    try:
+        for line in open(DB_PATH.parent.parent / ".env"):
+            if line.startswith("VWORLD_KEY="):
+                vw = line.split("=", 1)[1].strip()
+            elif line.startswith("DATA_GO_KR_SERVICE_KEY="):
+                dks.insert(0, line.split("=", 1)[1].strip())
+            elif line.startswith("DATA_GO_KR_SERVICE_KEY2="):
+                dks.append(line.split("=", 1)[1].strip())
+    except OSError:
+        pass
+    return vw, [k for k in dks if k]
+
+
+def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None) -> dict:
+    """매물행(listings)+상세(네이버)+대장(led) → 점검엔진 입력필드 병합."""
+    f = {
+        "article_no": r.get("article_no"),
+        "real_estate_type": r.get("real_estate_type"),
+        "realestate_type_name": det.get("realestate_type") or r.get("real_estate_type_name"),
+        "trade_type": det.get("trade_type") or r.get("trade_type"),
+        "floor_info": det.get("floor_info") or r.get("floor_info"),
+        "area_exclusive": r.get("area2_m2"),
+        "price": r.get("deal_or_warrant_price"),
+        "building_name": det.get("building_name") or r.get("building_name"),
+        "dong_name": r.get("dong_name"),
+        "detail_address": r.get("detail_address"),
+        "is_saengsuk": saengsuk,
+        "total_floor": det.get("total_floor"),
+        "movein_type": det.get("movein_type"),
+        "movein_negotiable": det.get("movein_negotiable"),
+        "room_count": det.get("room_count"),
+        "bathroom_count": det.get("bathroom_count"),
+        "use_approve_ymd": det.get("use_approve_ymd") or r.get("use_approve_ymd"),
+        "parking_count": det.get("parking_count"),
+        "parking_possible": det.get("parking_possible"),
+        "monthly_management_cost": det.get("monthly_management_cost"),
+        "admin_cost_info": det.get("admin_cost_info"),
+        "direction": det.get("direction") or r.get("direction"),
+        "direction_base": det.get("direction_base"),
+    }
+    if led:
+        f["led_total_floor"] = led.get("grnd_flr")
+        f["led_use_apr_day"] = led.get("use_apr_day")
+        f["led_parking"] = led.get("parking")
+    return f
+
+
+@app.get("/admin/audit/realtor")
+def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends(admin_user)):
+    """중개사 매물 표시·광고 점검(관리자 가오픈). 단지형=네이버 수기항목(면적·주차·층·
+    사용승인은 CP 자동입력이라 제외), 비단지=네이버+건축물대장 대조(좌표 온디맨드)."""
+    from collector.creds import ensure_creds
+    from collector.article_detail import fetch_and_extract
+    from collector.listing_audit import audit_listing, is_saengsuk
+    from collector.ondemand_ledger import ledger_for_coord
+    creds = ensure_creds()
+    vw, dks = _audit_keys()
+    results = []
+
+    # 단지형(아파트·오피) — 대장 미사용
+    with _open_db() as c:
+        rows = [dict(x) for x in c.execute(
+            "SELECT l.article_no, l.complex_no, l.real_estate_type, l.trade_type, l.floor_info, "
+            "l.area2_m2, l.deal_or_warrant_price, l.building_name, l.direction, cx.complex_name, "
+            "cx.use_approve_ymd, cx.dong_name, cx.detail_address "
+            "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
+            "WHERE l.realtor_id=? LIMIT ?", (realtor_id, limit)).fetchall()]
+    for r in rows:
+        det = fetch_and_extract(r["article_no"], r["complex_no"], creds) or {}
+        res = audit_listing(_audit_merge(r, det, saengsuk=is_saengsuk(r.get("complex_name")), led=None))
+        res["kind"] = "단지형"
+        res["building"] = r.get("complex_name")
+        results.append(res)
+
+    # 비단지(빌라·단독·상가 등) — 좌표 온디맨드 건축물대장 대조
+    for cat, dbf in _NONRESI_DB.items():
+        path = DB_PATH.parent / dbf
+        if not path.exists():
+            continue
+        try:
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
+                rc.row_factory = sqlite3.Row
+                nrows = [dict(x) for x in rc.execute(
+                    "SELECT article_no, real_estate_type, real_estate_type_name, trade_type, "
+                    "floor_info, area2_m2, deal_or_warrant_price, building_name, direction, "
+                    "latitude, longitude FROM listings WHERE realtor_id=? LIMIT ?",
+                    (realtor_id, limit)).fetchall()]
+        except sqlite3.Error:
+            nrows = []
+        for r in nrows:
+            det = fetch_and_extract(r["article_no"], None, creds) or {}
+            led = None
+            if vw and dks and r.get("latitude"):
+                led = ledger_for_coord(r["latitude"], r["longitude"], vw, dks)
+            res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led))
+            res["kind"] = _NONRESI_LABEL.get(cat, cat)
+            res["building"] = r.get("building_name")
+            res["ledger_matched"] = bool(led)
+            results.append(res)
+
+    return {
+        "realtor_id": realtor_id,
+        "count": len(results),
+        "violation_total": sum(x["violation_count"] for x in results),
+        "warning_total": sum(x["warning_count"] for x in results),
+        "results": results,
+    }
+
+
 @app.post("/lounge/verify-doc")
 async def lounge_verify_doc(realtor_id: str = Form(""), claimed_name: str = Form(""),
                             document: UploadFile = File(...),
