@@ -30,19 +30,28 @@ DAILY_QUOTA = 9500          # getBrTitleInfo 10,000/일 한도 — 마진
 PROBE = {"sigunguCd": "11680", "bjdongCd": "10100", "numOfRows": "1", "pageNo": "1"}
 
 
-def _key() -> str:
+def _keys() -> list[str]:
+    """표제부용 키 목록(DATA_GO_KR_SERVICE_KEY[, 2]). 키별 일일쿼터 분리라 분산하면 가속."""
+    found = {}
     for line in open(os.path.join(".", ".env")):
-        if line.startswith("DATA_GO_KR_SERVICE_KEY="):
-            return line.split("=", 1)[1].strip()
-    raise SystemExit("DATA_GO_KR_SERVICE_KEY 없음")
+        for name in ("DATA_GO_KR_SERVICE_KEY", "DATA_GO_KR_SERVICE_KEY2"):
+            if line.startswith(name + "="):
+                found[name] = line.split("=", 1)[1].strip()
+    out = [found[n] for n in ("DATA_GO_KR_SERVICE_KEY", "DATA_GO_KR_SERVICE_KEY2") if found.get(n)]
+    if not out:
+        raise SystemExit("DATA_GO_KR_SERVICE_KEY 없음")
+    return out
 
 
-KEY = _key()
+import itertools
+KEYS = _keys()
+_key_cycle = itertools.cycle(KEYS)
+DAILY_QUOTA = 9500 * len(KEYS)   # 키별 10k/일 한도 → 키 수만큼 곱(분산)
 
 
 def _call(params: dict, timeout=20) -> str | None:
     """단일 호출. 정상 XML(resultCode 00) 문자열 or None(빈응답/에러)."""
-    p = {"serviceKey": KEY, **params}
+    p = {"serviceKey": next(_key_cycle), **params}  # 키 라운드로빈(키별 쿼터 분리 → 분산 가속)
     try:
         url = BASE + "?" + urllib.parse.urlencode(p)
         # ★ Accept: application/xml 필수 — 없으면 data.go.kr 건축HUB가 빈응답(HTTP200 len0)을 줌.

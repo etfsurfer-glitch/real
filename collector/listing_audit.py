@@ -80,46 +80,78 @@ def audit_listing(f: dict) -> dict:
     add(5, "거래형태", "통과" if _has(f.get("trade_type")) else "위반",
         "" if _has(f.get("trade_type")) else "거래형태 미표시")
 
-    # ⑥ 총 층수
-    add(6, "총 층수", "통과" if _has(f.get("total_floor")) else "위반",
-        "" if _has(f.get("total_floor")) else "총 층수 미표시")
+    # ⑥ 총 층수 (대장 기준 대조 — 광고값≠대장이면 주의)
+    led_tf = f.get("led_total_floor")
+    if not _has(f.get("total_floor")):
+        add(6, "총 층수", "위반", "총 층수 미표시")
+    elif led_tf and str(f.get("total_floor")) != str(led_tf):
+        add(6, "총 층수", "주의", f"광고 총층({f.get('total_floor')}) ≠ 대장({led_tf})")
+    else:
+        add(6, "총 층수", "통과")
 
-    # ⑦ 입주가능일
-    add(7, "입주가능일", "통과" if _has(f.get("movein_type")) else "위반",
-        "" if _has(f.get("movein_type")) else "입주가능일 미표시")
+    # ⑦ 입주가능일 (즉시입주 + 협의가능 동시표기 금지)
+    mv, neg = f.get("movein_type"), str(f.get("movein_negotiable") or "")
+    if not _has(mv):
+        add(7, "입주가능일", "위반", "입주가능일 미표시")
+    elif "즉시" in str(mv) and "협의" in neg:
+        add(7, "입주가능일", "위반", "'즉시입주'와 '협의가능' 동시표기 불가")
+    else:
+        add(7, "입주가능일", "통과")
 
-    # ⑧ 방수/욕실수
+    # ⑧ 방수/욕실수 (욕실수는 전 유형 필수, 방수는 주택·준주택)
     has_room, has_bath = _has(f.get("room_count")), _has(f.get("bathroom_count"))
     residential = (not saengsuk) and (
         rtype in _RESIDENTIAL_TYPES or f.get("real_estate_type") in ("APT", "OPST"))
     if residential:
         ok = has_room and has_bath
         add(8, "방수/욕실수", "통과" if ok else "위반",
-            "" if ok else "방 수·욕실 수 미표시")
+            "" if ok else ("방 수 미표시" if has_bath else "방 수·욕실 수 미표시"))
     else:
         add(8, "욕실수", "통과" if has_bath else "위반",
-            "" if has_bath else "욕실 수 미표시")
+            "" if has_bath else "욕실 수 미표시(필수)")
 
-    # ⑨ 사용승인일
-    add(9, "사용승인일", "통과" if _has(f.get("use_approve_ymd")) else "위반",
-        "" if _has(f.get("use_approve_ymd")) else "사용승인일 미표시")
-
-    # ⑩ 주차대수
-    add(10, "주차대수", "통과" if _has(f.get("parking_count")) else "위반",
-        "" if _has(f.get("parking_count")) else "주차대수 미표시")
-
-    # ⑪ 관리비 (정액 월 10만원 이상이면 총액+비목별 세부 표시 필요)
-    cost = f.get("monthly_management_cost")
-    try:
-        cost_i = int(cost) if cost not in (None, "") else 0
-    except (ValueError, TypeError):
-        cost_i = 0
-    if cost_i >= 100000:
-        ok = bool(f.get("admin_cost_info"))
-        add(11, "관리비", "통과" if ok else "위반",
-            "" if ok else "정액 월 10만원 이상 — 총액·비목별 세부금액 표시 필요")
+    # ⑨ 사용승인일 (대장 대조 — 오입력 적발)
+    ua = f.get("use_approve_ymd")
+    led_ua = f.get("led_use_apr_day")
+    _dig = lambda x: "".join(ch for ch in str(x or "") if ch.isdigit())
+    if not _has(ua):
+        add(9, "사용승인일", "위반", "사용승인일 미표시")
+    elif led_ua and _dig(ua) and _dig(led_ua) and _dig(ua) != _dig(led_ua):
+        add(9, "사용승인일", "주의", f"광고({ua}) ≠ 대장({led_ua}) — 오입력 확인")
     else:
-        add(11, "관리비", "통과")
+        add(9, "사용승인일", "통과")
+
+    # ⑩ 주차 (대장 기준: 대장에 주차 없으면 '주차불가' 표시해야)
+    led_pk = f.get("led_parking")              # 대장 총주차(None=미수집)
+    pk_possible = f.get("parking_possible")    # 네이버 parkingPossibleYN
+    if led_pk is not None and (led_pk or 0) == 0 and pk_possible == "Y":
+        add(10, "주차", "위반", "대장상 주차대수 없음 → '주차불가' 표시 필요(대장 기준)")
+    elif not _has(f.get("parking_count")):
+        add(10, "주차", "위반", "주차대수 미표시")
+    elif led_pk and str(f.get("parking_count")) != str(led_pk):
+        add(10, "주차", "주의", f"광고 주차({f.get('parking_count')}) ≠ 대장 총주차({led_pk})")
+    else:
+        add(10, "주차", "통과")
+
+    # ⑪ 관리비 (미표기/없음 구분 + 이상치 + 정액 10만원↑ 세부표시)
+    cost = f.get("monthly_management_cost")
+    if cost is None or str(cost).strip() in ("", "None"):
+        add(11, "관리비", "주의", "관리비 미표기 — '없음(0원)'과 구분 필요")
+    else:
+        try:
+            ci = int(cost)
+        except (ValueError, TypeError):
+            ci = -1
+        if ci == 0:
+            add(11, "관리비", "통과")                       # 관리비 없음 명시
+        elif ci < 0:
+            add(11, "관리비", "주의", "관리비 값 형식 오류")
+        elif ci >= 2_000_000 or 0 < ci <= 1000:
+            add(11, "관리비", "주의", f"관리비 이상치({ci:,}원) — 오입력 의심")
+        elif ci >= 100000 and not f.get("admin_cost_info"):
+            add(11, "관리비", "위반", "정액 월 10만원↑ — 총액·비목별 세부금액 표시 필요")
+        else:
+            add(11, "관리비", "통과")
 
     # ⑫ 방향 (+ 기준)
     if not _has(f.get("direction")):
