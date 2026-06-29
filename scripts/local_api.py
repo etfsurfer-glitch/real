@@ -2822,6 +2822,87 @@ def complex_summary(complex_no: str):
     }
 
 
+def _haversine_km(lat1, lon1, lat2, lon2) -> float:
+    import math
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6371.0 * math.asin(math.sqrt(a))
+
+
+@app.get("/complex/{complex_no}/nearby-transactions")
+def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int = 12,
+                                radius_km: float = 1.5, limit: int = 12):
+    """인근 단지 실거래가 — 대상단지 좌표 기준 반경 내 같은유형(아파트/오피) 단지들의 최근
+    매매 실거래. area>0이면 전용면적±3.5㎡(같은 평형)만, area=0이면 전체평형. 거리순."""
+    import math
+    months = max(1, min(months, 60))
+    radius_km = max(0.2, min(radius_km, 5.0))
+    limit = max(1, min(limit, 30))
+    with _open_db() as c:
+        tgt = c.execute(
+            "SELECT complex_name, latitude, longitude, real_estate_type "
+            "FROM complexes WHERE complex_no=?", (complex_no,)).fetchone()
+        if not tgt or not tgt["latitude"] or not tgt["longitude"]:
+            return {"complex_no": complex_no, "target_name": None, "nearby": [], "areas": []}
+        lat0, lon0 = float(tgt["latitude"]), float(tgt["longitude"])
+        asset_apt = (tgt["real_estate_type"] or "") != "OPST"
+        areas = [{"pyeong_name": r["pyeong_name"], "exclusive_area": r["exclusive_area"],
+                  "household_count": r["household_count"]}
+                 for r in c.execute(
+                     "SELECT pyeong_name, exclusive_area, household_count FROM complex_areas "
+                     "WHERE complex_no=? AND exclusive_area IS NOT NULL ORDER BY exclusive_area",
+                     (complex_no,))]
+        dlat = radius_km / 111.0
+        dlon = radius_km / (111.0 * max(math.cos(math.radians(lat0)), 0.01))
+        cands = c.execute(
+            "SELECT complex_no, complex_name, latitude, longitude, real_estate_type, dong_name "
+            "FROM complexes WHERE complex_no<>? AND latitude BETWEEN ? AND ? "
+            "AND longitude BETWEEN ? AND ?",
+            (complex_no, lat0 - dlat, lat0 + dlat, lon0 - dlon, lon0 + dlon)).fetchall()
+        near = []
+        for r in cands:
+            if not r["latitude"] or (((r["real_estate_type"] or "") != "OPST") != asset_apt):
+                continue
+            d = _haversine_km(lat0, lon0, float(r["latitude"]), float(r["longitude"]))
+            if d <= radius_km:
+                near.append((d, r))
+        near.sort(key=lambda x: x[0])
+        near = near[:limit]
+        result = []
+        if near:
+            ids = [r["complex_no"] for _, r in near]
+            ph = ",".join("?" * len(ids))
+            tbl = "transactions" if asset_apt else "offi_transactions"
+            params: list = [*ids, f"-{months} months"]
+            area_cl = ""
+            if area and area > 0:
+                area_cl = " AND excl_use_ar BETWEEN ? AND ?"
+                params += [area - 3.5, area + 3.5]
+            by: dict = {}
+            for r in c.execute(
+                f"SELECT matched_complex_no AS cno, deal_ymd, deal_amount, excl_use_ar, floor "
+                f"FROM {tbl} WHERE matched_complex_no IN ({ph}) AND deal_ymd >= date('now', ?)"
+                f"{area_cl} AND is_cancelled=0 ORDER BY deal_ymd DESC", params):
+                by.setdefault(r["cno"], []).append(
+                    {"deal_ymd": r["deal_ymd"], "deal_amount": r["deal_amount"],
+                     "excl_use_ar": r["excl_use_ar"], "floor": r["floor"]})
+            for d, r in near:
+                deals = by.get(r["complex_no"], [])
+                amts = [x["deal_amount"] for x in deals if x["deal_amount"]]
+                result.append({
+                    "complex_no": r["complex_no"], "complex_name": r["complex_name"],
+                    "dong_name": r["dong_name"], "distance_m": round(d * 1000),
+                    "deal_count": len(deals),
+                    "avg_amount": round(sum(amts) / len(amts)) if amts else None,
+                    "max_amount": max(amts) if amts else None,
+                    "recent": deals[:5],
+                })
+    return {"complex_no": complex_no, "target_name": tgt["complex_name"],
+            "asset": "apt" if asset_apt else "offi", "area": area, "months": months,
+            "radius_km": radius_km, "areas": areas, "nearby": result}
+
+
 @app.get("/complex/{complex_no}/areas")
 def complex_areas_endpoint(complex_no: str):
     """단지 면적타입별 구성 (Naver 단지 detail 기반): 면적타입/공급/전용/세대수."""

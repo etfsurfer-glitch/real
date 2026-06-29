@@ -449,7 +449,104 @@ export default function ComplexDetail() {
       )}
 
       {section === "review" && complexNo && <ComplexReviews complexNo={complexNo} />}
+      {complexNo && <NearbyTransactions complexNo={complexNo} />}
     </>
+  );
+}
+
+type NearbyDeal = { deal_ymd: string; deal_amount: number | null; excl_use_ar: number | null; floor: number | null };
+type NearbyComplex = {
+  complex_no: string; complex_name: string; dong_name: string | null; distance_m: number;
+  deal_count: number; avg_amount: number | null; max_amount: number | null; recent: NearbyDeal[];
+};
+type NearbyAreaOpt = { pyeong_name: string; exclusive_area: number; household_count: number | null };
+type NearbyResp = { target_name: string | null; areas: NearbyAreaOpt[]; nearby: NearbyComplex[] };
+
+// 단지상세 맨 아래 — 반경 내 같은유형 단지의 최근 매매 실거래(평형 선택 가능).
+function NearbyTransactions({ complexNo }: { complexNo: string }) {
+  const [data, setData] = useState<NearbyResp | null>(null);
+  const [area, setArea] = useState(0); // 0 = 전체 평형
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!API_BASE || !complexNo) return;
+    let alive = true;
+    setLoading(true);
+    fetch(`${API_BASE}/complex/${complexNo}/nearby-transactions?area=${area}&months=12&radius_km=1.5&limit=12`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (alive) setData(j); })
+      .catch(() => { if (alive) setData(null); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [complexNo, area]);
+
+  if (!API_BASE) return null;
+  const areas = data?.areas ?? [];
+  // 전체평형이면 거리순 전부, 특정평형이면 그 평형 거래 있는 단지만.
+  const shown = (data?.nearby ?? []).filter((n) => area === 0 || n.deal_count > 0);
+
+  return (
+    <div style={{ marginTop: 32, borderTop: "1px solid #eef2f5", paddingTop: 18 }}>
+      <div className="section-title">
+        인근 단지 실거래가{" "}
+        <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>· 반경 1.5km · 최근 12개월 매매</span>
+      </div>
+      <div className="chip-row" style={{ marginBottom: 12, flexWrap: "wrap", gap: 6 }}>
+        <button type="button" className={`chip ${area === 0 ? "active" : ""}`} onClick={() => setArea(0)}>전체 평형</button>
+        {areas.map((a) => (
+          <button type="button" key={a.exclusive_area}
+            className={`chip ${area === a.exclusive_area ? "active" : ""}`}
+            onClick={() => setArea(a.exclusive_area)}>
+            {a.pyeong_name} <span className="muted">{Math.round(a.exclusive_area)}㎡</span>
+          </button>
+        ))}
+      </div>
+      {loading ? (
+        <div className="muted">불러오는 중…</div>
+      ) : shown.length === 0 ? (
+        <div className="muted">인근 단지 실거래가 없습니다{area > 0 ? " (이 평형)" : ""}.</div>
+      ) : (
+        <table style={{ tableLayout: "fixed" }}>
+          <thead>
+            <tr>
+              <th>단지</th>
+              <th className="num" style={{ width: 64 }}>거리</th>
+              <th className="num" style={{ width: 52 }}>거래</th>
+              <th className="num" style={{ width: 88 }}>평균</th>
+              <th className="num" style={{ width: 88 }}>최고</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((n) => (
+              <React.Fragment key={n.complex_no}>
+                <tr style={{ cursor: n.deal_count ? "pointer" : "default" }}
+                  onClick={() => n.deal_count && setOpen(open === n.complex_no ? null : n.complex_no)}>
+                  <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <Link to={`/complex/${n.complex_no}`} onClick={(e) => e.stopPropagation()} style={{ fontWeight: 600 }}>
+                      {n.complex_name}
+                    </Link>
+                    {n.dong_name && <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>{n.dong_name}</span>}
+                  </td>
+                  <td className="num muted">{n.distance_m < 1000 ? `${n.distance_m}m` : `${(n.distance_m / 1000).toFixed(1)}km`}</td>
+                  <td className="num">{n.deal_count || "-"}</td>
+                  <td className="num">{formatWon(n.avg_amount)}</td>
+                  <td className="num">{formatWon(n.max_amount)}</td>
+                </tr>
+                {open === n.complex_no && n.recent.map((d, i) => (
+                  <tr key={i} style={{ background: "#fafbfc", fontSize: 12 }}>
+                    <td className="muted" style={{ paddingLeft: 14 }}>
+                      {d.deal_ymd} · {d.floor != null ? `${d.floor}층` : "-"} · {d.excl_use_ar != null ? `${Math.round(d.excl_use_ar)}㎡` : ""}
+                    </td>
+                    <td className="num" colSpan={4} style={{ fontWeight: 600 }}>{formatWon(d.deal_amount)}</td>
+                  </tr>
+                ))}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 
