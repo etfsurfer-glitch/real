@@ -6718,7 +6718,12 @@ def admin_data_sources(_admin: dict = Depends(admin_user)):
         ("rentals",           "아파트 전·월세 실거래",  "실거래 (국토부)", "국토교통부 실거래가",        "매일",            2,  "MAX(date(inserted_at))", "MAX(deal_ymd)"),
         ("offi_rentals",      "오피스텔 전·월세 실거래", "실거래 (국토부)", "국토교통부 실거래가",        "매일",            2,  "MAX(date(inserted_at))", "MAX(deal_ymd)"),
         ("silv_transactions", "분양권·입주권 전매 실거래", "실거래 (국토부)", "국토교통부 실거래가",      "매일",            2,  "MAX(date(inserted_at))", "MAX(deal_ymd)"),
-        ("listings_current",  "현재 매물 (호가)",       "매물",           "부동산 매물 플랫폼",         "매일",            2,  "MAX(snapshot_date)",     "MAX(snapshot_date)"),
+        ("rh_transactions",   "연립·다세대(빌라) 매매 실거래",   "실거래 (국토부)", "국토교통부 실거래가",  "매일", 2, "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("rh_rentals",        "연립·다세대(빌라) 전·월세 실거래", "실거래 (국토부)", "국토교통부 실거래가",  "매일", 2, "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("sh_transactions",   "단독·다가구 매매 실거래",         "실거래 (국토부)", "국토교통부 실거래가",  "매일", 2, "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("sh_rentals",        "단독·다가구 전·월세 실거래",      "실거래 (국토부)", "국토교통부 실거래가",  "매일", 2, "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("nrg_transactions",  "상업·업무용 매매 실거래",         "실거래 (국토부)", "국토교통부 실거래가",  "매일", 2, "MAX(date(inserted_at))", "MAX(deal_ymd)"),
+        ("listings_current",  "아파트·오피 매물 (호가)",   "매물",           "부동산 매물 플랫폼",         "매일",            2,  "MAX(snapshot_date)",     "MAX(snapshot_date)"),
         ("complex_daily_agg", "단지별 일일 매물 집계",   "매물",           "내부 집계 (매물 보관)",       "매일",            2,  "MAX(snapshot_date)",     "MAX(snapshot_date)"),
         ("naver_realtors",    "중개사무소 정보",         "단지·중개사",    "부동산 매물 플랫폼",         "매일 (신규 보강)", 3,  "MAX(date(fetched_at))",  None),
         ("vworld_brokers",    "공인중개사 공식 등록",    "단지·중개사",    "브이월드 (국토교통부)",      "월 1회",          35, "MAX(date(list_fetched_at))", None),
@@ -6751,6 +6756,31 @@ def admin_data_sources(_admin: dict = Depends(admin_user)):
             out.append({"key": table, "name": name, "category": cat, "source": source,
                         "cycle": cycle, "rows": n, "last_collected": last, "days_ago": da,
                         "latest_data": latest, "status": status})
+
+    # 비단지 호가 — 별도 DB(9종, listings_*.sqlite). snapshot_date 신선도.
+    REGION_DBS = [
+        ("listings_sangga", "상가 매물 (호가)"), ("listings_office", "사무실 매물 (호가)"),
+        ("listings_villa", "빌라·연립 매물 (호가)"), ("listings_house", "단독·다가구 매물 (호가)"),
+        ("listings_land", "토지 매물 (호가)"), ("listings_factory", "공장·창고 매물 (호가)"),
+        ("listings_building", "건물 매물 (호가)"), ("listings_knowledge", "지식산업센터 매물 (호가)"),
+        ("listings_redev", "재개발 매물 (호가)"),
+    ]
+    for fname, name in REGION_DBS:
+        path = DB_PATH.parent / f"{fname}.sqlite"
+        if not path.exists():
+            continue
+        try:
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
+                n = rc.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+                last = rc.execute("SELECT MAX(snapshot_date) FROM listings").fetchone()[0]
+        except sqlite3.Error:
+            continue
+        da = days_since(last)
+        status = ("unknown" if da is None else "ok" if da <= 2 else "delay" if da <= 4 else "stale")
+        out.append({"key": fname, "name": name, "category": "매물 (비단지)",
+                    "source": "부동산 매물 플랫폼", "cycle": "매일", "rows": n,
+                    "last_collected": last, "days_ago": da, "latest_data": last, "status": status})
+
     return {"checked_at": _dt.now(_tz.utc).isoformat(), "sources": out}
 
 
