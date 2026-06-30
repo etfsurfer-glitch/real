@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle, XCircle, CheckCircle2, Loader2, Building2, Square, CheckSquare, ShieldCheck,
+  Info, X,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -48,11 +49,13 @@ const pill = (c: string, bg: string, bd: string): React.CSSProperties => ({
  * 매물 표시·광고 점검 공용 UI(인라인 스타일 — 프로젝트 디자인 토큰). 유형×거래 분할 →
  * 배치 진행률 → 요약표 → 점검필요 우선. 관리자·라운지가 같은 화면 공유.
  */
-export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl }: {
+export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro }: {
   authH: Record<string, string>;
   breakdownUrl: string;
   buildAuditUrl: (kind: string, trade: string, offset: number, limit: number) => string;
+  intro?: string;
 }) {
+  const [showHelp, setShowHelp] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
   const [loadingBd, setLoadingBd] = useState(true);
   const [group, setGroup] = useState<Group | null>(null);
@@ -106,9 +109,14 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl }: {
 
   return (
     <div>
-      <p className="muted" style={{ fontSize: 11.5, margin: "0 0 12px", lineHeight: 1.5 }}>
-        ※ ‘위반/주의’는 <b style={{ color: "#475569" }}>표시·광고(광고 작성) 점검</b> 결과입니다 — 건물 자체의 ‘위반건축물’ 여부와는 다릅니다.
-      </p>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <button onClick={() => setShowHelp(true)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600,
+            color: "#64748b", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 999,
+            padding: "4px 11px", cursor: "pointer" }}>
+          <Info size={13} /> 설명
+        </button>
+      </div>
 
       {/* 유형×거래 그룹 선택 */}
       {loadingBd ? (
@@ -119,7 +127,6 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl }: {
         <div className="cdash-empty">점검할 매물이 없습니다.</div>
       ) : (
         <div style={{ marginBottom: 16 }}>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 9 }}>점검할 유형·거래를 고르세요 · 건수 많으면 자동 배치로 진행돼요</div>
           {(["단지형", "비단지"] as const).map((sec) => {
             const gs = groups.filter((g) => g.group === sec);
             if (gs.length === 0) return null;
@@ -246,6 +253,32 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl }: {
             )}
           </div>
         </>
+      )}
+
+      {showHelp && (
+        <div onClick={() => setShowHelp(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "#fff", borderRadius: 16, maxWidth: 420, width: "100%", padding: "20px 20px 18px", boxShadow: "0 14px 44px rgba(0,0,0,.2)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12 }}>
+              <ShieldCheck size={18} style={{ color: PRIMARY }} />
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#13294b", flex: 1 }}>매물 표시·광고 점검 안내</h3>
+              <button onClick={() => setShowHelp(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 2, display: "flex" }}><X size={18} /></button>
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 13, lineHeight: 1.6, color: "#475569" }}>
+              {intro || "매물의 표시·광고 의무사항(층·면적·주차·관리비·방향 등) 누락을 점검하고, 건축물대장 기준값과 자동 대조합니다."}
+            </p>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.7, color: "#64748b" }}>
+              <li>유형·거래를 골라 점검하세요. 건수가 많으면 자동으로 배치로 나눠 진행됩니다.</li>
+              <li><b style={{ color: "#475569" }}>‘위반/주의’는 표시·광고(광고 작성) 점검</b> 결과입니다 — 건물 자체의 ‘위반건축물’ 여부와는 다릅니다.</li>
+              <li>비단지(빌라·상가 등)는 건축물대장과 대조하고, 단지형은 CP 자동입력 항목을 확인합니다.</li>
+            </ul>
+            <button onClick={() => setShowHelp(false)}
+              style={{ marginTop: 16, width: "100%", padding: 10, borderRadius: 10, border: "none", background: PRIMARY, color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+              확인
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
