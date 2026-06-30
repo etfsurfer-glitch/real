@@ -224,10 +224,11 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         # 정확한 대수 대조는 같은 지번 다동 모호성으로 생략(표시여부·주차불가만 점검)
         add(10, "주차", "통과", f"건축물대장 총주차 {led_pk}대" if led_pk else "")
 
-    # ⑪ 관리비 — 정액 10만원↑ 비목별 세부표시 의무는 '주택·오피스텔'만(국토부 고시).
-    #    상가·사무실·지식산업센터·토지·단독/다가구는 표시 의무 대상 아님(오탐 방지).
-    #    이상치(오입력 의심)는 전 유형 데이터위생 차원에서 점검.
+    # ⑪ 관리비 — 비목별 금액은 임대인(중개의뢰인) 고지에 의존하고, 미고지·확인불가 시
+    #    표시 의무가 면제된다(국토부 고시 예외). 우리는 고지 여부를 알 수 없어 비목 미표시를
+    #    '위반'으로 단정하지 않는다 → 위반 없음. 관리비 항목 입력 여부 + 이상치(오입력)만 점검.
     cost = f.get("monthly_management_cost")
+    aci = f.get("admin_cost_info") or {}
     mgmt_target = (f.get("real_estate_type") in ("APT", "OPST", "ABYG", "OBYG", "JGC")
                    or rtype in _MGMT_DISPLAY_TYPES)
     ci = None
@@ -236,20 +237,17 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
             ci = int(cost)
         except (ValueError, TypeError):
             ci = -1
+    # administrationCostInfo(부과방식·내역·확인불가)나 정액값이 입력돼 있으면 관리비 항목 표시됨.
+    has_cost_info = bool(aci.get("chargeCodeType") or aci.get("fixedFeeDetails")
+                         or aci.get("chargeInputContent")) or (ci is not None and ci >= 0)
     if ci is not None and ci > 0 and (ci >= 2_000_000 or ci <= 1000):
         add(11, "관리비", "주의", f"관리비 이상치({ci:,}원) — 오입력 의심")
-    elif ci is not None and ci < 0:
-        add(11, "관리비", "주의", "관리비 값 형식 오류")
+    elif has_cost_info:
+        add(11, "관리비", "통과", "관리비 항목 표시됨(비목 세부는 임대인 고지 의존)")
     elif not mgmt_target:
-        add(11, "관리비", "통과", "관리비 세부표시 의무 대상 아님(주택·오피스텔만)")
-    elif ci is None:
-        add(11, "관리비", "주의", "관리비 미표기 — '없음(0원)'과 구분 필요")
-    elif ci == 0:
-        add(11, "관리비", "통과")                          # 관리비 없음 명시
-    elif ci >= 100000 and not f.get("admin_cost_info"):
-        add(11, "관리비", "위반", "정액 월 10만원↑ — 비목별 세부금액 표시 필요(주택·오피스텔)")
+        add(11, "관리비", "통과", "관리비 표시 의무 대상 아님(주택·오피스텔만)")
     else:
-        add(11, "관리비", "통과")
+        add(11, "관리비", "주의", "관리비 미표기 — 광고에 관리비 항목 입력 권장")
 
     # ⑫ 방향 (+ 기준)
     if not _has(f.get("direction")):
