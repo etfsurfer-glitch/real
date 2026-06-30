@@ -4,7 +4,9 @@ import { useAuth } from "../auth";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
-  MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw } from "lucide-react";
+  MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
+  ShieldCheck } from "lucide-react";
+import ListingAudit from "../components/ListingAudit";
 
 const TT: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 type ChgItem = { article_no: string; complex_no: string; complex_name?: string | null;
@@ -36,7 +38,7 @@ type Status = {
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-type Tab = "dashboard" | "listings" | "office" | "edit" | "leads" | "homepage";
+type Tab = "dashboard" | "listings" | "audit" | "office" | "edit" | "leads" | "homepage";
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -148,6 +150,7 @@ export default function Lounge() {
             {([
               ["dashboard", "대시보드", LayoutDashboard],
               ["listings", "매물장", ClipboardList],
+              ["audit", "매물점검", ShieldCheck],
               ["homepage", st.has_homepage ? "홈페이지관리" : "홈페이지생성", Globe],
               ["leads", "상담신청", MessageSquare],
               ["edit", "정보수정요청", Pencil],
@@ -161,6 +164,7 @@ export default function Lounge() {
           </div>
           {tab === "dashboard" && <DashboardTab authH={authH} office={st.office} onGoTab={setTab} />}
           {tab === "listings" && <ListingsTab authH={authH} office={st.office} />}
+          {tab === "audit" && <AuditTab authH={authH} />}
           {tab === "office" && <OfficeTab office={st.office} method={st.method} onUnlink={unlink} />}
           {tab === "edit" && <EditTab authH={authH} />}
           {tab === "leads" && <LeadsTab authH={authH} />}
@@ -611,6 +615,25 @@ function OfficeTab({ office, method, onUnlink }: { office: Office; method?: stri
     </Card>
   );
 }
+
+function AuditTab({ authH }: { authH: () => Record<string, string> }) {
+  return (
+    <div>
+      <div className="cdash-h"><h3><ShieldCheck size={15} strokeWidth={2.3} /> 매물 표시·광고 점검</h3></div>
+      <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>
+        내 사무소 매물을 유형·거래별로 골라 표시·광고 의무사항(층·면적·주차·관리비·방향 등) 누락을 점검합니다.
+        건축물대장 기준값과 자동 대조해요.
+      </p>
+      <ListingAudit
+        authH={authH()}
+        breakdownUrl="/lounge/audit/breakdown"
+        buildAuditUrl={(kind, trade, offset, limit) =>
+          `/lounge/audit/listings?kind=${kind}&trade=${trade}&offset=${offset}&limit=${limit}`}
+      />
+    </div>
+  );
+}
+
 
 function EditTab({ authH }: { authH: () => Record<string, string> }) {
   const [content, setContent] = useState("");
