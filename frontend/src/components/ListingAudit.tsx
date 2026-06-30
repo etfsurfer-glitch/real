@@ -23,6 +23,11 @@ const STATUS_STYLE: Record<string, string> = {
   주의: "bg-amber-50 text-amber-700 border-amber-200",
   통과: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
+const TRADE_STYLE: Record<string, string> = {
+  A1: "bg-blue-50 text-blue-600 border-blue-200",          // 매매
+  B1: "bg-emerald-50 text-emerald-600 border-emerald-200", // 전세
+  B2: "bg-amber-50 text-amber-600 border-amber-200",       // 월세
+};
 function StatusIcon({ s }: { s: string }) {
   if (s === "위반") return <XCircle size={14} className="text-rose-500 shrink-0" />;
   if (s === "주의") return <AlertTriangle size={14} className="text-amber-500 shrink-0" />;
@@ -107,18 +112,33 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl }: {
         <div className="text-sm text-slate-400">점검할 매물이 없습니다.</div>
       ) : (
         <div className="mb-4">
-          <div className="text-xs text-slate-500 mb-2">점검할 유형·거래를 고르세요 (건수 많으면 배치로 진행돼요)</div>
-          <div className="flex flex-wrap gap-1.5">
-            {groups.map((g) => (
-              <button key={`${g.kind}-${g.trade}`} onClick={() => runAudit(g)} disabled={running}
-                className={`text-xs px-2.5 py-1.5 rounded-lg border transition disabled:opacity-50 ${
-                  group && group.kind === g.kind && group.trade === g.trade
-                    ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-white border-slate-300 hover:border-indigo-300"}`}>
-                {g.kind_label} <b>{g.trade_label}</b> <span className="opacity-70">{g.count.toLocaleString()}</span>
-              </button>
-            ))}
-          </div>
+          <div className="text-xs text-slate-500 mb-2.5">점검할 유형·거래를 고르세요 <span className="text-slate-400">· 건수 많으면 자동 배치로 진행돼요</span></div>
+          {(["단지형", "비단지"] as const).map((sec) => {
+            const gs = groups.filter((g) => g.group === sec);
+            if (gs.length === 0) return null;
+            return (
+              <div key={sec} className="mb-3">
+                <div className="text-[11px] font-semibold text-slate-400 mb-1.5 px-0.5">{sec}</div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {gs.map((g) => {
+                    const active = !!group && group.kind === g.kind && group.trade === g.trade;
+                    return (
+                      <button key={`${g.kind}-${g.trade}`} onClick={() => runAudit(g)} disabled={running}
+                        className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-left transition disabled:opacity-50 ${
+                          active ? "border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200"
+                                 : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50"}`}>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-700 truncate">{g.kind_label}</div>
+                          <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${TRADE_STYLE[g.trade] || "bg-slate-50 text-slate-500 border-slate-200"}`}>{g.trade_label}</span>
+                        </div>
+                        <div className={`text-lg font-bold shrink-0 tabular-nums ${active ? "text-indigo-700" : "text-indigo-600"}`}>{g.count.toLocaleString()}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

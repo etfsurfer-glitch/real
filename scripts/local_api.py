@@ -9514,10 +9514,20 @@ def _audit_breakdown_for(realtor_id: str) -> dict:
         nm = c.execute("SELECT realtor_name FROM listings_current WHERE realtor_id=? LIMIT 1",
                        (realtor_id,)).fetchone()
         name = nm["realtor_name"] if nm else None
-        for ret, tr, n in c.execute(
-                "SELECT real_estate_type, trade_type, COUNT(*) FROM listings_current "
-                "WHERE realtor_id=? GROUP BY real_estate_type, trade_type", (realtor_id,)):
-            groups.append({"kind": ret, "kind_label": _COMPLEX_KINDS.get(ret, ret),
+        # 단지형 — 생숙(생활숙박 단지)은 별도 그룹으로 분리(네이버엔 오피로 등록되나 점검 기준 다름)
+        agg: dict = {}
+        for ret, tr, saeng, n in c.execute(
+                "SELECT l.real_estate_type, l.trade_type, "
+                "(cx.complex_name LIKE '%생활숙박%'), COUNT(*) "
+                "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
+                "WHERE l.realtor_id=? "
+                "GROUP BY l.real_estate_type, l.trade_type, (cx.complex_name LIKE '%생활숙박%')",
+                (realtor_id,)):
+            k = "SAENGSUK" if saeng else ret
+            agg[(k, tr)] = agg.get((k, tr), 0) + n
+        for (k, tr), n in agg.items():
+            groups.append({"kind": k,
+                           "kind_label": "생숙" if k == "SAENGSUK" else _COMPLEX_KINDS.get(k, k),
                            "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
                            "count": n, "group": "단지형"})
     for cat, dbf in _NONRESI_DB.items():
@@ -9552,18 +9562,25 @@ def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) 
     results: list = []
     total = 0
 
-    if kind in _COMPLEX_KINDS:           # 단지형
-        params = [realtor_id, kind] + ([trade] if trade else [])
+    if kind == "SAENGSUK" or kind in _COMPLEX_KINDS:    # 단지형(생숙 포함)
+        if kind == "SAENGSUK":               # 생숙 단지(유형 무관, 생활숙박 단지)
+            type_cl, type_params = "cx.complex_name LIKE '%생활숙박%'", []
+        else:                                 # 해당 유형 중 생숙 제외
+            type_cl = ("l.real_estate_type=? AND "
+                       "(cx.complex_name NOT LIKE '%생활숙박%' OR cx.complex_name IS NULL)")
+            type_params = [kind]
+        params = [realtor_id] + type_params + ([trade] if trade else [])
         with _open_db() as c:
             total = c.execute(
-                "SELECT COUNT(*) FROM listings_current WHERE realtor_id=? AND real_estate_type=?"
+                "SELECT COUNT(*) FROM listings_current l JOIN complexes cx "
+                "ON cx.complex_no=l.complex_no WHERE l.realtor_id=? AND " + type_cl
                 + trade_cl, params).fetchone()[0]
             rows = [dict(x) for x in c.execute(
                 "SELECT l.article_no, l.complex_no, l.real_estate_type, l.trade_type, l.floor_info, "
                 "l.area2_m2, l.deal_or_warrant_price, l.building_name, l.direction, cx.complex_name, "
                 "cx.use_approve_ymd, cx.dong_name, cx.detail_address, cx.cortar_no "
                 "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
-                "WHERE l.realtor_id=? AND l.real_estate_type=?" + trade_cl
+                "WHERE l.realtor_id=? AND " + type_cl + trade_cl
                 + " ORDER BY l.article_no LIMIT ? OFFSET ?",
                 params + [limit, offset]).fetchall()]
         results = [_audit_complex_one(r, creds, dks) for r in rows]
