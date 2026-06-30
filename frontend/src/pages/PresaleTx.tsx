@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import FetchError from "../components/FetchError";
 import { useStickyState } from "../hooks/useStickyState";
 import { Link } from "react-router-dom";
 import { Loading } from "../components/Loading";
@@ -133,7 +134,7 @@ export default function PresaleTx() {
         <ApplyButton dirty={dirty} onApply={apply} />
       </div>
 
-      {error ? <div style={{ color: "crimson" }}>{error}</div>
+      {error ? <FetchError message={error} inline />
         : loading ? <Loading />
         : !data || data.items.length === 0 ? <div className="muted">해당 조건의 분양권 전매 거래가 없습니다.</div>
         : (

@@ -41,8 +41,13 @@ export class ErrorBoundary extends Component<
           <button
             onClick={() => window.location.reload()}
             style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid var(--c-primary)",
-                     background: "var(--c-primary)", color: "white", cursor: "pointer", fontSize: 13 }}
+                     background: "white", color: "var(--c-primary)", cursor: "pointer", fontSize: 13 }}
           >새로고침</button>
+          <a
+            href="/"
+            style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid var(--c-primary)",
+                     background: "var(--c-primary)", color: "white", textDecoration: "none", fontSize: 13 }}
+          >메인으로</a>
         </div>
       </div>
     );

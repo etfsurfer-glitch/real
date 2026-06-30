@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import FetchError from "../components/FetchError";
 import { Link } from "react-router-dom";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { Loading } from "../components/Loading";
@@ -68,7 +69,7 @@ export default function TxRecovery() {
       </div>
 
       {loading ? <Loading />
-        : error ? <div style={{ color: "crimson", fontSize: 13 }}>오류: {String(error)}</div>
+        : error ? <FetchError message={String(error)} inline />
         : items.length === 0 ? <div className="muted">데이터가 없습니다.</div>
         : (
         <div style={{ overflowX: "auto" }}>

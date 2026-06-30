@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import FetchError from "../components/FetchError";
 import { useStickyState } from "../hooks/useStickyState";
 import { Link } from "react-router-dom";
 import ShareBar from "../components/ShareBar";
@@ -212,7 +213,7 @@ export default function QuickDeals() {
         <ApplyButton dirty={dirty} onApply={apply} />
       </div>
 
-      {error && <div style={{ color: "crimson" }}>오류: {String(error)}</div>}
+      {error && <FetchError message={String(error)} inline />}
       {loading && <Loading />}
       {!loading && items.length === 0 && (
         <div className="muted">조건에 맞는 단지·면적이 없습니다.</div>

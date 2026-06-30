@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import FetchError from "../components/FetchError";
 import { Loading } from "../components/Loading";
 import ShareBar from "../components/ShareBar";
 import { Link } from "react-router-dom";
@@ -307,7 +308,7 @@ export default function Overview() {
   }, [regionAgg]);
 
   if (loading) return <Loading />;
-  if (error) return <div style={{ color: "crimson" }}>오류: {error}</div>;
+  if (error) return <FetchError message={error} />;
   if (!snapshotDate) return <div className="muted">데이터가 아직 없습니다.</div>;
 
   const showSearch = searchTerm.length > 0;

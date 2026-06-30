@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import FetchError from "../components/FetchError";
 import { useStickyState } from "../hooks/useStickyState";
 import ShareBar from "../components/ShareBar";
 import { Link, Outlet, useOutletContext, useLocation } from "react-router-dom";
@@ -508,7 +509,7 @@ export function ChangesLayout() {
       .catch((e) => setError(String(e))).finally(() => setFetching(false));
   }, [applied]);
 
-  if (error) return <div style={{ color: "crimson" }}>오류: {error}</div>;
+  if (error) return <FetchError message={error} />;
   if (!summary) return <Loading />;
 
   const sidoName = sidos.find((s) => s.code === applied.sido)?.name ?? "";

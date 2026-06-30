@@ -1,4 +1,5 @@
 import { useState } from "react";
+import FetchError from "../components/FetchError";
 import { Loading } from "../components/Loading";
 import { useFetchJson } from "../hooks/useFetchJson";
 
@@ -106,7 +107,7 @@ export function TxRegionPulse() {
         )}
       </div>
 
-      {error && <div style={{ color: "crimson" }}>오류: {error}</div>}
+      {error && <FetchError message={error} inline />}
       {loading && <Loading />}
 
       {data && (

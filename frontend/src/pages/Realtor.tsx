@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import FetchError from "../components/FetchError";
 import { MapPin, Phone, Smartphone, MessageSquare, Search, X } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { RealtorReviews, type ReviewSummary } from "../components/RealtorReviews";
@@ -113,7 +114,7 @@ export default function Realtor() {
   }, [realtorId]);
 
   if (loading) return <Loading />;
-  if (error) return <div style={{ color: "crimson" }}>오류: {error}</div>;
+  if (error) return <FetchError message={error} />;
   if (!data) return <div className="muted">데이터 없음</div>;
 
   // 거래유형 분포 — 전 유형(백엔드 trade_totals). 없으면 단지형(by_complex)으로 폴백.

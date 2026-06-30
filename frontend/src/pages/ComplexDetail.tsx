@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import FetchError from "../components/FetchError";
 import { Flame, ExternalLink, Phone, MapPin } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { Link, useParams } from "react-router-dom";
@@ -308,7 +309,7 @@ export default function ComplexDetail() {
   }, [complexNo]);
 
   if (loading) return <Loading />;
-  if (error) return <div style={{ color: "crimson" }}>오류: {error}</div>;
+  if (error) return <FetchError message={error} />;
   if (!complex) return <div className="muted">단지를 찾지 못했습니다.</div>;
 
   const tradeAggs: Record<string, AggRow[]> = { A1: [], B1: [], B2: [] };
