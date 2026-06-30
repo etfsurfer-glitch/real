@@ -28,6 +28,12 @@ const TRADE_C: Record<string, string> = { A1: "#1268d3", B1: "#7048e8", B2: "#1f
 const PRIMARY = "#1268d3";
 const BORDER = "#e4e9f0";
 const SPIN: React.CSSProperties = { animation: "hp-spin .8s linear infinite" };
+const TRADE_ORDER = ["A1", "B1", "B2"];   // 매매 → 전세 → 월세
+const helpBtnStyle: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 600,
+  color: "#5b6b80", background: "#f1f5fb", border: "1px solid #dde6f3", borderRadius: 999,
+  padding: "3px 9px", cursor: "pointer", marginLeft: 7,
+};
 
 function SIcon({ s }: { s: string }) {
   if (s === "위반") return <XCircle size={13} style={{ color: "#d23b3b", flexShrink: 0 }} />;
@@ -49,11 +55,12 @@ const pill = (c: string, bg: string, bd: string): React.CSSProperties => ({
  * 매물 표시·광고 점검 공용 UI(인라인 스타일 — 프로젝트 디자인 토큰). 유형×거래 분할 →
  * 배치 진행률 → 요약표 → 점검필요 우선. 관리자·라운지가 같은 화면 공유.
  */
-export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro }: {
+export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro, title }: {
   authH: Record<string, string>;
   breakdownUrl: string;
   buildAuditUrl: (kind: string, trade: string, offset: number, limit: number) => string;
   intro?: string;
+  title?: string;
 }) {
   const [showHelp, setShowHelp] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -109,16 +116,19 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-        <button onClick={() => setShowHelp(true)}
-          style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600,
-            color: "#64748b", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 999,
-            padding: "4px 11px", cursor: "pointer" }}>
-          <Info size={13} /> 설명
-        </button>
-      </div>
+      {title ? (
+        <div className="cdash-h" style={{ margin: "0 2px 12px" }}>
+          <h3 style={{ gap: 6 }}><ShieldCheck size={15} strokeWidth={2.3} /> {title}
+            <button onClick={() => setShowHelp(true)} style={helpBtnStyle}><Info size={12} /> 설명</button>
+          </h3>
+        </div>
+      ) : (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button onClick={() => setShowHelp(true)} style={{ ...helpBtnStyle, marginLeft: 0 }}><Info size={13} /> 설명</button>
+        </div>
+      )}
 
-      {/* 유형×거래 그룹 선택 */}
+      {/* 유형(아파트·오피스텔·생숙…) 행 + 매매·전세·월세 순서 버튼 */}
       {loadingBd ? (
         <div className="muted" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
           <Loader2 size={15} style={SPIN} /> 매물 불러오는 중…
@@ -130,33 +140,46 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
           {(["단지형", "비단지"] as const).map((sec) => {
             const gs = groups.filter((g) => g.group === sec);
             if (gs.length === 0) return null;
+            const byKind = new Map<string, { label: string; trades: Group[] }>();
+            for (const g of gs) {
+              if (!byKind.has(g.kind)) byKind.set(g.kind, { label: g.kind_label, trades: [] });
+              byKind.get(g.kind)!.trades.push(g);
+            }
+            const kinds = [...byKind.entries()].sort((a, b) =>
+              b[1].trades.reduce((s, t) => s + t.count, 0) - a[1].trades.reduce((s, t) => s + t.count, 0));
             return (
-              <div key={sec} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8", margin: "0 2px 7px", letterSpacing: ".02em" }}>{sec}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 8 }}>
-                  {gs.map((g) => {
-                    const active = !!group && group.kind === g.kind && group.trade === g.trade;
-                    return (
-                      <button key={`${g.kind}-${g.trade}`} onClick={() => runAudit(g)} disabled={running}
-                        style={{
-                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
-                          padding: "9px 11px", borderRadius: 12, textAlign: "left", cursor: running ? "default" : "pointer",
-                          border: `1px solid ${active ? PRIMARY : BORDER}`,
-                          background: active ? "#f3f7fe" : "#fff",
-                          boxShadow: active ? `0 0 0 1px ${PRIMARY}` : "none",
-                          opacity: running && !active ? 0.55 : 1, transition: "all .12s",
-                        }}>
-                        <span style={{ minWidth: 0 }}>
-                          <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#1f2937", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {g.kind === "SAENGSUK" && <ShieldCheck size={11} style={{ verticalAlign: "-1px", marginRight: 2, color: "#7c3aed" }} />}
-                            {g.kind_label}
-                          </span>
-                          <span style={{ ...pill(TRADE_C[g.trade] || "#64748b", "#f1f5fb", "#dde6f3"), marginTop: 4, display: "inline-block" }}>{g.trade_label}</span>
-                        </span>
-                        <span style={{ fontSize: 17, fontWeight: 800, color: PRIMARY, fontVariantNumeric: "tabular-nums" }}>{g.count.toLocaleString()}</span>
-                      </button>
-                    );
-                  })}
+              <div key={sec} style={{ marginBottom: 11 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8", margin: "0 2px 8px", letterSpacing: ".02em" }}>{sec}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {kinds.map(([kind, info]) => (
+                    <div key={kind} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 80, flexShrink: 0, fontSize: 13, fontWeight: 700, color: "#1f2937", display: "flex", alignItems: "center", gap: 3 }}>
+                        {kind === "SAENGSUK" && <ShieldCheck size={11} style={{ color: "#7c3aed", flexShrink: 0 }} />}
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{info.label}</span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {TRADE_ORDER.map((t) => {
+                          const g = info.trades.find((x) => x.trade === t);
+                          if (!g) return null;
+                          const active = !!group && group.kind === kind && group.trade === t;
+                          const tc = TRADE_C[t] || "#64748b";
+                          return (
+                            <button key={t} onClick={() => runAudit(g)} disabled={running}
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px",
+                                borderRadius: 10, cursor: running ? "default" : "pointer", fontSize: 12.5,
+                                border: `1px solid ${active ? tc : BORDER}`,
+                                background: active ? tc : "#fff", color: active ? "#fff" : "#334155",
+                                opacity: running && !active ? 0.55 : 1, transition: "all .12s",
+                              }}>
+                              <span style={{ fontWeight: 600 }}>{g.trade_label}</span>
+                              <span style={{ fontWeight: 800, color: active ? "#fff" : tc, fontVariantNumeric: "tabular-nums" }}>{g.count.toLocaleString()}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             );

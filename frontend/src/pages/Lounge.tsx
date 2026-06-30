@@ -618,16 +618,14 @@ function OfficeTab({ office, method, onUnlink }: { office: Office; method?: stri
 
 function AuditTab({ authH }: { authH: () => Record<string, string> }) {
   return (
-    <div>
-      <div className="cdash-h"><h3><ShieldCheck size={15} strokeWidth={2.3} /> 매물 표시·광고 점검</h3></div>
-      <ListingAudit
-        authH={authH()}
-        intro="내 사무소 매물을 유형·거래별로 골라 표시·광고 의무사항(층·면적·주차·관리비·방향 등) 누락을 점검합니다. 건축물대장 기준값과 자동 대조해요."
-        breakdownUrl="/lounge/audit/breakdown"
-        buildAuditUrl={(kind, trade, offset, limit) =>
-          `/lounge/audit/listings?kind=${kind}&trade=${trade}&offset=${offset}&limit=${limit}`}
-      />
-    </div>
+    <ListingAudit
+      authH={authH()}
+      title="매물 표시·광고 점검"
+      intro="내 사무소 매물을 유형·거래별로 골라 표시·광고 의무사항(층·면적·주차·관리비·방향 등) 누락을 점검합니다. 건축물대장 기준값과 자동 대조해요."
+      breakdownUrl="/lounge/audit/breakdown"
+      buildAuditUrl={(kind, trade, offset, limit) =>
+        `/lounge/audit/listings?kind=${kind}&trade=${trade}&offset=${offset}&limit=${limit}`}
+    />
   );
 }
 

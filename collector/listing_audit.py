@@ -171,13 +171,9 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     else:
         add(6, "총 층수", "통과", f"건축물대장 기준 {_fmt_led(led_tf)}층 일치" if led_tf else "")
 
-    # ⑦ 입주가능일 — '즉시입주'+'협의가능' 동시는 법위반 확정이 아니라 표현 모호 → 주의
-    mv, neg = f.get("movein_type"), str(f.get("movein_negotiable") or "")
-    if not _has(mv):
+    # ⑦ 입주가능일 — 미표시만 위반. '즉시입주'+'협의가능' 동시표기는 실무상 허용(주의 안 함).
+    if not _has(f.get("movein_type")):
         add(7, "입주가능일", "위반", "입주가능일 미표시")
-    elif "즉시" in str(mv) and "협의" in neg:
-        add(7, "입주가능일", "주의",
-            "'즉시입주'와 '협의가능' 동시표기 — 실제 입주 가능일 명확화 필요")
     else:
         add(7, "입주가능일", "통과")
 
