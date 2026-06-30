@@ -88,7 +88,9 @@ def make_key(path: str, params: dict | None) -> tuple[str, str]:
     if not params:
         return path, ""
     items = sorted(params.items(), key=lambda kv: kv[0])
-    qs = "&".join(f"{k}={v}" for k, v in items if v is not None and v != "")
+    # 빈문자열도 유지 — 프론트가 빈 파라미터(예: nonresi cortar='')를 보내면 미들웨어
+    # _cache_key 는 그걸 보존하므로 키 일치를 위해 build 도 보존해야 함. None 만 제거.
+    qs = "&".join(f"{k}={v}" for k, v in items if v is not None)
     if not qs:
         return path, ""
     return f"{path}?{qs}", qs
@@ -240,6 +242,55 @@ def region_drill_targets(sidos: list[str], sigungus: list[str]) -> list[tuple[st
     return out
 
 
+def cold_gap_targets() -> list[tuple[str, dict]]:
+    """진짜 콜드(API 재시작 직후 첫 요청)에 3초 초과하던 엔드포인트의 프론트 '기본 진입' 키.
+    값은 각 .tsx useState 기본값과 정합해야 HIT(틀리면 MISS). asset/order는 주 토글이라
+    변형 포함. 캐시는 실제 엔드포인트 실행결과 저장 → 라이브와 숫자 동일(정확성 보존).
+    2026-06-30 콜드 감사: jeonse-rate 5.9s·region-pulse(all) 5.4s·nonresi 4.6s 등."""
+    out: list[tuple[str, dict]] = []
+    AC = "all"
+    # 실거래통계 TxStatsMore(갭/평당가/전세가율): days=365, asset apt/offi, order asc/desc
+    for asset in ("apt", "offi"):
+        for order in ("asc", "desc"):
+            for ep in ("/stats/tx-gap-rank", "/stats/tx-pyeong-price", "/stats/tx-jeonse-rate"):
+                out.append((ep, {"days": 365, "asset": asset, "order": order,
+                                 "area_class": AC, "min_samples": 3, "limit": 200}))
+        out.append(("/stats/tx-yield", {"days": 365, "asset": asset,
+                                        "area_class": AC, "min_samples": 3, "limit": 200}))
+    # 지역별 거래량(region-pulse): asset 3종(기본 apt + offi/all 토글)
+    for asset in ("apt", "offi", "all"):
+        out.append(("/stats/tx-region-pulse", {"asset": asset}))
+    # 해제거래(cancelled): asset 3종 × months 3/6/12 (기본 apt·3)
+    for asset in ("apt", "offi", "all"):
+        for m in (3, 6, 12):
+            out.append(("/stats/cancelled-summary", {"asset": asset, "months": m}))
+    # 비단지(nonresi) 전국: cat 9종. ★프론트가 cortar='' 포함 전송 → 키 일치 위해 명시.
+    for cat in ("sangga", "office", "villa", "house", "land",
+                "factory", "building", "knowledge", "redev"):
+        out.append(("/stats/nonresi", {"cat": cat, "cortar": ""}))
+    return out
+
+
+def build_cold_gaps(workers: int = 1) -> None:
+    """콜드 3초 초과 엔드포인트만 추가 캐시(기존 캐시 유지 = no-wipe). 빠름(~40키)."""
+    init_cache_db(wipe=False)
+    client = TestClient(app)
+    targets = cold_gap_targets()
+    print(f"cold-gap: {len(targets)} targets", flush=True)
+    conn = sqlite3.connect(CACHE_DB)
+    cur = conn.cursor()
+    ok = 0
+    for path, params in targets:
+        good, ms, _ = cache_one(client, cur, path, params)
+        ok += good
+        print(f"  {'OK ' if good else 'FAIL'} {make_key(path, params)[0]}  {ms:.0f}ms", flush=True)
+        if ok % 10 == 0:
+            conn.commit()
+    conn.commit()
+    conn.close()
+    print(f"cold-gap done: {ok}/{len(targets)}", flush=True)
+
+
 def build_all(limit: int = 0, scope: str = "stats", workers: int = 8,
               default_only: bool = False, wipe: bool = True,
               quick_deals_sgg: bool = False) -> None:
@@ -373,6 +424,9 @@ def build_all(limit: int = 0, scope: str = "stats", workers: int = 8,
         targets.append(("/stats/tx-asking-vs-real",
                         {**p, "area_class": "all", "min_samples": 3, "limit": 200}))
 
+    # 콜드 3초 초과 보강(프론트 기본 진입 정합 키) — nightly 전체 빌드에도 포함
+    targets += cold_gap_targets()
+
     # 단지별 페이지 (complex_no 단위)
     if scope in ("+complex", "all"):
         with sqlite3.connect(settings.local_db_path) as ndb:
@@ -484,6 +538,9 @@ def build_all(limit: int = 0, scope: str = "stats", workers: int = 8,
         # 시군구 avg-price-trend/changes/summary 는 default-only(핵심 빌드)를 무겁게
         # 하지 않도록 여기서 제외 — daily_run.sh step12b(backfill_trend_cache, 재개가능·
         # gentle·no-wipe)가 step12 직후 덧쌓는다.
+        # 콜드 3초 초과 보강(jeonse-rate·region-pulse·cancelled·nonresi 등) — 야간 wipe
+        # 후에도 영구 포함되도록 default-only D 에도 추가.
+        D += cold_gap_targets()
         targets = D
 
     # ── 지역/AI 보강 캐시 (단독 모드: 이것만 빌드) ──
@@ -587,7 +644,12 @@ if __name__ == "__main__":
                     help="기존 캐시를 안 지우고 덧쌓음(다운타임 없이 점진 추가).")
     ap.add_argument("--quick-deals-sgg", action="store_true",
                     help="시군구별 급매만 빌드(--no-wipe 와 함께 점진 추가 권장).")
+    ap.add_argument("--cold-gaps", action="store_true",
+                    help="콜드 3초 초과 엔드포인트만 추가 캐시(기존 유지, 빠름).")
     args = ap.parse_args()
-    build_all(limit=args.limit, scope=args.scope, workers=args.workers,
-              default_only=args.default_only, wipe=not args.no_wipe,
-              quick_deals_sgg=args.quick_deals_sgg)
+    if args.cold_gaps:
+        build_cold_gaps(workers=args.workers)
+    else:
+        build_all(limit=args.limit, scope=args.scope, workers=args.workers,
+                  default_only=args.default_only, wipe=not args.no_wipe,
+                  quick_deals_sgg=args.quick_deals_sgg)
