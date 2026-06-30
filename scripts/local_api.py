@@ -9472,7 +9472,7 @@ def _audit_complex_one(r: dict, creds, dks) -> dict:
     res["building"] = r.get("complex_name")
     res["address"] = (det.get("exposure_address")
                       or " ".join(x for x in [r.get("dong_name"), r.get("detail_address")] if x) or None)
-    res["naver_url"] = f"https://new.land.naver.com/complexes/{r['complex_no']}?articleNo={r['article_no']}"
+    res["naver_url"] = f"https://m.land.naver.com/article/info/{r['article_no']}"
     res["ledger_matched"] = bool(led)
     res["ledger"] = _ledger_brief(led)
     res["_mgmt"] = (("c", r.get("complex_no"), round(float(r.get("area2_m2") or 0))),
@@ -9496,7 +9496,7 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
     res["kind"] = _NONRESI_LABEL.get(cat, cat)
     res["building"] = r.get("building_name")
     res["address"] = det.get("exposure_address") or None
-    res["naver_url"] = f"https://new.land.naver.com/articles/{r['article_no']}"
+    res["naver_url"] = f"https://m.land.naver.com/article/info/{r['article_no']}"
     res["ledger_matched"] = bool(led)
     res["ledger"] = _ledger_brief(led)
     res["_mgmt"] = ((cat, round(float(r.get("area2_m2") or 0))),
