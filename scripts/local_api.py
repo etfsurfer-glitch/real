@@ -9431,89 +9431,66 @@ def _ledger_brief(led: dict | None) -> dict | None:
     }
 
 
-@app.get("/admin/audit/realtor")
-def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends(admin_user)):
-    """중개사 매물 표시·광고 점검(관리자 가오픈). 단지형=네이버 수기항목(면적·주차·층·
-    사용승인은 CP 자동입력이라 제외), 비단지=네이버+건축물대장 대조(좌표 온디맨드)."""
-    from collector.creds import ensure_creds
+_COMPLEX_KINDS = {"APT": "아파트", "OPST": "오피스텔", "ABYG": "아파트분양권",
+                  "OBYG": "오피스텔분양권", "JGC": "재건축"}
+_TRADE_LABEL_AUDIT = {"A1": "매매", "B1": "전세", "B2": "월세"}
+
+
+def _audit_complex_one(r: dict, creds, dks) -> dict:
+    """단지형 매물 1건 점검(상세조회+지번대장 확인)."""
     from collector.article_detail import fetch_and_extract
     from collector.listing_audit import audit_listing, is_saengsuk
-    from collector.ondemand_ledger import (
-        ledger_for_coord, ledger_for_jibun, expos_areas_for_coord)
-    creds = ensure_creds()
-    vw, dks = _audit_keys()
-    results = []
+    from collector.ondemand_ledger import ledger_for_jibun
+    det = fetch_and_extract(r["article_no"], r["complex_no"], creds) or {}
+    led = None
+    if dks and r.get("cortar_no") and r.get("detail_address"):
+        led = ledger_for_jibun(r["cortar_no"], r["detail_address"], dks)
+    res = audit_listing(
+        _audit_merge(r, det, saengsuk=is_saengsuk(r.get("complex_name")), led=led, dong_set=True),
+        cp_autofilled=True)
+    res["kind"] = "단지형"
+    res["building"] = r.get("complex_name")
+    res["ledger_matched"] = bool(led)
+    res["ledger"] = _ledger_brief(led)
+    res["_mgmt"] = (("c", r.get("complex_no"), round(float(r.get("area2_m2") or 0))),
+                    det.get("monthly_management_cost"))
+    return res
 
-    # 단지형(아파트·오피) — 주요사항(총층·사용승인) 대장 확인(지번 직접조회·확인차원)
-    with _open_db() as c:
-        rows = [dict(x) for x in c.execute(
-            "SELECT l.article_no, l.complex_no, l.real_estate_type, l.trade_type, l.floor_info, "
-            "l.area2_m2, l.deal_or_warrant_price, l.building_name, l.direction, cx.complex_name, "
-            "cx.use_approve_ymd, cx.dong_name, cx.detail_address, cx.cortar_no "
-            "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
-            "WHERE l.realtor_id=? LIMIT ?", (realtor_id, limit)).fetchall()]
-    # 단지형: 면적·총층·사용승인·주차는 CP 자동입력(권위) → 위반판정 안 하고 '확인'만.
-    # 단, 건축물대장(지번) 총층·사용승인 실제값을 조회해 함께 표시(투명성). 다동단지는
-    # 동별 집합으로 보여줘 오탐 없이 참고값 제공.
-    for r in rows:
-        det = fetch_and_extract(r["article_no"], r["complex_no"], creds) or {}
-        led = None
-        if dks and r.get("cortar_no") and r.get("detail_address"):
-            led = ledger_for_jibun(r["cortar_no"], r["detail_address"], dks)
-        res = audit_listing(
-            _audit_merge(r, det, saengsuk=is_saengsuk(r.get("complex_name")), led=led, dong_set=True),
-            cp_autofilled=True)
-        res["kind"] = "단지형"
-        res["building"] = r.get("complex_name")
-        res["ledger_matched"] = bool(led)
-        res["ledger"] = _ledger_brief(led)
-        res["_mgmt"] = (("c", r.get("complex_no"), round(float(r.get("area2_m2") or 0))),
-                        det.get("monthly_management_cost"))
-        results.append(res)
 
-    # 비단지(빌라·단독·상가 등) — 좌표 온디맨드 건축물대장 대조
-    for cat, dbf in _NONRESI_DB.items():
-        path = DB_PATH.parent / dbf
-        if not path.exists():
-            continue
-        try:
-            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
-                rc.row_factory = sqlite3.Row
-                nrows = [dict(x) for x in rc.execute(
-                    "SELECT article_no, real_estate_type, real_estate_type_name, trade_type, "
-                    "floor_info, area2_m2, deal_or_warrant_price, building_name, direction, "
-                    "latitude, longitude FROM listings WHERE realtor_id=? LIMIT ?",
-                    (realtor_id, limit)).fetchall()]
-        except sqlite3.Error:
-            nrows = []
-        for r in nrows:
-            det = fetch_and_extract(r["article_no"], None, creds) or {}
-            led = expos = None
-            if vw and dks and r.get("latitude"):
-                led = ledger_for_coord(r["latitude"], r["longitude"], vw, dks)
-                # 전유면적 대조는 '집합건물'(전유 표기 명확)만 — 단독·다가구/토지/공장 등
-                # 일반건축물은 광고면적이 건물 전체라 호별 전유와 어긋나므로 제외.
-                if cat in ("villa", "sangga", "office", "knowledge"):
-                    expos = expos_areas_for_coord(r["latitude"], r["longitude"], vw, dks)
-            res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos))
-            res["kind"] = _NONRESI_LABEL.get(cat, cat)
-            res["building"] = r.get("building_name")
-            res["ledger_matched"] = bool(led)
-            res["ledger"] = _ledger_brief(led)
-            res["_mgmt"] = ((cat, round(float(r.get("area2_m2") or 0))),
-                            det.get("monthly_management_cost"))
-            results.append(res)
+def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
+    """비단지 매물 1건 점검(상세+좌표 온디맨드 건축물대장·전유면적)."""
+    from collector.article_detail import fetch_and_extract
+    from collector.listing_audit import audit_listing
+    from collector.ondemand_ledger import ledger_for_coord, expos_areas_for_coord
+    det = fetch_and_extract(r["article_no"], None, creds) or {}
+    led = expos = None
+    if vw and dks and r.get("latitude"):
+        led = ledger_for_coord(r["latitude"], r["longitude"], vw, dks)
+        # 전유면적 대조는 집합건물(전유 표기 명확)만 — 단독·다가구/토지/공장 등 일반건축물 제외.
+        if cat in ("villa", "sangga", "office", "knowledge"):
+            expos = expos_areas_for_coord(r["latitude"], r["longitude"], vw, dks)
+    res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos))
+    res["kind"] = _NONRESI_LABEL.get(cat, cat)
+    res["building"] = r.get("building_name")
+    res["ledger_matched"] = bool(led)
+    res["ledger"] = _ledger_brief(led)
+    res["_mgmt"] = ((cat, round(float(r.get("area2_m2") or 0))),
+                    det.get("monthly_management_cost"))
+    return res
 
-    # ── ⑪ 관리비 평균대비 이상치: 점검대상 내 동일그룹(단지/유형+평형) 중앙값 ±3배 벗어나면 주의 ──
+
+def _audit_peer_mgmt(results: list) -> None:
+    """⑪ 관리비 평균대비 이상치 — 점검대상 내 동일그룹(유형+평형) 중앙값 ±3배 벗어나면 주의.
+    상태가 바뀔 수 있어 매 매물 카운트 재계산."""
     from statistics import median as _median
-    _grp: dict = {}
+    grp: dict = {}
     for res in results:
         gk, cost = res.get("_mgmt", (None, None))
         if gk and cost is not None:
-            _grp.setdefault(gk, []).append(cost)
+            grp.setdefault(gk, []).append(cost)
     for res in results:
         gk, cost = res.pop("_mgmt", (None, None))
-        costs = _grp.get(gk, [])
+        costs = grp.get(gk, [])
         if cost is not None and len(costs) >= 3:
             med = _median(costs)
             if med > 0 and (cost > med * 3 or cost < med * 0.33):
@@ -9523,14 +9500,101 @@ def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends
                         fnd["reason"] = (f"유사매물 {len(costs)}건 평균 {int(med):,}원 대비 "
                                          f"이상({int(cost):,}원) — 오입력 의심")
                         break
-        # 관리비 보강으로 상태가 바뀌었을 수 있으니 카운트 재계산
         res["violation_count"] = sum(1 for x in res["findings"] if x["status"] == "위반")
         res["warning_count"] = sum(1 for x in res["findings"] if x["status"] == "주의")
         res["pass"] = res["violation_count"] == 0
 
+
+@app.get("/admin/audit/breakdown")
+def admin_audit_breakdown(realtor_id: str, _admin: dict = Depends(admin_user)):
+    """중개사 매물을 유형×거래 그룹별 건수로(점검 분할용 — 상세조회 없이 빠름).
+    수천건 중개사는 그룹을 골라 배치로 점검한다."""
+    groups: list = []
+    name = None
+    with _open_db() as c:
+        nm = c.execute("SELECT realtor_name FROM listings_current WHERE realtor_id=? LIMIT 1",
+                       (realtor_id,)).fetchone()
+        name = nm["realtor_name"] if nm else None
+        for ret, tr, n in c.execute(
+                "SELECT real_estate_type, trade_type, COUNT(*) FROM listings_current "
+                "WHERE realtor_id=? GROUP BY real_estate_type, trade_type", (realtor_id,)):
+            groups.append({"kind": ret, "kind_label": _COMPLEX_KINDS.get(ret, ret),
+                           "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
+                           "count": n, "group": "단지형"})
+    for cat, dbf in _NONRESI_DB.items():
+        path = DB_PATH.parent / dbf
+        if not path.exists():
+            continue
+        try:
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
+                for tr, n in rc.execute(
+                        "SELECT trade_type, COUNT(*) FROM listings WHERE realtor_id=? "
+                        "GROUP BY trade_type", (realtor_id,)):
+                    groups.append({"kind": cat, "kind_label": _NONRESI_LABEL.get(cat, cat),
+                                   "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
+                                   "count": n, "group": "비단지"})
+        except sqlite3.Error:
+            pass
+    groups.sort(key=lambda g: -g["count"])
+    return {"realtor_id": realtor_id, "realtor_name": name,
+            "total": sum(g["count"] for g in groups), "groups": groups}
+
+
+@app.get("/admin/audit/realtor")
+def admin_audit_realtor(realtor_id: str, kind: str = "", trade: str = "",
+                        offset: int = 0, limit: int = 15,
+                        _admin: dict = Depends(admin_user)):
+    """중개사 매물 표시·광고 점검(관리자). kind=유형(APT/OPST/ABYG/OBYG/JGC 또는 비단지
+    cat villa/sangga…), trade=A1/B1/B2(빈값=전체). offset/limit=배치(점검은 매물별 실시간
+    조회라 느려서 프런트가 배치로 진행률 표시). 반환: total(필터 전체)·results(이 배치).
+    단지형=네이버 수기항목 점검+대장 표시, 비단지=네이버+건축물대장 대조."""
+    from collector.creds import ensure_creds
+    creds = ensure_creds()
+    vw, dks = _audit_keys()
+    limit = max(1, min(limit, 50))
+    offset = max(0, offset)
+    trade_cl = " AND trade_type=?" if trade else ""
+    results: list = []
+    total = 0
+
+    if kind in _COMPLEX_KINDS:           # 단지형
+        params = [realtor_id, kind] + ([trade] if trade else [])
+        with _open_db() as c:
+            total = c.execute(
+                "SELECT COUNT(*) FROM listings_current WHERE realtor_id=? AND real_estate_type=?"
+                + trade_cl, params).fetchone()[0]
+            rows = [dict(x) for x in c.execute(
+                "SELECT l.article_no, l.complex_no, l.real_estate_type, l.trade_type, l.floor_info, "
+                "l.area2_m2, l.deal_or_warrant_price, l.building_name, l.direction, cx.complex_name, "
+                "cx.use_approve_ymd, cx.dong_name, cx.detail_address, cx.cortar_no "
+                "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
+                "WHERE l.realtor_id=? AND l.real_estate_type=?" + trade_cl
+                + " ORDER BY l.article_no LIMIT ? OFFSET ?",
+                params + [limit, offset]).fetchall()]
+        results = [_audit_complex_one(r, creds, dks) for r in rows]
+    elif kind in _NONRESI_DB:            # 비단지
+        path = DB_PATH.parent / _NONRESI_DB[kind]
+        if path.exists():
+            params = [realtor_id] + ([trade] if trade else [])
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
+                rc.row_factory = sqlite3.Row
+                total = rc.execute(
+                    "SELECT COUNT(*) FROM listings WHERE realtor_id=?" + trade_cl,
+                    params).fetchone()[0]
+                nrows = [dict(x) for x in rc.execute(
+                    "SELECT article_no, real_estate_type, real_estate_type_name, trade_type, "
+                    "floor_info, area2_m2, deal_or_warrant_price, building_name, direction, "
+                    "latitude, longitude FROM listings WHERE realtor_id=?" + trade_cl
+                    + " ORDER BY article_no LIMIT ? OFFSET ?",
+                    params + [limit, offset]).fetchall()]
+            results = [_audit_nonresi_one(r, kind, creds, vw, dks) for r in nrows]
+    else:
+        raise HTTPException(400, "kind 필요 — /admin/audit/breakdown 로 그룹 확인 후 지정")
+
+    _audit_peer_mgmt(results)
     return {
-        "realtor_id": realtor_id,
-        "count": len(results),
+        "realtor_id": realtor_id, "kind": kind, "trade": trade,
+        "offset": offset, "total": total, "count": len(results),
         "violation_total": sum(x["violation_count"] for x in results),
         "warning_total": sum(x["warning_count"] for x in results),
         "results": results,
