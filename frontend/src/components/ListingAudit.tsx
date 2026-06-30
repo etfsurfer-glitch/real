@@ -14,6 +14,7 @@ type Ledger = {
 };
 export type AuditResult = {
   article_no: string; kind: string; building: string | null; is_saengsuk: boolean;
+  address?: string | null; naver_url?: string | null;
   ledger_matched?: boolean; ledger?: Ledger | null; findings: Finding[];
   violation_count: number; warning_count: number; pass: boolean;
 };
@@ -65,7 +66,7 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
   const [showHelp, setShowHelp] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
   const [loadingBd, setLoadingBd] = useState(true);
-  const [group, setGroup] = useState<Group | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [results, setResults] = useState<AuditResult[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [running, setRunning] = useState(false);
@@ -76,7 +77,7 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
   useEffect(() => {
     if (!API_BASE || !breakdownUrl) return;
     let alive = true;
-    setLoadingBd(true); setGroups([]); setGroup(null); setResults([]); setProgress(null);
+    setLoadingBd(true); setGroups([]); setSelected(new Set()); setResults([]); setProgress(null);
     fetch(`${API_BASE}${breakdownUrl}`, { headers: authH })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (alive) setGroups(j?.groups ?? []); })
@@ -86,23 +87,48 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [breakdownUrl]);
 
-  async function runAudit(g: Group) {
-    setGroup(g); setResults([]); setOpenCard(null);
-    setRunning(true); cancelRef.current = false;
-    setProgress({ done: 0, total: g.count });
+  const gkey = (g: { kind: string; trade: string }) => `${g.kind}|${g.trade}`;
+  function toggle(g: Group) {
+    setSelected((prev) => {
+      const n = new Set(prev); const k = gkey(g);
+      if (n.has(k)) n.delete(k); else n.add(k);
+      return n;
+    });
+  }
+  function toggleKind(trades: Group[]) {
+    setSelected((prev) => {
+      const n = new Set(prev); const keys = trades.map(gkey);
+      const allOn = keys.every((k) => n.has(k));
+      keys.forEach((k) => (allOn ? n.delete(k) : n.add(k)));
+      return n;
+    });
+  }
+  const selGroups = groups.filter((g) => selected.has(gkey(g)));
+  const selCount = selGroups.reduce((s, g) => s + g.count, 0);
+
+  async function runBulk() {
+    if (!selGroups.length) return;
+    setResults([]); setOpenCard(null); setRunning(true); cancelRef.current = false;
+    const grand = selCount;
+    setProgress({ done: 0, total: grand });
     const acc: AuditResult[] = [];
-    let offset = 0;
-    while (offset < g.count && !cancelRef.current) {
-      try {
-        const r = await fetch(`${API_BASE}${buildAuditUrl(g.kind, g.trade, offset, BATCH)}`, { headers: authH });
-        if (!r.ok) break;
-        const j = await r.json();
-        acc.push(...(j.results ?? []));
-        offset += j.count ?? 0;
-        setResults([...acc]);
-        setProgress({ done: Math.min(offset, g.count), total: g.count });
-        if (!j.count || j.count < BATCH) break;
-      } catch { break; }
+    let done = 0;
+    for (const g of selGroups) {
+      if (cancelRef.current) break;
+      let offset = 0;
+      while (offset < g.count && !cancelRef.current) {
+        try {
+          const r = await fetch(`${API_BASE}${buildAuditUrl(g.kind, g.trade, offset, BATCH)}`, { headers: authH });
+          if (!r.ok) break;
+          const j = await r.json();
+          acc.push(...(j.results ?? []));
+          const got = j.count ?? 0;
+          offset += got; done += got;
+          setResults([...acc]);
+          setProgress({ done: Math.min(done, grand), total: grand });
+          if (!got || got < BATCH) break;
+        } catch { break; }
+      }
     }
     setRunning(false);
   }
@@ -136,7 +162,8 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
       ) : groups.length === 0 ? (
         <div className="cdash-empty">점검할 매물이 없습니다.</div>
       ) : (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 14 }}>
+          <div className="muted" style={{ fontSize: 11.5, margin: "0 2px 9px" }}>유형 이름을 누르면 그 유형 전체, 매매·전세·월세는 개별 선택 — 선택 후 아래 <b style={{ color: "#475569" }}>일괄조회</b></div>
           {(["단지형", "비단지"] as const).map((sec) => {
             const gs = groups.filter((g) => g.group === sec);
             if (gs.length === 0) return null;
@@ -151,39 +178,55 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
               <div key={sec} style={{ marginBottom: 11 }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8", margin: "0 2px 8px", letterSpacing: ".02em" }}>{sec}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {kinds.map(([kind, info]) => (
-                    <div key={kind} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 80, flexShrink: 0, fontSize: 13, fontWeight: 700, color: "#1f2937", display: "flex", alignItems: "center", gap: 3 }}>
-                        {kind === "SAENGSUK" && <ShieldCheck size={11} style={{ color: "#7c3aed", flexShrink: 0 }} />}
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{info.label}</span>
+                  {kinds.map(([kind, info]) => {
+                    const allSel = info.trades.every((t) => selected.has(gkey(t)));
+                    return (
+                      <div key={kind} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                        <button onClick={() => !running && toggleKind(info.trades)} title="유형 전체 선택/해제"
+                          style={{ width: 88, flexShrink: 0, fontSize: 13, fontWeight: 700, color: allSel ? PRIMARY : "#1f2937",
+                            display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", textAlign: "left", padding: 0, cursor: running ? "default" : "pointer" }}>
+                          {allSel ? <CheckSquare size={14} style={{ color: PRIMARY, flexShrink: 0 }} /> : <Square size={14} style={{ color: "#cbd5e1", flexShrink: 0 }} />}
+                          {kind === "SAENGSUK" && <ShieldCheck size={11} style={{ color: "#7c3aed", flexShrink: 0 }} />}
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{info.label}</span>
+                        </button>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {TRADE_ORDER.map((t) => {
+                            const g = info.trades.find((x) => x.trade === t);
+                            if (!g) return null;
+                            const sel = selected.has(gkey(g));
+                            const tc = TRADE_C[t] || "#64748b";
+                            return (
+                              <button key={t} onClick={() => !running && toggle(g)} disabled={running}
+                                style={{
+                                  display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px",
+                                  borderRadius: 10, cursor: running ? "default" : "pointer", fontSize: 12.5,
+                                  border: `1px solid ${sel ? tc : BORDER}`,
+                                  background: sel ? tc : "#fff", color: sel ? "#fff" : "#334155",
+                                  opacity: running ? 0.6 : 1, transition: "all .12s",
+                                }}>
+                                {sel && <CheckSquare size={11} />}
+                                <span style={{ fontWeight: 600 }}>{g.trade_label}</span>
+                                <span style={{ fontWeight: 800, color: sel ? "#fff" : tc, fontVariantNumeric: "tabular-nums" }}>{g.count.toLocaleString()}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {TRADE_ORDER.map((t) => {
-                          const g = info.trades.find((x) => x.trade === t);
-                          if (!g) return null;
-                          const active = !!group && group.kind === kind && group.trade === t;
-                          const tc = TRADE_C[t] || "#64748b";
-                          return (
-                            <button key={t} onClick={() => runAudit(g)} disabled={running}
-                              style={{
-                                display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px",
-                                borderRadius: 10, cursor: running ? "default" : "pointer", fontSize: 12.5,
-                                border: `1px solid ${active ? tc : BORDER}`,
-                                background: active ? tc : "#fff", color: active ? "#fff" : "#334155",
-                                opacity: running && !active ? 0.55 : 1, transition: "all .12s",
-                              }}>
-                              <span style={{ fontWeight: 600 }}>{g.trade_label}</span>
-                              <span style={{ fontWeight: 800, color: active ? "#fff" : tc, fontVariantNumeric: "tabular-nums" }}>{g.count.toLocaleString()}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
           })}
+
+          <button onClick={runBulk} disabled={running || selGroups.length === 0}
+            style={{ marginTop: 8, width: "100%", padding: 12, borderRadius: 11, border: "none",
+              background: selGroups.length && !running ? PRIMARY : "#cbd5e1", color: "#fff", fontSize: 14, fontWeight: 800,
+              cursor: running || !selGroups.length ? "default" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
+            <ShieldCheck size={16} />
+            {selGroups.length ? `선택 ${selGroups.length}개 · ${selCount.toLocaleString()}건 일괄조회` : "점검할 유형·거래를 선택하세요"}
+          </button>
         </div>
       )}
 
@@ -195,7 +238,7 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
               {running
                 ? <><Loader2 size={14} style={{ color: PRIMARY, ...SPIN }} /> 점검 중…</>
                 : <><CheckCircle2 size={14} style={{ color: "#1f9d63" }} /> 점검 완료</>}
-              <span className="muted">{group?.kind_label} {group?.trade_label}</span>
+              <span className="muted">선택 {selGroups.length}개 유형·거래</span>
             </span>
             <span className="muted">{progress.done.toLocaleString()} / {progress.total.toLocaleString()}건</span>
           </div>
@@ -247,6 +290,13 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
                       {r.warning_count > 0 && <span style={{ color: "#e08a1e", fontWeight: 700 }}>주의 {r.warning_count}</span>}
                       {ok && <span style={{ color: "#1f9d63", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 3 }}><CheckCircle2 size={12} />정상</span>}
                     </span>
+                  </div>
+                  <div style={{ padding: "5px 12px", fontSize: 11, color: "#94a3b8", borderBottom: "1px solid #f4f7fa", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 5 }}>
+                    {r.address && <span>📍 {r.address}</span>}
+                    {r.address && <span style={{ color: "#cbd5e1" }}>·</span>}
+                    {r.naver_url
+                      ? <a href={r.naver_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 11, color: PRIMARY, fontWeight: 600 }}>네이버 매물 {r.article_no} ↗</a>
+                      : <span>매물번호 {r.article_no}</span>}
                   </div>
                   {open && r.ledger && (
                     <div style={{ padding: "7px 12px", fontSize: 11, color: "#0e6aa8", background: "#f3f9ff", borderBottom: "1px solid #e2effb", display: "flex", flexWrap: "wrap", columnGap: 12, rowGap: 2 }}>
