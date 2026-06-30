@@ -5,6 +5,9 @@ import { useAuth } from "../auth";
 import ListingAudit from "../components/ListingAudit";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
+const PRIMARY = "#1268d3";
+const BORDER = "#e4e9f0";
+const SPIN: React.CSSProperties = { animation: "hp-spin .8s linear infinite" };
 
 type Realtor = { realtor_id: string; realtor_name: string; count: number; address: string | null };
 
@@ -28,47 +31,47 @@ export default function AuditRealtor() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6">
-      <Link to="/admin" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-3">
-        <ChevronLeft size={16} /> 관리자
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "22px 16px" }}>
+      <Link to="/admin" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 13, color: "#64748b", marginBottom: 12 }}>
+        <ChevronLeft size={15} /> 관리자
       </Link>
-      <div className="flex items-center gap-2 mb-1">
-        <ShieldCheck size={22} className="text-indigo-600" />
-        <h1 className="text-xl font-bold text-slate-800">매물 표시·광고 점검</h1>
-        <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">가오픈 · 관리자</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <ShieldCheck size={21} style={{ color: PRIMARY }} />
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#13294b" }}>매물 표시·광고 점검</h2>
+        <span style={{ fontSize: 11, fontWeight: 700, color: PRIMARY, background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 999, padding: "2px 8px" }}>가오픈 · 관리자</span>
       </div>
-      <p className="text-sm text-slate-500 mb-4">중개사무소를 검색 → 매물 유형·거래별로 골라 점검합니다.</p>
+      <p className="muted" style={{ fontSize: 13, margin: "0 0 16px" }}>중개사무소를 검색 → 매물 유형·거래별로 골라 점검합니다.</p>
 
-      <div className="flex gap-2 mb-3">
-        <div className="relative flex-1">
-          <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <Search size={15} style={{ position: "absolute", left: 11, top: 10, color: "#94a3b8" }} />
           <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && searchRealtors()}
             placeholder="중개사무소 이름 (예: 시티오씨엘, 고덕탑)"
-            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+            style={{ width: "100%", padding: "9px 12px 9px 34px", borderRadius: 10, border: `1px solid ${BORDER}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
         </div>
         <button onClick={searchRealtors} disabled={searching || !q.trim()}
-          className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
-          {searching ? <Loader2 size={16} className="animate-spin" /> : "검색"}
+          style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: PRIMARY, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: searching || !q.trim() ? 0.5 : 1, whiteSpace: "nowrap" }}>
+          {searching ? <Loader2 size={16} style={SPIN} /> : "검색"}
         </button>
       </div>
 
       {realtors.length > 0 && !realtor && (
-        <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 mb-4 max-h-64 overflow-auto">
+        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, overflow: "hidden", marginBottom: 16, maxHeight: 280, overflowY: "auto" }}>
           {realtors.map((rt) => (
             <button key={rt.realtor_id} onClick={() => { setRealtor(rt); setRealtors([]); }}
-              className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-slate-700 truncate">{rt.realtor_name}
-                {rt.address && <span className="text-slate-400 font-normal text-xs ml-2">{rt.address}</span>}</span>
-              <span className="text-xs text-slate-500 shrink-0">매물 {rt.count.toLocaleString()}</span>
+              style={{ width: "100%", textAlign: "left", padding: "10px 12px", background: "#fff", border: "none", borderTop: `1px solid #f1f5f9`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rt.realtor_name}
+                {rt.address && <span className="muted" style={{ fontWeight: 400, fontSize: 12, marginLeft: 8 }}>{rt.address}</span>}</span>
+              <span className="muted" style={{ fontSize: 12, flexShrink: 0 }}>매물 {rt.count.toLocaleString()}</span>
             </button>
           ))}
         </div>
       )}
 
       {realtor && (
-        <div className="mb-3 p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-          <span className="text-sm font-semibold text-slate-700">{realtor.realtor_name}</span>
-          <button onClick={() => setRealtor(null)} className="text-xs text-slate-400 hover:text-slate-600">다른 사무소</button>
+        <div style={{ marginBottom: 14, padding: "11px 13px", borderRadius: 12, background: "#f8fafc", border: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: "#334155" }}>{realtor.realtor_name}</span>
+          <button onClick={() => setRealtor(null)} className="muted" style={{ fontSize: 12, background: "none", border: "none", cursor: "pointer" }}>다른 사무소</button>
         </div>
       )}
 
