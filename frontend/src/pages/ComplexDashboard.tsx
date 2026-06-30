@@ -38,8 +38,8 @@ function builtYM(s: string | null | undefined): string {
   return m ? `${m[1]}.${m[2]}` : "";
 }
 
-export default function ComplexDashboard({ complexNo, onGo }: {
-  complexNo: string; onGo: (s: "tx" | "trend" | "realtor") => void;
+export default function ComplexDashboard({ complexNo, onGo, children }: {
+  complexNo: string; onGo: (s: "tx" | "trend" | "realtor") => void; children?: ReactNode;
 }) {
   const [s, setS] = useState<Summary | null>(null);
   const [deals, setDeals] = useState<Deal[] | null>(null);
@@ -167,6 +167,8 @@ export default function ComplexDashboard({ complexNo, onGo }: {
           </div>
         </>
       )}
+      {/* 인근단지 실거래 등 — 캡처(이미지 저장·복사) 영역에 포함되도록 share-target 안에 렌더 */}
+      {children}
     </div>
   );
 }

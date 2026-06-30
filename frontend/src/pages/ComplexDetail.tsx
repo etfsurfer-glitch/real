@@ -359,10 +359,9 @@ export default function ComplexDetail() {
       </nav>
 
       {section === "summary" && complexNo && (
-        <>
-          <ComplexDashboard complexNo={complexNo} onGo={setSection} />
+        <ComplexDashboard complexNo={complexNo} onGo={setSection}>
           <NearbyTransactions complexNo={complexNo} />
-        </>
+        </ComplexDashboard>
       )}
 
       {section === "nearby" && complexNo && <NearbyTransactions complexNo={complexNo} />}
