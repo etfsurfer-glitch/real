@@ -77,6 +77,9 @@ def _fmt_led_ymd(led) -> str:
 
 # 주택·준주택(방수+욕실수 필요). 그 외 건축물(생숙·상가 등)은 욕실수만 표시 가능.
 _RESIDENTIAL_TYPES = {"아파트", "오피스텔", "빌라/연립", "빌라단지-연립", "단독/다가구", "다세대"}
+# 관리비 세부표시(정액 10만원↑ 비목구분) 의무 대상 = 공동주택·오피스텔(국토부 고시).
+# 단독/다가구·상가·사무실·지식산업센터·토지 등은 제외(표시 의무 대상 아님).
+_MGMT_DISPLAY_TYPES = {"아파트", "오피스텔", "빌라/연립", "빌라단지-연립", "다세대"}
 
 
 def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
@@ -221,25 +224,32 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         # 정확한 대수 대조는 같은 지번 다동 모호성으로 생략(표시여부·주차불가만 점검)
         add(10, "주차", "통과", f"건축물대장 총주차 {led_pk}대" if led_pk else "")
 
-    # ⑪ 관리비 (미표기/없음 구분 + 이상치 + 정액 10만원↑ 세부표시)
+    # ⑪ 관리비 — 정액 10만원↑ 비목별 세부표시 의무는 '주택·오피스텔'만(국토부 고시).
+    #    상가·사무실·지식산업센터·토지·단독/다가구는 표시 의무 대상 아님(오탐 방지).
+    #    이상치(오입력 의심)는 전 유형 데이터위생 차원에서 점검.
     cost = f.get("monthly_management_cost")
-    if cost is None or str(cost).strip() in ("", "None"):
-        add(11, "관리비", "주의", "관리비 미표기 — '없음(0원)'과 구분 필요")
-    else:
+    mgmt_target = (f.get("real_estate_type") in ("APT", "OPST", "ABYG", "OBYG", "JGC")
+                   or rtype in _MGMT_DISPLAY_TYPES)
+    ci = None
+    if cost is not None and str(cost).strip() not in ("", "None"):
         try:
             ci = int(cost)
         except (ValueError, TypeError):
             ci = -1
-        if ci == 0:
-            add(11, "관리비", "통과")                       # 관리비 없음 명시
-        elif ci < 0:
-            add(11, "관리비", "주의", "관리비 값 형식 오류")
-        elif ci >= 2_000_000 or 0 < ci <= 1000:
-            add(11, "관리비", "주의", f"관리비 이상치({ci:,}원) — 오입력 의심")
-        elif ci >= 100000 and not f.get("admin_cost_info"):
-            add(11, "관리비", "위반", "정액 월 10만원↑ — 총액·비목별 세부금액 표시 필요")
-        else:
-            add(11, "관리비", "통과")
+    if ci is not None and ci > 0 and (ci >= 2_000_000 or ci <= 1000):
+        add(11, "관리비", "주의", f"관리비 이상치({ci:,}원) — 오입력 의심")
+    elif ci is not None and ci < 0:
+        add(11, "관리비", "주의", "관리비 값 형식 오류")
+    elif not mgmt_target:
+        add(11, "관리비", "통과", "관리비 세부표시 의무 대상 아님(주택·오피스텔만)")
+    elif ci is None:
+        add(11, "관리비", "주의", "관리비 미표기 — '없음(0원)'과 구분 필요")
+    elif ci == 0:
+        add(11, "관리비", "통과")                          # 관리비 없음 명시
+    elif ci >= 100000 and not f.get("admin_cost_info"):
+        add(11, "관리비", "위반", "정액 월 10만원↑ — 비목별 세부금액 표시 필요(주택·오피스텔)")
+    else:
+        add(11, "관리비", "통과")
 
     # ⑫ 방향 (+ 기준)
     if not _has(f.get("direction")):
