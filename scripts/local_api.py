@@ -9481,14 +9481,17 @@ def _audit_complex_one(r: dict, creds, dks) -> dict:
 
 
 def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
-    """비단지 매물 1건 점검(상세+좌표 온디맨드 건축물대장·전유면적)."""
+    """비단지 매물 1건 점검(상세+네이버 inline 건축물대장, 폴백=좌표 온디맨드, 전유면적)."""
     from collector.article_detail import fetch_and_extract
     from collector.listing_audit import audit_listing
     from collector.ondemand_ledger import ledger_for_coord, expos_areas_for_coord
     det = fetch_and_extract(r["article_no"], None, creds) or {}
-    led = expos = None
+    # 대장: 네이버가 매물상세에 넣어주는 inline 대장(그 건물 정확·무료) 우선, 없으면 좌표 온디맨드.
+    led = det.get("ledger_inline")
+    expos = None
     if vw and dks and r.get("latitude"):
-        led = ledger_for_coord(r["latitude"], r["longitude"], vw, dks)
+        if not led:
+            led = ledger_for_coord(r["latitude"], r["longitude"], vw, dks)
         # 전유면적 대조는 집합건물(전유 표기 명확)만 — 단독·다가구/토지/공장 등 일반건축물 제외.
         if cat in ("villa", "sangga", "office", "knowledge"):
             expos = expos_areas_for_coord(r["latitude"], r["longitude"], vw, dks)

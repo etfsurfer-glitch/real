@@ -74,6 +74,45 @@ def extract_checklist_fields(detail: dict) -> dict[str, Any]:
         # ⑫ 방향 + 기준
         "direction": fac.get("directionTypeName") or add.get("direction"),
         "direction_base": fac.get("directionBaseTypeName"),  # "거실 기준" 등
+        # ★ 네이버가 매물상세에 포함하는 건축물대장(비단지 대장대조용 — 좌표 온디맨드 대체)
+        "ledger_inline": _inline_ledger(detail),
+    }
+
+
+def _inline_ledger(detail: dict):
+    """매물상세의 articleBuildingRegister(네이버가 매칭한 그 건물의 건축물대장) → 점검용 대장 dict.
+    좌표 온디맨드(vworld→data.go.kr)보다 해당 매물 건물에 정확하고 무료·무쿼터.
+    led 형태(ondemand_ledger와 동일 키: main_purps/bld_nm/grnd_flr/use_apr_day/parking)."""
+    br = detail.get("articleBuildingRegister") or {}
+    if not br or br.get("serviceYn") == "N":
+        return None
+    fac = detail.get("articleFacility", {}) or {}
+    ad = detail.get("articleDetail", {}) or {}
+
+    def _i(v):
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return None
+
+    grnd = _i(br.get("grndFlrCnt"))
+    park = _i(br.get("totalParkingCnt"))
+    # 사용승인일: articleFacility의 8자리(YYYYMMDD)가 정확, 없으면 register의 useAprDay(YYYY.MM)
+    use_apr = fac.get("buildingUseAprvYmd") or ("".join(c for c in str(br.get("useAprDay") or "")
+                                                        if c.isdigit()) or None)
+    purps = br.get("mainPurpsCdNm") or None
+    if not (grnd or use_apr or purps):
+        return None
+    bld = br.get("exposureBldName")
+    return {
+        "main_purps": purps,
+        "bld_nm": (bld if isinstance(bld, str) and bld else None) or ad.get("buildingName"),
+        "grnd_flr": grnd,
+        # 대장 주차 0은 '미기재'와 구분이 어려워 0은 None 처리(⑩ 주차 오탐 방지)
+        "parking": park if park else None,
+        "use_apr_day": use_apr,
+        "pnu": br.get("pnu") or None,
+        "_source": "naver_inline",
     }
 
 
