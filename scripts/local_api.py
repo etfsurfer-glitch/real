@@ -9375,8 +9375,9 @@ def _audit_keys():
     return vw, [k for k in dks if k]
 
 
-def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None, dong_set: bool = False) -> dict:
-    """매물행(listings)+상세(네이버)+대장(led) → 점검엔진 입력필드 병합.
+def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
+                 dong_set: bool = False, expos: list | None = None) -> dict:
+    """매물행(listings)+상세(네이버)+대장(led)+전유면적(expos) → 점검엔진 입력필드 병합.
     dong_set=True(단지형): 동별 총층·사용승인 집합으로 대조(오탐방지), 주차 대조는 생략(총괄표제부 필요)."""
     f = {
         "article_no": r.get("article_no"),
@@ -9400,6 +9401,8 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None, dong_s
         "parking_possible": det.get("parking_possible"),
         "monthly_management_cost": det.get("monthly_management_cost"),
         "admin_cost_info": det.get("admin_cost_info"),
+        "violation_building": det.get("violation_building"),
+        "unregistered_building": det.get("unregistered_building"),
         "direction": det.get("direction") or r.get("direction"),
         "direction_base": det.get("direction_base"),
     }
@@ -9410,6 +9413,8 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None, dong_s
         f["led_use_apr_day"] = led.get("use_apr_all") or led.get("use_apr_day")
         if not dong_set:
             f["led_parking"] = led.get("parking")
+    if expos:
+        f["led_expos_areas"] = expos
     return f
 
 
@@ -9433,7 +9438,8 @@ def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends
     from collector.creds import ensure_creds
     from collector.article_detail import fetch_and_extract
     from collector.listing_audit import audit_listing, is_saengsuk
-    from collector.ondemand_ledger import ledger_for_coord, ledger_for_jibun
+    from collector.ondemand_ledger import (
+        ledger_for_coord, ledger_for_jibun, expos_areas_for_coord)
     creds = ensure_creds()
     vw, dks = _audit_keys()
     results = []
@@ -9461,6 +9467,8 @@ def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends
         res["building"] = r.get("complex_name")
         res["ledger_matched"] = bool(led)
         res["ledger"] = _ledger_brief(led)
+        res["_mgmt"] = (("c", r.get("complex_no"), round(float(r.get("area2_m2") or 0))),
+                        det.get("monthly_management_cost"))
         results.append(res)
 
     # 비단지(빌라·단독·상가 등) — 좌표 온디맨드 건축물대장 대조
@@ -9480,15 +9488,45 @@ def admin_audit_realtor(realtor_id: str, limit: int = 15, _admin: dict = Depends
             nrows = []
         for r in nrows:
             det = fetch_and_extract(r["article_no"], None, creds) or {}
-            led = None
+            led = expos = None
             if vw and dks and r.get("latitude"):
                 led = ledger_for_coord(r["latitude"], r["longitude"], vw, dks)
-            res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led))
+                # 전유면적 대조는 '집합건물'(전유 표기 명확)만 — 단독·다가구/토지/공장 등
+                # 일반건축물은 광고면적이 건물 전체라 호별 전유와 어긋나므로 제외.
+                if cat in ("villa", "sangga", "office", "knowledge"):
+                    expos = expos_areas_for_coord(r["latitude"], r["longitude"], vw, dks)
+            res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos))
             res["kind"] = _NONRESI_LABEL.get(cat, cat)
             res["building"] = r.get("building_name")
             res["ledger_matched"] = bool(led)
             res["ledger"] = _ledger_brief(led)
+            res["_mgmt"] = ((cat, round(float(r.get("area2_m2") or 0))),
+                            det.get("monthly_management_cost"))
             results.append(res)
+
+    # ── ⑪ 관리비 평균대비 이상치: 점검대상 내 동일그룹(단지/유형+평형) 중앙값 ±3배 벗어나면 주의 ──
+    from statistics import median as _median
+    _grp: dict = {}
+    for res in results:
+        gk, cost = res.get("_mgmt", (None, None))
+        if gk and cost is not None:
+            _grp.setdefault(gk, []).append(cost)
+    for res in results:
+        gk, cost = res.pop("_mgmt", (None, None))
+        costs = _grp.get(gk, [])
+        if cost is not None and len(costs) >= 3:
+            med = _median(costs)
+            if med > 0 and (cost > med * 3 or cost < med * 0.33):
+                for fnd in res["findings"]:
+                    if fnd["no"] == 11 and fnd["status"] != "위반":
+                        fnd["status"] = "주의"
+                        fnd["reason"] = (f"유사매물 {len(costs)}건 평균 {int(med):,}원 대비 "
+                                         f"이상({int(cost):,}원) — 오입력 의심")
+                        break
+        # 관리비 보강으로 상태가 바뀌었을 수 있으니 카운트 재계산
+        res["violation_count"] = sum(1 for x in res["findings"] if x["status"] == "위반")
+        res["warning_count"] = sum(1 for x in res["findings"] if x["status"] == "주의")
+        res["pass"] = res["violation_count"] == 0
 
     return {
         "realtor_id": realtor_id,

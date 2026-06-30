@@ -18,6 +18,13 @@ def _has(v) -> bool:
     return v is not None and str(v).strip() not in ("", "-", "0", "None")
 
 
+def _to_float(v):
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
 def _floor_is_approx(floor_info: str | None) -> bool:
     """floor_info 가 저/중/고 표기인지. '중/15'→True, '3/15'→False."""
     if not floor_info:
@@ -97,22 +104,40 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     if not (_has(f.get("detail_address")) or _has(f.get("building_name")) or _has(f.get("dong_name"))):
         add(1, "소재지·지번/동", "주의", "지번·동 정보 부족")
 
-    # ② 면적(전용㎡)
+    # ② 면적(전용㎡) — 단지형=CP자동입력 / 비단지=건축물대장 전유면적 대조
     if cp_autofilled:
         add(2, "면적(전용㎡)", "통과", "단지정보 자동입력(확인)")
+    elif not _has(f.get("area_exclusive")):
+        add(2, "면적(전용㎡)", "위반", "전용면적(㎡) 미표시")
     else:
-        add(2, "면적(전용㎡)", "통과" if _has(f.get("area_exclusive")) else "위반",
-            "" if _has(f.get("area_exclusive")) else "전용면적(㎡) 미표시")
+        expos = f.get("led_expos_areas")        # 대장 전유면적 목록(비단지 온디맨드)
+        a = _to_float(f.get("area_exclusive"))
+        if expos and a:
+            tol = max(1.0, a * 0.03)             # ±1㎡ 또는 ±3%
+            if any(abs(a - e) <= tol for e in expos):
+                add(2, "면적(전용㎡)", "통과", "건축물대장 전유면적 일치")
+            else:
+                near = "/".join(f"{e:g}" for e in expos[:6])
+                add(2, "면적(전용㎡)", "주의",
+                    f"광고 전용 {a:g}㎡ ≠ 건축물대장 전유({near}㎡) — 면적 확인")
+        else:
+            add(2, "면적(전용㎡)", "통과")        # 대장 전유 조회불가/대형지번 → 표시여부만
 
     # ③ 가격
     add(3, "가격", "통과" if _has(f.get("price")) else "위반",
         "" if _has(f.get("price")) else "거래예정금액 미표시")
 
-    # ④ 종류 (+ 위반건축물 표시)
+    # ④ 종류 + 위반건축물·미등기 표시 (네이버 기준 — 건축물대장 API엔 위반건축물 필드 없음)
+    viol_b = f.get("violation_building") == "Y"
+    unreg = f.get("unregistered_building") == "Y"
     if not _has(rtype):
         add(4, "중개대상물 종류", "위반", "종류 미표시")
-    elif f.get("violation_building") == "Y":
+    elif viol_b and unreg:
+        add(4, "중개대상물 종류", "주의", "위반건축물·미등기 — 광고에 명시 필요")
+    elif viol_b:
         add(4, "중개대상물 종류", "주의", "위반건축물 — 광고에 '위반건축물' 명시 필요")
+    elif unreg:
+        add(4, "중개대상물 종류", "주의", "미등기 건물 — 광고에 명시 필요")
     else:
         add(4, "중개대상물 종류", "통과")
 

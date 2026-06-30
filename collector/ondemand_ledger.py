@@ -15,8 +15,10 @@ import xml.etree.ElementTree as ET
 
 VW_URL = "https://api.vworld.kr/req/address"
 BR_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
+BR_EXPOS_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
 
-_cache: dict[str, dict | None] = {}   # 지번키 → 대장 ref (프로세스 캐시)
+_cache: dict[str, dict | None] = {}          # 지번키 → 대장 ref (프로세스 캐시)
+_expos_cache: dict[str, list | None] = {}    # 지번키 → 전유면적 목록
 
 
 def coord_to_jibun(lat, lon, vworld_key) -> tuple[str, str, str, str] | None:
@@ -133,6 +135,72 @@ def _parse_jibun(cortar_no, detail_address):
         return None
     cn = str(cortar_no)
     return cn[:5], plat, f"{bun:04d}", f"{ji:04d}", cn[5:10]
+
+
+def _expos_call(params, datago_keys) -> str | None:
+    """전유공용 단일 호출(키 폴백). 정상 XML or None."""
+    for key in datago_keys:
+        try:
+            t = urllib.request.urlopen(
+                urllib.request.Request(
+                    BR_EXPOS_URL + "?" + urllib.parse.urlencode({"serviceKey": key, **params}),
+                    headers={"Accept": "application/xml"}), timeout=20).read().decode("utf-8")
+            if "resultCode>00" in t:
+                return t
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                continue
+            return None
+        except Exception:
+            return None
+    return None
+
+
+def expos_areas(sgg, bjd, plat, bun, ji, datago_keys) -> list | None:
+    """건축물대장 '전유부분' 면적(㎡) 목록. 단일/소형 건물(totalCount≤400)만 — 큰 지번
+    (아파트 혼재 수천건)은 모호해 None(대조 생략). 없거나 실패도 None. 비단지 전용면적 대조용."""
+    if isinstance(datago_keys, str):
+        datago_keys = [datago_keys]
+    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji}
+    head = _expos_call({**base, "numOfRows": "1", "pageNo": "1"}, datago_keys)
+    if not head:
+        return None
+    try:
+        tc = int(ET.fromstring(head).findtext(".//totalCount") or 0)
+    except (ET.ParseError, ValueError):
+        return None
+    if tc == 0 or tc > 400:          # 없음 / 아파트 혼재 대형지번 → 대조 생략
+        return None
+    out: list[float] = []
+    for page in range(1, tc // 100 + 2):
+        t = _expos_call({**base, "numOfRows": "100", "pageNo": str(page)}, datago_keys)
+        if not t:
+            break
+        try:
+            root = ET.fromstring(t)
+        except ET.ParseError:
+            break
+        for it in root.findall(".//item"):
+            if (it.findtext("exposPubuseGbCdNm") or "").strip() == "전유":
+                try:
+                    out.append(round(float((it.findtext("area") or "0").strip()), 2))
+                except (ValueError, TypeError):
+                    pass
+    return sorted(set(out)) or None
+
+
+def expos_areas_for_coord(lat, lon, vworld_key, datago_keys) -> list | None:
+    """좌표 → 건축물대장 전유면적 목록(캐시). 비단지 전용면적 대조용."""
+    j = coord_to_jibun(lat, lon, vworld_key)
+    if not j:
+        return None
+    sgg, plat, bun, ji, bjd = j
+    ck = f"E{sgg}{bjd}{plat}{bun}{ji}"
+    if ck in _expos_cache:
+        return _expos_cache[ck]
+    a = expos_areas(sgg, bjd, plat, bun, ji, datago_keys)
+    _expos_cache[ck] = a
+    return a
 
 
 def ledger_for_jibun(cortar_no, detail_address, datago_keys) -> dict | None:
