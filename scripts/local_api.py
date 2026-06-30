@@ -3089,7 +3089,8 @@ def complex_quick_deals(
             """
             SELECT article_no, area_name, floor_info, direction,
                    deal_or_warrant_price, deal_or_warrant_price_text,
-                   realtor_id, realtor_name, article_confirm_ymd, cp_pc_article_url
+                   realtor_id, realtor_name, article_confirm_ymd, cp_pc_article_url,
+                   json_extract(raw,'$.aptDong') AS dong
             FROM listings_current
             WHERE complex_no = ? AND trade_type = ? AND deal_or_warrant_price > 0
               AND area_name IS NOT NULL
@@ -3148,13 +3149,32 @@ def complex_quick_deals(
             "direction": r[3], "price": r[4], "price_text": r[5],
             "discount": disc, "avg_real": avg_real, "n_real": n_real,
             "realtor_id": rid, "realtor_name": office,
-            "tel": tel, "addr": addr,
+            "tel": tel, "addr": addr, "dong": r[10],
             "confirm_ymd": r[8], "article_url": r[9],
             # 네이버 정식 매물 딥링크 (article_no 로 구성). CP(매경 등) 리다이렉트 대신 네이버로.
             "naver_url": f"https://new.land.naver.com/complexes/{complex_no}?articleNo={r[0]}",
         })
     items.sort(key=lambda x: x["discount"])
-    return {"complex_no": complex_no, "count": len(items), "items": items[:limit]}
+    # 동일매물 묶기 — 같은 동·층표기·평형·방향·가격이면 같은 매물(여러 중개사 중복게시) → 1건
+    # (할인 큰 순 정렬 후 dedup이라 대표는 가장 싼 게시물). realtor_count=게시 중개사 수.
+    seen: dict = {}
+    deduped: list = []
+    for it in items:
+        key = (it.get("dong") or "", it["floor_info"], it["area_name"],
+               it["direction"], it["price"])
+        g = seen.get(key)
+        if g is None:
+            it["dup_count"] = 1
+            it["_rids"] = {it.get("realtor_id")} if it.get("realtor_id") else set()
+            seen[key] = it
+            deduped.append(it)
+        else:
+            g["dup_count"] += 1
+            if it.get("realtor_id"):
+                g["_rids"].add(it["realtor_id"])
+    for g in deduped:
+        g["realtor_count"] = len(g.pop("_rids")) or 1
+    return {"complex_no": complex_no, "count": len(deduped), "items": deduped[:limit]}
 
 
 # 공급면적 평형 bucket (㎡ 단위로 환산)

@@ -164,6 +164,9 @@ type DealRow = {
   confirm_ymd: string | null;
   article_url: string | null;
   naver_url: string | null;
+  dong: string | null;
+  dup_count?: number;        // 동일매물 묶인 게시물 수
+  realtor_count?: number;    // 동일매물 보유 중개사무소 수
 };
 type DealResp = { complex_no: string; count: number; items: DealRow[] };
 
@@ -693,7 +696,7 @@ function QuickDealSection({ deals }: { deals: DealRow[] }) {
       <div className="section-title" style={{ marginTop: 28 }}>
         <Flame size={15} strokeWidth={2.4} style={{ color: "#e8590c" }} aria-hidden /> 급매 보유 중개사무소{" "}
         <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>
-          (최근 실거래 평균 대비 5%↑ 저렴 · {deals.length}건)
+          (최근 실거래 평균 대비 5%↑ 저렴 · {deals.length}건 · 동일매물 묶음)
         </span>
       </div>
       <div style={{ overflowX: "auto" }}>
@@ -725,6 +728,13 @@ function QuickDealSection({ deals }: { deals: DealRow[] }) {
                     ? <Link to={`/realtor/${encodeURIComponent(d.realtor_id)}`}>{d.realtor_name ?? "-"}</Link>
                     : <span title="중개사무소 정보 없음 — '네이버 매물 보기'에서 연락처 확인"
                             style={{ borderBottom: "1px dotted #bbb", cursor: "help" }}>{d.realtor_name ?? "-"}</span>}
+                  {d.realtor_count && d.realtor_count > 1 ? (
+                    <span title={`같은 매물(동·층·평형·방향·가격 동일)을 ${d.realtor_count}개 중개사무소가 게시`}
+                      style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: "#1268d3",
+                        background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 10, padding: "1px 6px", whiteSpace: "nowrap" }}>
+                      외 {d.realtor_count - 1}곳
+                    </span>
+                  ) : null}
                 </td>
                 <td>
                   {d.tel
