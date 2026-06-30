@@ -32,6 +32,12 @@ function StatusIcon({ s }: { s: string }) {
   if (s === "주의") return <AlertTriangle size={14} className="text-amber-500 shrink-0" />;
   return <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />;
 }
+function fmtYmd(s: string): string {
+  const d = String(s).replace(/\D/g, "");
+  if (d.length >= 8) return `${d.slice(0, 4)}.${d.slice(4, 6)}.${d.slice(6, 8)}`;
+  if (d.length >= 6) return `${d.slice(0, 4)}.${d.slice(4, 6)}`;
+  return s;
+}
 
 export default function AuditRealtor() {
   const { token } = useAuth();
@@ -108,7 +114,8 @@ export default function AuditRealtor() {
         <h1 className="text-xl font-bold text-slate-800">매물 표시·광고 점검</h1>
         <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">가오픈 · 관리자</span>
       </div>
-      <p className="text-sm text-slate-500 mb-4">중개사무소를 검색 → 매물 유형·거래별로 골라 점검합니다.</p>
+      <p className="text-sm text-slate-500 mb-1">중개사무소를 검색 → 매물 유형·거래별로 골라 점검합니다.</p>
+      <p className="text-[11px] text-slate-400 mb-4">※ '위반/주의'는 <b className="text-slate-500">표시·광고(광고 작성) 점검</b> 결과입니다 — 건물 자체의 '위반건축물' 여부와는 다릅니다.</p>
 
       {/* 1) 중개사무소 검색 */}
       <div className="flex gap-2 mb-3">
@@ -216,7 +223,7 @@ export default function AuditRealtor() {
                     <span className="text-[11px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500">{r.kind}</span>
                     <span className="text-sm font-medium text-slate-700 truncate">{r.building || "—"}</span>
                     {r.is_saengsuk && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600 border border-violet-200">생숙</span>}
-                    {r.ledger_matched && <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-600 border border-sky-200">대장</span>}
+                    {r.ledger_matched && <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-600 border border-sky-200">대장확인</span>}
                     <span className="ml-auto text-xs flex items-center gap-2">
                       {r.violation_count > 0 && <span className="text-rose-600 font-medium">위반 {r.violation_count}</span>}
                       {r.warning_count > 0 && <span className="text-amber-600 font-medium">주의 {r.warning_count}</span>}
@@ -228,7 +235,7 @@ export default function AuditRealtor() {
                       <span className="font-semibold">건축물대장</span>
                       {r.ledger.main_purps && <span>용도 {r.ledger.main_purps}</span>}
                       {r.ledger.grnd_flr?.length > 0 && <span>지상 {r.ledger.grnd_flr.join("/")}층</span>}
-                      {r.ledger.use_apr_day?.length > 0 && <span>사용승인 {r.ledger.use_apr_day.join("/")}</span>}
+                      {r.ledger.use_apr_day?.length > 0 && <span>사용승인 {r.ledger.use_apr_day.map(fmtYmd).join("/")}</span>}
                       {r.ledger.parking != null && <span>총주차 {r.ledger.parking}대</span>}
                     </div>
                   )}
