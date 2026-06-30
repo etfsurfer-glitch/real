@@ -49,43 +49,55 @@ export function useFetchJson<T>(
     setLoading(true);
     setError(null);
 
-    const timer = setTimeout(() => {
-      const t0 = performance.now();
-      fetch(url, { signal: ctrl.signal })
-        .then(async (r) => {
+    // 일시적 실패(배포 재시작·콜드·순간 네트워크)는 자동 재시도로 흡수한다.
+    // 네트워크 오류(Failed to fetch)와 게이트웨이 오류(502/503/504)만 재시도 — 4xx·500은 즉시 실패.
+    const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+    const run = async () => {
+      const MAX_TRIES = 3;
+      for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+        const t0 = performance.now();
+        try {
+          const r = await fetch(url, { signal: ctrl.signal });
           const client_ms = performance.now() - t0;
           const server_hdr = r.headers.get("X-Process-Time");
           const server_ms = server_hdr ? Number(server_hdr) * 1000 : null;
-          recordTiming({
-            url, client_ms, server_ms,
-            status: r.status, at: new Date().toISOString(),
-          });
-          // 콘솔에 한 줄 로그 (서버 ms 있으면 같이)
+          recordTiming({ url, client_ms, server_ms, status: r.status, at: new Date().toISOString() });
           const tag = `[api] ${client_ms.toFixed(0)}ms`
             + (server_ms != null ? ` (서버 ${server_ms.toFixed(0)}ms)` : "")
-            + ` · ${r.status} · ${url}`;
-          if (client_ms >= 1000) {
-            console.warn(tag);
-          } else {
-            console.log(tag);
+            + ` · ${r.status} · ${url}` + (attempt > 1 ? ` (재시도 ${attempt - 1})` : "");
+          if (client_ms >= 1000) console.warn(tag); else console.log(tag);
+          // 502/503/504 = 일시적 게이트웨이(배포 재시작 등) → 잠깐 뒤 재시도
+          if ((r.status === 502 || r.status === 503 || r.status === 504) && attempt < MAX_TRIES) {
+            await sleep(400 * attempt);
+            if (cancelled) return;
+            continue;
           }
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json();
-        })
-        .then((j) => {
-          if (!cancelled) {
-            setData(j as T);
-            setLoading(false);
-          }
-        })
-        .catch((e: unknown) => {
-          // 중단(AbortError)은 정상적인 취소이므로 무시.
+          const j = await r.json();
+          if (!cancelled) { setData(j as T); setLoading(false); }
+          return;
+        } catch (e: unknown) {
           if (cancelled) return;
           if (e instanceof DOMException && e.name === "AbortError") return;
-          setError(e instanceof Error ? e.message : String(e));
+          // 네트워크 오류(TypeError: Failed to fetch)는 일시적일 수 있음 → 재시도
+          if (e instanceof TypeError && attempt < MAX_TRIES) {
+            await sleep(400 * attempt);
+            if (cancelled) return;
+            continue;
+          }
+          const msg = e instanceof Error ? e.message : String(e);
+          // 끝내 실패 — 영어 원문 대신 친화적 안내(특히 네트워크 오류).
+          const friendly = (e instanceof TypeError || /failed to fetch/i.test(msg))
+            ? "일시적으로 연결이 끊겼어요 — 잠시 후 다시 시도해주세요."
+            : msg;
+          setError(friendly);
           setLoading(false);
-        });
-    }, debounceMs);
+          return;
+        }
+      }
+    };
+
+    const timer = setTimeout(run, debounceMs);
 
     return () => {
       cancelled = true;
