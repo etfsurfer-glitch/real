@@ -9505,10 +9505,9 @@ def _audit_peer_mgmt(results: list) -> None:
         res["pass"] = res["violation_count"] == 0
 
 
-@app.get("/admin/audit/breakdown")
-def admin_audit_breakdown(realtor_id: str, _admin: dict = Depends(admin_user)):
+def _audit_breakdown_for(realtor_id: str) -> dict:
     """중개사 매물을 유형×거래 그룹별 건수로(점검 분할용 — 상세조회 없이 빠름).
-    수천건 중개사는 그룹을 골라 배치로 점검한다."""
+    수천건 중개사는 그룹을 골라 배치로 점검한다. admin·lounge 공용."""
     groups: list = []
     name = None
     with _open_db() as c:
@@ -9540,13 +9539,9 @@ def admin_audit_breakdown(realtor_id: str, _admin: dict = Depends(admin_user)):
             "total": sum(g["count"] for g in groups), "groups": groups}
 
 
-@app.get("/admin/audit/realtor")
-def admin_audit_realtor(realtor_id: str, kind: str = "", trade: str = "",
-                        offset: int = 0, limit: int = 15,
-                        _admin: dict = Depends(admin_user)):
-    """중개사 매물 표시·광고 점검(관리자). kind=유형(APT/OPST/ABYG/OBYG/JGC 또는 비단지
-    cat villa/sangga…), trade=A1/B1/B2(빈값=전체). offset/limit=배치(점검은 매물별 실시간
-    조회라 느려서 프런트가 배치로 진행률 표시). 반환: total(필터 전체)·results(이 배치).
+def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) -> dict:
+    """중개사 매물 표시·광고 점검 1배치. kind=유형(APT/OPST/ABYG/OBYG/JGC 또는 비단지 cat
+    villa/sangga…), trade=A1/B1/B2(빈값=전체). offset/limit=배치. admin·lounge 공용.
     단지형=네이버 수기항목 점검+대장 표시, 비단지=네이버+건축물대장 대조."""
     from collector.creds import ensure_creds
     creds = ensure_creds()
@@ -9599,6 +9594,34 @@ def admin_audit_realtor(realtor_id: str, kind: str = "", trade: str = "",
         "warning_total": sum(x["warning_count"] for x in results),
         "results": results,
     }
+
+
+# ── 관리자: 임의 중개사 점검 ──
+@app.get("/admin/audit/breakdown")
+def admin_audit_breakdown(realtor_id: str, _admin: dict = Depends(admin_user)):
+    return _audit_breakdown_for(realtor_id)
+
+
+@app.get("/admin/audit/realtor")
+def admin_audit_realtor(realtor_id: str, kind: str = "", trade: str = "",
+                        offset: int = 0, limit: int = 15, _admin: dict = Depends(admin_user)):
+    return _audit_run(realtor_id, kind, trade, offset, limit)
+
+
+# ── 라운지: 본인 사무소 매물만 점검(자기 realtor_id 세션에서 해석) ──
+@app.get("/lounge/audit/breakdown")
+def lounge_audit_breakdown(user: dict = Depends(current_user)):
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+    return _audit_breakdown_for(rid)
+
+
+@app.get("/lounge/audit/listings")
+def lounge_audit_listings(kind: str = "", trade: str = "", offset: int = 0, limit: int = 15,
+                          user: dict = Depends(current_user)):
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+    return _audit_run(rid, kind, trade, offset, limit)
 
 
 @app.post("/lounge/verify-doc")
