@@ -61,8 +61,9 @@ def extract_checklist_fields(detail: dict) -> dict[str, Any]:
         # ⑧ 방수/욕실수
         "room_count": _num(ad.get("roomCount")),
         "bathroom_count": _num(ad.get("bathroomCount")),
-        # ⑨ 사용승인일
-        "use_approve_ymd": ad.get("aptUseApproveYmd") or ad.get("useApproveYmd"),
+        # ⑨ 사용승인일 — 단지형=articleDetail, 비단지=articleFacility.buildingUseAprvYmd
+        "use_approve_ymd": (ad.get("aptUseApproveYmd") or ad.get("useApproveYmd")
+                            or fac.get("buildingUseAprvYmd")),
         # ⑩ 주차대수
         "parking_count": _num(ad.get("parkingCount")),
         "parking_per_household": ad.get("parkingPerHouseholdCount"),
