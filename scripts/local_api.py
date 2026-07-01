@@ -9396,7 +9396,8 @@ def _audit_keys():
 
 
 def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
-                 dong_set: bool = False, expos: list | None = None) -> dict:
+                 dong_set: bool = False, expos: list | None = None,
+                 floors: list | None = None) -> dict:
     """매물행(listings)+상세(네이버)+대장(led)+전유면적(expos) → 점검엔진 입력필드 병합.
     dong_set=True(단지형): 동별 총층·사용승인 집합으로 대조(오탐방지), 주차 대조는 생략(총괄표제부 필요)."""
     f = {
@@ -9425,6 +9426,8 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
         "unregistered_building": det.get("unregistered_building"),
         "direction": det.get("direction") or r.get("direction"),
         "direction_base": det.get("direction_base"),
+        "corresponding_floor": det.get("corresponding_floor"),  # ⑬ 해당층(층별 용도 매칭)
+        "led_floors": floors,                                    # ⑬ 건축물대장 층별개요
     }
     if led:
         # 총층·사용승인은 동별 집합 매칭(같은 지번 다동/단지내상가 오탐 방지 — 어느 동과도
@@ -9485,7 +9488,7 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
     """비단지 매물 1건 점검(상세+네이버 inline 건축물대장, 폴백=좌표 온디맨드, 전유면적)."""
     from collector.article_detail import fetch_and_extract
     from collector.listing_audit import audit_listing
-    from collector.ondemand_ledger import ledger_for_coord, expos_areas_for_coord
+    from collector.ondemand_ledger import ledger_for_coord, expos_areas_for_coord, flr_ouln_for_pnu
     det = fetch_and_extract(r["article_no"], None, creds) or {}
     # 대장: 네이버가 매물상세에 넣어주는 inline 대장(그 건물 정확·무료) 우선, 없으면 좌표 온디맨드.
     led = det.get("ledger_inline")
@@ -9496,7 +9499,9 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
         # 전유면적 대조는 집합건물(전유 표기 명확)만 — 단독·다가구/토지/공장 등 일반건축물 제외.
         if cat in ("villa", "sangga", "office", "knowledge"):
             expos = expos_areas_for_coord(r["latitude"], r["longitude"], vw, dks)
-    res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos))
+    # ⑬ 층별 용도(층별개요) — inline 대장의 pnu로 온디맨드(혼합건물 정밀 점검).
+    floors = flr_ouln_for_pnu(led["pnu"], dks) if (dks and led and led.get("pnu")) else None
+    res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos, floors=floors))
     res["kind"] = _NONRESI_LABEL.get(cat, cat)
     res["building"] = r.get("building_name")
     res["address"] = det.get("exposure_address") or None

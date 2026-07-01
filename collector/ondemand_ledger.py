@@ -19,9 +19,11 @@ import xml.etree.ElementTree as ET
 VW_URL = "https://api.vworld.kr/req/address"
 BR_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 BR_EXPOS_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
+BR_FLR_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrFlrOulnInfo"
 
 _cache: dict[str, dict | None] = {}          # 지번키 → 대장 ref (프로세스 L1 캐시)
 _expos_cache: dict[str, list | None] = {}    # 지번키 → 전유면적 목록
+_flr_cache: dict[str, list | None] = {}      # 지번키 → 층별개요(층별 용도)
 
 # ── 영속 캐시(DB) — 점검할수록 건물별 대장을 demand-driven으로 축적 ──
 # 대장은 거의 안 변하는 정적 데이터(용도·층·사용승인·주차) → 오래 정확.
@@ -308,3 +310,90 @@ def ledger_for_coord(lat, lon, vworld_key, datago_keys) -> dict | None:
         return None
     sgg, plat, bun, ji, bjd = j
     return _ref_cached(sgg, bjd, plat, bun, ji, datago_keys)
+
+
+def _pnu_to_jibun(pnu):
+    """PNU(부동산고유번호 19자리) → (sgg5, bjd5, platGbCd, bun4, ji4).
+    PNU 필지구분(11번째, 1=대지·2=산) → 대장 platGbCd(0=대지·1=산)로 변환."""
+    p = str(pnu or "")
+    if len(p) != 19 or not p.isdigit():
+        return None
+    return (p[0:5], p[5:10], "0" if p[10] == "1" else "1", p[11:15], p[15:19])
+
+
+def flr_ouln_ref(sgg, bjd, plat, bun, ji, datago_keys) -> list | None:
+    """건축물대장 층별개요 → 층별 용도 목록 [{flr_gb,flr_no,flr_no_nm,purps,etc,area}].
+    없음=None, 일시적 실패=_ERR(캐시 금지). 혼합건물(상가+주택 등) 층별 용도 대조용."""
+    if isinstance(datago_keys, str):
+        datago_keys = [datago_keys]
+    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
+            "bun": bun, "ji": ji, "numOfRows": "100", "pageNo": "1"}
+    t = None
+    for key in datago_keys:
+        try:
+            t = urllib.request.urlopen(
+                urllib.request.Request(
+                    BR_FLR_URL + "?" + urllib.parse.urlencode({"serviceKey": key, **base}),
+                    headers={"Accept": "application/xml"}), timeout=20
+            ).read().decode("utf-8")
+            if "resultCode>00" in t:
+                break
+            t = None
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                t = None
+                continue
+            return _ERR
+        except Exception:
+            return _ERR
+    if not t:
+        return _ERR
+    try:
+        root = ET.fromstring(t)
+    except ET.ParseError:
+        return _ERR
+    items = root.findall(".//item")
+    if not items:
+        return None
+
+    def g(it, tag):
+        return (it.findtext(tag) or "").strip()
+
+    out = []
+    for it in items:
+        if g(it, "mainAtchGbCd") not in ("", "0"):    # 주건축물만(부속 제외)
+            continue
+        out.append({
+            "flr_gb": g(it, "flrGbCdNm"),         # 지상/지하
+            "flr_no": _int(g(it, "flrNo")),        # 층번호(정수)
+            "flr_no_nm": g(it, "flrNoNm"),         # "1층","지1층"
+            "purps": g(it, "mainPurpsCdNm"),       # 그 층 주용도
+            "etc": g(it, "etcPurps"),
+            "area": round(float(g(it, "area") or 0), 1) or None,
+        })
+    return out or None
+
+
+def _flr_cached(sgg, bjd, plat, bun, ji, datago_keys):
+    lk = f"L{sgg}{bjd}{plat}{bun}{ji}"
+    if lk in _flr_cache:
+        return _flr_cache[lk]
+    v = _cget(lk)
+    if v is not _MISS:
+        _flr_cache[lk] = v
+        return v
+    r = flr_ouln_ref(sgg, bjd, plat, bun, ji, datago_keys)
+    if r is _ERR:                # 일시적 — 캐시 금지
+        return None
+    _cput(lk, r)                 # list 또는 None(없음확정) 영속화
+    _flr_cache[lk] = r
+    return r
+
+
+def flr_ouln_for_pnu(pnu, datago_keys) -> list | None:
+    """PNU(inline 대장에 포함) → 층별 용도 목록(영속 캐시). 좌표·역지오코딩 불필요."""
+    j = _pnu_to_jibun(pnu)
+    if not j:
+        return None
+    sgg, bjd, plat, bun, ji = j
+    return _flr_cached(sgg, bjd, plat, bun, ji, datago_keys)

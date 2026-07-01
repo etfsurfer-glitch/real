@@ -94,6 +94,52 @@ def _is_residential(rtype) -> bool:
     return bool(rtype) and any(k in str(rtype) for k in _RESIDENTIAL_KEYWORDS)
 
 
+def _purps_cat(purps) -> str:
+    """건축물대장 용도 → 대분류(주거/업무/상업/숙박/기타)."""
+    p = str(purps or "")
+    if any(k in p for k in ("주택", "공동주택", "다세대", "연립", "다가구", "아파트", "기숙사")):
+        return "주거"
+    if "숙박" in p:
+        return "숙박"
+    if "업무" in p or "사무" in p:
+        return "업무"
+    if any(k in p for k in ("근린생활", "판매", "소매", "점포", "음식", "위락", "운동", "문화",
+                            "집회", "의료", "교육", "학원", "세차", "제조", "공장", "창고")):
+        return "상업"
+    return "기타"
+
+
+def _listing_cat(rtype, real_estate_type) -> str:
+    """매물 유형 → 대분류(주거/업무/상업/기타). 층별 용도 대조용."""
+    if _is_residential(rtype) or real_estate_type in ("APT", "OPST", "ABYG", "OBYG", "JGC"):
+        return "주거"
+    r = str(rtype or "")
+    if "사무" in r or "지식산업" in r:
+        return "업무"
+    if any(k in r for k in ("상가", "점포", "판매", "근린")):
+        return "상업"
+    return "기타"
+
+
+def _floor_summary(floors) -> str:
+    """층별 용도 목록 → 요약(용도×지상지하별 층 묶음). 예 '근린생활(1~3층)·주택(4~5층)'."""
+    seq = sorted(floors, key=lambda z: (0 if z.get("flr_gb") == "지상" else 1, z.get("flr_no") or 0))
+    groups: dict = {}
+    order: list = []
+    for x in seq:
+        key = (x.get("purps") or "?", x.get("flr_gb") or "")   # 지상/지하 분리(범위 안 섞임)
+        if key not in groups:
+            order.append(key)
+            groups[key] = []
+        groups[key].append(x.get("flr_no_nm") or "")
+    out = []
+    for key in order[:7]:
+        u = list(dict.fromkeys(groups[key]))
+        label = u[0] if len(u) == 1 else (f"{u[0]}~{u[-1]}" if len(u) > 2 else "/".join(u))
+        out.append(f"{key[0]}({label})")
+    return " · ".join(out)
+
+
 def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     """매물 1건 점검. f = listings + complexes + 상세추출 + is_saengsuk 병합 dict.
 
@@ -278,6 +324,30 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         add(12, "방향", "주의", "방향 기준(거실/주출입구 등) 미표시")
     else:
         add(12, "방향", "통과")
+
+    # ⑬ 층별 용도(건축물대장 층별개요) — 혼합건물 정밀 점검. 매물 해당층 실제 용도 대조.
+    #    주거↔비주거 불일치만 '주의'(용도위반 의심·광고오류). 층별 용도 요약은 항상 표시.
+    floors = f.get("led_floors")
+    if floors:
+        summary = _floor_summary(floors)
+        try:
+            cflr = int(f.get("corresponding_floor")) if f.get("corresponding_floor") not in (None, "") else None
+        except (ValueError, TypeError):
+            cflr = None
+        matched = [x for x in floors if x.get("flr_gb") == "지상" and x.get("flr_no") == cflr] if cflr else []
+        lcat = _listing_cat(rtype, f.get("real_estate_type"))
+        fcats = {_purps_cat(x.get("purps")) for x in matched}
+        mpur = "/".join(dict.fromkeys(x.get("purps") for x in matched if x.get("purps")))
+        if not matched or lcat == "기타" or not fcats:
+            add(13, "층별 용도", "통과", f"건축물대장 층별 — {summary}")
+        elif lcat == "주거" and "주거" not in fcats:
+            add(13, "층별 용도", "주의",
+                f"광고는 주거인데 건축물대장 {cflr}층 용도는 ‘{mpur}’({'/'.join(fcats)}) — 용도 확인 필요 · {summary}")
+        elif lcat in ("상업", "업무") and fcats == {"주거"}:
+            add(13, "층별 용도", "주의",
+                f"광고는 {lcat}인데 건축물대장 {cflr}층은 ‘{mpur}’(주거) — 용도 확인 필요 · {summary}")
+        else:
+            add(13, "층별 용도", "통과", f"{cflr}층 용도 ‘{mpur}’ · {summary}")
 
     viol = sum(1 for x in findings if x["status"] == "위반")
     warn = sum(1 for x in findings if x["status"] == "주의")
