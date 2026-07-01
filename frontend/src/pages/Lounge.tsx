@@ -1265,8 +1265,12 @@ function ListingsTab({ authH, office }: { authH: () => Record<string, string>; o
         </select>
         <span className="mlj-mgr-hint">담당자를 고르면 그 사람 매물장만 보여요</span>
       </div>
-      <div className="mlj-count">{office.realtor_name ?? "내 사무소"} · 총 <b>{items?.length ?? 0}</b>개 {busy && "불러오는 중…"}</div>
-      {!items ? <Loading /> : items.length === 0 ? (
+      <div className="mlj-count">{office.realtor_name ?? "내 사무소"} · {busy
+        ? <span style={{ color: "var(--c-primary)", fontWeight: 700 }}>불러오는 중…</span>
+        : <>총 <b>{items?.length ?? 0}</b>개</>}</div>
+      {!items || (busy && items.length === 0) ? (
+        <Loading label="내 매물을 불러오는 중이에요" slowHint="매물이 많으면 조금 더 걸릴 수 있어요" />
+      ) : items.length === 0 ? (
         <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 매물장에 나옵니다.</div>
       ) : (
         <div className="mlj-list">
