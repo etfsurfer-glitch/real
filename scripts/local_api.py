@@ -1067,15 +1067,67 @@ _realtor_cache: dict[str, tuple[float, object]] = {}
 _REALTOR_TTL_S = 86400.0
 
 
+# ── RAM 캐시 디스크 영속화(재시작 생존) ───────────────────────────────
+# 인메모리(_realtor_cache)는 프로세스 RAM이라 재시작 시 날아가 콜드 재계산(3.9s) 발생.
+# 이를 디스크(runtime_cache.sqlite)에 미러링해 배포 재시작에도 웜 유지.
+# stale 방지: 데이터버전(api_cache.sqlite mtime — daily 빌드가 갱신)이 바뀌면 무효.
+_RUNTIME_CACHE_DB = DB_PATH.parent / "runtime_cache.sqlite"
+
+
+def _data_version() -> str:
+    """데이터 버전 토큰 — daily 갱신 시 바뀜(사전캐시 재생성 + 랭킹파일 갱신). 둘 중 하나라도
+    바뀌면 디스크캐시 무효 → stale 방지(랭킹 엔드포인트 호출 여부와 무관하게 자동 무효화)."""
+    parts = []
+    for p in (_CACHE_DB_PATH, _RANK_FILE):
+        try:
+            parts.append(str(int(os.path.getmtime(p))))
+        except OSError:
+            parts.append("0")
+    return ".".join(parts)
+
+
+def _rc_db():
+    c = sqlite3.connect(_RUNTIME_CACHE_DB, timeout=5)
+    c.execute("PRAGMA busy_timeout=4000")
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA journal_size_limit=268435456")
+    c.execute("CREATE TABLE IF NOT EXISTS mem_cache(key TEXT PRIMARY KEY, val TEXT, at REAL, ver TEXT)")
+    return c
+
+
+def _rc_clear() -> None:
+    try:
+        with _rc_db() as c:
+            c.execute("DELETE FROM mem_cache")
+    except Exception:
+        pass
+
+
 def _cache_get(key: str):
     hit = _realtor_cache.get(key)
     if hit and _time.monotonic() - hit[0] < _REALTOR_TTL_S:
         return hit[1]
+    # 디스크 폴백 — 재시작 생존. 데이터버전 일치 + TTL 이내만 유효(stale 방지).
+    try:
+        with _rc_db() as c:
+            row = c.execute("SELECT val, at, ver FROM mem_cache WHERE key=?", (key,)).fetchone()
+        if row and (_time.time() - (row[1] or 0)) < _REALTOR_TTL_S and row[2] == _data_version():
+            val = _json.loads(row[0])
+            _realtor_cache[key] = (_time.monotonic(), val)     # RAM으로 승격
+            return val
+    except Exception:
+        pass
     return None
 
 
 def _cache_put(key: str, val):
     _realtor_cache[key] = (_time.monotonic(), val)
+    try:
+        with _rc_db() as c:
+            c.execute("INSERT OR REPLACE INTO mem_cache(key, val, at, ver) VALUES(?,?,?,?)",
+                      (key, _json.dumps(val, ensure_ascii=False, default=str), _time.time(), _data_version()))
+    except Exception:
+        pass
 
 
 @app.get("/stats/realtors/national")
@@ -2457,6 +2509,7 @@ def _rank_tables() -> dict:
         mtime = None
     if mtime is not None and mtime != _rank_loaded_mtime:
         _realtor_cache.clear()
+        _rc_clear()               # 디스크 캐시도 비움(daily 갱신 반영)
         _rank_loaded_mtime = mtime
     cached = _cache_get("ranks")
     if cached is not None:
