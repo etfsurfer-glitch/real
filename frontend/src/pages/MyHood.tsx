@@ -6,6 +6,33 @@ import { MapPin, TrendingUp, BadgePercent, BarChart3, Trophy, Flame, ChevronRigh
 
 const API = import.meta.env.VITE_API_BASE;
 const LS = "koczip_myhood";
+
+// 첫 로드(컴퓨터 켜고 처음 접속) 시 API/CF 연결이 아직 콜드라 fetch가 실패하면 홈 위젯이
+// 빈 상태로 뜬다(새로고침하면 웜이라 정상). 네트워크 오류·게이트웨이(502/3/4)는 짧게
+// 재시도해 첫 로드에도 데이터가 바로 뜨게 한다.
+async function fetchJsonRetry(url: string, tries = 3): Promise<unknown | null> {
+  for (let i = 1; i <= tries; i++) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) {
+        if ((r.status === 502 || r.status === 503 || r.status === 504) && i < tries) {
+          await new Promise((res) => setTimeout(res, 400 * i));
+          continue;
+        }
+        return null;
+      }
+      return await r.json();
+    } catch {
+      if (i < tries) {
+        await new Promise((res) => setTimeout(res, 400 * i));
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
 type Region = { code: string; name: string };
 type Item = Record<string, unknown>;
 type Data = { volume: Item[]; price: Item[]; change: Item[]; deals: Item[] };
@@ -31,7 +58,7 @@ function useMyRegion() {
 
   useEffect(() => {
     if (!API) { setReady(true); return; }
-    fetch(`${API}/stats/changes/sido-list`).then((r) => r.json()).then((d) => setSidos(d.items || [])).catch(() => {});
+    fetchJsonRetry(`${API}/stats/changes/sido-list`).then((d) => setSidos((d as { items?: Region[] })?.items || []));
     try {
       const s = JSON.parse(localStorage.getItem(LS) || "{}");
       if (s.sido) { setSido(s.sido); setSigungu(s.sigungu || ""); setDong(s.dong || ""); }
@@ -40,11 +67,11 @@ function useMyRegion() {
   }, []);
   useEffect(() => {
     if (!API || !sido) { setSigungus([]); return; }
-    fetch(`${API}/stats/sigungu-list?sido=${sido}`).then((r) => r.json()).then((d) => setSigungus(d.items || [])).catch(() => {});
+    fetchJsonRetry(`${API}/stats/sigungu-list?sido=${sido}`).then((d) => setSigungus((d as { items?: Region[] })?.items || []));
   }, [sido]);
   useEffect(() => {
     if (!API || !sigungu) { setDongs([]); return; }
-    fetch(`${API}/stats/dong-list?sigungu=${sigungu}`).then((r) => r.json()).then((d) => setDongs(d.items || [])).catch(() => {});
+    fetchJsonRetry(`${API}/stats/dong-list?sigungu=${sigungu}`).then((d) => setDongs((d as { items?: Region[] })?.items || []));
   }, [sigungu]);
   useEffect(() => {
     if (ready) localStorage.setItem(LS, JSON.stringify({ sido, sigungu, dong }));
@@ -71,7 +98,7 @@ export default function MyHood() {
     if (!API || !r.ready) return;
     setData(null);
     const q = r.query ? `${r.query}&` : "";
-    const get = (p: string) => fetch(`${API}/stats/${p}`).then((x) => x.json()).then((d) => (d.items || []) as Item[]).catch(() => [] as Item[]);
+    const get = (p: string) => fetchJsonRetry(`${API}/stats/${p}`).then((d) => ((d as { items?: Item[] })?.items || []) as Item[]);
     let cancelled = false;
     Promise.all([
       get(`tx-top-volume?${q}asset=${asset}&limit=7`),
