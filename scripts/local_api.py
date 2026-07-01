@@ -9431,6 +9431,7 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
         # 안 맞을 때만 불일치). 주차는 비단지만(단지형 주차는 총괄표제부 필요 → 생략).
         f["led_total_floor"] = led.get("grnd_flr_all") or led.get("grnd_flr")
         f["led_use_apr_day"] = led.get("use_apr_all") or led.get("use_apr_day")
+        f["led_main_purps"] = led.get("main_purps")     # 대장 주용도(상가 대조 가능여부 판별)
         if not dong_set:
             f["led_parking"] = led.get("parking")
     if expos:
