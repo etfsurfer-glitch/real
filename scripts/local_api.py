@@ -5240,6 +5240,12 @@ def quick_deals(
         raise HTTPException(400, "trade_type must be A1|B1")
     if min_samples < 1:
         raise HTTPException(400, "min_samples must be >= 1")
+    # 앱 캐시(24h, 데이터버전 무효) — 라이브 계산(0.5~1s)이라 홈에서 매번 느렸던 것 개선.
+    _qk = (f"qd:{days}:{min_samples}:{asset}:{trade_type}:{pyeong or ''}:{sido or ''}:"
+           f"{sigungu or ''}:{dong or ''}:{min_discount}:{max_discount}:{min_listings}:{limit}")
+    _qh = _cache_get(_qk)
+    if _qh is not None:
+        return _qh
 
     if trade_type == "A1":
         sale_tables = (
@@ -5481,7 +5487,7 @@ def quick_deals(
         }
         for r in rows
     ]
-    return {
+    result = {
         "days": days, "min_samples": min_samples, "asset": asset,
         "trade_type": trade_type, "pyeong": pyeong,
         "sido": sido, "sigungu": sigungu,
@@ -5489,6 +5495,8 @@ def quick_deals(
         "min_listings": min_listings,
         "count": len(items), "items": items,
     }
+    _cache_put(_qk, result)
+    return result
 
 
 @app.get("/stats/quick-deals-map")
