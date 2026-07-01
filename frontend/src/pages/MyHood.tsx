@@ -10,21 +10,23 @@ const LS = "koczip_myhood";
 // 첫 로드(컴퓨터 켜고 처음 접속) 시 API/CF 연결이 아직 콜드라 fetch가 실패하면 홈 위젯이
 // 빈 상태로 뜬다(새로고침하면 웜이라 정상). 네트워크 오류·게이트웨이(502/3/4)는 짧게
 // 재시도해 첫 로드에도 데이터가 바로 뜨게 한다.
-async function fetchJsonRetry(url: string, tries = 3): Promise<unknown | null> {
+async function fetchJsonRetry(url: string, tries = 5): Promise<unknown | null> {
   for (let i = 1; i <= tries; i++) {
     try {
       const r = await fetch(url);
       if (!r.ok) {
         if ((r.status === 502 || r.status === 503 || r.status === 504) && i < tries) {
-          await new Promise((res) => setTimeout(res, 400 * i));
+          await new Promise((res) => setTimeout(res, Math.min(500 * i, 1500)));
           continue;
         }
         return null;
       }
       return await r.json();
     } catch {
+      // 콜드 첫 로드에 CF↔origin 연결이 아직 안 풀려 실패(net::ERR_FAILED)하는 창을 넘기려
+      // 여러 번 재시도(연결이 warm될 시간을 준다). keep-warm 크론과 함께 이중 방어.
       if (i < tries) {
-        await new Promise((res) => setTimeout(res, 400 * i));
+        await new Promise((res) => setTimeout(res, Math.min(500 * i, 1500)));
         continue;
       }
       return null;
