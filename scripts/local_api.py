@@ -2493,7 +2493,12 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
 # 행을 GROUP BY 하지 않고 파일에서 즉시 로드한다. daily_run(build_api_cache)이 매일
 # persist_ranks() 로 새로 빌드해 갱신.
 _RANK_FILE = DB_PATH.parent / "realtor_ranks.pkl"
-_rank_loaded_mtime: float | None = None  # 마지막으로 로드한 파일의 수정시각
+# 시작 시 현재 mtime으로 초기화 — 재시작만으로는 '변경됨'으로 오판해 디스크캐시를 비우지
+# 않도록(영속 캐시 보존). 데이터 실제 갱신(daily가 파일 재작성) 시엔 mtime이 바뀌어 무효화.
+try:
+    _rank_loaded_mtime: float | None = _RANK_FILE.stat().st_mtime
+except OSError:
+    _rank_loaded_mtime = None
 
 
 def _rank_tables() -> dict:
