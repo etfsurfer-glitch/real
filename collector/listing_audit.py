@@ -101,6 +101,10 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
 
     saengsuk = bool(f.get("is_saengsuk"))
     rtype = f.get("realestate_type_name") or f.get("real_estate_type")
+    # 대장 대조 가능 여부: 빌라·단독·다세대는 건축물대장=그 건물 전체라 총층·주차 대조가 유효.
+    # 상가·사무실·지식산업센터는 주상복합/대형 복합건물의 저층부라 대장이 전체 동(고층·전체주차)을
+    # 가리켜, 광고(해당 상가부분)와 직접 대조하면 오탐(예: 단지내상가 총층 2 vs 대장 59). → 대조 생략.
+    led_comparable = rtype in _RESIDENTIAL_TYPES
 
     # ① 소재지 (지번·동·층)
     floor = f.get("floor_info")
@@ -167,12 +171,12 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         else:
             add(6, "총 층수", "통과", "CP 자동입력(확인)")
     elif not _has(f.get("total_floor")):
-        note = f" → 건축물대장 기준 총 {_fmt_led(led_tf)}층" if led_tf else ""
+        note = f" → 건축물대장 기준 총 {_fmt_led(led_tf)}층" if (led_tf and led_comparable) else ""
         add(6, "총 층수", "위반", "광고에 총 층수 미표시" + note)
-    elif _ledger_mismatch(f.get("total_floor"), led_tf):
+    elif led_comparable and _ledger_mismatch(f.get("total_floor"), led_tf):
         add(6, "총 층수", "주의", f"광고 총층({f.get('total_floor')}) ≠ 건축물대장 기준 {_fmt_led(led_tf)}층")
     else:
-        add(6, "총 층수", "통과", f"건축물대장 기준 {_fmt_led(led_tf)}층 일치" if led_tf else "")
+        add(6, "총 층수", "통과", f"건축물대장 기준 {_fmt_led(led_tf)}층 일치" if (led_tf and led_comparable) else "")
 
     # ⑦ 입주가능일 — 미표시만 위반. '즉시입주'+'협의가능' 동시표기는 실무상 허용(주의 안 함).
     if not _has(f.get("movein_type")):
@@ -215,14 +219,15 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     pk_possible = f.get("parking_possible")    # 네이버 parkingPossibleYN
     if cp_autofilled:
         add(10, "주차", "통과", "CP 자동입력(확인)")
-    elif led_pk is not None and (led_pk or 0) == 0 and pk_possible == "Y":
+    elif led_comparable and led_pk is not None and (led_pk or 0) == 0 and pk_possible == "Y":
         add(10, "주차", "위반", "건축물대장상 주차대수 없음 → '주차불가' 표시 필요(대장 기준)")
     elif not _has(f.get("parking_count")):
+        # 상가·사무실 등(led_comparable=False)은 대장 주차가 전체 동 값이라 참고표시 생략
         add(10, "주차", "위반", "광고에 주차대수 미표시"
-            + (f" → 건축물대장 기준 총 {led_pk}대" if led_pk else ""))
+            + (f" → 건축물대장 기준 총 {led_pk}대" if (led_pk and led_comparable) else ""))
     else:
         # 정확한 대수 대조는 같은 지번 다동 모호성으로 생략(표시여부·주차불가만 점검)
-        add(10, "주차", "통과", f"건축물대장 총주차 {led_pk}대" if led_pk else "")
+        add(10, "주차", "통과", f"건축물대장 총주차 {led_pk}대" if (led_pk and led_comparable) else "")
 
     # ⑪ 관리비 — 비목별 금액은 임대인(중개의뢰인) 고지에 의존하고, 미고지·확인불가 시
     #    표시 의무가 면제된다(국토부 고시 예외). 우리는 고지 여부를 알 수 없어 비목 미표시를
