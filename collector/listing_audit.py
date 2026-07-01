@@ -282,6 +282,8 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     pk_possible = f.get("parking_possible")    # 네이버 parkingPossibleYN
     if cp_autofilled:
         add(10, "주차", "통과", "CP 자동입력(확인)")
+    elif pk_possible == "N":
+        add(10, "주차", "통과", "주차 불가로 표시됨")     # 주차불가 명시 = 유효한 표시
     elif led_comparable and led_pk is not None and (led_pk or 0) == 0 and pk_possible == "Y":
         add(10, "주차", "위반", "건축물대장상 주차대수 없음 → '주차불가' 표시 필요(대장 기준)")
     elif not _has(f.get("parking_count")):
@@ -317,11 +319,12 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     else:
         add(11, "관리비", "주의", "관리비 미표기 — 광고에 관리비 항목 입력 권장")
 
-    # ⑫ 방향 (+ 기준)
+    # ⑫ 방향 — 방향 자체는 표시 의무. '방향 기준(거실/안방 등) 함께표시'는 주거용건축물만
+    #    (비주거는 주된 출입구 방향으로 표시하면 됨 → 기준 미표시 주의 안 함).
     if not _has(f.get("direction")):
         add(12, "방향", "위반", "방향 미표시")
-    elif not _has(f.get("direction_base")):
-        add(12, "방향", "주의", "방향 기준(거실/주출입구 등) 미표시")
+    elif residential and not _has(f.get("direction_base")):
+        add(12, "방향", "주의", "방향 기준(거실/안방 등) 미표시")
     else:
         add(12, "방향", "통과")
 
