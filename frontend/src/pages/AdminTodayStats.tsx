@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Users, UserPlus, Activity, Eye, LogIn, Bot, Building2, RefreshCw } from "lucide-react";
+import { Users, UserPlus, Activity, Eye, LogIn, Bot, Building2, RefreshCw, Repeat } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { useAuth } from "../auth";
 
@@ -11,6 +11,11 @@ type Stats = {
   peak_concurrent: number; peak_window: string; new_signups: number; total_users: number;
   hourly: { hour: number; visitors: number; events: number }[];
   top_paths: { path: string; label?: string; n: number }[];
+  returning?: {
+    ip_today: number; ip_returning: number; ip_rate: number;
+    user_today: number; user_returning: number; user_rate: number;
+    window_days: number;
+  };
 };
 type Trend = { date: string; visitors: number; pageviews: number; signups: number };
 type Page = { label: string; views: number; visitors: number };
@@ -63,6 +68,24 @@ export default function AdminTodayStats() {
         <div><Bot size={14} /> AI질문 <b>{d.ai_questions.toLocaleString()}</b></div>
         <div><Users size={14} /> 총회원 <b>{d.total_users.toLocaleString()}</b></div>
       </div>
+
+      {d.returning && (
+        <>
+          <div className="ats-section">재접속자 비율 <span style={{ fontWeight: 400, color: "#9aa7b8", fontSize: 11 }}>최근 {d.returning.window_days}일 내 이전에도 접속한 방문자</span></div>
+          <div className="ats-cards">
+            <div className="ats-card">
+              <span className="ats-ic"><Repeat size={18} /></span>
+              <span className="ats-v">{Math.round(d.returning.ip_rate * 100)}%</span>
+              <span className="ats-l">동일 IP 재접속<br /><b>{d.returning.ip_returning.toLocaleString()}</b> / {d.returning.ip_today.toLocaleString()}명</span>
+            </div>
+            <div className="ats-card">
+              <span className="ats-ic"><Repeat size={18} /></span>
+              <span className="ats-v">{Math.round(d.returning.user_rate * 100)}%</span>
+              <span className="ats-l">동일 로그인ID 재접속<br /><b>{d.returning.user_returning.toLocaleString()}</b> / {d.returning.user_today.toLocaleString()}명</span>
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="ats-section">시간대별 방문자 (KST)</div>
       <div className="ats-chart">

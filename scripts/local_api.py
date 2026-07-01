@@ -6690,6 +6690,17 @@ def admin_today_stats(_admin: dict = Depends(admin_user)):
         top_paths = [{"path": p, "label": _page_label(p), "n": n} for p, n in c.execute(
             f"SELECT path, COUNT(*) FROM event_log WHERE {T} AND path IS NOT NULL AND path<>'' "
             f"GROUP BY path ORDER BY 2 DESC LIMIT 8")]
+        # 재접속자 비율 — 오늘 방문자(IP·로그인ID) 중 '최근 30일 내 이전에도 접속'한 비율
+        _tod = "datetime('now','+9 hours','start of day','-9 hours')"          # KST 오늘 0시(UTC)
+        _lb = "datetime('now','+9 hours','start of day','-30 days','-9 hours')"  # 30일 전 0시(UTC)
+        ti, ri = c.execute(
+            f"SELECT COUNT(DISTINCT ip), COUNT(DISTINCT CASE WHEN ip IN "
+            f"(SELECT ip FROM event_log WHERE ts>={_lb} AND ts<{_tod} AND ip IS NOT NULL AND ip<>'') "
+            f"THEN ip END) FROM event_log WHERE ts>={_tod} AND ip IS NOT NULL AND ip<>''").fetchone()
+        tu, ru = c.execute(
+            f"SELECT COUNT(DISTINCT user_id), COUNT(DISTINCT CASE WHEN user_id IN "
+            f"(SELECT user_id FROM event_log WHERE ts>={_lb} AND ts<{_tod} AND user_id IS NOT NULL AND user_id<>'') "
+            f"THEN user_id END) FROM event_log WHERE ts>={_tod} AND user_id IS NOT NULL AND user_id<>''").fetchone()
     with _reviews_db() as rc:
         new_signups = rc.execute(
             "SELECT COUNT(*) FROM user_profiles WHERE agreed_terms_at IS NOT NULL "
@@ -6701,6 +6712,13 @@ def admin_today_stats(_admin: dict = Depends(admin_user)):
         "peak_concurrent": peak_concurrent, "peak_window": peak_window,
         "new_signups": new_signups, "total_users": total_users,
         "hourly": hourly, "top_paths": top_paths,
+        "returning": {
+            "ip_today": ti or 0, "ip_returning": ri or 0,
+            "ip_rate": round((ri / ti) if ti else 0.0, 3),
+            "user_today": tu or 0, "user_returning": ru or 0,
+            "user_rate": round((ru / tu) if tu else 0.0, 3),
+            "window_days": 30,
+        },
     }
 
 
