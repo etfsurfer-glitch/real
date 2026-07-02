@@ -262,7 +262,8 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         note = f" → 건축물대장 기준 총 {_fmt_led(led_tf)}층" if (led_tf and led_comparable) else ""
         add(6, "총 층수", "위반", "광고에 총 층수 미표시" + note)
     elif led_comparable and _ledger_mismatch(f.get("total_floor"), led_tf):
-        add(6, "총 층수", "주의", f"광고 총층({f.get('total_floor')}) ≠ 건축물대장 기준 {_fmt_led(led_tf)}층")
+        add(6, "총 층수", "위반",
+            f"광고 총층({f.get('total_floor')}) ≠ 건축물대장 기준 {_fmt_led(led_tf)}층 — 공부와 불일치")
     else:
         add(6, "총 층수", "통과", f"건축물대장 기준 {_fmt_led(led_tf)}층 일치" if (led_tf and led_comparable) else "")
 

@@ -9659,7 +9659,8 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
     """비단지 매물 1건 점검(상세+네이버 inline 건축물대장, 폴백=좌표 온디맨드, 전유면적)."""
     from collector.article_detail import fetch_and_extract
     from collector.listing_audit import audit_listing
-    from collector.ondemand_ledger import ledger_for_coord, expos_areas_for_coord, flr_ouln_for_pnu
+    from collector.ondemand_ledger import (ledger_for_coord, expos_areas_for_coord,
+                                           flr_ouln_for_pnu, commercial_for_pnu)
     det = fetch_and_extract(r["article_no"], None, creds)
     if det is None or det.get("_delisted"):
         return _audit_skip_result(r, _NONRESI_LABEL.get(cat, cat), delisted=bool(det))
@@ -9672,6 +9673,16 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
         # 전유면적 대조는 집합건물(전유 표기 명확)만 — 단독·다가구/토지/공장 등 일반건축물 제외.
         if cat in ("villa", "sangga", "office", "knowledge"):
             expos = expos_areas_for_coord(r["latitude"], r["longitude"], vw, dks)
+    # 상가·사무실 매물인데 대장이 주거/숙박 타워를 가리키면(단지내상가 등) → 같은 지번의
+    # 별도 '상가동' 대장을 찾아 그 동 기준으로 대조(사용자 지시). 상가동 없으면 기존대로
+    # 대조 생략(led_comparable=False 경로).
+    if (cat in ("sangga", "office", "knowledge") and dks and led and led.get("pnu")
+            and any(k in (led.get("main_purps") or "")
+                    for k in ("공동주택", "아파트", "오피스텔", "숙박", "기숙사", "도시형생활"))):
+        _pnu = led.get("pnu")
+        comm = commercial_for_pnu(_pnu, dks)
+        if comm:
+            led = dict(comm, pnu=_pnu)
     # ⑬ 층별 용도(층별개요) — inline 대장의 pnu로 온디맨드(혼합건물 정밀 점검).
     floors = flr_ouln_for_pnu(led["pnu"], dks) if (dks and led and led.get("pnu")) else None
     res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos, floors=floors))

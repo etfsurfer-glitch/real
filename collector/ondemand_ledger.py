@@ -397,3 +397,85 @@ def flr_ouln_for_pnu(pnu, datago_keys) -> list | None:
         return None
     sgg, bjd, plat, bun, ji = j
     return _flr_cached(sgg, bjd, plat, bun, ji, datago_keys)
+
+
+# 상업용 동 판별 키워드(표제부 주용도) — 단지내 별도 상가동 탐지용
+_COMM_PURPS_KW = ("근린생활", "판매", "업무", "소매", "점포", "시장", "운동", "문화", "의료")
+
+
+def commercial_ref(sgg, bjd, plat, bun, ji, datago_keys):
+    """같은 지번의 표제부에서 '상업용 동'(근린생활·판매·업무 등)만 골라 집계.
+    아파트 단지내상가처럼 주거타워와 별도 상가동이 공존하는 경우, 상가 매물은
+    상가동 기준으로 총층·사용승인을 대조해야 한다(주거타워 대조는 오탐). 없으면 None."""
+    if isinstance(datago_keys, str):
+        datago_keys = [datago_keys]
+    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
+            "bun": bun, "ji": ji, "numOfRows": "100", "pageNo": "1"}
+    t = None
+    for key in datago_keys:
+        try:
+            t = urllib.request.urlopen(
+                urllib.request.Request(
+                    BR_URL + "?" + urllib.parse.urlencode({"serviceKey": key, **base}),
+                    headers={"Accept": "application/xml"}), timeout=20
+            ).read().decode("utf-8")
+            if "resultCode>00" in t:
+                break
+            t = None
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                t = None
+                continue
+            return _ERR
+        except Exception:
+            return _ERR
+    if not t:
+        return _ERR
+    try:
+        root = ET.fromstring(t)
+    except ET.ParseError:
+        return _ERR
+
+    def g(it, tag):
+        return (it.findtext(tag) or "").strip()
+
+    comm = [it for it in root.findall(".//item")
+            if g(it, "mainAtchGbCd") in ("", "0")
+            and any(k in g(it, "mainPurpsCdNm") for k in _COMM_PURPS_KW)]
+    if not comm:
+        return None
+    pick = max(comm, key=lambda it: float(g(it, "totArea") or 0))
+    floors = sorted({_int(g(it, "grndFlrCnt")) for it in comm if _int(g(it, "grndFlrCnt"))})
+    useaps = sorted({g(it, "useAprDay") for it in comm if g(it, "useAprDay")})
+    return {
+        "main_purps": g(pick, "mainPurpsCdNm"),
+        "bld_nm": g(pick, "bldNm"),
+        "grnd_flr": _int(g(pick, "grndFlrCnt")),
+        "grnd_flr_all": floors,          # 상가동 여러 개면 any-match 대조
+        "use_apr_day": g(pick, "useAprDay"),
+        "use_apr_all": useaps,
+        "parking": None,                 # XML은 필드부재=0 모호 → 공부0 판정에 안 씀
+        "n_records": len(comm),
+        "_source": "commercial_dong",
+    }
+
+
+def commercial_for_pnu(pnu, datago_keys):
+    """PNU → 같은 지번의 상가동 집계(영속 캐시, 키 CD). 없음확정=None 캐시, 일시오류=캐시 금지."""
+    j = _pnu_to_jibun(pnu)
+    if not j:
+        return None
+    sgg, bjd, plat, bun, ji = j
+    ck = f"CD{sgg}{bjd}{plat}{bun}{ji}"
+    if ck in _cache:
+        return _cache[ck]
+    v = _cget(ck)
+    if v is not _MISS:
+        _cache[ck] = v
+        return v
+    r = commercial_ref(sgg, bjd, plat, bun, ji, datago_keys)
+    if r is _ERR:
+        return None
+    _cput(ck, r)
+    _cache[ck] = r
+    return r
