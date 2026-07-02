@@ -310,7 +310,9 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     # administrationCostInfo(부과방식·내역·확인불가)나 정액값이 입력돼 있으면 관리비 항목 표시됨.
     has_cost_info = bool(aci.get("chargeCodeType") or aci.get("fixedFeeDetails")
                          or aci.get("chargeInputContent")) or (ci is not None and ci >= 0)
-    if ci is not None and ci > 0 and (ci >= 2_000_000 or ci <= 1000):
+    # 이상치 상한: 주거용 2백만(세대 관리비) / 비주거 2천만(통건물·대형상가는 수백만이 정상).
+    _hi = 2_000_000 if residential else 20_000_000
+    if ci is not None and ci > 0 and (ci >= _hi or ci <= 1000):
         add(11, "관리비", "주의", f"관리비 이상치({ci:,}원) — 오입력 의심")
     elif has_cost_info:
         add(11, "관리비", "통과", "관리비 항목 표시됨(비목 세부는 임대인 고지 의존)")

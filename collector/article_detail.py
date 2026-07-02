@@ -46,7 +46,9 @@ def extract_checklist_fields(detail: dict) -> dict[str, Any]:
         "building_name": ad.get("buildingName"),             # 동 명칭
         "floor_info": add.get("floorInfo"),                  # "중/15" 등 → 저/중/고 판별
         "corresponding_floor": flr.get("correspondingFloorCount"),  # 해당층
-        "total_floor": _num(flr.get("totalFloorCount")),     # ⑥ 총 층수
+        # ⑥ 총 층수 — 건물(통임대) 매물은 totalFloorCount 대신 uppergroundFloorCount(지상층)에
+        #    표기됨(광고 '지상층/지하층 5/B2'). 대장 대조도 지상층(grnd_flr) 기준이라 동일 의미.
+        "total_floor": _num(flr.get("totalFloorCount")) or _num(flr.get("uppergroundFloorCount")),
         # ④ 종류/용도 + 위반·미등기
         "realestate_type": ad.get("realestateTypeName"),
         "principal_use": ad.get("principalUse"),             # 주용도(업무/숙박 등, 생숙 보조신호)
