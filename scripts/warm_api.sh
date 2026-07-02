@@ -20,7 +20,24 @@ for asset in apt offi; do
   H "/stats/quick-deals?asset=$asset&days=90&min_samples=3&min_discount=0.05&limit=8"
 done
 H "/stats/changes/sido-list"
-H "/stats/avg-price-trend?days=90&asset=apt"
+
+# ── 가격추이(Changes 페이지 실제 파라미터 = days=60) — 전국 + 시도 전체 ──
+# 전국 콜드 13.5s·시도 콜드 ~8s 라 미리 데움(런타임캐시에 저장 → 재빌드까지 즉시응답).
+H "/stats/avg-price-trend?days=60&asset=apt"
+H "/stats/avg-price-trend?days=60&asset=offi"
+SIDOS=$("$ROOT/.venv/bin/python" -c "
+import sqlite3
+c = sqlite3.connect('/opt/koczip/data/naverreal.sqlite')
+print(' '.join(r[0] for r in c.execute(\"SELECT cortar_no FROM regions WHERE cortar_type='city'\")))")
+for s in $SIDOS; do
+  H "/stats/avg-price-trend?days=60&sido=$s&asset=apt"
+  H "/stats/quick-deals?sido=$s&asset=apt&days=90&min_samples=3&min_discount=0.05&limit=8"
+done
+
+# ── 실거래 통계 변형(전세가율 면적필터 등 프리빌드 밖 조합) ──
+for ac in 10s 20s 30s 40s; do
+  H "/stats/tx-jeonse-rate?days=365&asset=apt&order=desc&area_class=$ac&min_samples=3&limit=200"
+done
 
 # ── 중개사 랭킹(홈·랭킹 페이지) ──
 H "/stats/realtors/national?limit=20&scope=complex"

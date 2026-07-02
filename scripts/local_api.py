@@ -3948,6 +3948,11 @@ def tx_gap_rank(days: int = 365, asset: str = "apt", min_samples: int = 3,
     """갭투자 순위: 같은 단지·평형 평균 매매가 - 평균 전세가.
     order='asc' = 갭 작은 순 (적은 자본 투자), 'desc' = 갭 큰 순.
     """
+    _ck = (f"txgap:{days}:{asset}:{min_samples}:{area_class}:"
+           f"{sido or ''}:{sigungu or ''}:{dong or ''}:{limit}:{order}")
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
     if not days or days < 30 or days > 3650:
         raise HTTPException(400, "days out of range")
     if limit < 1 or limit > 500:
@@ -3991,7 +3996,7 @@ def tx_gap_rank(days: int = 365, asset: str = "apt", min_samples: int = 3,
             """,
             (sk, cutoff, *fp, min_samples, jk, cutoff, *fp, min_samples, limit),
         ).fetchall()
-    return {
+    _res = {
         "days": days, "asset": asset, "order": order,
         "items": [
             {"complex_no": r[0], "area_key": r[1], "avg_sale": r[2],
@@ -4000,6 +4005,8 @@ def tx_gap_rank(days: int = 365, asset: str = "apt", min_samples: int = 3,
             for r in rows
         ],
     }
+    _cache_put(_ck, _res)
+    return _res
 
 
 @app.get("/stats/tx-jeonse-rate")
@@ -4008,6 +4015,11 @@ def tx_jeonse_rate(days: int = 365, asset: str = "apt", min_samples: int = 3,
                    sigungu: str | None = None, dong: str | None = None,
                    limit: int = 100, order: str = "desc"):
     """전세율 (전세가/매매가) 순위. desc = 전세가 비중 높은 단지(갭투자 매력)."""
+    _ck = (f"txjr:{days}:{asset}:{min_samples}:{area_class}:"
+           f"{sido or ''}:{sigungu or ''}:{dong or ''}:{limit}:{order}")
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
     if not _area_rollup_ready():
         raise HTTPException(503, "tx_area_rollup 미빌드 — build_tx_rollups.py 실행 필요")
     cutoff = f"-{days} days"
@@ -4046,7 +4058,7 @@ def tx_jeonse_rate(days: int = 365, asset: str = "apt", min_samples: int = 3,
             """,
             (sk, cutoff, *cte_p, min_samples, jk, cutoff, *cte_p, min_samples, limit),
         ).fetchall()
-    return {
+    _res = {
         "days": days, "asset": asset, "order": order,
         "items": [
             {"complex_no": r[0], "area_key": r[1], "avg_sale": r[2],
@@ -4055,6 +4067,8 @@ def tx_jeonse_rate(days: int = 365, asset: str = "apt", min_samples: int = 3,
             for r in rows
         ],
     }
+    _cache_put(_ck, _res)
+    return _res
 
 
 @app.get("/stats/tx-price-change")
@@ -4188,6 +4202,11 @@ def tx_pyeong_price(days: int = 365, asset: str = "apt", min_samples: int = 3,
                     sigungu: str | None = None, dong: str | None = None, limit: int = 100, order: str = "desc"):
     """평당가 순위 — 거래가 ÷ 면적(평). 단지×평형 그룹 평균.
     order='desc' = 비싼 순, 'asc' = 싼 순."""
+    _ck = (f"txpy:{days}:{asset}:{min_samples}:{area_class}:"
+           f"{sido or ''}:{sigungu or ''}:{dong or ''}:{limit}:{order}")
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
     if not _area_rollup_ready():
         raise HTTPException(503, "tx_area_rollup 미빌드 — build_tx_rollups.py 실행 필요")
     cutoff = f"-{days} days"
@@ -4219,7 +4238,7 @@ def tx_pyeong_price(days: int = 365, asset: str = "apt", min_samples: int = 3,
             """,
             (*sks, cutoff, *reg_params, *ac_params, min_samples, limit),
         ).fetchall()
-    return {
+    _res = {
         "days": days, "asset": asset, "order": order,
         "items": [
             {"complex_no": r[0], "area_key": r[1], "avg_price": r[2],
@@ -4227,6 +4246,8 @@ def tx_pyeong_price(days: int = 365, asset: str = "apt", min_samples: int = 3,
             for r in rows
         ],
     }
+    _cache_put(_ck, _res)
+    return _res
 
 
 @app.get("/stats/tx-turnover")
@@ -4234,6 +4255,11 @@ def tx_turnover(days: int = 365, trade: str = "A1", asset: str = "apt",
                 min_households: int = 50, area_class: str = "all",
                 sido: str | None = None, sigungu: str | None = None, dong: str | None = None, limit: int = 100):
     """거래회전율 — 거래량 / 세대수. trade=A1 매매, B1 전세."""
+    _ck = (f"txto:{days}:{trade}:{asset}:{min_households}:{area_class}:"
+           f"{sido or ''}:{sigungu or ''}:{dong or ''}:{limit}")
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
     if not _area_rollup_ready():
         raise HTTPException(503, "tx_area_rollup 미빌드 — build_tx_rollups.py 실행 필요")
     cutoff = f"-{days} days"
@@ -4263,7 +4289,7 @@ def tx_turnover(days: int = 365, trade: str = "A1", asset: str = "apt",
             """,
             (*kinds, cutoff, *reg_params, *ac_params, min_households, limit),
         ).fetchall()
-    return {
+    _res = {
         "days": days, "trade": trade, "asset": asset,
         "items": [
             {"complex_no": r[0], "complex_name": r[1], "households": r[2],
@@ -4271,6 +4297,8 @@ def tx_turnover(days: int = 365, trade: str = "A1", asset: str = "apt",
             for r in rows
         ],
     }
+    _cache_put(_ck, _res)
+    return _res
 
 
 @app.get("/stats/tx-yield")
