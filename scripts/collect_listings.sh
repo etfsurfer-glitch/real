@@ -49,3 +49,4 @@ step "step 8: build_realtor_dong"     $PY -u scripts/build_realtor_dong.py
 step "step 9: build_api_cache"        $PY -u scripts/build_api_cache.py --default-only
 
 log "listings-only run done collect=$collect_exit"
+bash "$ROOT/scripts/warm_api.sh" >>"$LOG" 2>&1 || true   # 캐시 워밍(재빌드 후 첫 사용자도 빠르게)

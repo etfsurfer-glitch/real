@@ -1074,16 +1074,32 @@ _REALTOR_TTL_S = 86400.0
 _RUNTIME_CACHE_DB = DB_PATH.parent / "runtime_cache.sqlite"
 
 
+_dv_memo = {"at": 0.0, "v": ""}
+
+
 def _data_version() -> str:
-    """데이터 버전 토큰 — daily 갱신 시 바뀜(사전캐시 재생성 + 랭킹파일 갱신). 둘 중 하나라도
-    바뀌면 디스크캐시 무효 → stale 방지(랭킹 엔드포인트 호출 여부와 무관하게 자동 무효화)."""
+    """데이터 버전 토큰 — **내용 기반**(api_cache 최신 computed_at + 랭킹파일 mtime).
+    파일 mtime만 쓰면 WAL 체크포인트 등으로 내용이 안 변해도 흔들려 런타임 캐시가
+    수시로 전멸(2026-07-02 하루종일 재콜드 원인). computed_at 은 파이프라인(daily·
+    listings·catchup)이 사전캐시를 실제로 다시 구울 때만 바뀜 → 데이터 갱신 시에만
+    무효화(정확성) + 그 사이엔 캐시 안정(속도)."""
+    now = _time.monotonic()
+    if _dv_memo["v"] and now - _dv_memo["at"] < 10:      # 10초 메모(요청마다 DB조회 방지)
+        return _dv_memo["v"]
     parts = []
-    for p in (_CACHE_DB_PATH, _RANK_FILE):
-        try:
-            parts.append(str(int(os.path.getmtime(p))))
-        except OSError:
-            parts.append("0")
-    return ".".join(parts)
+    try:
+        with sqlite3.connect(f"file:{_CACHE_DB_PATH}?mode=ro", uri=True) as c:
+            parts.append(str(c.execute(
+                "SELECT MAX(computed_at) FROM api_cache").fetchone()[0] or "0"))
+    except Exception:
+        parts.append("0")
+    try:
+        parts.append(str(int(os.path.getmtime(_RANK_FILE))))   # persist_ranks(파이프라인)만 갱신
+    except OSError:
+        parts.append("0")
+    v = ".".join(parts)
+    _dv_memo["at"], _dv_memo["v"] = now, v
+    return v
 
 
 def _rc_db():
@@ -1104,16 +1120,18 @@ def _rc_clear() -> None:
 
 
 def _cache_get(key: str):
+    # L1(RAM)·L2(디스크) 모두 **데이터버전 일치 + TTL 이내**만 유효 — 파이프라인이 데이터를
+    # 재빌드하면(버전 변경) 즉시 무효(정확성). 버전 안 바뀌면 재시작에도 웜(속도).
+    ver = _data_version()
     hit = _realtor_cache.get(key)
-    if hit and _time.monotonic() - hit[0] < _REALTOR_TTL_S:
+    if hit and len(hit) == 3 and hit[2] == ver and _time.monotonic() - hit[0] < _REALTOR_TTL_S:
         return hit[1]
-    # 디스크 폴백 — 재시작 생존. 데이터버전 일치 + TTL 이내만 유효(stale 방지).
     try:
         with _rc_db() as c:
             row = c.execute("SELECT val, at, ver FROM mem_cache WHERE key=?", (key,)).fetchone()
-        if row and (_time.time() - (row[1] or 0)) < _REALTOR_TTL_S and row[2] == _data_version():
+        if row and (_time.time() - (row[1] or 0)) < _REALTOR_TTL_S and row[2] == ver:
             val = _json.loads(row[0])
-            _realtor_cache[key] = (_time.monotonic(), val)     # RAM으로 승격
+            _realtor_cache[key] = (_time.monotonic(), val, ver)     # RAM으로 승격
             return val
     except Exception:
         pass
@@ -1121,11 +1139,12 @@ def _cache_get(key: str):
 
 
 def _cache_put(key: str, val):
-    _realtor_cache[key] = (_time.monotonic(), val)
+    ver = _data_version()
+    _realtor_cache[key] = (_time.monotonic(), val, ver)
     try:
         with _rc_db() as c:
             c.execute("INSERT OR REPLACE INTO mem_cache(key, val, at, ver) VALUES(?,?,?,?)",
-                      (key, _json.dumps(val, ensure_ascii=False, default=str), _time.time(), _data_version()))
+                      (key, _json.dumps(val, ensure_ascii=False, default=str), _time.time(), ver))
     except Exception:
         pass
 
@@ -3389,6 +3408,12 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
         raise HTTPException(400, "limit out of range")
     if days < 0 or days > 3650:
         raise HTTPException(400, "days out of range")
+    # 런타임 캐시(24h·데이터버전 무효) — 홈 위젯(limit=7)은 프리빌드 키와 어긋나 라이브였음
+    _ck = (f"txtopP:{days}:{trade}:{asset}:{dealing}:{area_class}:"
+           f"{sido or ''}:{sigungu or ''}:{dong or ''}:{limit}")
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
     cutoff = f"-{days} days"
     # dealing 필터 (매매만): all / broker(중개거래) / direct(직거래)
     dg_filter = ""
@@ -3507,7 +3532,9 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
             "asset": r["asset"],
             "trend": tmap.get((r["matched_complex_no"], round(ar)), []) if ar is not None else [],
         })
-    return {"trade": trade, "asset": asset, "days": days, "dealing": dealing, "items": items}
+    _res = {"trade": trade, "asset": asset, "days": days, "dealing": dealing, "items": items}
+    _cache_put(_ck, _res)
+    return _res
 
 
 def _price_trend_map(complex_nos: list, trade: str | None, months: int = 18) -> dict:
@@ -3670,6 +3697,11 @@ def tx_top_volume(days: int = 30, trade: str = "A1", asset: str = "all",
         raise HTTPException(400, "limit out of range")
     if days < 0 or days > 3650:
         raise HTTPException(400, "days out of range")
+    _ck = (f"txtopV:{days}:{trade}:{asset}:{dealing}:{area_class}:"
+           f"{sido or ''}:{sigungu or ''}:{dong or ''}:{limit}")
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
     cutoff = f"-{days} days"
     reg_cond, reg_params = _cx_region_clause(sido, sigungu, dong)
     dg_extra = ""
@@ -3734,7 +3766,7 @@ def tx_top_volume(days: int = 30, trade: str = "A1", asset: str = "all",
             " ORDER BY agg.n DESC LIMIT ?"
         )
         rows = c.execute(sql, [*params, *reg_params, limit]).fetchall()
-    return {
+    _res = {
         "trade": trade, "asset": asset, "days": days, "dealing": dealing,
         "items": [
             {
@@ -3749,6 +3781,8 @@ def tx_top_volume(days: int = 30, trade: str = "A1", asset: str = "all",
             for r in rows
         ],
     }
+    _cache_put(_ck, _res)
+    return _res
 
 
 @app.get("/stats/tx-low-price")
@@ -4034,6 +4068,11 @@ def tx_price_change(window_days: int = 90, asset: str = "apt", min_samples: int 
         raise HTTPException(400, "window_days out of range")
     if not _area_rollup_ready():
         raise HTTPException(503, "tx_area_rollup 미빌드 — build_tx_rollups.py 실행 필요")
+    _ck = (f"txchg:{window_days}:{asset}:{min_samples}:{area_class}:"
+           f"{sido or ''}:{sigungu or ''}:{dong or ''}:{limit}:{order}")
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
     sks = _sale_kinds(asset)
     kph = ",".join("?" * len(sks))
     direction = "ASC" if order == "asc" else "DESC"
@@ -4071,7 +4110,7 @@ def tx_price_change(window_days: int = 90, asset: str = "apt", min_samples: int 
             """,
             (*sks, recent_cutoff, *cte_p, min_samples, *sks, prev_cutoff, recent_cutoff, *cte_p, min_samples, limit),
         ).fetchall()
-    return {
+    _res = {
         "window_days": window_days, "asset": asset, "order": order,
         "items": [
             {"complex_no": r[0], "area_key": r[1], "recent_avg": r[2],
@@ -4080,6 +4119,8 @@ def tx_price_change(window_days: int = 90, asset: str = "apt", min_samples: int 
             for r in rows
         ],
     }
+    _cache_put(_ck, _res)
+    return _res
 
 
 @app.get("/stats/tx-asking-vs-real")

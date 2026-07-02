@@ -98,3 +98,4 @@ step "step 13: region_listings(비단지 전국)" $PY -u scripts/collect_region_
 step "step 13b: build_realtor_dong (비단지 반영)" $PY -u scripts/build_realtor_dong.py; rdong2_exit=$?
 
 log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} villa=${villa_exit:-NA} house=${house_exit:-NA} comm=${comm_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} trendcache=${trendcache_exit:-NA} region=${region_exit:-NA}"
+bash "$ROOT/scripts/warm_api.sh" >>"$LOG" 2>&1 || true   # 캐시 워밍(재빌드 후 첫 사용자도 빠르게)

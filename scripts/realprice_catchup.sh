@@ -45,6 +45,7 @@ if $PY scripts/dgk_health.py >>"$LOG" 2>&1; then
   log "롤업·캐시 재빌드(신규 실거래 반영)"
   $PY -u scripts/build_tx_rollups.py >>"$LOG" 2>&1
   $PY -u scripts/build_api_cache.py --default-only >>"$LOG" 2>&1
+  bash "$ROOT/scripts/warm_api.sh" >>"$LOG" 2>&1 || true
   echo "$TODAY" > "$MARKER"
   log "=== catchup 완료 (마커=$TODAY) ==="
 else
