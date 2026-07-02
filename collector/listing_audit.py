@@ -352,6 +352,14 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         else:
             add(13, "층별 용도", "통과", f"{cflr}층 용도 ‘{mpur}’ · {summary}")
 
+    # 토지·임야는 건축물이 아님 — 명시사항은 소재지·면적·가격·종류·거래형태뿐.
+    # 건축물 전용 항목(층·총층·입주·방욕·사용승인·주차·관리비·방향)은 해당 없음 처리(오탐 방지).
+    if any(k in str(rtype) for k in ("토지", "임야")):
+        _land_na = {1, 6, 7, 8, 9, 10, 11, 12, 13}
+        for x in findings:
+            if x["no"] in _land_na and x["item"] != "소재지·지번/동" and x["status"] != "통과":
+                x["status"], x["reason"] = "통과", "토지 — 건축물 항목 해당 없음"
+
     viol = sum(1 for x in findings if x["status"] == "위반")
     warn = sum(1 for x in findings if x["status"] == "주의")
     return {
