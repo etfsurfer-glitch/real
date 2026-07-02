@@ -9613,12 +9613,30 @@ _COMPLEX_KINDS = {"APT": "아파트", "OPST": "오피스텔", "ABYG": "아파트
 _TRADE_LABEL_AUDIT = {"A1": "매매", "B1": "전세", "B2": "월세"}
 
 
+def _audit_skip_result(r: dict, kind: str, *, delisted: bool) -> dict:
+    """상세조회 불가 매물의 점검 제외 결과 — 광고 종료(내려감) 또는 일시 실패.
+    빈 필드로 점검하면 전항목 '미표시 위반' 오탐 폭탄이 나므로 점검 자체를 건너뛴다(정확성)."""
+    reason = ("광고 종료된 매물(네이버에서 내려감) — 점검 제외" if delisted
+              else "상세조회 일시 실패 — 잠시 후 재점검 필요")
+    return {
+        "article_no": r.get("article_no"), "kind": kind,
+        "building": r.get("complex_name") or r.get("building_name"),
+        "is_saengsuk": False, "address": None,
+        "naver_url": f"https://m.land.naver.com/article/info/{r.get('article_no')}",
+        "ledger_matched": False, "ledger": None, "delisted": delisted,
+        "findings": [{"no": 0, "item": "매물 상태", "status": "통과", "reason": reason}],
+        "violation_count": 0, "warning_count": 0, "pass": True,
+    }
+
+
 def _audit_complex_one(r: dict, creds, dks) -> dict:
     """단지형 매물 1건 점검(상세조회+지번대장 확인)."""
     from collector.article_detail import fetch_and_extract
     from collector.listing_audit import audit_listing, is_saengsuk
     from collector.ondemand_ledger import ledger_for_jibun
-    det = fetch_and_extract(r["article_no"], r["complex_no"], creds) or {}
+    det = fetch_and_extract(r["article_no"], r["complex_no"], creds)
+    if det is None or det.get("_delisted"):
+        return _audit_skip_result(r, "단지형", delisted=bool(det))
     led = None
     if dks and r.get("cortar_no") and r.get("detail_address"):
         led = ledger_for_jibun(r["cortar_no"], r["detail_address"], dks)
@@ -9642,7 +9660,9 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
     from collector.article_detail import fetch_and_extract
     from collector.listing_audit import audit_listing
     from collector.ondemand_ledger import ledger_for_coord, expos_areas_for_coord, flr_ouln_for_pnu
-    det = fetch_and_extract(r["article_no"], None, creds) or {}
+    det = fetch_and_extract(r["article_no"], None, creds)
+    if det is None or det.get("_delisted"):
+        return _audit_skip_result(r, _NONRESI_LABEL.get(cat, cat), delisted=bool(det))
     # 대장: 네이버가 매물상세에 넣어주는 inline 대장(그 건물 정확·무료) 우선, 없으면 좌표 온디맨드.
     led = det.get("ledger_inline")
     expos = None
@@ -9725,6 +9745,7 @@ def _audit_breakdown_for(realtor_id: str) -> dict:
             with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
                 for tr, n in rc.execute(
                         "SELECT trade_type, COUNT(*) FROM listings WHERE realtor_id=? "
+                        "AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings) "  # 최신분만(내려간 매물 제외)
                         "GROUP BY trade_type", (realtor_id,)):
                     groups.append({"kind": cat, "kind_label": _NONRESI_LABEL.get(cat, cat),
                                    "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
@@ -9819,15 +9840,16 @@ def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) 
         path = DB_PATH.parent / _NONRESI_DB[kind]
         if path.exists():
             params = [realtor_id] + ([trade] if trade else [])
+            snap_cl = " AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"  # 최신분만
             with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
                 rc.row_factory = sqlite3.Row
                 total = rc.execute(
-                    "SELECT COUNT(*) FROM listings WHERE realtor_id=?" + trade_cl,
+                    "SELECT COUNT(*) FROM listings WHERE realtor_id=?" + trade_cl + snap_cl,
                     params).fetchone()[0]
                 nrows = [dict(x) for x in rc.execute(
                     "SELECT article_no, real_estate_type, real_estate_type_name, trade_type, "
                     "floor_info, area2_m2, deal_or_warrant_price, building_name, direction, "
-                    "latitude, longitude FROM listings WHERE realtor_id=?" + trade_cl
+                    "latitude, longitude FROM listings WHERE realtor_id=?" + trade_cl + snap_cl
                     + " ORDER BY article_no LIMIT ? OFFSET ?",
                     params + [limit, offset]).fetchall()]
             from concurrent.futures import ThreadPoolExecutor

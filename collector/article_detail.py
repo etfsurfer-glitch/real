@@ -119,8 +119,12 @@ def _inline_ledger(detail: dict):
 
 
 def fetch_and_extract(article_no: str, complex_no, creds, *, interface=None):
-    """상세조회 + 추출 한 번에. 실패 시 None."""
+    """상세조회 + 추출 한 번에. 반환 3상태:
+    dict = 정상 / {"_delisted": True} = 광고 종료(200인데 본문이 error뿐 — 내려간 매물,
+    빈 필드로 점검하면 전항목 '미표시 위반' 오탐 폭탄) / None = 일시 실패(네트워크 등)."""
     st, d = fetch_article_detail(article_no, complex_no, creds, interface=interface)
-    if not d:
+    if st != 200 or not d:
         return None
+    if not (d.get("articleDetail") or {}).get("articleNo"):
+        return {"_delisted": True}
     return extract_checklist_fields(d)
