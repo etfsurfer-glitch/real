@@ -10,7 +10,7 @@ const LS = "koczip_myhood";
 // 첫 로드(컴퓨터 켜고 처음 접속) 시 API/CF 연결이 아직 콜드라 fetch가 실패하면 홈 위젯이
 // 빈 상태로 뜬다(새로고침하면 웜이라 정상). 네트워크 오류·게이트웨이(502/3/4)는 짧게
 // 재시도해 첫 로드에도 데이터가 바로 뜨게 한다.
-async function fetchJsonRetry(url: string, tries = 5): Promise<unknown | null> {
+async function fetchJsonRetry(url: string, tries = 3): Promise<unknown | null> {
   for (let i = 1; i <= tries; i++) {
     try {
       const r = await fetch(url);
