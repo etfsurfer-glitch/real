@@ -460,6 +460,28 @@ def commercial_ref(sgg, bjd, plat, bun, ji, datago_keys):
     }
 
 
+def expos_areas_for_pnu(pnu, datago_keys) -> list | None:
+    """PNU(inline 대장 포함) → 건축물대장 전유면적 목록. 좌표·vworld 불필요 — 좌표 없는
+    매물도 ② 면적 대조 가능(커버리지 확대). 캐시 키(E{지번})는 좌표 경로와 공유."""
+    j = _pnu_to_jibun(pnu)
+    if not j:
+        return None
+    sgg, bjd, plat, bun, ji = j
+    ek = f"E{sgg}{bjd}{plat}{bun}{ji}"
+    if ek in _expos_cache:
+        return _expos_cache[ek]
+    v = _cget(ek)
+    if v is not _MISS:
+        _expos_cache[ek] = v
+        return v
+    a = expos_areas(sgg, bjd, plat, bun, ji, datago_keys)
+    if a is _ERR:                      # 일시적 — 캐시 금지
+        return None
+    _cput(ek, a)
+    _expos_cache[ek] = a
+    return a
+
+
 def commercial_for_pnu(pnu, datago_keys):
     """PNU → 같은 지번의 상가동 집계(영속 캐시, 키 CD). 없음확정=None 캐시, 일시오류=캐시 금지."""
     j = _pnu_to_jibun(pnu)
