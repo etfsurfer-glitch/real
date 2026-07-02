@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle, XCircle, CheckCircle2, Loader2, Building2, Square, CheckSquare, ShieldCheck,
-  Info, X,
+  Info, X, Download, TrendingDown, TrendingUp,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -17,6 +17,7 @@ export type AuditResult = {
   address?: string | null; naver_url?: string | null;
   ledger_matched?: boolean; ledger?: Ledger | null; findings: Finding[];
   violation_count: number; warning_count: number; pass: boolean;
+  prev?: { date: string; violation_count: number; warning_count: number };  // 직전 점검(개선 추적)
 };
 type Group = { kind: string; kind_label: string; trade: string; trade_label: string; count: number; group: string };
 
@@ -72,6 +73,7 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
   const [running, setRunning] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [openCard, setOpenCard] = useState<string | null>(null);
+  const [itemFilter, setItemFilter] = useState<string | null>(null);  // "no|item|status" 유형필터
   const cancelRef = useRef(false);
 
   useEffect(() => {
@@ -108,7 +110,7 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
 
   async function runBulk() {
     if (!selGroups.length) return;
-    setResults([]); setOpenCard(null); setRunning(true); cancelRef.current = false;
+    setResults([]); setOpenCard(null); setItemFilter(null); setRunning(true); cancelRef.current = false;
     const grand = selCount;
     setProgress({ done: 0, total: grand });
     const acc: AuditResult[] = [];
@@ -135,10 +137,46 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
 
   const problem = results.filter((r) => !r.pass);
   const okCount = results.length - problem.length;
-  const shown = showPass ? results : problem;
+  // 위반 유형별 집계 — 요약 chips(클릭=필터). 위반 먼저, 건수 내림차순.
+  const typeAgg = new Map<string, { no: number; item: string; status: string; n: number }>();
+  for (const r of results) for (const f of r.findings) {
+    if (f.status === "통과") continue;
+    const k = `${f.no}|${f.item}|${f.status}`;
+    const e = typeAgg.get(k);
+    if (e) e.n++; else typeAgg.set(k, { no: f.no, item: f.item, status: f.status, n: 1 });
+  }
+  const typeChips = [...typeAgg.entries()].sort((a, b) =>
+    a[1].status === b[1].status ? b[1].n - a[1].n : (a[1].status === "위반" ? -1 : 1));
+  const matchesFilter = (r: AuditResult) => {
+    if (!itemFilter) return true;
+    const [no, item, status] = itemFilter.split("|");
+    return r.findings.some((f) => String(f.no) === no && f.item === item && f.status === status);
+  };
+  const shown = (showPass ? results : problem).filter(matchesFilter);
   const sorted = [...shown].sort((a, b) => (b.violation_count - a.violation_count) || (b.warning_count - a.warning_count));
   const sumV = results.reduce((s, r) => s + r.violation_count, 0);
   const sumW = results.reduce((s, r) => s + r.warning_count, 0);
+  // 직전 점검 대비 개선(이력 보유 매물만 합산)
+  const withPrev = results.filter((r) => r.prev);
+  const prevV = withPrev.reduce((s, r) => s + (r.prev?.violation_count ?? 0), 0);
+  const nowV = withPrev.reduce((s, r) => s + r.violation_count, 0);
+  const prevDate = withPrev[0]?.prev?.date;
+
+  function downloadCsv() {
+    const rows: string[][] = [["매물번호", "유형", "건물", "주소", "상태", "항목", "사유", "네이버링크"]];
+    for (const r of results) {
+      const bad = r.findings.filter((f) => f.status !== "통과");
+      if (!bad.length) rows.push([r.article_no, r.kind, r.building || "", r.address || "", "정상", "", "", r.naver_url || ""]);
+      for (const f of bad) rows.push([r.article_no, r.kind, r.building || "", r.address || "", f.status, `${f.no}. ${f.item}`, f.reason, r.naver_url || ""]);
+    }
+    const csv = "﻿" + rows.map((c) => c.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");  // BOM=엑셀 한글
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `매물점검_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
 
   return (
     <div>
@@ -264,11 +302,54 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
             ))}
           </div>
 
+          {withPrev.length > 0 && prevV !== nowV && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, padding: "8px 12px",
+              borderRadius: 10, fontSize: 12.5, fontWeight: 600,
+              background: nowV < prevV ? "#eefaf2" : "#fff7ea", color: nowV < prevV ? "#1f9d63" : "#c4791a",
+              border: `1px solid ${nowV < prevV ? "#bfe7cd" : "#f5dca8"}` }}>
+              {nowV < prevV ? <TrendingDown size={14} /> : <TrendingUp size={14} />}
+              지난 점검({prevDate}) 대비 위반 {prevV} → {nowV}건
+              {nowV < prevV ? ` — ${prevV - nowV}건 개선됐어요 👏` : ` — ${nowV - prevV}건 늘었어요`}
+              <span className="muted" style={{ fontWeight: 400 }}>(이력 있는 {withPrev.length}건 기준)</span>
+            </div>
+          )}
+
+          {typeChips.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 10 }}>
+              <span className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>유형별</span>
+              {typeChips.map(([k, t]) => {
+                const active = itemFilter === k;
+                const c = SC[t.status] || SC["주의"];
+                return (
+                  <button key={k} onClick={() => setItemFilter(active ? null : k)}
+                    style={{ fontSize: 11.5, fontWeight: 700, padding: "3px 9px", borderRadius: 999, cursor: "pointer",
+                      color: active ? "#fff" : c.c, background: active ? c.c : c.bg,
+                      border: `1px solid ${active ? c.c : c.bd}` }}>
+                    {t.item} {t.status} {t.n}
+                  </button>
+                );
+              })}
+              {itemFilter && (
+                <button onClick={() => setItemFilter(null)} style={{ fontSize: 11.5, color: "#64748b", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>필터 해제</button>
+              )}
+            </div>
+          )}
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9 }}>
-            <span style={{ fontSize: 13, color: "#475569" }}>점검필요 <b style={{ color: PRIMARY }}>{problem.length}</b>건{!showPass && okCount > 0 && <span className="muted"> · 정상 {okCount}건 숨김</span>}</span>
-            <button onClick={() => setShowPass((v) => !v)} style={{ fontSize: 12, color: "#64748b", background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, padding: 0 }}>
-              {showPass ? <CheckSquare size={14} /> : <Square size={14} />} 정상도 보기
-            </button>
+            <span style={{ fontSize: 13, color: "#475569" }}>
+              {itemFilter ? <>필터 결과 <b style={{ color: PRIMARY }}>{sorted.length}</b>건</>
+                : <>점검필요 <b style={{ color: PRIMARY }}>{problem.length}</b>건</>}
+              {!showPass && okCount > 0 && <span className="muted"> · 정상 {okCount}건 숨김</span>}
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
+              <button onClick={downloadCsv} disabled={running}
+                style={{ fontSize: 12, color: "#64748b", background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, padding: 0 }}>
+                <Download size={13} /> CSV
+              </button>
+              <button onClick={() => setShowPass((v) => !v)} style={{ fontSize: 12, color: "#64748b", background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, padding: 0 }}>
+                {showPass ? <CheckSquare size={14} /> : <Square size={14} />} 정상도 보기
+              </button>
+            </span>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

@@ -9667,6 +9667,47 @@ def _audit_breakdown_for(realtor_id: str) -> dict:
             "total": sum(g["count"] for g in groups), "groups": groups}
 
 
+# ── 점검 이력(개선 추적) — 매물별 최근 점검결과 저장. 캐시로는 안 씀(정확성 우선:
+#    중개사가 광고 수정 후 재점검하면 항상 라이브 판정). 직전 점검 대비 위반增减만 붙인다.
+_AUDIT_HIST_DB = DB_PATH.parent / "audit_history.sqlite"
+
+
+def _audit_hist_db():
+    c = sqlite3.connect(_AUDIT_HIST_DB, timeout=10)
+    c.execute("PRAGMA busy_timeout=8000")
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA journal_size_limit=268435456")
+    c.execute("CREATE TABLE IF NOT EXISTS audit_history("
+              "article_no TEXT, run_date TEXT, realtor_id TEXT, "
+              "violation_count INT, warning_count INT, at REAL, "
+              "PRIMARY KEY(article_no, run_date))")
+    return c
+
+
+def _audit_record_history(realtor_id: str, results: list) -> None:
+    """오늘 결과 upsert + 각 매물에 직전(오늘 이전 최근) 점검결과를 prev 로 부착."""
+    import datetime as _dt
+    today = _dt.datetime.now().strftime("%Y-%m-%d")     # 박스 TZ=KST
+    try:
+        with _audit_hist_db() as c:
+            for r in results:
+                an = r.get("article_no")
+                if not an:
+                    continue
+                prev = c.execute(
+                    "SELECT run_date, violation_count, warning_count FROM audit_history "
+                    "WHERE article_no=? AND run_date<? ORDER BY run_date DESC LIMIT 1",
+                    (an, today)).fetchone()
+                if prev:
+                    r["prev"] = {"date": prev[0], "violation_count": prev[1],
+                                 "warning_count": prev[2]}
+                c.execute("INSERT OR REPLACE INTO audit_history VALUES(?,?,?,?,?,?)",
+                          (an, today, realtor_id, r["violation_count"], r["warning_count"],
+                           _time.time()))
+    except Exception:                                    # 이력은 부가기능 — 점검 자체를 막지 않음
+        pass
+
+
 def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) -> dict:
     """중개사 매물 표시·광고 점검 1배치. kind=유형(APT/OPST/ABYG/OBYG/JGC 또는 비단지 cat
     villa/sangga…), trade=A1/B1/B2(빈값=전체). offset/limit=배치. admin·lounge 공용.
@@ -9701,7 +9742,10 @@ def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) 
                 "WHERE l.realtor_id=? AND " + type_cl + trade_cl
                 + " ORDER BY l.article_no LIMIT ? OFFSET ?",
                 params + [limit, offset]).fetchall()]
-        results = [_audit_complex_one(r, creds, dks) for r in rows]
+        # 병렬 점검(4) — 병목은 네이버 상세 fetch(I/O). 대장캐시는 커넥션 독립이라 안전.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            results = list(ex.map(lambda r: _audit_complex_one(r, creds, dks), rows))
     elif kind in _NONRESI_DB:            # 비단지
         path = DB_PATH.parent / _NONRESI_DB[kind]
         if path.exists():
@@ -9717,11 +9761,14 @@ def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) 
                     "latitude, longitude FROM listings WHERE realtor_id=?" + trade_cl
                     + " ORDER BY article_no LIMIT ? OFFSET ?",
                     params + [limit, offset]).fetchall()]
-            results = [_audit_nonresi_one(r, kind, creds, vw, dks) for r in nrows]
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                results = list(ex.map(lambda r: _audit_nonresi_one(r, kind, creds, vw, dks), nrows))
     else:
         raise HTTPException(400, "kind 필요 — /admin/audit/breakdown 로 그룹 확인 후 지정")
 
     _audit_peer_mgmt(results)
+    _audit_record_history(realtor_id, results)          # 이력 저장 + prev(개선추적) 부착
     return {
         "realtor_id": realtor_id, "kind": kind, "trade": trade,
         "offset": offset, "total": total, "count": len(results),
