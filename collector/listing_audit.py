@@ -277,26 +277,28 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     else:
         add(9, "사용승인일", "통과", f"건축물대장 기준 {_fmt_led_ymd(led_ua)} 일치" if led_ua else "")
 
-    # ⑩ 주차 (대장 기준: 대장에 주차 없으면 '주차불가' 표시해야)
-    led_pk = f.get("led_parking")              # 대장 총주차(None=미수집)
+    # ⑩ 주차 — 세부기준상 '주차대수(공부 기준 숫자)' 명시가 원칙(전문가 확인: '가능'만은
+    #    신고 시 적발 대상). ①공부상 0인데 가능/대수 표시 = 공부 불일치 위반 ②'가능'만
+    #    표시(대수 없음) = 위반 ③'불가' 표시 = 통과 ④정보 전무 = 위반.
+    led_pk = f.get("led_parking")              # 대장 총주차(None=미확보, 0=공부상 없음)
     pk_possible = f.get("parking_possible")    # 네이버 parkingPossibleYN
+    _led_note = f" (건축물대장 기준 총 {led_pk}대)" if (led_pk and led_comparable) else ""
     if cp_autofilled:
         add(10, "주차", "통과", "CP 자동입력(확인)")
     elif pk_possible == "N":
         add(10, "주차", "통과", "주차 불가로 표시됨")     # 주차불가 명시 = 유효한 표시
-    elif led_comparable and led_pk is not None and (led_pk or 0) == 0 and pk_possible == "Y":
-        add(10, "주차", "위반", "건축물대장상 주차대수 없음 → '주차불가' 표시 필요(대장 기준)")
+    elif led_comparable and led_pk == 0 and (pk_possible == "Y" or _has(f.get("parking_count"))):
+        add(10, "주차", "위반",
+            "건축물대장상 주차대수 0 — '주차 가능' 표시는 공부와 불일치(주차불가로 표시 필요)")
     elif not _has(f.get("parking_count")):
         # 상가·사무실 등(led_comparable=False)은 대장 주차가 전체 동 값이라 참고표시 생략.
-        # '가능' 표시가 있으면 미표시와 다름 → 주의(대수 명시 권장). 아무 표시 없으면 위반.
-        _led_note = f" (건축물대장 기준 총 {led_pk}대)" if (led_pk and led_comparable) else ""
         if pk_possible == "Y":
-            add(10, "주차", "주의",
-                "주차 '가능'만 표시 — 세부기준상 주차대수 명시 권장" + _led_note)
+            add(10, "주차", "위반",
+                "주차 '가능'만 표시 — 주차대수(건축물대장 기준 숫자) 명시 필요" + _led_note)
         else:
             add(10, "주차", "위반", "광고에 주차 정보 미표시" + _led_note)
     else:
-        # 정확한 대수 대조는 같은 지번 다동 모호성으로 생략(표시여부·주차불가만 점검)
+        # 정확한 대수 대조는 같은 지번 다동 모호성으로 생략(표시여부·공부0 불일치만 점검)
         add(10, "주차", "통과", f"건축물대장 총주차 {led_pk}대" if (led_pk and led_comparable) else "")
 
     # ⑪ 관리비 — 비목별 금액은 임대인(중개의뢰인) 고지에 의존하고, 미고지·확인불가 시

@@ -110,8 +110,9 @@ def _inline_ledger(detail: dict):
         "main_purps": purps,
         "bld_nm": (bld if isinstance(bld, str) and bld else None) or ad.get("buildingName"),
         "grnd_flr": grnd,
-        # 대장 주차 0은 '미기재'와 구분이 어려워 0은 None 처리(⑩ 주차 오탐 방지)
-        "parking": park if park else None,
+        # inline 대장의 totalParkingCnt는 항상 숫자로 옴 → 0 = 공부상 주차 없음(신뢰 가능).
+        # ⑩에서 '공부상 0인데 주차 가능/대수 표시' 위반 판정에 사용(전문가 확인 기준).
+        "parking": park,
         "use_apr_day": use_apr,
         "pnu": br.get("pnu") or None,
         "_source": "naver_inline",
