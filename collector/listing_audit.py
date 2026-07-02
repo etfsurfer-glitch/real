@@ -287,9 +287,14 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     elif led_comparable and led_pk is not None and (led_pk or 0) == 0 and pk_possible == "Y":
         add(10, "주차", "위반", "건축물대장상 주차대수 없음 → '주차불가' 표시 필요(대장 기준)")
     elif not _has(f.get("parking_count")):
-        # 상가·사무실 등(led_comparable=False)은 대장 주차가 전체 동 값이라 참고표시 생략
-        add(10, "주차", "위반", "광고에 주차대수 미표시"
-            + (f" → 건축물대장 기준 총 {led_pk}대" if (led_pk and led_comparable) else ""))
+        # 상가·사무실 등(led_comparable=False)은 대장 주차가 전체 동 값이라 참고표시 생략.
+        # '가능' 표시가 있으면 미표시와 다름 → 주의(대수 명시 권장). 아무 표시 없으면 위반.
+        _led_note = f" (건축물대장 기준 총 {led_pk}대)" if (led_pk and led_comparable) else ""
+        if pk_possible == "Y":
+            add(10, "주차", "주의",
+                "주차 '가능'만 표시 — 세부기준상 주차대수 명시 권장" + _led_note)
+        else:
+            add(10, "주차", "위반", "광고에 주차 정보 미표시" + _led_note)
     else:
         # 정확한 대수 대조는 같은 지번 다동 모호성으로 생략(표시여부·주차불가만 점검)
         add(10, "주차", "통과", f"건축물대장 총주차 {led_pk}대" if (led_pk and led_comparable) else "")
