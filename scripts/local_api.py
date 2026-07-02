@@ -10383,14 +10383,18 @@ def public_homepage_lead(slug: str, body: dict):
         # 상담신청 즉시 알림 — 이 사무소에 연결된 계정(들)에 푸시
         owner_ids = [m[0] for m in c.execute(
             "SELECT user_id FROM realtor_members WHERE realtor_id=?", (r[0],)).fetchall()]
-    if owner_ids:
-        who = name or phone or "고객"
-        try:
-            _send_web_push(owner_ids, "새 상담 신청 📩",
-                           f"{who}님이 상담을 신청했어요. 라운지에서 확인하세요.",
-                           url="/lounge", tag="lead")
-        except Exception:
-            pass
+    # 중개사용 앱 분리 방침(2026-07-02): 현재 앱은 일반사용자 전용으로 운영 —
+    # 중개사向 푸시(상담신청 알림)는 중개사 전용 앱 출시 전까지 비활성.
+    # 상담 리드 자체는 그대로 저장되어 라운지 웹에서 확인 가능.
+    # if owner_ids:
+    #     who = name or phone or "고객"
+    #     try:
+    #         _send_web_push(owner_ids, "새 상담 신청 📩",
+    #                        f"{who}님이 상담을 신청했어요. 라운지에서 확인하세요.",
+    #                        url="/lounge", tag="lead")
+    #     except Exception:
+    #         pass
+    _ = owner_ids
     return {"ok": True}
 
 

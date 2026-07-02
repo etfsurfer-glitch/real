@@ -63,7 +63,8 @@ def main():
         body = " · ".join(segs[:3])
         if len(segs) > 3:
             body += f" 외 {len(segs) - 3}곳"
-        res = A._send_web_push([uid], "관심단지 오늘의 소식 🏠", body, url="/lounge", tag="fav-daily")
+        # 일반사용자 알림 — 랜딩은 홈(/lounge는 중개사 전용이라 부적합, 2026-07-02 정정)
+        res = A._send_web_push([uid], "관심단지 오늘의 소식 🏠", body, url="/", tag="fav-daily")
         total_sent += res.get("sent", 0)
     print(f"관심단지 일일알림: 대상 {len(users)}명 · 발송 {total_sent}건")
 
