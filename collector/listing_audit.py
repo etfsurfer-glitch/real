@@ -266,16 +266,19 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     else:
         add(7, "입주가능일", "통과")
 
-    # ⑧ 방수/욕실수 — 주거용(주택·오피스텔) 표시 의무. 상가·사무실·지산·토지·생숙 등 비주거는 제외.
+    # ⑧ 방수/욕실수 — 세부기준: '방 수'만 비주거 면제("주택(준주택) 아닌 건축물은 방 수를
+    #    표시하지 않을 수 있다"), '욕실 수(화장실)'는 건축물 공통 명시사항.
+    #    건축물대장엔 화장실 개수 항목이 없어 대조 불가 → 표시 여부만 점검(기준 자체가 표시 의무).
     residential = (not saengsuk) and (
         _is_residential(rtype) or f.get("real_estate_type") in ("APT", "OPST"))
+    has_room, has_bath = _has(f.get("room_count")), _has(f.get("bathroom_count"))
     if residential:
-        has_room, has_bath = _has(f.get("room_count")), _has(f.get("bathroom_count"))
         ok = has_room and has_bath
         add(8, "방수/욕실수", "통과" if ok else "위반",
             "" if ok else ("방 수 미표시" if has_bath else "방 수·욕실 수 미표시"))
     else:
-        add(8, "방수/욕실수", "통과", "비주거 — 방수·욕실수 표시 의무 대상 아님")
+        add(8, "욕실수", "통과" if has_bath else "위반",
+            "" if has_bath else "욕실 수(화장실) 미표시 — 건축물 공통 명시사항(방 수만 비주거 면제)")
 
     # ⑨ 사용승인일 (대장 대조 — 오입력 적발. 단지형은 동별 집합 매칭)
     ua = f.get("use_approve_ymd")
