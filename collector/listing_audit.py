@@ -53,6 +53,30 @@ def _ledger_mismatch(val, led, *, digits=False) -> bool:
     return bool(lv) and v != lv
 
 
+def _ymd_mismatch(val, led) -> bool:
+    """사용승인일 대조 — 자릿수 다르면(예: 광고 19911130 vs 대장 199111) 짧은 쪽 길이만큼
+    앞자리(연월) 비교. '위반' 판정에 쓰이므로 형식 차이 오탐을 원천 차단. led는 스칼라
+    또는 동별 집합(어느 동과도 안 맞을 때만 불일치)."""
+    if led is None or led == "" or led == []:
+        return False
+
+    def digits(x):
+        return "".join(c for c in str(x or "") if c.isdigit())
+
+    v = digits(val)
+    if not v:
+        return False
+    opts = led if isinstance(led, (list, set, tuple)) else [led]
+    norms = [digits(x) for x in opts if digits(x)]
+    if not norms:
+        return False
+    for lv in norms:
+        n = min(len(v), len(lv))
+        if n >= 6 and v[:n] == lv[:n]:      # 최소 연월(6자리) 이상 일치하면 같은 날짜로 인정
+            return False
+    return True
+
+
 def _fmt_led(led) -> str:
     if isinstance(led, (list, set, tuple)):
         return "/".join(str(x) for x in led)
@@ -271,9 +295,9 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     elif not _has(ua):
         note = f" → 건축물대장 기준 {_fmt_led_ymd(led_ua)}" if led_ua else ""
         add(9, "사용승인일", "위반", "광고에 사용승인일 미표시" + note)
-    elif _ledger_mismatch(ua, led_ua, digits=True):
-        add(9, "사용승인일", "주의",
-            f"광고({_fmt_ymd(ua)}) ≠ 건축물대장 기준 {_fmt_led_ymd(led_ua)} — 오입력 확인")
+    elif _ymd_mismatch(ua, led_ua):
+        add(9, "사용승인일", "위반",
+            f"광고({_fmt_ymd(ua)}) ≠ 건축물대장 기준 {_fmt_led_ymd(led_ua)} — 공부와 불일치")
     else:
         add(9, "사용승인일", "통과", f"건축물대장 기준 {_fmt_led_ymd(led_ua)} 일치" if led_ua else "")
 
