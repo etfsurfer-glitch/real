@@ -7532,6 +7532,7 @@ def _init_reviews_db() -> None:
             "ALTER TABLE realtor_members ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'",   # owner|assoc|assist
             "ALTER TABLE realtor_members ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",  # active|pending
             "ALTER TABLE realtor_members ADD COLUMN staff_name TEXT",  # 직원 명단에서 고른/입력한 이름
+            "ALTER TABLE realtor_verifications ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'",  # 서류인증 역할(owner|assoc|assist)
         ):
             try:
                 c.execute(ddl)
@@ -10108,9 +10109,13 @@ def lounge_audit_listings(kind: str = "", trade: str = "", offset: int = 0, limi
 
 @app.post("/lounge/verify-doc")
 async def lounge_verify_doc(realtor_id: str = Form(""), claimed_name: str = Form(""),
+                            role: str = Form("owner"),
                             document: UploadFile = File(...),
                             user: dict = Depends(current_user)):
-    """전화매칭이 안 되는 중개사 보조 인증 — 사업자등록증 제출 → 관리자 승인."""
+    """서류 보조 인증 → 관리자 승인. 대표=사업자등록증(전화매칭 실패 시),
+    직원(소속공인중개사·중개보조원)=개설등록증+본인 이름(대표 승인 없이 관리자 처리)."""
+    if role not in ("owner", "assoc", "assist"):
+        raise HTTPException(400, "invalid role")
     data = await document.read()
     if len(data) > 8_000_000:
         raise HTTPException(400, "파일이 너무 큽니다(최대 8MB)")
@@ -10119,8 +10124,8 @@ async def lounge_verify_doc(realtor_id: str = Form(""), claimed_name: str = Form
         raise HTTPException(400, "지원 형식: png/jpg/webp/pdf")
     with _reviews_db() as c:
         cur = c.execute(
-            "INSERT INTO realtor_verifications(user_id,realtor_id,claimed_name) VALUES(?,?,?)",
-            (user["id"], (realtor_id or None), (claimed_name or None)))
+            "INSERT INTO realtor_verifications(user_id,realtor_id,claimed_name,role) VALUES(?,?,?,?)",
+            (user["id"], (realtor_id or None), (claimed_name or None), role))
         vid = cur.lastrowid
         dest = LOUNGE_DOC_DIR / f"rv_{vid}{ext}"
         dest.write_bytes(data)
@@ -10623,12 +10628,14 @@ def admin_resolve_edit_request(req_id: int, body: dict, _admin: dict = Depends(a
 def admin_realtor_verifications(status: str = "pending", _admin: dict = Depends(admin_user)):
     with _reviews_db() as c:
         rows = c.execute(
-            "SELECT id,user_id,realtor_id,claimed_name,doc_path,status,admin_note,created_at,reviewed_at "
+            "SELECT id,user_id,realtor_id,claimed_name,doc_path,status,admin_note,created_at,reviewed_at,role "
             "FROM realtor_verifications WHERE (?='' OR status=?) ORDER BY id DESC LIMIT 200",
             (status, status)).fetchall()
     return {"items": [{"id": r[0], "user_id": r[1], "realtor_id": r[2], "claimed_name": r[3],
                        "has_doc": bool(r[4]), "status": r[5], "admin_note": r[6],
-                       "created_at": r[7], "reviewed_at": r[8]} for r in rows]}
+                       "created_at": r[7], "reviewed_at": r[8],
+                       "role": r[9] or "owner",
+                       "role_kr": _STAFF_ROLE_KR.get(r[9] or "owner", r[9])} for r in rows]}
 
 
 @app.get("/admin/realtor-verifications/{vid}/document")
@@ -10649,19 +10656,22 @@ def admin_resolve_verification(vid: int, body: dict, _admin: dict = Depends(admi
     action = (body.get("action") or "").strip()   # approve | reject
     note = body.get("admin_note") or None
     with _reviews_db() as c:
-        r = c.execute("SELECT user_id, realtor_id, status FROM realtor_verifications WHERE id=?",
-                      (vid,)).fetchone()
+        r = c.execute("SELECT user_id, realtor_id, status, role, claimed_name "
+                      "FROM realtor_verifications WHERE id=?", (vid,)).fetchone()
         if not r:
             raise HTTPException(404, "없음")
         uid, rid = r[0], (body.get("realtor_id") or r[1])
+        vrole = r[3] or "owner"
         if action == "approve":
             if not rid:
                 raise HTTPException(400, "연동할 realtor_id가 필요합니다")
             c.execute(
-                "INSERT INTO realtor_members(user_id,realtor_id,method,updated_at) "
-                "VALUES(?,?,?,datetime('now')) "
-                "ON CONFLICT(user_id) DO UPDATE SET realtor_id=excluded.realtor_id, "
-                "method='doc', updated_at=datetime('now')", (uid, rid, "doc"))
+                "INSERT INTO realtor_members(user_id,realtor_id,method,role,status,staff_name,updated_at) "
+                "VALUES(?,?,'doc',?,'active',?,datetime('now')) "
+                "ON CONFLICT(user_id) DO UPDATE SET realtor_id=excluded.realtor_id, method='doc', "
+                "role=excluded.role, status='active', staff_name=excluded.staff_name, "
+                "updated_at=datetime('now')",
+                (uid, rid, vrole, (r[4] if vrole != "owner" else None)))
             c.execute("UPDATE realtor_verifications SET status='approved', realtor_id=?, "
                       "admin_note=?, reviewed_at=datetime('now') WHERE id=?", (rid, note, vid))
         elif action == "reject":
@@ -10670,6 +10680,13 @@ def admin_resolve_verification(vid: int, body: dict, _admin: dict = Depends(admi
         else:
             raise HTTPException(400, "action must be approve|reject")
         c.commit()
+    if action == "approve":
+        try:
+            _send_web_push([uid], "중개사 인증 승인 완료 🎉",
+                           "관리자 확인이 끝났어요. 이제 콕집 중개사의 모든 기능을 쓸 수 있습니다.",
+                           url="/biz", tag="verify-ok")
+        except Exception:
+            pass
     return {"ok": True}
 
 

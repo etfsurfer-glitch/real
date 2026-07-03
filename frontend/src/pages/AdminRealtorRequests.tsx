@@ -9,7 +9,7 @@ type EditReq = {
   content: string; status: string; admin_note: string | null; created_at: string;
   office?: { realtor_id: string; realtor_name: string | null; address?: string | null };
 };
-type Verif = {
+type Verif = { role?: string; role_kr?: string;
   id: number; user_id: string; realtor_id: string | null; claimed_name: string | null;
   has_doc: boolean; status: string; admin_note: string | null; created_at: string;
 };
@@ -94,6 +94,15 @@ function Verifs({ auth }: { auth: () => Record<string, string> }) {
       .then((r) => r.json()).then((d) => setItems(d.items ?? [])).catch(() => {});
   }, [auth, status]);
   useEffect(() => { load(); }, [load]);
+  const viewDoc = async (id: number) => {
+    try {
+      const r = await fetch(`${API_BASE}/admin/realtor-verifications/${id}/document`, { headers: auth() });
+      if (!r.ok) throw new Error();
+      const url = URL.createObjectURL(await r.blob());
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch { alert("문서를 불러오지 못했어요."); }
+  };
   const act = (id: number, action: string, cur: string | null) => {
     let rid = cur ?? "";
     if (action === "approve") {
@@ -116,13 +125,16 @@ function Verifs({ auth }: { auth: () => Record<string, string> }) {
       {items.length === 0 ? <div className="muted">없음</div> : (
         <div style={{ overflowX: "auto" }}>
           <table>
-            <thead><tr><th>주장 사무소</th><th>realtor_id</th><th>서류</th><th>회원</th><th>접수</th><th>처리</th></tr></thead>
+            <thead><tr><th>이름/사무소</th><th>역할</th><th>realtor_id</th><th>서류</th><th>회원</th><th>접수</th><th>처리</th></tr></thead>
             <tbody>
               {items.map((v) => (
                 <tr key={v.id}>
                   <td>{v.claimed_name ?? "-"}</td>
+                  <td><span className="ctx-badge" style={v.role !== "owner"
+                    ? { background: "#f0e9ff", color: "#6b39c9" } : { background: "#e8f1fd", color: "#1268d3" }}>
+                    {v.role_kr ?? "대표"}</span></td>
                   <td className="muted" style={{ fontSize: 12 }}>{v.realtor_id ?? "-"}</td>
-                  <td>{v.has_doc ? <a href={`${API_BASE}/admin/realtor-verifications/${v.id}/document`} target="_blank" rel="noreferrer">문서 보기</a> : "-"}</td>
+                  <td>{v.has_doc ? <button className="chip" onClick={() => viewDoc(v.id)}>문서 보기</button> : "-"}</td>
                   <td className="muted" style={{ fontSize: 11 }}>{v.user_id.slice(0, 8)}</td>
                   <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{v.created_at}</td>
                   <td style={{ whiteSpace: "nowrap" }}>

@@ -873,9 +873,60 @@ export function StaffJoin({ authH, phoneVerified, onNeedPhone, onDone }: {
             </div>
           )}
           <p className="muted" style={{ fontSize: 12 }}>신청하면 대표님께 알림이 가고, 승인 즉시 이용할 수 있어요.</p>
+          <StaffDocSubmit authH={authH} realtorId={office.realtor_id} onDone={onDone} />
         </>
       )}
     </Card>
+  );
+}
+
+// 대표 승인 없이 — 개설등록증 + 본인 이름 제출 → 관리자 확인 후 연결
+function StaffDocSubmit({ authH, realtorId, onDone }: {
+  authH: () => Record<string, string>; realtorId: string; onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<"assoc" | "assist">("assoc");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = () => {
+    if (!name.trim()) { alert("본인 이름을 입력해 주세요."); return; }
+    if (!file) { alert("개설등록증 파일을 선택해 주세요."); return; }
+    const fd = new FormData();
+    fd.append("document", file);
+    fd.append("claimed_name", name.trim());
+    fd.append("realtor_id", realtorId);
+    fd.append("role", role);
+    setBusy(true);
+    fetch(`${API_BASE}/lounge/verify-doc`, { method: "POST", headers: authH(), body: fd })
+      .then((r) => { if (!r.ok) throw new Error(); onDone(); })
+      .catch(() => alert("제출에 실패했어요.")).finally(() => setBusy(false));
+  };
+  if (!open) {
+    return (
+      <button className="chip" style={{ width: "fit-content" }} onClick={() => setOpen(true)}>
+        대표 승인 없이 — 개설등록증으로 인증 (관리자 확인)
+      </button>
+    );
+  }
+  return (
+    <div style={{ display: "grid", gap: 6, border: "1px dashed var(--c-border)", borderRadius: 10, padding: 12 }}>
+      <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+        사무소 <b>개설등록증</b>과 본인 이름을 제출하면 관리자가 확인 후 연결해 드립니다. (보통 1영업일 이내)
+      </p>
+      <input className="ai-input" placeholder="본인 이름" value={name} onChange={(e) => setName(e.target.value)} />
+      <div style={{ display: "flex", gap: 6 }}>
+        {(["assoc", "assist"] as const).map((rl) => (
+          <button key={rl} className={`chip ${role === rl ? "active" : ""}`} onClick={() => setRole(rl)}>
+            {rl === "assoc" ? "소속공인중개사" : "중개보조원"}
+          </button>
+        ))}
+      </div>
+      <input type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+      <button className="ai-send" style={{ padding: "8px 16px", width: "fit-content" }} disabled={busy} onClick={submit}>
+        {busy ? "제출 중…" : "제출하기"}
+      </button>
+    </div>
   );
 }
 
