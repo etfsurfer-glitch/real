@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle, XCircle, CheckCircle2, Loader2, Building2, Square, CheckSquare, ShieldCheck,
   Info, X, Download, TrendingDown, TrendingUp, ChevronRight, ChevronDown,
+  Building, BedDouble, Store, Briefcase, Home, House, LandPlot, Factory, Landmark, Warehouse, Hammer, Ticket,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -31,6 +32,18 @@ const PRIMARY = "#1268d3";
 const BORDER = "#e4e9f0";
 const SPIN: React.CSSProperties = { animation: "hp-spin .8s linear infinite" };
 const TRADE_ORDER = ["A1", "B1", "B2"];   // 매매 → 전세 → 월세
+
+// 유형별 아이콘 — 백엔드 kind 키 기준(단지형 대문자·비단지 소문자). 생숙만 보라 강조.
+const KIND_ICON: Record<string, { I: React.ComponentType<{ size?: number | string; style?: React.CSSProperties }>; c: string }> = {
+  APT: { I: Building2, c: "#64748b" }, OPST: { I: Building, c: "#64748b" },
+  SAENGSUK: { I: BedDouble, c: "#7c3aed" },
+  ABYG: { I: Ticket, c: "#64748b" }, OBYG: { I: Ticket, c: "#64748b" }, JGC: { I: Hammer, c: "#64748b" },
+  sangga: { I: Store, c: "#64748b" }, office: { I: Briefcase, c: "#64748b" },
+  villa: { I: Home, c: "#64748b" }, house: { I: House, c: "#64748b" },
+  land: { I: LandPlot, c: "#64748b" }, factory: { I: Factory, c: "#64748b" },
+  building: { I: Landmark, c: "#64748b" }, knowledge: { I: Warehouse, c: "#64748b" },
+  redev: { I: Hammer, c: "#64748b" },
+};
 const helpBtnStyle: React.CSSProperties = {
   display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 600,
   color: "#5b6b80", background: "#f1f5fb", border: "1px solid #dde6f3", borderRadius: 999,
@@ -242,7 +255,10 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
                             style={{ display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: running ? "default" : "pointer", flexShrink: 0 }}>
                             {allSel ? <CheckSquare size={15} style={{ color: PRIMARY }} /> : <Square size={15} style={{ color: "#cbd5e1" }} />}
                           </button>
-                          {kind === "SAENGSUK" && <ShieldCheck size={12} style={{ color: "#7c3aed", flexShrink: 0 }} />}
+                          {(() => {
+                            const ic = KIND_ICON[kind] || { I: Building2, c: "#64748b" };
+                            return <ic.I size={14} style={{ color: ic.c, flexShrink: 0 }} />;
+                          })()}
                           <span style={{ fontSize: 13, fontWeight: 700, color: selN > 0 ? PRIMARY : "#1f2937",
                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{info.label}</span>
                           {/* 접힌 상태 요약: 선택 뱃지 + 총계 */}
