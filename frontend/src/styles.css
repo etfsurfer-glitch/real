@@ -2973,3 +2973,64 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .legal-mail{display:inline-flex;align-items:center;gap:7px;background:var(--c-primary,#1268d3);color:#fff;border-radius:10px;padding:11px 18px;font-size:14px;font-weight:700;text-decoration:none;margin:6px 0}
 .legal-note{color:#6b7280;font-size:12.5px;margin:10px 0}
 .legal-box.ok{display:flex;align-items:center;gap:9px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:12px;padding:16px;font-weight:700;font-size:15px}
+
+/* ══ 콕집 중개사 앱(/biz) ══ */
+.biz-shell { min-height: 100dvh; background: #f4f7fb; display: flex; flex-direction: column; }
+.biz-top { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #fff;
+  border-bottom: 1px solid var(--c-border, #e4e9f0); position: sticky; top: 0; z-index: 20; }
+.biz-back { display: flex; align-items: center; color: #334155; }
+.biz-brand { display: inline-flex; align-items: center; gap: 6px; color: inherit; font-size: 16px; }
+.biz-brand-tag { font-size: 10.5px; font-weight: 800; color: #fff; background: #0f2f5c;
+  border-radius: 999px; padding: 2px 8px; letter-spacing: .03em; }
+.biz-top-title { margin-left: auto; font-size: 13.5px; font-weight: 700; color: #475569; }
+.biz-body { flex: 1; padding: 14px 14px 40px; max-width: 860px; width: 100%; margin: 0 auto; }
+
+/* 랜딩 */
+.biz-landing { justify-content: center; padding: 28px 22px 40px; background:
+  linear-gradient(165deg, #0f2f5c 0%, #113a74 55%, #1268d3 130%); color: #fff; }
+.biz-hero { text-align: center; margin-bottom: 22px; }
+.biz-hero h1 { font-size: 30px; margin: 10px 0 4px; letter-spacing: -0.02em; }
+.biz-hero-tag { font-size: 13px; font-weight: 800; vertical-align: 8px; background: #ffd43b; color: #143c1e;
+  border-radius: 999px; padding: 3px 10px; margin-left: 4px; }
+.biz-hero-sub { font-size: 15px; opacity: .95; margin: 0 0 10px; }
+.biz-hero-sub b { color: #ffd43b; }
+.biz-hero-desc { font-size: 13.5px; line-height: 1.65; opacity: .85; max-width: 420px; margin: 0 auto; }
+.biz-feats { list-style: none; padding: 0; margin: 0 auto 24px; max-width: 420px; display: grid; gap: 10px; }
+.biz-feats li { display: flex; gap: 11px; align-items: flex-start; background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 11px 13px; }
+.biz-feats li svg { flex-shrink: 0; margin-top: 2px; color: #ffd43b; }
+.biz-feats li b { display: block; font-size: 13.5px; margin-bottom: 1px; }
+.biz-feats li span { font-size: 12px; opacity: .8; }
+.biz-login-btns { display: grid; gap: 9px; max-width: 420px; margin: 0 auto 14px; width: 100%; }
+.biz-login { border: none; border-radius: 11px; padding: 13px; font-size: 14.5px; font-weight: 800; cursor: pointer; }
+.biz-login.kakao { background: #fee500; color: #191919; }
+.biz-login.google { background: #fff; color: #1f2937; }
+.biz-landing .muted a { color: #cfe0f5; }
+
+/* 홈 그리드 */
+.biz-greet { margin: 4px 2px 16px; }
+.biz-greet-name { font-size: 17px; }
+.biz-greet-office { font-size: 13px; color: #475569; font-weight: 700; margin-top: 2px; }
+.biz-greet-date { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+.biz-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.biz-btn { position: relative; display: flex; flex-direction: column; gap: 3px; background: #fff;
+  border: 1px solid var(--c-border, #e4e9f0); border-radius: 14px; padding: 15px 14px 13px;
+  color: inherit; box-shadow: 0 1px 2px rgba(15,47,92,.04); transition: transform .1s, box-shadow .1s; }
+.biz-btn:active { transform: scale(.97); }
+.biz-btn b { font-size: 14.5px; }
+.biz-btn-desc { font-size: 11.5px; color: #8296ab; }
+.biz-btn-ic { position: relative; width: fit-content; color: #1268d3; margin-bottom: 5px; }
+.biz-btn.primary { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 12px;
+  background: linear-gradient(135deg, #0f2f5c, #1268d3); color: #fff; border: none; padding: 17px 16px; }
+.biz-btn.primary b { font-size: 16.5px; }
+.biz-btn.primary .biz-btn-desc { color: rgba(255,255,255,.75); }
+.biz-btn.primary .biz-btn-ic { color: #ffd43b; margin: 0; }
+.biz-btn-badge { position: absolute; top: -6px; right: -10px; background: #e8506a; color: #fff;
+  font-size: 10px; font-weight: 800; font-style: normal; border-radius: 999px; padding: 1px 6px; }
+.biz-push { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%;
+  margin-top: 14px; padding: 12px; border-radius: 12px; border: 1px dashed #a9c7ec; background: #f0f6ff;
+  color: #1268d3; font-size: 13px; font-weight: 700; cursor: pointer; }
+.biz-push.on { border-style: solid; background: #eefaf2; border-color: #bfe7cd; color: #1f9d63; cursor: default; }
+.biz-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; }
+.biz-foot a, .biz-foot button { font-size: 12px; color: #94a3b8; background: none; border: none;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }

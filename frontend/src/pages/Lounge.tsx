@@ -26,11 +26,11 @@ function ymd(s: string | null | undefined): string {
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
-type Office = {
+export type Office = {
   realtor_id: string; realtor_name: string | null; address?: string | null;
   representative?: string | null; tel?: string | null; cell?: string | null;
 };
-type Status = {
+export type Status = {
   state: "need_phone" | "select" | "no_match" | "doc_pending" | "linked" | "admin_pick";
   phone_verified: boolean;
   office?: Office; method?: string; candidates?: Office[]; is_admin?: boolean; has_homepage?: boolean;
@@ -38,7 +38,7 @@ type Status = {
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-type Tab = "dashboard" | "listings" | "audit" | "office" | "edit" | "leads" | "homepage";
+export type Tab = "dashboard" | "listings" | "audit" | "office" | "edit" | "leads" | "homepage";
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -51,10 +51,10 @@ type Dash = {
   favorites_count: number;
 };
 type TradeCnt = { A1: number; B1: number; B2: number; sum: number };
-type Fav = { complex_no: string; complex_name: string;
+export type Fav = { complex_no: string; complex_name: string;
   record_high: { area_key: string; price: number; date: string } | null;
   total: TradeCnt; new_week: TradeCnt; today_change: number };
-type FavOffice = { realtor_id: string; realtor_name: string | null; address: string | null;
+export type FavOffice = { realtor_id: string; realtor_name: string | null; address: string | null;
   representative: string | null; total: TradeCnt; today_change: number; national_rank: number | null };
 
 export default function Lounge() {
@@ -195,11 +195,11 @@ export default function Lounge() {
 function Box({ children }: { children: React.ReactNode }) {
   return <div className="muted" style={{ padding: 24 }}>{children}</div>;
 }
-function Card({ children }: { children: React.ReactNode }) {
+export function Card({ children }: { children: React.ReactNode }) {
   return <div style={{ border: "1px solid var(--c-border)", borderRadius: 12, padding: 18, maxWidth: 640, display: "grid", gap: 8 }}>{children}</div>;
 }
 
-function DashboardTab({ authH, office, onGoTab }: {
+export function DashboardTab({ authH, office, onGoTab }: {
   authH: () => Record<string, string>; office: Office; onGoTab: (t: Tab) => void;
 }) {
   const [d, setD] = useState<Dash | null>(null);
@@ -313,7 +313,7 @@ function tradeStr(t: TradeCnt): string {
   return `매매 ${t.A1} · 전세 ${t.B1} · 월세 ${t.B2}`;
 }
 
-function FavManager({ authH, favs, onChange }: {
+export function FavManager({ authH, favs, onChange }: {
   authH: () => Record<string, string>; favs: Fav[] | null; onChange: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -396,7 +396,7 @@ function FavManager({ authH, favs, onChange }: {
   );
 }
 
-function OfficeFavManager({ authH, offices, onChange }: {
+export function OfficeFavManager({ authH, offices, onChange }: {
   authH: () => Record<string, string>; offices: FavOffice[] | null; onChange: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -592,7 +592,7 @@ function ChangeList({ title, kind, items, showComplex }: {
   );
 }
 
-function OfficeTab({ office, method, onUnlink }: { office: Office; method?: string; onUnlink: () => void }) {
+export function OfficeTab({ office, method, onUnlink }: { office: Office; method?: string; onUnlink: () => void }) {
   return (
     <Card>
       <div style={{ fontSize: 18, fontWeight: 700 }}>{office.realtor_name}</div>
@@ -616,7 +616,7 @@ function OfficeTab({ office, method, onUnlink }: { office: Office; method?: stri
   );
 }
 
-function AuditTab({ authH }: { authH: () => Record<string, string> }) {
+export function AuditTab({ authH }: { authH: () => Record<string, string> }) {
   return (
     <ListingAudit
       authH={authH()}
@@ -630,7 +630,7 @@ function AuditTab({ authH }: { authH: () => Record<string, string> }) {
 }
 
 
-function EditTab({ authH }: { authH: () => Record<string, string> }) {
+export function EditTab({ authH }: { authH: () => Record<string, string> }) {
   const [content, setContent] = useState("");
   const [items, setItems] = useState<EditReq[]>([]);
   const [sending, setSending] = useState(false);
@@ -673,7 +673,7 @@ function EditTab({ authH }: { authH: () => Record<string, string> }) {
   );
 }
 
-function LeadsTab({ authH }: { authH: () => Record<string, string> }) {
+export function LeadsTab({ authH }: { authH: () => Record<string, string> }) {
   const [items, setItems] = useState<Lead[]>([]);
   const load = useCallback(() => {
     fetch(`${API_BASE}/lounge/leads`, { headers: authH() })
@@ -711,7 +711,7 @@ function LeadsTab({ authH }: { authH: () => Record<string, string> }) {
   );
 }
 
-function AdminPick({ authH, onPicked }: { authH: () => Record<string, string>; onPicked: () => void }) {
+export function AdminPick({ authH, onPicked }: { authH: () => Record<string, string>; onPicked: () => void }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<{ realtor_id: string; realtor_name: string | null; location?: string | null; representative?: string | null }[]>([]);
   const search = () => {
@@ -772,7 +772,7 @@ const WSTEPS = [
   { title: "확인하고 게시", desc: "미리보기로 확인하고, 마음에 들면 게시하세요." },
 ];
 
-function HomepageTab({ authH, office, onStatusChange }: { authH: () => Record<string, string>; office: Office; onStatusChange: () => void }) {
+export function HomepageTab({ authH, office, onStatusChange }: { authH: () => Record<string, string>; office: Office; onStatusChange: () => void }) {
   const [cfg, setCfg] = useState<HpCfg | null>(null);
   const [f, setF] = useState<HpForm>({ slug: "", slogan: "", intro: "", specialties: "", biz_hours: "", kakao_url: "", consult_tel: "", map_memo: "", published: false });
   const [slugMsg, setSlugMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -1031,7 +1031,7 @@ function DangerZone({ slug, open, setOpen, onDelete }: {
   );
 }
 
-function DocSubmit({ authH, onDone }: { authH: () => Record<string, string>; onDone: () => void }) {
+export function DocSubmit({ authH, onDone }: { authH: () => Record<string, string>; onDone: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1186,7 +1186,7 @@ function eok(v: number) {
 
 const ML_CATS = ["", "아파트", "오피스텔", "분양권", "빌라", "상가", "사무실", "단독"];
 
-function ListingsTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
+export function ListingsTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
   const [items, setItems] = useState<MLItem[] | null>(null);
   const [managers, setManagers] = useState<Manager[]>([]);
   const [q, setQ] = useState("");

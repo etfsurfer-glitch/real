@@ -40,9 +40,11 @@ def _complex_seg(d, cno, cname):
 
 def main():
     with A._reviews_db() as rc:
+        # 중개사 회원은 제외 — 10·16시 '중개사 브리핑'(push_biz_digest)이 상위호환으로 커버.
         users = [r[0] for r in rc.execute(
             "SELECT DISTINCT f.user_id FROM realtor_fav_complexes f "
-            "JOIN push_subscriptions p ON p.user_id = f.user_id").fetchall()]
+            "JOIN push_subscriptions p ON p.user_id = f.user_id "
+            "WHERE f.user_id NOT IN (SELECT user_id FROM realtor_members)").fetchall()]
     total_sent = 0
     for uid in users:
         with A._reviews_db() as rc:

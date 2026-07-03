@@ -46,6 +46,7 @@ import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
 import PresaleTx from "./pages/PresaleTx";
 import Lounge from "./pages/Lounge";
+import BizApp from "./pages/BizApp";
 import RealtorHomepage from "./pages/RealtorHomepage";
 import MyHood from "./pages/MyHood";
 import MyComplex from "./pages/MyComplex";
@@ -176,6 +177,18 @@ function AppShell() {
         <Routes>
           <Route path="/:slug" element={<RealtorHomepage />} />
           <Route path="*" element={<RealtorHomepage />} />
+        </Routes>
+      </ErrorBoundary>
+    );
+  }
+  // /biz — 콕집 중개사 앱(TWA 전용 셸). 소비자용 크롬 없이 독립 렌더.
+  if (location.pathname === "/biz" || location.pathname.startsWith("/biz/")) {
+    return (
+      <ErrorBoundary key={location.pathname}>
+        <InAppAutoExternal />
+        <Routes>
+          <Route path="/biz" element={<BizApp />} />
+          <Route path="/biz/:screen" element={<BizApp />} />
         </Routes>
       </ErrorBoundary>
     );

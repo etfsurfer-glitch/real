@@ -1,0 +1,312 @@
+import { useCallback, useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useAuth, loginKakao, loginGoogle, logout } from "../auth";
+import { PhoneModal } from "../components/PhoneVerify";
+import { Loading } from "../components/Loading";
+import { enablePush, pushOptedIn, pushSupported } from "../lib/push";
+import {
+  Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil,
+  Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store,
+} from "lucide-react";
+import {
+  DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
+  DocSubmit, AdminPick, FavManager, OfficeFavManager, Card,
+  type Office, type Status, type Tab, type Fav, type FavOffice,
+} from "./Lounge";
+
+const API_BASE = import.meta.env.VITE_API_BASE;
+
+// 콕집 중개사 앱(/biz) — 라운지 기능을 '매물장 중심의 중개사 다이어리'로 재구성한 전용 셸.
+// TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
+
+type Screen = "diary" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
+            | "office" | "edit" | "dash";
+
+const SCREENS: Record<Screen, { title: string }> = {
+  diary: { title: "매물장" }, audit: { title: "매물점검" }, leads: { title: "상담신청" },
+  homepage: { title: "내 홈페이지" }, favs: { title: "관심단지" }, "fav-offices": { title: "관심중개사" },
+  office: { title: "내 사무소" }, edit: { title: "정보수정요청" }, dash: { title: "대시보드" },
+};
+
+export default function BizApp() {
+  const { user, token, ready, configured, refreshMe } = useAuth();
+  const { screen } = useParams<{ screen: Screen }>();
+  const nav = useNavigate();
+  const [st, setSt] = useState<Status | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [phoneOpen, setPhoneOpen] = useState(false);
+
+  const authH = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  // 중개사 앱 전용 manifest 로 교체(PWA/TWA 설치 정체성 분리)
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    const prev = link?.href;
+    if (link) link.href = "/biz.webmanifest";
+    document.title = "콕집 중개사 — 매물장·매물점검·상담";
+    return () => { if (link && prev) link.href = prev; };
+  }, []);
+
+  const loadStatus = useCallback(() => {
+    if (!token || !API_BASE) { setLoading(false); return; }
+    setLoading(true);
+    fetch(`${API_BASE}/lounge/status`, { headers: authH() })
+      .then((r) => r.json()).then((d: Status) => setSt(d))
+      .catch(() => setSt(null)).finally(() => setLoading(false));
+  }, [token, authH]);
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  if (!ready) return <div className="biz-shell"><Loading /></div>;
+
+  // ── ① 비로그인: 중개사 전용 랜딩 ──
+  if (!user || !configured) return <BizLanding />;
+
+  if (loading || !st) return <div className="biz-shell"><BizTop /><Loading /></div>;
+
+  // ── ② 사무소 연결 전 흐름 ──
+  if (st.state !== "linked" || !st.office) {
+    return (
+      <div className="biz-shell">
+        <BizTop />
+        <div className="biz-body">
+          {st.state === "need_phone" && (
+            <Card>
+              <p><b>중개사무소 확인</b>을 위해 본인 명의 휴대폰 인증이 필요합니다.</p>
+              <p className="muted" style={{ fontSize: 13 }}>인증 번호가 콕집에 등록된 사무소 연락처와 일치하면 자동 연결됩니다.</p>
+              <button className="ai-send" style={{ padding: "10px 18px" }} onClick={() => setPhoneOpen(true)}>휴대폰 인증하기</button>
+            </Card>
+          )}
+          {st.state === "select" && (
+            <Card>
+              <p>일치하는 사무소가 <b>{st.candidates?.length}곳</b> 있습니다. 본인 사무소를 선택해 주세요.</p>
+              <div style={{ display: "grid", gap: 8 }}>
+                {st.candidates?.map((o) => (
+                  <div key={o.realtor_id} className="lounge-cand">
+                    <div><b>{o.realtor_name}</b>
+                      <div className="muted" style={{ fontSize: 12 }}>{[o.address, o.representative ? `대표 ${o.representative}` : null].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    <button className="ai-send" style={{ padding: "6px 14px" }} onClick={() => selectOffice(o.realtor_id)}>이 사무소</button>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+          {st.state === "no_match" && (
+            <Card>
+              <p>인증 번호와 일치하는 사무소를 찾지 못했습니다.</p>
+              <p className="muted" style={{ fontSize: 13 }}>사업자등록증을 제출하시면 관리자 확인 후 연결해 드립니다.</p>
+              <DocSubmit authH={authH} onDone={loadStatus} />
+            </Card>
+          )}
+          {st.state === "doc_pending" && (
+            <Card><p>제출 서류를 <b>관리자가 확인 중</b>입니다. 승인되면 바로 열립니다. (보통 1영업일 이내)</p></Card>
+          )}
+          {st.state === "admin_pick" && (
+            <Card><p><b>관리자</b> — 둘러볼 사무소를 검색해 연결하세요.</p><AdminPick authH={authH} onPicked={loadStatus} /></Card>
+          )}
+        </div>
+        {phoneOpen && token && (
+          <PhoneModal token={token} onClose={() => setPhoneOpen(false)}
+            onDone={async () => { await refreshMe(); setPhoneOpen(false); loadStatus(); }} />
+        )}
+      </div>
+    );
+  }
+
+  const office = st.office;
+
+  // ── ③ 기능 화면 ──
+  if (screen && SCREENS[screen]) {
+    return (
+      <div className="biz-shell">
+        <BizTop backTo="/biz" title={SCREENS[screen].title} />
+        <div className="biz-body">
+          {screen === "diary" && <ListingsTab authH={authH} office={office} />}
+          {screen === "audit" && <AuditTab authH={authH} />}
+          {screen === "leads" && <LeadsTab authH={authH} />}
+          {screen === "homepage" && <HomepageTab authH={authH} office={office} onStatusChange={loadStatus} />}
+          {screen === "favs" && <FavScreen authH={authH} />}
+          {screen === "fav-offices" && <FavOfficeScreen authH={authH} />}
+          {screen === "office" && <OfficeTab office={office} method={st.method} onUnlink={unlink} />}
+          {screen === "edit" && <EditTab authH={authH} />}
+          {screen === "dash" && <DashboardTab authH={authH} office={office} onGoTab={goTab} />}
+        </div>
+      </div>
+    );
+  }
+
+  // ── ④ 홈: 버튼 그리드 ──
+  return <BizHome office={office} authH={authH} hasHomepage={!!st.has_homepage} onLogout={logout} />;
+
+  function selectOffice(rid: string) {
+    fetch(`${API_BASE}/lounge/select`, {
+      method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+      body: JSON.stringify({ realtor_id: rid }),
+    }).then((r) => { if (!r.ok) throw new Error(); loadStatus(); }).catch(() => alert("선택에 실패했습니다."));
+  }
+  function unlink() {
+    if (!confirm("사무소 연결을 해제할까요? 다시 선택할 수 있어요.")) return;
+    fetch(`${API_BASE}/lounge/unlink`, { method: "POST", headers: authH() }).then(() => { nav("/biz"); loadStatus(); });
+  }
+  function goTab(t: Tab) {
+    const map: Record<Tab, string> = {
+      dashboard: "dash", listings: "diary", audit: "audit", office: "office",
+      edit: "edit", leads: "leads", homepage: "homepage",
+    };
+    nav(`/biz/${map[t]}`);
+  }
+}
+
+// ── 상단바 ──
+function BizTop({ backTo, title }: { backTo?: string; title?: string }) {
+  return (
+    <header className="biz-top">
+      {backTo
+        ? <Link to={backTo} className="biz-back" aria-label="뒤로"><ChevronLeft size={20} /></Link>
+        : <span style={{ width: 4 }} />}
+      <Link to="/biz" className="biz-brand">
+        <img src="/logo.svg" alt="" width="22" height="22" />
+        <b>콕집</b><span className="biz-brand-tag">중개사</span>
+      </Link>
+      {title ? <span className="biz-top-title">{title}</span> : <span />}
+    </header>
+  );
+}
+
+// ── 비로그인 랜딩: 중개사 전용 강조 ──
+function BizLanding() {
+  return (
+    <div className="biz-shell biz-landing">
+      <div className="biz-hero">
+        <img src="/logo.svg" alt="" width="52" height="52" />
+        <h1>콕집 <span className="biz-hero-tag">중개사</span></h1>
+        <p className="biz-hero-sub"><b>중개사무소 전용</b> 서비스입니다</p>
+        <p className="biz-hero-desc">
+          내 매물을 다이어리처럼 — 매물장·표시광고 점검·상담 관리·사무소 홈페이지까지,
+          중개 업무에 필요한 것만 담았습니다.
+        </p>
+      </div>
+      <ul className="biz-feats">
+        <li><ClipboardList size={17} /><div><b>매물장</b><span>내 매물 검색·메모·담당자 배정 — 매물 다이어리</span></div></li>
+        <li><ShieldCheck size={17} /><div><b>매물점검</b><span>표시·광고 위반(과태료) 사전 자가점검</span></div></li>
+        <li><BellRing size={17} /><div><b>매일 10시·16시 브리핑</b><span>내 매물·관심단지·관심중개사 변동 알림</span></div></li>
+        <li><Globe size={17} /><div><b>사무소 홈페이지</b><span>1분 만에 만드는 우리 사무소 홈페이지 + 상담접수</span></div></li>
+      </ul>
+      <div className="biz-login-btns">
+        <button className="biz-login kakao" onClick={() => loginKakao()}>카카오로 시작</button>
+        <button className="biz-login google" onClick={() => loginGoogle()}>구글로 시작</button>
+      </div>
+      <p className="muted" style={{ fontSize: 12, textAlign: "center" }}>
+        로그인 후 휴대폰 인증으로 사무소가 자동 연결됩니다 · 일반 사용자는 <a href="https://koczip.com/">콕집 홈</a>으로
+      </p>
+    </div>
+  );
+}
+
+// ── 홈 그리드 ──
+function BizHome({ office, authH, hasHomepage, onLogout }: {
+  office: Office; authH: () => Record<string, string>; hasHomepage: boolean; onLogout: () => void;
+}) {
+  const [leadNew, setLeadNew] = useState(0);
+  const [total, setTotal] = useState<number | null>(null);
+  const [pushOn, setPushOn] = useState(pushOptedIn());
+  const { token } = useAuth();
+  useEffect(() => {
+    fetch(`${API_BASE}/lounge/dashboard`, { headers: authH() })
+      .then((r) => r.json())
+      .then((d) => { setLeadNew(d?.leads?.new_count || 0); setTotal(d?.stats?.total_listings ?? null); })
+      .catch(() => {});
+  }, [authH]);
+
+  const now = new Date();
+  const dateStr = `${now.getMonth() + 1}월 ${now.getDate()}일 ${"일월화수목금토"[now.getDay()]}요일`;
+
+  async function togglePush() {
+    const r = await enablePush(token);
+    if (r.ok) { setPushOn(true); alert("알림이 켜졌습니다. 매일 10시·16시 매물 브리핑을 보내드려요."); }
+    else alert("알림 설정에 실패했어요. 브라우저 알림 권한을 확인해 주세요.");
+  }
+
+  return (
+    <div className="biz-shell">
+      <BizTop />
+      <div className="biz-body">
+        <div className="biz-greet">
+          <div className="biz-greet-name"><b>{office.representative || "대표"}</b> 대표님, 안녕하세요</div>
+          <div className="biz-greet-office">{office.realtor_name}</div>
+          <div className="biz-greet-date">{dateStr}{total != null && <> · 우리 매물 <b>{total.toLocaleString()}</b>건</>}</div>
+        </div>
+
+        <div className="biz-grid">
+          <BizBtn to="/biz/diary" icon={<ClipboardList size={22} />} label="매물장" desc="내 매물 다이어리" primary />
+          <BizBtn to="/biz/audit" icon={<ShieldCheck size={22} />} label="매물점검" desc="표시광고 자가점검" />
+          <BizBtn to="/biz/leads" icon={<MessageSquare size={22} />} label="상담신청" desc="고객 상담 리드" badge={leadNew || undefined} />
+          <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
+          <BizBtn to="/biz/favs" icon={<Star size={22} />} label="관심단지" desc="신고가·신규매물 체크" />
+          <BizBtn to="/biz/fav-offices" icon={<Store size={22} />} label="관심중개사" desc="주변 사무소 증감" />
+          <BizBtn to="/biz/dash" icon={<LayoutDashboard size={22} />} label="대시보드" desc="오늘의 사무소 현황" />
+          <BizBtn to="/biz/office" icon={<Building2 size={22} />} label="내 사무소" desc="연결·리뷰 관리" />
+          <BizBtn to="/biz/edit" icon={<Pencil size={22} />} label="정보수정요청" desc="사무소 정보 정정" />
+        </div>
+
+        {pushSupported() && (
+          <button className={`biz-push ${pushOn ? "on" : ""}`} onClick={togglePush} disabled={pushOn}>
+            {pushOn ? <><CheckCircle2 size={16} /> 매일 10시·16시 매물 브리핑 알림 켜짐</>
+                    : <><Bell size={16} /> 매일 10시·16시 매물 브리핑 알림 받기</>}
+          </button>
+        )}
+
+        <div className="biz-foot">
+          <a href="https://koczip.com/" target="_blank" rel="noreferrer">콕집 홈(일반)</a>
+          <button onClick={onLogout}><LogOut size={12} /> 로그아웃</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BizBtn({ to, icon, label, desc, badge, primary }: {
+  to: string; icon: React.ReactNode; label: string; desc: string; badge?: number; primary?: boolean;
+}) {
+  return (
+    <Link to={to} className={`biz-btn${primary ? " primary" : ""}`}>
+      <span className="biz-btn-ic">{icon}{badge ? <em className="biz-btn-badge">{badge}</em> : null}</span>
+      <b>{label}</b>
+      <span className="biz-btn-desc">{desc}</span>
+    </Link>
+  );
+}
+
+// ── 관심단지/관심중개사 단독 화면 ──
+function FavScreen({ authH }: { authH: () => Record<string, string> }) {
+  const [favs, setFavs] = useState<Fav[] | null>(null);
+  const load = useCallback(() => {
+    fetch(`${API_BASE}/lounge/favorites`, { headers: authH() })
+      .then((r) => r.json()).then((x) => setFavs(x.items ?? [])).catch(() => setFavs([]));
+  }, [authH]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <>
+      <p className="muted" style={{ fontSize: 12.5, margin: "2px 2px 10px" }}>
+        등록한 단지의 신고가·신규매물·증감을 매일 10시·16시 브리핑으로 알려드립니다.
+      </p>
+      <FavManager authH={authH} favs={favs} onChange={load} />
+    </>
+  );
+}
+function FavOfficeScreen({ authH }: { authH: () => Record<string, string> }) {
+  const [items, setItems] = useState<FavOffice[] | null>(null);
+  const load = useCallback(() => {
+    fetch(`${API_BASE}/lounge/fav-offices`, { headers: authH() })
+      .then((r) => r.json()).then((x) => setItems(x.items ?? [])).catch(() => setItems([]));
+  }, [authH]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <>
+      <p className="muted" style={{ fontSize: 12.5, margin: "2px 2px 10px" }}>
+        주변·경쟁 사무소의 매물 증감을 매일 10시·16시 브리핑으로 알려드립니다.
+      </p>
+      <OfficeFavManager authH={authH} offices={items} onChange={load} />
+    </>
+  );
+}
