@@ -2674,11 +2674,15 @@ def realtor_detail(realtor_id: str):
         with _open_db() as c:
             exists = c.execute(
                 "SELECT 1 FROM realtor_match WHERE realtor_id=? UNION ALL "
-                "SELECT 1 FROM realtor_region_counts WHERE realtor_id=? LIMIT 1",
-                (realtor_id, realtor_id)).fetchone()
+                "SELECT 1 FROM realtor_region_counts WHERE realtor_id=? UNION ALL "
+                # vworld 수동등록(vw…)·신규개업 등 매물 없는 사무소도 기본정보 표시
+                "SELECT 1 FROM naver_realtors WHERE realtor_id=? LIMIT 1",
+                (realtor_id, realtor_id, realtor_id)).fetchone()
             if not exists:
                 raise HTTPException(404, "realtor not found")
             nm = c.execute("SELECT realtor_name FROM realtor_names WHERE realtor_id=?", (realtor_id,)).fetchone()
+            if not nm:
+                nm = c.execute("SELECT realtor_name FROM naver_realtors WHERE realtor_id=?", (realtor_id,)).fetchone()
         nat_rank, total_count, realtor_name = None, 0, (nm[0] if nm else realtor_id)
     by_sido_out = []
     for (sido, rid), (rk, n, _name) in ranks["sido_rank"].items():
