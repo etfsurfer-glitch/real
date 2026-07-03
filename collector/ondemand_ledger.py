@@ -100,6 +100,46 @@ def coord_to_jibun(lat, lon, vworld_key) -> tuple[str, str, str, str] | None:
     return ld[:5], plat, bun, ji, ld[5:10]  # (sgg, platGb, bun, ji, bjd)  ※순서주의 아래서 정리
 
 
+def _br_items(url, base, datago_keys, max_pages=6):
+    """건축HUB 목록 API 페이지네이션 수집 — 대단지(동 20개+·층별개요 100행+) 잘림 방지.
+    2026-07-03 오탐 수정: 월드아파트(동 30여개)에서 numOfRows 단일호출로 상가1동(4층)이
+    잘려 ⑥총층 오탐. totalCount까지 전 페이지 수집. 반환: items 리스트 / _ERR(일시실패)."""
+    items, page = [], 1
+    while page <= max_pages:
+        t = None
+        for key in datago_keys:
+            try:
+                t = urllib.request.urlopen(
+                    urllib.request.Request(
+                        url + "?" + urllib.parse.urlencode(
+                            {"serviceKey": key, **base, "numOfRows": "100", "pageNo": str(page)}),
+                        headers={"Accept": "application/xml"}), timeout=20
+                ).read().decode("utf-8")
+                if "resultCode>00" in t:
+                    break
+                t = None
+            except urllib.error.HTTPError as e:
+                if e.code == 429:      # 키 쿼터 소진 → 다음 키
+                    t = None
+                    continue
+                return _ERR
+            except Exception:
+                return _ERR
+        if not t:
+            return _ERR
+        try:
+            root = ET.fromstring(t)
+        except ET.ParseError:
+            return _ERR
+        new = root.findall(".//item")
+        items.extend(new)
+        total = _int(root.findtext(".//totalCount")) or 0
+        if not new or len(items) >= total:
+            break
+        page += 1
+    return items
+
+
 def _int(v):
     try:
         return int(float(str(v))) if str(v).strip() not in ("", "-") else None
@@ -112,33 +152,10 @@ def ledger_ref(sgg, bjd, plat, bun, ji, datago_keys) -> dict | None:
     datago_keys: 키 리스트(또는 str). 키별 일일쿼터라 429(소진) 시 다음 키로 폴백."""
     if isinstance(datago_keys, str):
         datago_keys = [datago_keys]
-    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
-            "bun": bun, "ji": ji, "numOfRows": "20", "pageNo": "1"}
-    t = None
-    for key in datago_keys:
-        try:
-            t = urllib.request.urlopen(
-                urllib.request.Request(
-                    BR_URL + "?" + urllib.parse.urlencode({"serviceKey": key, **base}),
-                    headers={"Accept": "application/xml"}), timeout=20
-            ).read().decode("utf-8")
-            if "resultCode>00" in t:
-                break
-            t = None
-        except urllib.error.HTTPError as e:
-            if e.code == 429:        # 쿼터 소진 → 다음 키
-                t = None
-                continue
-            return _ERR          # 일시적 HTTP 오류 — 캐시 금지
-        except Exception:
-            return _ERR          # 네트워크 등 — 캐시 금지
-    if not t:
-        return _ERR              # 전 키 실패(429 등) — 캐시 금지(재시도)
-    try:
-        root = ET.fromstring(t)
-    except ET.ParseError:
-        return _ERR
-    items = root.findall(".//item")
+    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji}
+    items = _br_items(BR_URL, base, datago_keys)
+    if items is _ERR:
+        return _ERR              # 일시 실패 — 캐시 금지(재시도)
     if not items:
         return None
 
@@ -256,7 +273,7 @@ def _coord_to_jibun_cached(lat, lon, vworld_key):
 
 def _ref_cached(sgg, bjd, plat, bun, ji, datago_keys):
     """지번 → 대장 ref. L1(프로세스)·L2(DB) 캐시. 일시오류는 캐시 안 함."""
-    rk = f"R{sgg}{bjd}{plat}{bun}{ji}"
+    rk = f"R2{sgg}{bjd}{plat}{bun}{ji}"
     if rk in _cache:
         return _cache[rk]
     v = _cget(rk)
@@ -326,33 +343,10 @@ def flr_ouln_ref(sgg, bjd, plat, bun, ji, datago_keys) -> list | None:
     없음=None, 일시적 실패=_ERR(캐시 금지). 혼합건물(상가+주택 등) 층별 용도 대조용."""
     if isinstance(datago_keys, str):
         datago_keys = [datago_keys]
-    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
-            "bun": bun, "ji": ji, "numOfRows": "100", "pageNo": "1"}
-    t = None
-    for key in datago_keys:
-        try:
-            t = urllib.request.urlopen(
-                urllib.request.Request(
-                    BR_FLR_URL + "?" + urllib.parse.urlencode({"serviceKey": key, **base}),
-                    headers={"Accept": "application/xml"}), timeout=20
-            ).read().decode("utf-8")
-            if "resultCode>00" in t:
-                break
-            t = None
-        except urllib.error.HTTPError as e:
-            if e.code == 429:
-                t = None
-                continue
-            return _ERR
-        except Exception:
-            return _ERR
-    if not t:
+    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji}
+    items = _br_items(BR_FLR_URL, base, datago_keys)
+    if items is _ERR:
         return _ERR
-    try:
-        root = ET.fromstring(t)
-    except ET.ParseError:
-        return _ERR
-    items = root.findall(".//item")
     if not items:
         return None
 
@@ -375,7 +369,7 @@ def flr_ouln_ref(sgg, bjd, plat, bun, ji, datago_keys) -> list | None:
 
 
 def _flr_cached(sgg, bjd, plat, bun, ji, datago_keys):
-    lk = f"L{sgg}{bjd}{plat}{bun}{ji}"
+    lk = f"L2{sgg}{bjd}{plat}{bun}{ji}"
     if lk in _flr_cache:
         return _flr_cache[lk]
     v = _cget(lk)
@@ -409,37 +403,17 @@ def commercial_ref(sgg, bjd, plat, bun, ji, datago_keys):
     상가동 기준으로 총층·사용승인을 대조해야 한다(주거타워 대조는 오탐). 없으면 None."""
     if isinstance(datago_keys, str):
         datago_keys = [datago_keys]
-    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
-            "bun": bun, "ji": ji, "numOfRows": "100", "pageNo": "1"}
-    t = None
-    for key in datago_keys:
-        try:
-            t = urllib.request.urlopen(
-                urllib.request.Request(
-                    BR_URL + "?" + urllib.parse.urlencode({"serviceKey": key, **base}),
-                    headers={"Accept": "application/xml"}), timeout=20
-            ).read().decode("utf-8")
-            if "resultCode>00" in t:
-                break
-            t = None
-        except urllib.error.HTTPError as e:
-            if e.code == 429:
-                t = None
-                continue
-            return _ERR
-        except Exception:
-            return _ERR
-    if not t:
+    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji}
+    items = _br_items(BR_URL, base, datago_keys)
+    if items is _ERR:
         return _ERR
-    try:
-        root = ET.fromstring(t)
-    except ET.ParseError:
-        return _ERR
+    if not items:
+        return None
 
     def g(it, tag):
         return (it.findtext(tag) or "").strip()
 
-    comm = [it for it in root.findall(".//item")
+    comm = [it for it in items
             if g(it, "mainAtchGbCd") in ("", "0")
             and any(k in g(it, "mainPurpsCdNm") for k in _COMM_PURPS_KW)]
     if not comm:
@@ -488,7 +462,7 @@ def commercial_for_pnu(pnu, datago_keys):
     if not j:
         return None
     sgg, bjd, plat, bun, ji = j
-    ck = f"CD{sgg}{bjd}{plat}{bun}{ji}"
+    ck = f"CD2{sgg}{bjd}{plat}{bun}{ji}"
     if ck in _cache:
         return _cache[ck]
     v = _cget(ck)
