@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle, XCircle, CheckCircle2, Loader2, Building2, Square, CheckSquare, ShieldCheck,
-  Info, X, Download, TrendingDown, TrendingUp,
+  Info, X, Download, TrendingDown, TrendingUp, ChevronRight, ChevronDown,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -74,6 +74,7 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
   const [showPass, setShowPass] = useState(false);
   const [openCard, setOpenCard] = useState<string | null>(null);
   const [itemFilter, setItemFilter] = useState<string | null>(null);  // "no|item|status" 유형필터
+  const [openKinds, setOpenKinds] = useState<Set<string>>(new Set()); // 폴더 펼침(유형별)
   const cancelRef = useRef(false);
 
   useEffect(() => {
@@ -201,7 +202,7 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
         <div className="cdash-empty">점검할 매물이 없습니다.</div>
       ) : (
         <div style={{ marginBottom: 14 }}>
-          <div className="muted" style={{ fontSize: 11.5, margin: "0 2px 9px" }}>유형 이름을 누르면 그 유형 전체, 매매·전세·월세는 개별 선택 — 선택 후 아래 <b style={{ color: "#475569" }}>일괄조회</b></div>
+          <div className="muted" style={{ fontSize: 11.5, margin: "0 2px 9px" }}>체크=유형 전체 선택 · 펼치면 매매·전세·월세 개별 선택 — 선택 후 아래 <b style={{ color: "#475569" }}>일괄조회</b></div>
           {(["단지형", "비단지"] as const).map((sec) => {
             const gs = groups.filter((g) => g.group === sec);
             if (gs.length === 0) return null;
@@ -215,40 +216,70 @@ export default function ListingAudit({ authH, breakdownUrl, buildAuditUrl, intro
             return (
               <div key={sec} style={{ marginBottom: 11 }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8", margin: "0 2px 8px", letterSpacing: ".02em" }}>{sec}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {kinds.map(([kind, info]) => {
-                    const allSel = info.trades.every((t) => selected.has(gkey(t)));
+                    const fkey = `${sec}|${kind}`;
+                    const isOpen = openKinds.has(fkey);
+                    const total = info.trades.reduce((s, t) => s + t.count, 0);
+                    const selN = info.trades.filter((t) => selected.has(gkey(t))).length;
+                    const allSel = selN === info.trades.length;
                     return (
-                      <div key={kind} style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                        <button onClick={() => !running && toggleKind(info.trades)} title="유형 전체 선택/해제"
-                          style={{ width: 88, flexShrink: 0, fontSize: 13, fontWeight: 700, color: allSel ? PRIMARY : "#1f2937",
-                            display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", textAlign: "left", padding: 0, cursor: running ? "default" : "pointer" }}>
-                          {allSel ? <CheckSquare size={14} style={{ color: PRIMARY, flexShrink: 0 }} /> : <Square size={14} style={{ color: "#cbd5e1", flexShrink: 0 }} />}
-                          {kind === "SAENGSUK" && <ShieldCheck size={11} style={{ color: "#7c3aed", flexShrink: 0 }} />}
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{info.label}</span>
-                        </button>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {TRADE_ORDER.map((t) => {
-                            const g = info.trades.find((x) => x.trade === t);
-                            if (!g) return null;
-                            const sel = selected.has(gkey(g));
-                            const tc = TRADE_C[t] || "#64748b";
-                            return (
-                              <button key={t} onClick={() => !running && toggle(g)} disabled={running}
-                                style={{
-                                  display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px",
-                                  borderRadius: 10, cursor: running ? "default" : "pointer", fontSize: 12.5,
-                                  border: `1px solid ${sel ? tc : BORDER}`,
-                                  background: sel ? tc : "#fff", color: sel ? "#fff" : "#334155",
-                                  opacity: running ? 0.6 : 1, transition: "all .12s",
-                                }}>
-                                {sel && <CheckSquare size={11} />}
-                                <span style={{ fontWeight: 600 }}>{g.trade_label}</span>
-                                <span style={{ fontWeight: 800, color: sel ? "#fff" : tc, fontVariantNumeric: "tabular-nums" }}>{g.count.toLocaleString()}</span>
-                              </button>
-                            );
+                      <div key={kind} style={{
+                        border: `1px solid ${selN > 0 ? "#a9c7ec" : BORDER}`, borderRadius: 11,
+                        background: selN > 0 ? "#f6faff" : "#fff", overflow: "hidden", transition: "all .12s",
+                      }}>
+                        {/* 폴더 헤더 — 클릭=펼침, 체크박스=유형 전체선택 */}
+                        <div onClick={() => setOpenKinds((prev) => {
+                            const n = new Set(prev);
+                            if (n.has(fkey)) n.delete(fkey); else n.add(fkey);
+                            return n;
                           })}
+                          style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 11px", cursor: "pointer", userSelect: "none" }}>
+                          {isOpen ? <ChevronDown size={14} style={{ color: "#94a3b8", flexShrink: 0 }} />
+                                  : <ChevronRight size={14} style={{ color: "#94a3b8", flexShrink: 0 }} />}
+                          <button onClick={(e) => { e.stopPropagation(); if (!running) toggleKind(info.trades); }}
+                            title="유형 전체 선택/해제" disabled={running}
+                            style={{ display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: running ? "default" : "pointer", flexShrink: 0 }}>
+                            {allSel ? <CheckSquare size={15} style={{ color: PRIMARY }} /> : <Square size={15} style={{ color: "#cbd5e1" }} />}
+                          </button>
+                          {kind === "SAENGSUK" && <ShieldCheck size={12} style={{ color: "#7c3aed", flexShrink: 0 }} />}
+                          <span style={{ fontSize: 13, fontWeight: 700, color: selN > 0 ? PRIMARY : "#1f2937",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{info.label}</span>
+                          {/* 접힌 상태 요약: 선택 뱃지 + 총계 */}
+                          <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                            {selN > 0 && (
+                              <span style={pill(PRIMARY, "#e8f1fd", "#c3dbf7")}>
+                                {allSel ? "전체 선택" : `${info.trades.filter((t) => selected.has(gkey(t))).map((t) => t.trade_label).join("·")} 선택`}
+                              </span>
+                            )}
+                            <b style={{ fontSize: 13, color: "#334155", fontVariantNumeric: "tabular-nums" }}>{total.toLocaleString()}</b>
+                          </span>
                         </div>
+                        {/* 폴더 내용 — 거래유형 칩 */}
+                        {isOpen && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "1px 11px 10px 32px" }}>
+                            {TRADE_ORDER.map((t) => {
+                              const g = info.trades.find((x) => x.trade === t);
+                              if (!g) return null;
+                              const sel = selected.has(gkey(g));
+                              const tc = TRADE_C[t] || "#64748b";
+                              return (
+                                <button key={t} onClick={() => !running && toggle(g)} disabled={running}
+                                  style={{
+                                    display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px",
+                                    borderRadius: 10, cursor: running ? "default" : "pointer", fontSize: 12.5,
+                                    border: `1px solid ${sel ? tc : BORDER}`,
+                                    background: sel ? tc : "#fff", color: sel ? "#fff" : "#334155",
+                                    opacity: running ? 0.6 : 1, transition: "all .12s",
+                                  }}>
+                                  {sel && <CheckSquare size={11} />}
+                                  <span style={{ fontWeight: 600 }}>{g.trade_label}</span>
+                                  <span style={{ fontWeight: 800, color: sel ? "#fff" : tc, fontVariantNumeric: "tabular-nums" }}>{g.count.toLocaleString()}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
