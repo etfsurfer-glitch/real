@@ -6,11 +6,11 @@ import { Loading } from "../components/Loading";
 import { enablePush, pushOptedIn, pushSupported } from "../lib/push";
 import {
   Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil,
-  Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store,
+  Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users,
 } from "lucide-react";
 import {
   DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
-  DocSubmit, AdminPick, FavManager, OfficeFavManager, Card,
+  DocSubmit, AdminPick, FavManager, OfficeFavManager, Card, StaffJoin, StaffManageTab,
   type Office, type Status, type Tab, type Fav, type FavOffice,
 } from "./Lounge";
 
@@ -20,12 +20,13 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
 type Screen = "diary" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
-            | "office" | "edit" | "dash";
+            | "office" | "edit" | "dash" | "staff";
 
 const SCREENS: Record<Screen, { title: string }> = {
   diary: { title: "매물장" }, audit: { title: "매물점검" }, leads: { title: "상담신청" },
   homepage: { title: "내 홈페이지" }, favs: { title: "관심단지" }, "fav-offices": { title: "관심중개사" },
   office: { title: "내 사무소" }, edit: { title: "정보수정요청" }, dash: { title: "대시보드" },
+  staff: { title: "직원관리" },
 };
 
 export default function BizApp() {
@@ -35,6 +36,7 @@ export default function BizApp() {
   const [st, setSt] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [phoneOpen, setPhoneOpen] = useState(false);
+  const [joinRole, setJoinRole] = useState<"owner" | "staff">("owner");
 
   const authH = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -69,14 +71,30 @@ export default function BizApp() {
       <div className="biz-shell">
         <BizTop />
         <div className="biz-body">
-          {st.state === "need_phone" && (
+          {(st.state === "need_phone" || st.state === "select" || st.state === "no_match") && (
+            <div className="chip-row" style={{ marginBottom: 12 }}>
+              <button className={`chip ${joinRole === "owner" ? "active" : ""}`} onClick={() => setJoinRole("owner")}>대표님</button>
+              <button className={`chip ${joinRole === "staff" ? "active" : ""}`} onClick={() => setJoinRole("staff")}>소속공인중개사·중개보조원</button>
+            </div>
+          )}
+          {joinRole === "staff" && (st.state === "need_phone" || st.state === "select" || st.state === "no_match") && (
+            <StaffJoin authH={authH} phoneVerified={st.phone_verified}
+              onNeedPhone={() => setPhoneOpen(true)} onDone={loadStatus} />
+          )}
+          {st.state === "staff_pending" && st.office && (
+            <Card>
+              <p><b>{st.office.realtor_name}</b> 대표님의 <b>승인을 기다리는 중</b>입니다.</p>
+              <p className="muted" style={{ fontSize: 13 }}>대표님이 직원관리에서 승인하면 바로 시작됩니다. (대표님께 알림이 발송됐어요)</p>
+            </Card>
+          )}
+          {joinRole === "owner" && st.state === "need_phone" && (
             <Card>
               <p><b>중개사무소 확인</b>을 위해 본인 명의 휴대폰 인증이 필요합니다.</p>
               <p className="muted" style={{ fontSize: 13 }}>인증 번호가 콕집에 등록된 사무소 연락처와 일치하면 자동 연결됩니다.</p>
               <button className="ai-send" style={{ padding: "10px 18px" }} onClick={() => setPhoneOpen(true)}>휴대폰 인증하기</button>
             </Card>
           )}
-          {st.state === "select" && (
+          {joinRole === "owner" && st.state === "select" && (
             <Card>
               <p>일치하는 사무소가 <b>{st.candidates?.length}곳</b> 있습니다. 본인 사무소를 선택해 주세요.</p>
               <div style={{ display: "grid", gap: 8 }}>
@@ -91,7 +109,7 @@ export default function BizApp() {
               </div>
             </Card>
           )}
-          {st.state === "no_match" && (
+          {joinRole === "owner" && st.state === "no_match" && (
             <Card>
               <p>인증 번호와 일치하는 사무소를 찾지 못했습니다.</p>
               <p className="muted" style={{ fontSize: 13 }}>사업자등록증을 제출하시면 관리자 확인 후 연결해 드립니다.</p>
@@ -128,6 +146,7 @@ export default function BizApp() {
           {screen === "favs" && <FavScreen authH={authH} />}
           {screen === "fav-offices" && <FavOfficeScreen authH={authH} />}
           {screen === "office" && <OfficeTab office={office} method={st.method} onUnlink={unlink} />}
+          {screen === "staff" && <StaffManageTab authH={authH} office={office} />}
           {screen === "edit" && <EditTab authH={authH} />}
           {screen === "dash" && <DashboardTab authH={authH} office={office} onGoTab={goTab} />}
         </div>
@@ -136,7 +155,7 @@ export default function BizApp() {
   }
 
   // ── ④ 홈: 버튼 그리드 ──
-  return <BizHome office={office} authH={authH} hasHomepage={!!st.has_homepage} onLogout={logout} />;
+  return <BizHome office={office} authH={authH} hasHomepage={!!st.has_homepage} role={st.role ?? "owner"} staffName={st.staff_name ?? null} onLogout={logout} />;
 
   function selectOffice(rid: string) {
     fetch(`${API_BASE}/lounge/select`, {
@@ -151,7 +170,7 @@ export default function BizApp() {
   function goTab(t: Tab) {
     const map: Record<Tab, string> = {
       dashboard: "dash", listings: "diary", audit: "audit", office: "office",
-      edit: "edit", leads: "leads", homepage: "homepage",
+      edit: "edit", leads: "leads", homepage: "homepage", staff: "staff",
     };
     nav(`/biz/${map[t]}`);
   }
@@ -204,8 +223,9 @@ function BizLanding() {
 }
 
 // ── 홈 그리드 ──
-function BizHome({ office, authH, hasHomepage, onLogout }: {
-  office: Office; authH: () => Record<string, string>; hasHomepage: boolean; onLogout: () => void;
+function BizHome({ office, authH, hasHomepage, role, staffName, onLogout }: {
+  office: Office; authH: () => Record<string, string>; hasHomepage: boolean; role: string;
+  staffName: string | null; onLogout: () => void;
 }) {
   const [leadNew, setLeadNew] = useState(0);
   const [total, setTotal] = useState<number | null>(null);
@@ -232,7 +252,7 @@ function BizHome({ office, authH, hasHomepage, onLogout }: {
       <BizTop />
       <div className="biz-body">
         <div className="biz-greet">
-          <div className="biz-greet-name"><b>{office.representative || "대표"}</b> 대표님, 안녕하세요</div>
+          <div className="biz-greet-name"><b>{role === "owner" ? `${office.representative || "대표"} 대표님` : `${staffName || "직원"}님`}</b>, 안녕하세요</div>
           <div className="biz-greet-office">{office.realtor_name}</div>
           <div className="biz-greet-date">{dateStr}{total != null && <> · 우리 매물 <b>{total.toLocaleString()}</b>건</>}</div>
         </div>
@@ -244,6 +264,7 @@ function BizHome({ office, authH, hasHomepage, onLogout }: {
           <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
           <BizBtn to="/biz/favs" icon={<Star size={22} />} label="관심단지" desc="신고가·신규매물 체크" />
           <BizBtn to="/biz/fav-offices" icon={<Store size={22} />} label="관심중개사" desc="주변 사무소 증감" />
+          {role === "owner" && <BizBtn to="/biz/staff" icon={<Users size={22} />} label="직원관리" desc="소속공인·보조원 승인" />}
           <BizBtn to="/biz/dash" icon={<LayoutDashboard size={22} />} label="대시보드" desc="오늘의 사무소 현황" />
           <BizBtn to="/biz/office" icon={<Building2 size={22} />} label="내 사무소" desc="연결·리뷰 관리" />
           <BizBtn to="/biz/edit" icon={<Pencil size={22} />} label="정보수정요청" desc="사무소 정보 정정" />

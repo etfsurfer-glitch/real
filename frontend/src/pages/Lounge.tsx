@@ -5,7 +5,7 @@ import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
-  ShieldCheck } from "lucide-react";
+  ShieldCheck, Users } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 
 const TT: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
@@ -31,14 +31,16 @@ export type Office = {
   representative?: string | null; tel?: string | null; cell?: string | null;
 };
 export type Status = {
-  state: "need_phone" | "select" | "no_match" | "doc_pending" | "linked" | "admin_pick";
+  state: "need_phone" | "select" | "no_match" | "doc_pending" | "linked" | "admin_pick" | "staff_pending";
   phone_verified: boolean;
   office?: Office; method?: string; candidates?: Office[]; is_admin?: boolean; has_homepage?: boolean;
+  role?: string;        // owner | assoc(소속공인중개사) | assist(중개보조원)
+  staff_name?: string | null;
 };
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-export type Tab = "dashboard" | "listings" | "audit" | "office" | "edit" | "leads" | "homepage";
+export type Tab = "dashboard" | "listings" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff";
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -63,6 +65,7 @@ export default function Lounge() {
   const [loading, setLoading] = useState(true);
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [joinRole, setJoinRole] = useState<"owner" | "staff">("owner");  // 미연결 시 역할 선택
 
   const authH = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -89,7 +92,31 @@ export default function Lounge() {
         <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>중개사무소 인증 회원 전용</span>
       </div>
 
-      {st.state === "need_phone" && (
+      {/* 미연결: 역할 선택 — 대표는 전화매칭(vworld=대표 본인 번호만), 직원은 검색+승인制 */}
+      {(st.state === "need_phone" || st.state === "select" || st.state === "no_match") && (
+        <div className="chip-row" style={{ marginBottom: 12 }}>
+          <button className={`chip ${joinRole === "owner" ? "active" : ""}`} onClick={() => setJoinRole("owner")}>대표님</button>
+          <button className={`chip ${joinRole === "staff" ? "active" : ""}`} onClick={() => setJoinRole("staff")}>소속공인중개사·중개보조원</button>
+        </div>
+      )}
+
+      {joinRole === "staff" && (st.state === "need_phone" || st.state === "select" || st.state === "no_match") && (
+        <StaffJoin authH={authH} phoneVerified={st.phone_verified}
+          onNeedPhone={() => setPhoneOpen(true)} onDone={loadStatus} />
+      )}
+
+      {st.state === "staff_pending" && st.office && (
+        <Card>
+          <p><b>{st.office.realtor_name}</b> 대표님의 <b>승인을 기다리는 중</b>입니다.</p>
+          <p className="muted" style={{ fontSize: 13 }}>
+            {st.staff_name && <>신청자: <b>{st.staff_name}</b> · </>}
+            대표님이 라운지 직원관리에서 승인하면 바로 이용할 수 있어요. (대표님께 푸시 알림이 발송됐습니다)
+          </p>
+          <button className="chip" style={{ width: "fit-content" }} onClick={unlink}>신청 취소 / 다른 사무소 다시 선택</button>
+        </Card>
+      )}
+
+      {joinRole === "owner" && st.state === "need_phone" && (
         <Card>
           <p>중개사 라운지에 입장하려면 <b>본인 명의 휴대폰 인증</b>이 필요합니다.</p>
           <p className="muted" style={{ fontSize: 13 }}>
@@ -101,7 +128,7 @@ export default function Lounge() {
         </Card>
       )}
 
-      {st.state === "select" && (
+      {joinRole === "owner" && st.state === "select" && (
         <Card>
           <p>인증된 번호와 일치하는 중개사무소가 <b>{st.candidates?.length}곳</b> 있습니다. 본인 사무소를 선택해 주세요.</p>
           <p className="muted" style={{ fontSize: 13 }}>선택은 기억되어 다음 입장부터 바로 이어집니다. 나중에 변경할 수 있어요.</p>
@@ -122,7 +149,7 @@ export default function Lounge() {
         </Card>
       )}
 
-      {st.state === "no_match" && (
+      {joinRole === "owner" && st.state === "no_match" && (
         <Card>
           <p>인증된 번호와 일치하는 중개사무소를 찾지 못했습니다.</p>
           <p className="muted" style={{ fontSize: 13 }}>
@@ -153,9 +180,10 @@ export default function Lounge() {
               ["audit", "매물점검", ShieldCheck],
               ["homepage", st.has_homepage ? "홈페이지관리" : "홈페이지생성", Globe],
               ["leads", "상담신청", MessageSquare],
+              ...(((st.role ?? "owner") === "owner" ? [["staff", "직원관리", Users]] : []) as [Tab, string, typeof Users][]),
               ["edit", "정보수정요청", Pencil],
               ["office", "내 사무소", Building2],
-            ] as const).map(([k, label, Icon]) => (
+            ] as readonly (readonly [Tab, string, typeof Users])[]).map(([k, label, Icon]) => (
               <button key={k} className={`chip ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>
                 <Icon size={13} strokeWidth={2.2} aria-hidden style={{ marginRight: 4, verticalAlign: "-2px" }} />
                 {label}
@@ -168,6 +196,7 @@ export default function Lounge() {
           {tab === "office" && <OfficeTab office={st.office} method={st.method} onUnlink={unlink} />}
           {tab === "edit" && <EditTab authH={authH} />}
           {tab === "leads" && <LeadsTab authH={authH} />}
+          {tab === "staff" && <StaffManageTab authH={authH} office={st.office} />}
           {tab === "homepage" && <HomepageTab authH={authH} office={st.office} onStatusChange={loadStatus} />}
         </>
       )}
@@ -739,6 +768,228 @@ export function AdminPick({ authH, onPicked }: { authH: () => Record<string, str
           <button className="ai-send" style={{ padding: "6px 14px" }} onClick={() => pick(o.realtor_id)}>연결</button>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── 직원(소속공인중개사·중개보조원) 가입 — 전화인증 → 사무소 검색 → 공부상 명단에서 본인 선택 → 대표 승인 대기
+type RosterItem = { name: string; role: "assoc" | "assist"; role_kr: string };
+
+export function StaffJoin({ authH, phoneVerified, onNeedPhone, onDone }: {
+  authH: () => Record<string, string>; phoneVerified: boolean;
+  onNeedPhone: () => void; onDone: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<{ realtor_id: string; realtor_name: string | null; location?: string | null; representative?: string | null }[]>([]);
+  const [office, setOffice] = useState<{ realtor_id: string; realtor_name: string | null } | null>(null);
+  const [roster, setRoster] = useState<RosterItem[] | null>(null);
+  const [manual, setManual] = useState(false);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<"assoc" | "assist">("assoc");
+  const [busy, setBusy] = useState(false);
+
+  if (!phoneVerified) {
+    return (
+      <Card>
+        <p><b>소속공인중개사·중개보조원</b>도 본인 명의 <b>휴대폰 인증</b>이 먼저 필요합니다.</p>
+        <p className="muted" style={{ fontSize: 13 }}>인증 후 사무소를 검색해 가입 신청하면, 대표님 승인 즉시 이용할 수 있어요.</p>
+        <button className="ai-send" style={{ padding: "8px 18px" }} onClick={onNeedPhone}>휴대폰 인증하기</button>
+      </Card>
+    );
+  }
+
+  const search = () => {
+    if (!q.trim()) return;
+    fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(q)}&limit=10`)
+      .then((r) => r.json()).then((d) => setResults(d.items ?? [])).catch(() => {});
+  };
+  const pickOffice = (o: { realtor_id: string; realtor_name: string | null }) => {
+    setOffice(o); setRoster(null); setManual(false); setName("");
+    fetch(`${API_BASE}/lounge/office-roster?realtor_id=${encodeURIComponent(o.realtor_id)}`, { headers: authH() })
+      .then((r) => r.json()).then((d) => setRoster(d.items ?? [])).catch(() => setRoster([]));
+  };
+  const apply = async (nm: string, rl: "assoc" | "assist") => {
+    if (!office || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}/lounge/staff/apply`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ realtor_id: office.realtor_id, role: rl, name: nm }),
+      });
+      if (!r.ok) throw new Error();
+      onDone();
+    } catch { alert("신청에 실패했어요. 잠시 후 다시 시도해 주세요."); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Card>
+      {!office ? (
+        <>
+          <p><b>우리 사무소를 검색</b>해 주세요. (상호·대표자명)</p>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input className="ai-input" style={{ flex: 1 }} placeholder="예: 송도타임부동산" value={q}
+              onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") search(); }} />
+            <button className="ai-send" style={{ padding: "0 16px" }} onClick={search}>검색</button>
+          </div>
+          {results.map((o) => (
+            <div key={o.realtor_id} className="lounge-cand">
+              <div><b>{o.realtor_name}</b>
+                <div className="muted" style={{ fontSize: 12 }}>{[o.location, o.representative ? `대표 ${o.representative}` : null].filter(Boolean).join(" · ")}</div></div>
+              <button className="ai-send" style={{ padding: "6px 14px" }} onClick={() => pickOffice(o)}>이 사무소</button>
+            </div>
+          ))}
+        </>
+      ) : (
+        <>
+          <p><b>{office.realtor_name}</b> — 등록된 직원 명단에서 <b>본인을 선택</b>해 주세요.</p>
+          <button className="chip" style={{ width: "fit-content" }} onClick={() => setOffice(null)}>← 사무소 다시 검색</button>
+          {roster === null ? <Loading /> : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {roster.map((p) => (
+                <div key={p.name + p.role} className="lounge-cand">
+                  <div><b>{p.name}</b> <span className="muted" style={{ fontSize: 12 }}>{p.role_kr}</span></div>
+                  <button className="ai-send" style={{ padding: "6px 14px" }} disabled={busy}
+                    onClick={() => apply(p.name, p.role)}>본인입니다</button>
+                </div>
+              ))}
+              {roster.length === 0 && <p className="muted" style={{ fontSize: 13 }}>공부상 등록된 직원 명단이 없습니다. 아래로 직접 입력해 주세요.</p>}
+              {!manual ? (
+                <button className="chip" style={{ width: "fit-content" }} onClick={() => setManual(true)}>명단에 없어요 — 직접 입력</button>
+              ) : (
+                <div style={{ display: "grid", gap: 6 }}>
+                  <input className="ai-input" placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {(["assoc", "assist"] as const).map((rl) => (
+                      <button key={rl} className={`chip ${role === rl ? "active" : ""}`} onClick={() => setRole(rl)}>
+                        {rl === "assoc" ? "소속공인중개사" : "중개보조원"}
+                      </button>
+                    ))}
+                  </div>
+                  <button className="ai-send" style={{ padding: "8px 16px", width: "fit-content" }}
+                    disabled={busy || !name.trim()} onClick={() => apply(name.trim(), role)}>가입 신청</button>
+                </div>
+              )}
+            </div>
+          )}
+          <p className="muted" style={{ fontSize: 12 }}>신청하면 대표님께 알림이 가고, 승인 즉시 이용할 수 있어요.</p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+// ── 직원관리(대표 전용) — 승인 대기·활동중 직원·초대장
+type StaffMember = { user_id: string; role: string; role_kr: string; status: string;
+  staff_name: string | null; nickname: string | null; matched_phone: string | null; created_at: string };
+type StaffInvite = { id: number; phone_digits: string; role: string; role_kr: string; name: string | null; created_at: string };
+
+export function StaffManageTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
+  const [data, setData] = useState<{ members: StaffMember[]; invites: StaffInvite[] } | null>(null);
+  const [roster, setRoster] = useState<RosterItem[]>([]);
+  const [invPhone, setInvPhone] = useState("");
+  const [invName, setInvName] = useState("");
+  const [invRole, setInvRole] = useState<"assoc" | "assist">("assoc");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    fetch(`${API_BASE}/lounge/staff`, { headers: authH() })
+      .then((r) => r.json()).then(setData).catch(() => setData({ members: [], invites: [] }));
+  }, [authH]);
+  useEffect(() => {
+    load();
+    fetch(`${API_BASE}/lounge/office-roster?realtor_id=${encodeURIComponent(office.realtor_id)}`, { headers: authH() })
+      .then((r) => r.json()).then((d) => setRoster(d.items ?? [])).catch(() => {});
+  }, [load, authH, office.realtor_id]);
+
+  const act = async (path: string, body: object) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}${path}`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error();
+      load();
+    } catch { alert("처리에 실패했어요."); }
+    finally { setBusy(false); }
+  };
+  const delInvite = (id: number) =>
+    fetch(`${API_BASE}/lounge/staff/invite/${id}`, { method: "DELETE", headers: authH() }).then(load);
+  const sendInvite = async () => {
+    const digits = invPhone.replace(/\D/g, "");
+    if (digits.length < 10) { alert("휴대폰 번호를 확인해 주세요."); return; }
+    await act("/lounge/staff/invite", { phone: digits, role: invRole, name: invName.trim() });
+    setInvPhone(""); setInvName("");
+    alert("초대 문자를 보냈어요. 상대가 가입 후 전화인증하면 자동 승인됩니다.");
+  };
+
+  if (!data) return <Loading />;
+  const pending = data.members.filter((m) => m.status === "pending");
+  const active = data.members.filter((m) => m.status === "active");
+
+  return (
+    <div style={{ display: "grid", gap: 14, maxWidth: 680 }}>
+      <div className="dash-sec-h"><h3><Users size={16} strokeWidth={2.3} /> 승인 대기 {pending.length > 0 && <span className="dash-badge">{pending.length}</span>}</h3></div>
+      {pending.length === 0 ? <div className="dash-empty">대기 중인 가입 신청이 없습니다.</div> :
+        pending.map((m) => (
+          <div key={m.user_id} className="lounge-cand">
+            <div><b>{m.staff_name || m.nickname || "이름없음"}</b> <span className="muted" style={{ fontSize: 12 }}>{m.role_kr}{m.matched_phone && ` · ${m.matched_phone}`} · 신청 {m.created_at?.slice(5, 10)}</span></div>
+            <span style={{ display: "flex", gap: 6 }}>
+              <button className="ai-send" style={{ padding: "6px 14px" }} disabled={busy}
+                onClick={() => act("/lounge/staff/approve", { user_id: m.user_id })}>승인</button>
+              <button className="chip" disabled={busy}
+                onClick={() => confirm("이 신청을 거절할까요?") && act("/lounge/staff/reject", { user_id: m.user_id })}>거절</button>
+            </span>
+          </div>
+        ))}
+
+      <div className="dash-sec-h"><h3>활동 중인 직원</h3></div>
+      {active.length === 0 ? <div className="dash-empty">아직 등록된 직원이 없습니다. 아래 초대장으로 초대해 보세요.</div> :
+        active.map((m) => (
+          <div key={m.user_id} className="lounge-cand">
+            <div><b>{m.staff_name || m.nickname || "이름없음"}</b> <span className="muted" style={{ fontSize: 12 }}>{m.role_kr}{m.matched_phone && ` · ${m.matched_phone}`}</span></div>
+            <button className="chip" disabled={busy}
+              onClick={() => confirm("이 직원의 연결을 해제할까요?") && act("/lounge/staff/reject", { user_id: m.user_id })}>해제</button>
+          </div>
+        ))}
+
+      <div className="dash-sec-h"><h3>초대장 보내기</h3></div>
+      <div style={{ display: "grid", gap: 6, border: "1px solid var(--c-border)", borderRadius: 12, padding: 14 }}>
+        {roster.length > 0 && (
+          <select className="rl-sort" style={{ width: "100%" }} value=""
+            onChange={(e) => {
+              const p = roster.find((x) => x.name + x.role === e.target.value);
+              if (p) { setInvName(p.name); setInvRole(p.role); }
+            }}>
+            <option value="">공부상 직원 명단에서 선택 (선택사항)</option>
+            {roster.map((p) => <option key={p.name + p.role} value={p.name + p.role}>{p.name} — {p.role_kr}</option>)}
+          </select>
+        )}
+        <input className="ai-input" placeholder="직원 휴대폰 번호 (01012345678)" inputMode="numeric"
+          value={invPhone} onChange={(e) => setInvPhone(e.target.value)} />
+        <div style={{ display: "flex", gap: 6 }}>
+          <input className="ai-input" style={{ flex: 1 }} placeholder="이름" value={invName} onChange={(e) => setInvName(e.target.value)} />
+          {(["assoc", "assist"] as const).map((rl) => (
+            <button key={rl} className={`chip ${invRole === rl ? "active" : ""}`} onClick={() => setInvRole(rl)}>
+              {rl === "assoc" ? "소속공인" : "보조원"}
+            </button>
+          ))}
+        </div>
+        <button className="ai-send" style={{ padding: "9px 16px" }} disabled={busy} onClick={sendInvite}>초대 문자 보내기</button>
+        <p className="muted" style={{ fontSize: 12, margin: 0 }}>초대받은 번호로 콕집 가입 + 휴대폰 인증하면 <b>승인 절차 없이 바로</b> 연결됩니다.</p>
+      </div>
+      {data.invites.length > 0 && (
+        <>
+          <div className="dash-sec-h"><h3>보낸 초대장 (대기 중)</h3></div>
+          {data.invites.map((iv) => (
+            <div key={iv.id} className="lounge-cand">
+              <div><b>{iv.name || iv.phone_digits}</b> <span className="muted" style={{ fontSize: 12 }}>{iv.role_kr} · {iv.phone_digits} · {iv.created_at?.slice(5, 10)}</span></div>
+              <button className="chip" onClick={() => delInvite(iv.id)}>취소</button>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }

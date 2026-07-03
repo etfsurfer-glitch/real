@@ -7499,6 +7499,19 @@ def _init_reviews_db() -> None:
               PRIMARY KEY (endpoint)
             );
             CREATE INDEX IF NOT EXISTS push_user_idx ON push_subscriptions(user_id);
+
+            -- 직원(소속공인중개사·중개보조원) 초대장 — 대표가 발송, 해당 번호가 전화인증하면 자동 승인
+            CREATE TABLE IF NOT EXISTS realtor_staff_invites (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              realtor_id   TEXT NOT NULL,
+              phone_digits TEXT NOT NULL,      -- 숫자만
+              role         TEXT NOT NULL,      -- assoc(소속공인중개사) | assist(중개보조원)
+              name         TEXT,
+              invited_by   TEXT NOT NULL,      -- 대표 user_id
+              created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+              used_at      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS rsi_phone_idx ON realtor_staff_invites(phone_digits, used_at);
             """
         )
         # 기존 테이블에 신규 컬럼 보강(있으면 무시) — 전화번호=유니크 비즈니스키, 회원번호=내부키
@@ -7515,6 +7528,10 @@ def _init_reviews_db() -> None:
             "ALTER TABLE user_profiles ADD COLUMN marketing_opt_in INTEGER NOT NULL DEFAULT 0",  # 마케팅 수신(선택)
             "ALTER TABLE user_profiles ADD COLUMN marketing_opt_in_at TEXT",  # 마케팅 동의/철회 시각
             "ALTER TABLE user_profiles ADD COLUMN nickname_awarded INTEGER NOT NULL DEFAULT 0",  # 닉네임 20p 1회
+            # 직원 시스템 — 기존 연결자(전화매칭=대표번호 인증)는 전부 대표(owner)·활성(active)
+            "ALTER TABLE realtor_members ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'",   # owner|assoc|assist
+            "ALTER TABLE realtor_members ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",  # active|pending
+            "ALTER TABLE realtor_members ADD COLUMN staff_name TEXT",  # 직원 명단에서 고른/입력한 이름
         ):
             try:
                 c.execute(ddl)
@@ -8596,6 +8613,20 @@ def phone_verify(body: PhoneVerifyBody, user: dict = Depends(current_user)):
                     c.execute("UPDATE user_profiles SET referred_by=? WHERE user_id=?",
                               (int(body.ref), user["id"]))
                     _award_points(c, rr[0], "referral", ref=str(member_no))
+        # 직원 초대장 자동 승인 — 대표가 이 번호로 초대해뒀으면 인증 즉시 직원(활성)으로 연결.
+        digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+        inv = c.execute(
+            "SELECT id, realtor_id, role, name FROM realtor_staff_invites "
+            "WHERE phone_digits=? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1",
+            (digits,)).fetchone() if digits else None
+        if inv:
+            c.execute(
+                "INSERT INTO realtor_members(user_id,realtor_id,method,matched_phone,role,status,staff_name,updated_at) "
+                "VALUES(?,?,?,?,?,'active',?,datetime('now')) "
+                "ON CONFLICT(user_id) DO UPDATE SET realtor_id=excluded.realtor_id, method='invite', "
+                "role=excluded.role, status='active', staff_name=excluded.staff_name, updated_at=datetime('now')",
+                (user["id"], inv[1], "invite", phone, inv[2], inv[3]))
+            c.execute("UPDATE realtor_staff_invites SET used_at=datetime('now') WHERE id=?", (inv[0],))
         c.commit()
     return {"ok": True, "phone": phone, "phone_verified": True, "member_no": member_no}
 
@@ -8694,9 +8725,21 @@ def _office_brief(realtor_id):
 
 
 def _require_member(c, uid) -> str:
-    m = c.execute("SELECT realtor_id FROM realtor_members WHERE user_id=?", (uid,)).fetchone()
+    m = c.execute("SELECT realtor_id, status FROM realtor_members WHERE user_id=?", (uid,)).fetchone()
     if not m:
         raise HTTPException(403, "중개사 인증이 필요합니다")
+    if (m[1] or "active") != "active":
+        raise HTTPException(403, "대표님 승인 대기 중입니다")
+    return m[0]
+
+
+def _require_owner(c, uid) -> str:
+    """대표(owner) 전용 기능 가드 — 직원관리 등."""
+    m = c.execute("SELECT realtor_id, role, status FROM realtor_members WHERE user_id=?", (uid,)).fetchone()
+    if not m or (m[2] or "active") != "active":
+        raise HTTPException(403, "중개사 인증이 필요합니다")
+    if (m[1] or "owner") != "owner":
+        raise HTTPException(403, "대표님만 사용할 수 있는 기능입니다")
     return m[0]
 
 
@@ -8706,15 +8749,19 @@ def lounge_status(user: dict = Depends(current_user)):
     uid = user["id"]
     with _reviews_db() as c:
         phone = _my_phone(c, uid)
-        m = c.execute("SELECT realtor_id, method FROM realtor_members WHERE user_id=?",
-                      (uid,)).fetchone()
+        m = c.execute("SELECT realtor_id, method, role, status, staff_name FROM realtor_members "
+                      "WHERE user_id=?", (uid,)).fetchone()
         pend = c.execute("SELECT 1 FROM realtor_verifications WHERE user_id=? AND status='pending' "
                          "LIMIT 1", (uid,)).fetchone()
         has_hp = c.execute("SELECT 1 FROM realtor_homepages WHERE realtor_id=? LIMIT 1",
                            (m[0],)).fetchone() if m else None
     if m:
+        if (m[3] or "active") != "active":   # 직원 승인 대기
+            return {"state": "staff_pending", "phone_verified": bool(phone),
+                    "office": _office_brief(m[0]), "role": m[2], "staff_name": m[4]}
         return {"state": "linked", "phone_verified": bool(phone),
                 "office": _office_brief(m[0]), "method": m[1],
+                "role": m[2] or "owner", "staff_name": m[4],
                 "has_homepage": bool(has_hp)}
     # 관리자는 인증 없이 입장 — 아무 사무소나 연결해 둘러볼 수 있다.
     if user.get("is_admin"):
@@ -8727,6 +8774,153 @@ def lounge_status(user: dict = Depends(current_user)):
     if pend:
         return {"state": "doc_pending", "phone_verified": True}
     return {"state": "no_match", "phone_verified": True}
+
+
+# ── 직원(소속공인중개사·중개보조원) 시스템 ─────────────────────────────
+# vworld는 대표 본인 번호만 등록 → 직원은 전화매칭 불가. 흐름: 역할 선택 → 전화인증 →
+# 사무소 검색 → 공부상 명단(vworld_employees)에서 본인 선택 → 대표 승인(pending→active).
+# 대표가 초대장(SMS)을 보내둔 번호는 전화인증 즉시 자동 승인(phone_verify 훅).
+
+_STAFF_ROLE_KR = {"assoc": "소속공인중개사", "assist": "중개보조원", "owner": "대표"}
+
+
+@app.get("/lounge/office-roster")
+def lounge_office_roster(realtor_id: str, user: dict = Depends(current_user)):
+    """사무소의 공부상 직원 명단(대표 제외) — 직원 가입 시 본인 선택용."""
+    with _open_db() as dc:
+        rows = dc.execute(
+            "SELECT ve.employee_name, ve.role, ve.position FROM vworld_employees ve "
+            "JOIN realtor_match rm ON rm.sys_regno=ve.sys_regno "
+            "WHERE rm.realtor_id=? AND ve.status='영업' AND ve.position!='대표' "
+            "AND ve.employee_name IS NOT NULL AND ve.employee_name!='' "
+            "ORDER BY CASE WHEN ve.role='공인중개사' THEN 0 ELSE 1 END, ve.employee_name",
+            (realtor_id,)).fetchall()
+    return {"items": [{"name": r[0],
+                       "role": "assoc" if r[1] == "공인중개사" else "assist",
+                       "role_kr": "소속공인중개사" if r[1] == "공인중개사" else "중개보조원"}
+                      for r in rows]}
+
+
+@app.post("/lounge/staff/apply")
+def lounge_staff_apply(body: dict, user: dict = Depends(current_user)):
+    """직원 가입 신청 — 전화인증 필수, 대표 승인 대기(pending)로 저장."""
+    rid = (body.get("realtor_id") or "").strip()
+    role = body.get("role") or ""
+    name = (body.get("name") or "").strip()[:20]
+    if not rid or role not in ("assoc", "assist"):
+        raise HTTPException(400, "realtor_id/role required")
+    uid = user["id"]
+    with _reviews_db() as c:
+        phone = _my_phone(c, uid)
+        if not phone:
+            raise HTTPException(403, "전화인증이 필요합니다")
+        c.execute(
+            "INSERT INTO realtor_members(user_id,realtor_id,method,matched_phone,role,status,staff_name,updated_at) "
+            "VALUES(?,?,'staff',?,?,'pending',?,datetime('now')) "
+            "ON CONFLICT(user_id) DO UPDATE SET realtor_id=excluded.realtor_id, method='staff', "
+            "role=excluded.role, status='pending', staff_name=excluded.staff_name, updated_at=datetime('now')",
+            (uid, rid, phone, role, name))
+        c.commit()
+        # 대표(들)에게 즉시 푸시 — 승인 요청
+        owners = [r[0] for r in c.execute(
+            "SELECT user_id FROM realtor_members WHERE realtor_id=? AND role='owner' AND status='active'",
+            (rid,)).fetchall()]
+    if owners:
+        try:
+            _send_web_push(owners, "직원 가입 승인 요청 👤",
+                           f"{name or '직원'}({_STAFF_ROLE_KR.get(role, role)})님이 가입을 신청했어요. "
+                           "직원관리에서 승인해 주세요.", url="/biz/staff", tag="staff-apply")
+        except Exception:
+            pass
+    return {"ok": True, "status": "pending"}
+
+
+@app.get("/lounge/staff")
+def lounge_staff_list(user: dict = Depends(current_user)):
+    """직원관리(대표 전용) — 승인대기·활동중 직원 + 미사용 초대장."""
+    with _reviews_db() as c:
+        rid = _require_owner(c, user["id"])
+        members = [dict(zip(("user_id", "role", "status", "staff_name", "matched_phone", "created_at"), r))
+                   for r in c.execute(
+                       "SELECT user_id, role, status, staff_name, matched_phone, created_at "
+                       "FROM realtor_members WHERE realtor_id=? AND role!='owner' "
+                       "ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC",
+                       (rid,)).fetchall()]
+        # 닉네임 붙이기(표시용)
+        for m in members:
+            n = c.execute("SELECT nickname FROM user_profiles WHERE user_id=?", (m["user_id"],)).fetchone()
+            m["nickname"] = n[0] if n else None
+            m["role_kr"] = _STAFF_ROLE_KR.get(m["role"], m["role"])
+        invites = [dict(zip(("id", "phone_digits", "role", "name", "created_at"), r)) | {
+                       "role_kr": _STAFF_ROLE_KR.get(r[2], r[2])}
+                   for r in c.execute(
+                       "SELECT id, phone_digits, role, name, created_at FROM realtor_staff_invites "
+                       "WHERE realtor_id=? AND used_at IS NULL ORDER BY created_at DESC", (rid,)).fetchall()]
+    return {"members": members, "invites": invites}
+
+
+@app.post("/lounge/staff/approve")
+def lounge_staff_approve(body: dict, user: dict = Depends(current_user)):
+    uid_target = (body.get("user_id") or "").strip()
+    with _reviews_db() as c:
+        rid = _require_owner(c, user["id"])
+        r = c.execute("UPDATE realtor_members SET status='active', updated_at=datetime('now') "
+                      "WHERE user_id=? AND realtor_id=? AND role!='owner'", (uid_target, rid))
+        c.commit()
+        if r.rowcount == 0:
+            raise HTTPException(404, "대상 없음")
+    try:
+        _send_web_push([uid_target], "가입 승인 완료 🎉",
+                       "대표님이 승인했어요. 이제 콕집 중개사의 모든 기능을 쓸 수 있습니다.",
+                       url="/biz", tag="staff-ok")
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@app.post("/lounge/staff/reject")
+def lounge_staff_reject(body: dict, user: dict = Depends(current_user)):
+    uid_target = (body.get("user_id") or "").strip()
+    with _reviews_db() as c:
+        rid = _require_owner(c, user["id"])
+        c.execute("DELETE FROM realtor_members WHERE user_id=? AND realtor_id=? AND role!='owner'",
+                  (uid_target, rid))
+        c.commit()
+    return {"ok": True}
+
+
+@app.post("/lounge/staff/invite")
+def lounge_staff_invite(body: dict, user: dict = Depends(current_user)):
+    """초대장 발송(대표 전용) — 번호+역할(+명단 이름). 그 번호가 전화인증하면 자동 승인."""
+    phone = "".join(ch for ch in str(body.get("phone") or "") if ch.isdigit())
+    role = body.get("role") or ""
+    name = (body.get("name") or "").strip()[:20]
+    if len(phone) < 10 or role not in ("assoc", "assist"):
+        raise HTTPException(400, "phone/role required")
+    with _reviews_db() as c:
+        rid = _require_owner(c, user["id"])
+        c.execute("INSERT INTO realtor_staff_invites(realtor_id, phone_digits, role, name, invited_by) "
+                  "VALUES(?,?,?,?,?)", (rid, phone, role, name, user["id"]))
+        c.commit()
+    office = _office_brief(rid)
+    oname = office.get("realtor_name") or "중개사무소"
+    try:
+        _aligo_send_sms(phone, f"[콕집] {oname} 대표님이 {name or ''}님을 "
+                               f"{_STAFF_ROLE_KR.get(role)}(으)로 초대했어요.\n"
+                               f"koczip.com/biz 에서 카카오/구글 가입 후 휴대폰 인증하면 바로 연결됩니다.")
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@app.delete("/lounge/staff/invite/{invite_id}")
+def lounge_staff_invite_del(invite_id: int, user: dict = Depends(current_user)):
+    with _reviews_db() as c:
+        rid = _require_owner(c, user["id"])
+        c.execute("DELETE FROM realtor_staff_invites WHERE id=? AND realtor_id=? AND used_at IS NULL",
+                  (invite_id, rid))
+        c.commit()
+    return {"ok": True}
 
 
 def _ensure_lounge_notes(c):
