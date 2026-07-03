@@ -23,7 +23,7 @@ export default function AuditRealtor() {
     if (!q.trim() || !API_BASE) return;
     setSearching(true);
     try {
-      const r = await fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(q.trim())}&limit=20`);
+      const r = await fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(q.trim())}&limit=100`);
       const j = await r.json();
       setRealtors(j.items ?? []);
     } catch { setRealtors([]); }
@@ -40,7 +40,7 @@ export default function AuditRealtor() {
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#13294b" }}>매물 표시·광고 점검</h2>
         <span style={{ fontSize: 11, fontWeight: 700, color: PRIMARY, background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 999, padding: "2px 8px" }}>가오픈 · 관리자</span>
       </div>
-      <p className="muted" style={{ fontSize: 13, margin: "0 0 16px" }}>중개사무소를 검색 → 매물 유형·거래별로 골라 점검합니다.</p>
+      <p className="muted" style={{ fontSize: 13, margin: "0 0 16px" }}>중개사무소를 검색 → 매물 유형·거래별로 골라 점검합니다. 흔한 상호는 지역·대표자명을 함께 입력하세요 (예: 명가 군포).</p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <div style={{ position: "relative", flex: 1 }}>

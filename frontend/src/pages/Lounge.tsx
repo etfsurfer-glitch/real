@@ -436,7 +436,7 @@ export function OfficeFavManager({ authH, offices, onChange }: {
   const search = () => {
     if (q.trim().length < 2) return;
     setSearching(true);
-    fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(q)}&limit=12`)
+    fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(q)}&limit=100`)
       .then((r) => r.json()).then((d) => setResults(d.items ?? []))
       .catch(() => setResults([])).finally(() => { setSearched(true); setSearching(false); });
   };
@@ -745,7 +745,7 @@ export function AdminPick({ authH, onPicked }: { authH: () => Record<string, str
   const [results, setResults] = useState<{ realtor_id: string; realtor_name: string | null; location?: string | null; representative?: string | null }[]>([]);
   const search = () => {
     if (!q.trim()) return;
-    fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(q)}&limit=10`)
+    fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(q)}&limit=100`)
       .then((r) => r.json()).then((d) => setResults(d.items ?? [])).catch(() => {});
   };
   const pick = (rid: string) => {
@@ -757,7 +757,7 @@ export function AdminPick({ authH, onPicked }: { authH: () => Record<string, str
   return (
     <div style={{ display: "grid", gap: 8 }}>
       <div style={{ display: "flex", gap: 6 }}>
-        <input className="ai-input" style={{ flex: 1 }} placeholder="중개사무소명 검색" value={q}
+        <input className="ai-input" style={{ flex: 1 }} placeholder="상호 (+지역: 명가 군포)" value={q}
           onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") search(); }} />
         <button className="ai-send" style={{ padding: "0 16px" }} onClick={search}>검색</button>
       </div>
@@ -800,7 +800,7 @@ export function StaffJoin({ authH, phoneVerified, onNeedPhone, onDone }: {
 
   const search = () => {
     if (!q.trim()) return;
-    fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(q)}&limit=10`)
+    fetch(`${API_BASE}/stats/realtors/search?q=${encodeURIComponent(q)}&limit=100`)
       .then((r) => r.json()).then((d) => setResults(d.items ?? [])).catch(() => {});
   };
   const pickOffice = (o: { realtor_id: string; realtor_name: string | null }) => {
@@ -828,7 +828,7 @@ export function StaffJoin({ authH, phoneVerified, onNeedPhone, onDone }: {
         <>
           <p><b>우리 사무소를 검색</b>해 주세요. (상호·대표자명)</p>
           <div style={{ display: "flex", gap: 6 }}>
-            <input className="ai-input" style={{ flex: 1 }} placeholder="예: 송도타임부동산" value={q}
+            <input className="ai-input" style={{ flex: 1 }} placeholder="상호 (+지역·대표자: 명가 군포)" value={q}
               onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") search(); }} />
             <button className="ai-send" style={{ padding: "0 16px" }} onClick={search}>검색</button>
           </div>

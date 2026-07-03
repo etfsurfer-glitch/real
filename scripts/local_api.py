@@ -2489,7 +2489,17 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
 
 
 def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
-    items.sort(key=lambda r: -r[2])
+    # 정확 상호 우선: '명가' 검색 시 상호 핵심어가 정확히 '명가'인 사무소(전국 군포 명가공인 등)를
+    # '푸르지오명가' 같은 파생 상호(매물 많음)보다 위로 — 흔한 상호가 묻히지 않게.
+    qc = _office_core(q) or q
+    def _score(name):
+        nc = _office_core(name or "") or (name or "")
+        if nc == qc:
+            return 0            # 정확 일치
+        if nc.startswith(qc):
+            return 1            # 접두 일치
+        return 2                # 부분 포함
+    items.sort(key=lambda r: (_score(r[1]), -r[2]))
     items = items[:limit]
     # 동명 중개사무소가 많아 이름만으론 구분 불가 → 소재지(주소)·대표자명을 함께 준다.
     info: dict = {}
