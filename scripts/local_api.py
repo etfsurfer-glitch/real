@@ -6426,6 +6426,18 @@ def admin_users(_admin: dict = Depends(admin_user), page: int = 1, per_page: int
         hp = {r[0]: (r[1], r[2], r[3]) for r in c.execute(
             "SELECT user_id, slug, published, realtor_id FROM realtor_homepages "
             "WHERE user_id IS NOT NULL AND slug IS NOT NULL").fetchall()}
+        # 연결된 중개사무소(라운지 멤버) — 역할·상태 포함
+        mem = {r[0]: (r[1], r[2], r[3]) for r in c.execute(
+            "SELECT user_id, realtor_id, role, status FROM realtor_members").fetchall()}
+    # 사무소 이름 배치 조회(메인 DB)
+    office_names: dict = {}
+    rids = {v[0] for v in mem.values()}
+    if rids:
+        with _open_db() as dc:
+            qm = ",".join("?" * len(rids))
+            office_names = {r[0]: r[1] for r in dc.execute(
+                f"SELECT realtor_id, realtor_name FROM naver_realtors WHERE realtor_id IN ({qm})",
+                list(rids)).fetchall()}
     out = []
     for u in data.get("users", []):
         m = u.get("user_metadata") or {}
@@ -6447,6 +6459,10 @@ def admin_users(_admin: dict = Depends(admin_user), page: int = 1, per_page: int
             "homepage_slug": hp_slug,
             "homepage_published": bool(hp_pub),
             "homepage_realtor_id": hp_rid,
+            "realtor_id": mem.get(uid, (None,))[0],
+            "realtor_name": office_names.get(mem.get(uid, (None,))[0]),
+            "realtor_role": mem.get(uid, (None, None))[1] if uid in mem else None,
+            "realtor_status": mem.get(uid, (None, None, None))[2] if uid in mem else None,
         })
     return {"count": len(out), "users": out}
 

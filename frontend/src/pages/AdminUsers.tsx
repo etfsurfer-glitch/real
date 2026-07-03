@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Users } from "lucide-react";
 import { useAuth } from "../auth";
@@ -9,6 +10,8 @@ type U = {
   phone_verified?: boolean; name: string | null; avatar: string | null; provider: string | null;
   created_at: string | null; last_sign_in_at: string | null;
   homepage_slug?: string | null; homepage_published?: boolean;
+  realtor_id?: string | null; realtor_name?: string | null;
+  realtor_role?: string | null; realtor_status?: string | null;
 };
 
 function fmt(ts: string | null): string {
@@ -82,7 +85,7 @@ export default function AdminUsers() {
             <thead>
               <tr>
                 <th>#</th><th>회원번호</th><th>회원</th><th>이메일</th><th>전화</th>
-                <th>가입경로</th><th>홈페이지</th><th>가입일</th><th>최근 로그인</th><th>포인트</th>
+                <th>가입경로</th><th>중개사무소</th><th>홈페이지</th><th>가입일</th><th>최근 로그인</th><th>포인트</th>
               </tr>
             </thead>
             <tbody>
@@ -108,6 +111,21 @@ export default function AdminUsers() {
                     )}
                   </td>
                   <td><span className="ctx-badge" style={{ background: "#fee500", color: "#3a1d1d" }}>{u.provider ?? "-"}</span></td>
+                  <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                    {u.realtor_id ? (
+                      <Link to={`/realtor/${encodeURIComponent(u.realtor_id)}`}
+                        style={{ color: "#1268d3", fontWeight: 600 }}>
+                        {u.realtor_name ?? u.realtor_id}
+                        <span className="ctx-badge" style={{ marginLeft: 5,
+                          background: u.realtor_status === "pending" ? "#fff3e0" : (u.realtor_role === "owner" ? "#e8f1fd" : "#f0e9ff"),
+                          color: u.realtor_status === "pending" ? "#b45309" : (u.realtor_role === "owner" ? "#1268d3" : "#6b39c9") }}>
+                          {u.realtor_status === "pending" ? "승인대기"
+                            : u.realtor_role === "owner" ? "대표"
+                            : u.realtor_role === "assoc" ? "소속공인" : "보조원"}
+                        </span>
+                      </Link>
+                    ) : <span style={{ color: "#ccc" }}>-</span>}
+                  </td>
                   <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
                     {u.homepage_slug ? (
                       <a href={`https://real.koczip.com/${u.homepage_slug}`} target="_blank" rel="noreferrer"
