@@ -164,8 +164,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // 온보딩에서 알림 받기로 했고(권한 허용) 아직 구독 안 됐으면 — 로그인 시 조용히 구독 저장.
         // (1번 일반 사용자가 권한만 먼저 받고 로그인은 나중에 한 경우 자동 연결)
         import("./lib/push").then((m) => m.maybeAutoSubscribe(token)).catch(() => {});
-        // 라운지 인증 회원은 로그인 직후 라운지로 바로 이동 (로그인 1회당 1번, 탭복원·토큰갱신 제외)
-        if (event === "SIGNED_IN" && info.isRealtorMember && !loungeRedirectedRef.current) {
+        // 라운지 인증 회원 라운지 안내는 '홈(랜딩)에서 로그인한 경우'로 한정 — 단지상세 등
+        // 다른 페이지에서 로그인하면 보던 화면 유지(2026-07-03 중개사 피드백: 강제 이동 불편).
+        if (event === "SIGNED_IN" && info.isRealtorMember && !loungeRedirectedRef.current
+            && window.location.pathname === "/") {
           loungeRedirectedRef.current = true;
           navigate("/lounge");
         }
