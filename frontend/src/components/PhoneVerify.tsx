@@ -89,11 +89,21 @@ export function PhoneModal({ token, onClose, onDone }: { token: string; onClose:
     return `오류 ${status}`;
   };
 
+  // 네트워크 실패(Failed to fetch — API 재시작 blip 등)는 1.2초 후 1회 자동 재시도.
+  const fetchRetry = async (url: string, init: RequestInit): Promise<Response> => {
+    try {
+      return await fetch(url, init);
+    } catch {
+      await new Promise((res) => setTimeout(res, 1200));
+      return fetch(url, init);
+    }
+  };
+
   const sendCode = async () => {
     if (busy) return;
     setBusy(true); setMsg(""); setDevCode(null);
     try {
-      const r = await fetch(`${API}/me/phone/send-code`, {
+      const r = await fetchRetry(`${API}/me/phone/send-code`, {
         method: "POST", headers: auth, body: JSON.stringify({ phone }),
       });
       const d = await r.json().catch(() => ({}));
@@ -110,7 +120,7 @@ export function PhoneModal({ token, onClose, onDone }: { token: string; onClose:
     if (busy) return;
     setBusy(true); setMsg("");
     try {
-      const r = await fetch(`${API}/me/phone/verify`, {
+      const r = await fetchRetry(`${API}/me/phone/verify`, {
         method: "POST", headers: auth,
         body: JSON.stringify({ code, ref: getReferral() }),
       });
