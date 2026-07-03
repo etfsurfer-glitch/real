@@ -4,7 +4,7 @@ import { useAuth } from "../auth";
 
 // 랜딩 이스터에그 — 누구나 보지만 빌드 스탬프처럼 지나치는 4글자.
 // 전화인증(phoneVerified) 회원에게만 금빛으로 빛나고 클릭 가능. 이벤트 때 EGG만 바꾸면 됨.
-const EGG = "KZ6F";
+const EGG = "KZ9M4";
 
 export default function EasterEgg() {
   const { user } = useAuth();
