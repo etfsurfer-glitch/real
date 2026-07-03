@@ -10179,6 +10179,15 @@ async def lounge_verify_doc(realtor_id: str = Form(""), claimed_name: str = Form
         dest.write_bytes(data)
         c.execute("UPDATE realtor_verifications SET doc_path=? WHERE id=?", (str(dest), vid))
         c.commit()
+    # 관리자 텔레그램 알림 — 승인요청 접수(서류 확인 필요)
+    try:
+        from scripts.tg_notify import tg_send_async
+        tg_send_async(f"📋 중개사 인증 승인요청 접수\n"
+                      f"· 유형: {_STAFF_ROLE_KR.get(role, role)}\n"
+                      f"· 이름/사무소: {claimed_name or '(미기재)'}\n"
+                      f"→ koczip.com/admin/realtor-requests 에서 확인")
+    except Exception:
+        pass
     return {"ok": True, "id": vid}
 
 
