@@ -51,11 +51,14 @@ type MeInfo = {
   isRealtorMember?: boolean;
 };
 
-async function fetchMe(token: string | null): Promise<MeInfo> {
+// 반환 null = '일시 실패(네트워크·토큰갱신 레이스·API 재시작)' — 이전 권한을 유지해야 함.
+// {isAdmin:false} 는 '확정적 비관리자'(200 응답)일 때만. 혼동하면 관리자 페이지가
+// 작업 중 홈으로 튕기는 버그가 된다(2026-07-03 매물점검 중 이탈 제보).
+async function fetchMe(token: string | null): Promise<MeInfo | null> {
   if (!token || !API) return { isAdmin: false };
   try {
     const r = await fetch(`${API}/me`, { headers: { Authorization: `Bearer ${token}` } });
-    if (!r.ok) return { isAdmin: false };
+    if (!r.ok) return null;
     const d = await r.json();
     return {
       isAdmin: !!d.is_admin, email: d.email, phone: d.phone,
@@ -70,7 +73,7 @@ async function fetchMe(token: string | null): Promise<MeInfo> {
       isRealtorMember: !!d.is_realtor_member,
     };
   } catch {
-    return { isAdmin: false };
+    return null;
   }
 }
 
@@ -101,7 +104,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const loungeRedirectedRef = useRef(false);  // 로그인 1회당 라운지 자동이동 1번만
 
-  const mergeMe = (info: MeInfo) => {
+  const mergeMe = (info: MeInfo | null) => {
+    if (!info) return;  // 일시 실패 — 이전 권한·프로필 유지(관리자 홈 튕김 방지)
     // 누적 획득 포인트가 늘었으면(이전 값을 알 때만) 축하 토스트 이벤트 발행.
     const prev = earnedRef.current;
     const now = info.earned;
@@ -154,8 +158,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       if (!token) loungeRedirectedRef.current = false;  // 로그아웃 시 리셋
       if (token) {
-        const info = await fetchMe(token);
+        let info = await fetchMe(token);
         if (!alive) return;
+        if (!info) {  // 일시 실패 — 2.5초 후 1회 재시도(초기 로드 실패로 '확인 중' 고착 방지)
+          await new Promise((res) => setTimeout(res, 2500));
+          if (!alive) return;
+          info = await fetchMe(token);
+          if (!alive) return;
+        }
         mergeMe(info);
         // 실제 로그인 순간에만 서버에 로그인 기록 남김 (토큰 갱신/탭복원 제외)
         if (event === "SIGNED_IN" && API) {
@@ -166,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         import("./lib/push").then((m) => m.maybeAutoSubscribe(token)).catch(() => {});
         // 라운지 인증 회원 라운지 안내는 '홈(랜딩)에서 로그인한 경우'로 한정 — 단지상세 등
         // 다른 페이지에서 로그인하면 보던 화면 유지(2026-07-03 중개사 피드백: 강제 이동 불편).
-        if (event === "SIGNED_IN" && info.isRealtorMember && !loungeRedirectedRef.current
+        if (event === "SIGNED_IN" && info?.isRealtorMember && !loungeRedirectedRef.current
             && window.location.pathname === "/") {
           loungeRedirectedRef.current = true;
           navigate("/lounge");
