@@ -2442,6 +2442,23 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
     q_low = q.lower()
     q_core = _office_core(q)
     items: list[tuple[str, str | None, int]] = []  # (rid, name, count)
+    # 다중 토큰("명가 군포", "명가 이선혜") — 각 토큰이 상호·주소·대표자 중 하나에 걸리면 매칭.
+    # 흔한 상호가 매물수 정렬에 밀려 못 찾는 문제 해소(지역·대표자로 좁히기).
+    toks = [t for t in q.split() if t]
+    if len(toks) >= 2:
+        conds, params = [], []
+        for t in toks:
+            conds.append("(realtor_name LIKE ? OR address LIKE ? OR representative_name LIKE ?)")
+            params += [f"%{t}%"] * 3
+        if sido:
+            conds.append("substr(cortar_no,1,2)=?"); params.append(sido)
+        with _open_db() as c:
+            for rid, name in c.execute(
+                    f"SELECT realtor_id, realtor_name FROM naver_realtors "
+                    f"WHERE {' AND '.join(conds)} LIMIT 80", params):
+                nat = ranks["national"].get(rid)
+                items.append((rid, name, nat[1] if nat else 0))
+        return _realtors_search_finish(q, sido, items, limit)
     if sido:
         for (s, rid), (_rk, n, name) in ranks["sido_rank"].items():
             if s != sido:
@@ -2460,13 +2477,18 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
         with _open_db() as c:
             # 필러어 제거한 핵심어로 LIKE (없으면 원문). '동대구푸르지오부동산'→'%동대구푸르지오%'
             like_term = q_core if q_core else q
-            cond, params = "realtor_name LIKE ?", [f"%{like_term}%"]
+            cond, params = "(realtor_name LIKE ? OR representative_name = ?)", [f"%{like_term}%", q]
             if sido:
                 cond += " AND substr(cortar_no,1,2)=?"; params.append(sido)
             for rid, name in c.execute(
                     f"SELECT realtor_id, realtor_name FROM naver_realtors WHERE {cond} LIMIT 80", params):
                 if rid not in seen:
-                    seen.add(rid); items.append((rid, name, 0))
+                    nat = ranks["national"].get(rid)
+                    seen.add(rid); items.append((rid, name, nat[1] if nat else 0))
+    return _realtors_search_finish(q, sido, items, limit)
+
+
+def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
     items.sort(key=lambda r: -r[2])
     items = items[:limit]
     # 동명 중개사무소가 많아 이름만으론 구분 불가 → 소재지(주소)·대표자명을 함께 준다.
