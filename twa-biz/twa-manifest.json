@@ -13,8 +13,8 @@
   "backgroundColor": "#0F2F5C",
   "enableNotifications": true,
   "startUrl": "/biz",
-  "iconUrl": "https://koczip.com/icon-512.png",
-  "maskableIconUrl": "https://koczip.com/icon-512-maskable.png",
+  "iconUrl": "https://koczip.com/icon-biz-512.png",
+  "maskableIconUrl": "https://koczip.com/icon-biz-512-maskable.png",
   "monochromeIconUrl": "",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {

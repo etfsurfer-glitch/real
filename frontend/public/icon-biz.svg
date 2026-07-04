@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- 콕집 하우스 마크 (위로 살짝 올려 뱃지 공간 확보) -->
+  <path d="M 50 4 L 92 40 L 92 82 L 8 82 L 8 40 Z" fill="#1268d3"/>
+  <path d="M 28 50 L 44 65 L 74 34" stroke="#ffffff" stroke-width="10"
+        stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- 중개사 뱃지 (금색 필, 하단 겹침) -->
+  <rect x="13" y="72" width="74" height="24" rx="12" fill="#ffd43b"/>
+  <text x="50" y="89.5" text-anchor="middle" font-family="Apple SD Gothic Neo, AppleGothic, sans-serif"
+        font-size="16" font-weight="800" fill="#0f2f5c">중개사</text>
+</svg>
