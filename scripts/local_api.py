@@ -7817,6 +7817,14 @@ def log_login(request: Request, user: dict = Depends(current_user)) -> dict:
             c.execute("UPDATE user_profiles SET signup_awarded=1 WHERE user_id=?", (user["id"],))
             awarded = POINTS["signup"]
             c.commit()
+            total = c.execute("SELECT COUNT(*) FROM user_profiles WHERE signup_awarded=1").fetchone()[0]
+    if awarded:   # 신규 가입(첫 로그인) — 텔레그램 보고
+        try:
+            from scripts.tg_notify import tg_send_async
+            tg_send_async(f"👤 신규 가입 #{total} — {user.get('name') or '이름없음'} "
+                          f"({_provider_kr(user.get('provider'))})")
+        except Exception:
+            pass
     return {"ok": True, "awarded": awarded}
 
 
