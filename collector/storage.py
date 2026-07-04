@@ -44,24 +44,6 @@ CREATE INDEX IF NOT EXISTS complexes_cortar_idx ON complexes(cortar_no);
 -- 지도보기(in-bounds): 화면 영역 bbox 로 단지 조회.
 CREATE INDEX IF NOT EXISTS complexes_geo_idx ON complexes(latitude, longitude);
 
--- 종료(내림) 매물 로그 — 전월세 실거래 동(棟) 연계용(2026-07-04).
--- 스냅샷 교체 시 사라진 매물의 최종 상태 보존. 신고 지연(≤30일) 후 계약일과
--- [D-3, D+21] 창에서 평형·층·가격(바운더리) 매칭해 실거래에 동을 부여할 재료.
-CREATE TABLE IF NOT EXISTS listing_delist_log (
-    article_no    TEXT NOT NULL,
-    complex_no    TEXT NOT NULL,
-    trade_type    TEXT NOT NULL,
-    building_name TEXT,
-    floor_info    TEXT,
-    area2_m2      REAL,
-    price         INTEGER,      -- 매매가/보증금(만원)
-    rent_price    INTEGER,      -- 월세(만원)
-    realtor_id    TEXT,
-    delist_date   TEXT NOT NULL,  -- 사라진 것이 관측된 스냅샷 일자
-    PRIMARY KEY (article_no, delist_date)
-);
-CREATE INDEX IF NOT EXISTS ldl_cx_idx ON listing_delist_log(complex_no, trade_type, delist_date);
-
 CREATE TABLE IF NOT EXISTS listings_current (
     article_no TEXT PRIMARY KEY,
     complex_no TEXT,
@@ -684,24 +666,6 @@ def save_articles(
         # snapshot_date 까지 걸어 오늘 것만 지우면, 어제 있다가 오늘 내려간(delisted)
         # 매물이 옛 snapshot_date 로 영원히 남아 listings_current 가 누적·뻥튀기됨
         # (중개사 매물수가 실제의 3배 등). listings_current 는 '현재 스냅샷'이어야 함.
-        # 종료 매물 로그 — 이번 스냅샷에 없는(내려간) 매물의 최종 상태를 보존.
-        # 실패해도 수집 본류에 영향 없음.
-        try:
-            new_nos = {r[0] for r in rows}
-            gone = [o for o in conn.execute(
-                "SELECT article_no, building_name, floor_info, area2_m2, "
-                "deal_or_warrant_price, rent_price, realtor_id, snapshot_date "
-                "FROM listings_current WHERE complex_no=? AND trade_type=?",
-                (complex_no, trade)).fetchall() if o[0] not in new_nos]
-            if gone:
-                conn.executemany(
-                    "INSERT OR IGNORE INTO listing_delist_log(article_no, complex_no, "
-                    "trade_type, building_name, floor_info, area2_m2, price, rent_price, "
-                    "realtor_id, delist_date) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                    [(o[0], complex_no, trade, o[1], o[2], o[3], o[4], o[5], o[6],
-                      snapshot_date) for o in gone])
-        except Exception:
-            pass
         conn.execute(
             "DELETE FROM listings_current WHERE complex_no=? AND trade_type=?",
             (complex_no, trade),
