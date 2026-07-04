@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle, XCircle, CheckCircle2, Loader2, Building2, Square, CheckSquare, ShieldCheck,
   Info, X, Download, TrendingDown, TrendingUp, ChevronRight, ChevronDown,
-  Building, BedDouble, Store, Briefcase, Home, House, LandPlot, Factory, Landmark, Warehouse, Hammer, Ticket,
+  Building, BedDouble, BedSingle, Store, Briefcase, Home, House, LandPlot, Factory, Landmark, Warehouse, Hammer, Ticket,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -42,7 +42,7 @@ const KIND_ICON: Record<string, { I: React.ComponentType<{ size?: number | strin
   villa: { I: Home, c: "#64748b" }, house: { I: House, c: "#64748b" },
   land: { I: LandPlot, c: "#64748b" }, factory: { I: Factory, c: "#64748b" },
   building: { I: Landmark, c: "#64748b" }, knowledge: { I: Warehouse, c: "#64748b" },
-  redev: { I: Hammer, c: "#64748b" },
+  redev: { I: Hammer, c: "#64748b" }, oneroom: { I: BedSingle, c: "#64748b" },
 };
 const helpBtnStyle: React.CSSProperties = {
   display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 600,

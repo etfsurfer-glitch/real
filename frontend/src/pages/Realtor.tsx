@@ -53,7 +53,7 @@ type NaverInfo = {
   rent_count: number | null;
 };
 
-type Breakdown = { complex: number; villa: number; house: number; sangga: number; office: number; land: number; factory: number; building: number; knowledge: number; redev: number; total: number };
+type Breakdown = { oneroom?: number; complex: number; villa: number; house: number; sangga: number; office: number; land: number; factory: number; building: number; knowledge: number; redev: number; total: number };
 type RankInfo = { count: number; national_rank: number; national_total: number };
 type RepRank = RankInfo & { type: string; type_key: string; sido_name: string | null; sido_rank: number | null };
 type RealtorDetail = {
@@ -263,10 +263,10 @@ export default function Realtor() {
       {data.listing_breakdown && data.listing_breakdown.total > data.listing_breakdown.complex && (
         <div className="rl-breakdown">
           <span className="rl-bd-title">매물 유형</span>
-          {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"], ["빌딩", "building"], ["토지", "land"], ["공장", "factory"], ["지식산업센터", "knowledge"], ["재개발", "redev"]] as const)
+          {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"], ["빌딩", "building"], ["토지", "land"], ["공장", "factory"], ["지식산업센터", "knowledge"], ["재개발", "redev"], ["원룸", "oneroom"]] as const)
             .filter(([, k]) => (data.listing_breakdown![k] || 0) > 0)
             .map(([label, k]) => (
-              <span key={k} className={`rl-bd-chip${k === "complex" ? " primary" : ""}`}>{label} <b>{data.listing_breakdown![k].toLocaleString()}</b></span>
+              <span key={k} className={`rl-bd-chip${k === "complex" ? " primary" : ""}`}>{label} <b>{(data.listing_breakdown![k] ?? 0).toLocaleString()}</b></span>
             )))}
           <span className="rl-bd-chip total">전체 <b>{data.listing_breakdown.total.toLocaleString()}</b></span>
         </div>
@@ -383,7 +383,8 @@ function RealtorListings({ realtorId, breakdown }: { realtorId: string; breakdow
     ? ([["전체", "", b.total], ["단지형", "단지형", b.complex], ["빌라", "빌라", b.villa],
         ["단독", "단독", b.house], ["상가", "상가", b.sangga], ["사무실", "사무실", b.office],
         ["빌딩", "빌딩", b.building], ["토지", "토지", b.land], ["공장", "공장", b.factory],
-        ["지식산업센터", "지식산업센터", b.knowledge], ["재개발", "재개발", b.redev]] as [string, string, number][])
+        ["지식산업센터", "지식산업센터", b.knowledge], ["재개발", "재개발", b.redev],
+        ["원룸", "원룸", b.oneroom ?? 0]] as [string, string, number][])
         .filter(([, v, n]) => v === "" || n > 0)
     : [["전체", "", 0]];
 

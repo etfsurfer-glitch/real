@@ -1195,7 +1195,7 @@ def realtors_national(limit: int = 20, scope: str = "complex"):
                 totals[x[0]] = x[1]
             for x in c.execute(f"SELECT realtor_id, COALESCE(villa_n,0)+COALESCE(house_n,0)+"
                                f"COALESCE(sangga_n,0)+COALESCE(office_n,0)+COALESCE(land_n,0)+"
-                               f"COALESCE(factory_n,0)+COALESCE(building_n,0)+COALESCE(knowledge_n,0)+COALESCE(redev_n,0) "
+                               f"COALESCE(factory_n,0)+COALESCE(building_n,0)+COALESCE(knowledge_n,0)+COALESCE(redev_n,0)+COALESCE(oneroom_n,0) "
                                f"FROM realtor_region_counts WHERE realtor_id IN ({_php})", pool_ids):
                 totals[x[0]] = totals.get(x[0], 0) + (x[1] or 0)
         # 동률은 전체매물 많은 쪽이 상위. 그 다음 동률은 id 로 안정 정렬.
@@ -1410,10 +1410,11 @@ _NONRESI_DB = {"sangga": "listings_sangga.sqlite", "office": "listings_office.sq
                "villa": "listings_villa.sqlite", "house": "listings_house.sqlite",
                "land": "listings_land.sqlite", "factory": "listings_factory.sqlite",
                "building": "listings_building.sqlite",
-               "knowledge": "listings_knowledge.sqlite", "redev": "listings_redev.sqlite"}
+               "knowledge": "listings_knowledge.sqlite", "redev": "listings_redev.sqlite",
+               "oneroom": "listings_oneroom.sqlite"}
 _NONRESI_LABEL = {"sangga": "상가", "office": "사무실", "villa": "빌라·연립", "house": "단독·다가구",
                   "land": "토지", "factory": "공장·창고", "building": "건물",
-                  "knowledge": "지식산업센터", "redev": "재개발"}
+                  "knowledge": "지식산업센터", "redev": "재개발", "oneroom": "원룸"}
 
 
 @app.get("/stats/nonresi")
@@ -2386,7 +2387,7 @@ def realtors_by_sido(limit: int = 10, scope: str = "complex"):
                 totals[x[0]] = x[1]
             for x in c.execute(f"SELECT realtor_id, COALESCE(villa_n,0)+COALESCE(house_n,0)+"
                                f"COALESCE(sangga_n,0)+COALESCE(office_n,0)+COALESCE(land_n,0)+"
-                               f"COALESCE(factory_n,0)+COALESCE(building_n,0)+COALESCE(knowledge_n,0)+COALESCE(redev_n,0) "
+                               f"COALESCE(factory_n,0)+COALESCE(building_n,0)+COALESCE(knowledge_n,0)+COALESCE(redev_n,0)+COALESCE(oneroom_n,0) "
                                f"FROM realtor_region_counts WHERE realtor_id IN ({ph})", ids):
                 totals[x[0]] = totals.get(x[0], 0) + (x[1] or 0)
     grouped: dict[str, list[dict]] = {}
@@ -2791,22 +2792,23 @@ def realtor_detail(realtor_id: str):
 
     # 매물 통계 — 단지형(기본) + 비단지 유형별 + 전체(부수). 사이트 일관 규칙.
     with _open_db() as c:
-        rc = c.execute("SELECT villa_n,house_n,sangga_n,office_n,land_n,factory_n,building_n,knowledge_n,redev_n "
+        rc = c.execute("SELECT villa_n,house_n,sangga_n,office_n,land_n,factory_n,building_n,knowledge_n,redev_n,COALESCE(oneroom_n,0) "
                        "FROM realtor_region_counts WHERE realtor_id=?", (realtor_id,)).fetchone()
-    _v, _h, _s, _o, _l, _f, _b, _k, _r = (rc or (0,) * 9)
-    _v, _h, _s, _o, _l, _f, _b, _k, _r = ((_v or 0), (_h or 0), (_s or 0), (_o or 0), (_l or 0),
-                                          (_f or 0), (_b or 0), (_k or 0), (_r or 0))
+    vals = [x or 0 for x in (rc or (0,) * 10)]
+    while len(vals) < 10:   # 구버전 테이블(oneroom_n 없음) 호환
+        vals.append(0)
+    _v, _h, _s, _o, _l, _f, _b, _k, _r, _or = vals[:10]
     listing_breakdown = {
         "complex": total_count, "villa": _v, "house": _h, "sangga": _s, "office": _o,
-        "land": _l, "factory": _f, "building": _b, "knowledge": _k, "redev": _r,
-        "total": total_count + _v + _h + _s + _o + _l + _f + _b + _k + _r,
+        "land": _l, "factory": _f, "building": _b, "knowledge": _k, "redev": _r, "oneroom": _or,
+        "total": total_count + _v + _h + _s + _o + _l + _f + _b + _k + _r + _or,
     }
 
     # 대표 분야(최다 유형) 순위 + 전체 매물 순위. 단지형만으로 줄세우던 한계 보완.
     _TLABEL = {"complex": "단지형", "villa": "빌라", "house": "단독", "sangga": "상가",
                "office": "사무실", "building": "빌딩", "land": "토지", "factory": "공장",
-               "knowledge": "지식산업센터", "redev": "재개발"}
-    _tkeys = ["complex", "villa", "house", "sangga", "office", "building", "land", "factory", "knowledge", "redev"]
+               "knowledge": "지식산업센터", "redev": "재개발", "oneroom": "원룸"}
+    _tkeys = ["complex", "villa", "house", "sangga", "office", "building", "land", "factory", "knowledge", "redev", "oneroom"]
     top_key = max(_tkeys, key=lambda k: listing_breakdown.get(k, 0))
     top_n = listing_breakdown.get(top_key, 0)
     rep_rank = total_rank_out = None

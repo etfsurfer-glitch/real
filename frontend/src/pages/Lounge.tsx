@@ -281,7 +281,7 @@ export function DashboardTab({ authH, office, onGoTab }: {
       {s.breakdown && s.total_listings > 0 && (
         <div className="rl-breakdown">
           <span className="rl-bd-title">매물 유형</span>
-          {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"], ["빌딩", "building"], ["토지", "land"], ["공장", "factory"], ["지식산업센터", "knowledge"], ["재개발", "redev"]] as const)
+          {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"], ["빌딩", "building"], ["토지", "land"], ["공장", "factory"], ["지식산업센터", "knowledge"], ["재개발", "redev"], ["원룸", "oneroom"]] as const)
             .filter(([, k]) => (s.breakdown![k] || 0) > 0)
             .map(([label, k]) => (
               <span key={k} className={`rl-bd-chip${k === "complex" ? " primary" : ""}`}>{label} <b>{s.breakdown![k].toLocaleString()}</b></span>

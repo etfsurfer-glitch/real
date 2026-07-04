@@ -27,7 +27,10 @@ DATA_DIR = os.environ.get("KOCZIP_DATA", "data")
 # 유효 필터코드만(DDDGN·DGN은 네이버가 무시하는 노이즈 → 제외). 검증: 5코드 합 = 통합호출 총수.
 # 카테고리 분할 호출 → (1) 각 호출 작아짐 (2) 상단탭 = 코드별 (3) 코드별 무결성 대조.
 CODES = ["VL", "YR", "DDDGG", "SMS", "SG", "TJ", "GJCG", "GM",
-         "APTHGJ", "JGB", "SGJT", "JWJT"]  # +지식산업센터·재개발·상가주택·전원주택
+         "APTHGJ", "JGB", "SGJT", "JWJT",
+         "OR"]  # +지식산업센터·재개발·상가주택·전원주택
+# 2026-07-05 OR(원룸) 추가 — YR은 실측상 '연립'을 반환(원룸 아님)해 원룸이 전량 누락되고
+# 있었음(villa DB 원룸 0건). OR 응답 유형명 '원룸' → villa 카테고리로 분류(기존 names에 있음).
 ARTICLES_URL = "https://new.land.naver.com/api/articles"
 PAGE_CAP = 3000   # 안전상한(자연정지가 먼저 멈춰야 정상). 도달하면 truncation = 무결성 위반.
 
@@ -35,13 +38,15 @@ PAGE_CAP = 3000   # 안전상한(자연정지가 먼저 멈춰야 정상). 도�
 CATEGORIES = {
     "sangga": ("listings_sangga.sqlite", {"상가점포"}, True),
     "office": ("listings_office.sqlite", {"사무실"}, False),
-    "villa":  ("listings_villa.sqlite",  {"빌라/연립", "빌라단지-연립", "원룸", "다세대"}, False),
+    "villa":  ("listings_villa.sqlite",  {"빌라/연립", "빌라단지-연립", "다세대"}, False),
     "house":  ("listings_house.sqlite",  {"단독/다가구", "전원주택"}, False),   # +전원주택(JWJT)
     "land":     ("listings_land.sqlite",     {"토지/임야"}, False),          # TJ
     "factory":  ("listings_factory.sqlite",  {"공장/창고"}, False),          # GJCG
     "building": ("listings_building.sqlite", {"빌딩/건물", "상가건물", "상가주택"}, True),  # GM/SGJT 통건물(권리금 가능)
     "knowledge": ("listings_knowledge.sqlite", {"지식산업센터"}, False),      # APTHGJ 지식산업센터(지산)
     "redev":     ("listings_redev.sqlite",     {"재개발"}, False),            # JGB 재개발
+    # OR 원룸 — 응답 유형명이 '방'(원룸 아님 주의). 빌라 통계 오염 방지 위해 격리 DB(2026-07-05).
+    "oneroom":   ("listings_oneroom.sqlite",   {"방", "원룸"}, False),
 }
 
 
