@@ -3034,3 +3034,20 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .biz-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; }
 .biz-foot a, .biz-foot button { font-size: 12px; color: #94a3b8; background: none; border: none;
   cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+
+/* ══ 실거래 피드(단지상세) — 월 그룹·가격 중심 (2026-07-04 벤치마킹 개선) ══ */
+.txf { margin-top: 4px; }
+.txf-month { display: flex; align-items: center; gap: 10px; margin: 16px 0 2px;
+  font-size: 13px; font-weight: 800; color: #334155; }
+.txf-month::after { content: ""; flex: 1; height: 1px; background: var(--c-border, #e4e9f0); }
+.txf-row { display: flex; align-items: baseline; gap: 8px; padding: 9px 2px;
+  border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
+.txf-day { width: 24px; font-size: 12.5px; color: #94a3b8; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.txf-price { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em; white-space: nowrap; }
+.txf-badges { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.txf-b { font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
+  line-height: 1.6; white-space: nowrap; }
+.txf-meta { margin-left: auto; font-size: 12px; color: #8296ab; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 4px; }
+.txf-dot { width: 7px; height: 7px; border-radius: 99px; display: inline-block; flex-shrink: 0; }

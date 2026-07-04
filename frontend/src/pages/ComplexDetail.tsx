@@ -75,20 +75,6 @@ function dongLabel(dong: string | null): string {
   return d.endsWith("동") ? d : `${d}동`;
 }
 
-// 등기완료/미등기 + 동 셀 (아파트 매매만 의미 있음)
-function RegiCell({ registered, dong, asset }: { registered: boolean; dong: string | null; asset: "apt" | "offi" }) {
-  if (asset === "offi") return <span className="muted">-</span>;
-  if (registered) {
-    return (
-      <span style={{ whiteSpace: "nowrap" }}>
-        <span className="ctx-badge" style={{ background: "#e6f7ed", color: "#1a7f4b" }}>등기완료</span>
-        {dong && <span style={{ marginLeft: 6, fontWeight: 600 }}>{dongLabel(dong)}</span>}
-      </span>
-    );
-  }
-  return <span className="ctx-badge" style={{ background: "#eef2f5", color: "#888" }}>미등기</span>;
-}
-
 type Rent = {
   deal_ymd: string;
   deposit: number;
@@ -956,41 +942,66 @@ function SaleSection({ rows }: { rows: SaleRow[] }) {
     return rows.filter((r) => areaKey(r.excl_use_ar) === area);
   }, [rows, area]);
 
+  // 신고가: 평형(areaKey)별로 시간순 최고가를 경신한 거래(분양권 제외) 표시 — 콕집 차별점.
+  const recordHigh = useMemo(() => {
+    const set = new Set<SaleRow>();
+    const best = new Map<number, number>();
+    for (const r of [...rows].sort((a, b) => a.deal_ymd.localeCompare(b.deal_ymd))) {
+      const k = areaKey(r.excl_use_ar);
+      if (k == null || r.silv_kind || !r.deal_amount) continue;
+      if (r.deal_amount > (best.get(k) ?? 0)) {
+        best.set(k, r.deal_amount);
+        set.add(r);
+      }
+    }
+    return set;
+  }, [rows]);
+
   if (rows.length === 0) return <div className="muted">최근 거래 없음</div>;
 
   return (
     <>
       <AreaChipRow groups={groups} selected={area} onPick={setArea} />
       <SaleChart rows={filtered} colorOf={colorOf} />
-      <table>
-        <thead>
-          <tr>
-            <th>계약일</th>
-            <th className="num">전용(㎡)</th>
-            <th className="num">층</th>
-            <th className="num">금액</th>
-            <th>형태</th>
-            <th>등기</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((r, i) => (
-            <tr key={i} className={r.silv_kind ? "tx-silv" : undefined}>
-              <td>
-                {r.deal_ymd}
-                {r.silv_kind && <span className="ctx-badge tx-silv-badge">{r.silv_kind}</span>}
-              </td>
-              <td className="num">{r.excl_use_ar?.toFixed(2) ?? "-"}</td>
-              <td className="num">{r.floor ?? "-"}</td>
-              <td className="num">{formatWon(r.deal_amount)}</td>
-              <td>{r.dealing_gbn ?? "-"}{r.asset === "offi" ? " · 오피스텔" : ""}</td>
-              <td>{r.silv_kind ? <span className="muted">-</span> : <RegiCell registered={r.registered} dong={r.dong} asset={r.asset} />}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="txf">
+        {txfMonths(filtered).map(({ ym, list }) => (
+          <div key={ym}>
+            <div className="txf-month">{ym}</div>
+            {list.map((r, i) => (
+              <div key={i} className="txf-row">
+                <span className="txf-day">{r.deal_ymd.slice(8, 10)}</span>
+                <span className="txf-price" style={{ color: "#1268d3" }}>{formatWon(r.deal_amount)}</span>
+                <span className="txf-badges">
+                  {recordHigh.has(r) && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>신고가</span>}
+                  {r.silv_kind && <span className="txf-b" style={{ background: "#f0e9ff", color: "#6b39c9" }}>{r.silv_kind}</span>}
+                  {r.dealing_gbn === "직거래" && <span className="txf-b" style={{ background: "#fff7ea", color: "#c4791a" }}>직거래</span>}
+                  {!r.silv_kind && r.registered && <span className="txf-b" style={{ background: "#eefaf2", color: "#1f9d63" }}>등기</span>}
+                  {r.asset === "offi" && <span className="txf-b" style={{ background: "#f1f5f9", color: "#64748b" }}>오피</span>}
+                </span>
+                <span className="txf-meta">
+                  <i className="txf-dot" style={{ background: colorOf(areaKey(r.excl_use_ar)) }} />
+                  {r.excl_use_ar != null ? `${Math.round(r.excl_use_ar)}㎡` : "-"}
+                  {r.floor != null && ` · ${r.floor}층`}
+                  {r.dong && ` · ${dongLabel(r.dong)}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
     </>
   );
+}
+
+// 월 그룹핑("26.06") — 계약일 내림차순 유지한 채 월 헤더로 묶는다(벤치마킹: 스캔성).
+function txfMonths<T extends { deal_ymd: string }>(rows: T[]): { ym: string; list: T[] }[] {
+  const out: { ym: string; list: T[] }[] = [];
+  for (const r of rows) {
+    const ym = r.deal_ymd.slice(2, 7).replace("-", ".");
+    if (!out.length || out[out.length - 1].ym !== ym) out.push({ ym, list: [] });
+    out[out.length - 1].list.push(r);
+  }
+  return out;
 }
 
 function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" }) {
@@ -1024,30 +1035,45 @@ function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" })
     <>
       <AreaChipRow groups={groups} selected={area} onPick={setArea} />
       <RentChart rows={filtered} kind={kind} colorOf={colorOf} />
-      <table>
-        <thead>
-          <tr>
-            <th>계약일</th>
-            <th className="num">전용(㎡)</th>
-            <th className="num">층</th>
-            <th className="num">보증금</th>
-            {kind === "wolse" && <th className="num">월세</th>}
-            <th>구분</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((r, i) => (
-            <tr key={i}>
-              <td>{r.deal_ymd}</td>
-              <td className="num">{r.excl_use_ar?.toFixed(2) ?? "-"}</td>
-              <td className="num">{r.floor ?? "-"}</td>
-              <td className="num">{formatWon(r.deposit)}</td>
-              {kind === "wolse" && <td className="num">{formatWon(r.monthly_rent)}</td>}
-              <td>{r.contract_type ?? "-"}{r.asset === "offi" ? " · 오피스텔" : ""}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="txf">
+        {txfMonths(filtered).map(({ ym, list }) => (
+          <div key={ym}>
+            <div className="txf-month">{ym}</div>
+            {list.map((r, i) => {
+              const renew = (r.contract_type ?? "").includes("갱신");
+              // 갱신 인상률 — 월세는 월세액, 전세는 보증금 기준(종전 대비)
+              const base = kind === "wolse" && r.pre_monthly_rent ? r.pre_monthly_rent : r.pre_deposit;
+              const cur = kind === "wolse" && r.pre_monthly_rent ? r.monthly_rent : r.deposit;
+              const pct = renew && base && cur ? ((cur - base) / base) * 100 : null;
+              return (
+                <div key={i} className="txf-row">
+                  <span className="txf-day">{r.deal_ymd.slice(8, 10)}</span>
+                  <span className="txf-price" style={{ color: kind === "wolse" ? "#1f9d63" : "#7048e8" }}>
+                    {formatWon(r.deposit)}{kind === "wolse" && ` / ${Math.round(r.monthly_rent / 10000)}만`}
+                  </span>
+                  <span className="txf-badges">
+                    {renew && (
+                      <span className="txf-b" style={{ background: "#f1f5f9", color: "#475569" }}>
+                        갱신{pct != null && Math.abs(pct) >= 0.5 && (
+                          <b style={{ color: pct > 0 ? "#d23b3b" : "#1268d3", marginLeft: 2 }}>
+                            {pct > 0 ? "↑" : "↓"}{Math.abs(pct).toFixed(1)}%
+                          </b>
+                        )}
+                      </span>
+                    )}
+                    {r.asset === "offi" && <span className="txf-b" style={{ background: "#f1f5f9", color: "#64748b" }}>오피</span>}
+                  </span>
+                  <span className="txf-meta">
+                    <i className="txf-dot" style={{ background: colorOf(areaKey(r.excl_use_ar)) }} />
+                    {r.excl_use_ar != null ? `${Math.round(r.excl_use_ar)}㎡` : "-"}
+                    {r.floor != null && ` · ${r.floor}층`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </>
   );
 }
