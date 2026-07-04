@@ -6,7 +6,7 @@ import { Loading } from "../components/Loading";
 import { enablePush, pushOptedIn, pushSupported } from "../lib/push";
 import {
   Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil,
-  Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users,
+  Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home,
 } from "lucide-react";
 import {
   DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
@@ -176,6 +176,20 @@ export default function BizApp() {
   }
 }
 
+
+// 콕집 일반 앱 열기 — 안드로이드(TWA)에선 intent://로 설치 시 앱 실행,
+// 미설치 시 플레이스토어(browser_fallback_url). iOS·데스크톱은 웹으로.
+function openConsumerApp() {
+  if (/Android/i.test(navigator.userAgent)) {
+    window.location.href =
+      "intent://koczip.com/#Intent;scheme=https;package=com.koczip.app;" +
+      "S.browser_fallback_url=" +
+      encodeURIComponent("https://play.google.com/store/apps/details?id=com.koczip.app") + ";end";
+  } else {
+    window.open("https://koczip.com/", "_blank", "noopener");
+  }
+}
+
 // ── 상단바 ──
 function BizTop({ backTo, title }: { backTo?: string; title?: string }) {
   return (
@@ -259,15 +273,20 @@ function BizHome({ office, authH, hasHomepage, role, staffName, onLogout }: {
 
         <div className="biz-grid">
           <BizBtn to="/biz/diary" icon={<ClipboardList size={22} />} label="매물장" desc="내 매물 다이어리" primary />
+          <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
           <BizBtn to="/biz/audit" icon={<ShieldCheck size={22} />} label="매물점검" desc="표시광고 자가점검" />
           <BizBtn to="/biz/leads" icon={<MessageSquare size={22} />} label="상담신청" desc="고객 상담 리드" badge={leadNew || undefined} />
-          <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
           <BizBtn to="/biz/favs" icon={<Star size={22} />} label="관심단지" desc="신고가·신규매물 체크" />
           <BizBtn to="/biz/fav-offices" icon={<Store size={22} />} label="관심중개사" desc="주변 사무소 증감" />
           {role === "owner" && <BizBtn to="/biz/staff" icon={<Users size={22} />} label="직원관리" desc="소속공인·보조원 승인" />}
-          <BizBtn to="/biz/dash" icon={<LayoutDashboard size={22} />} label="대시보드" desc="오늘의 사무소 현황" />
           <BizBtn to="/biz/office" icon={<Building2 size={22} />} label="내 사무소" desc="연결·리뷰 관리" />
+          <BizBtn to="/biz/dash" icon={<LayoutDashboard size={22} />} label="대시보드" desc="오늘의 사무소 현황" />
           <BizBtn to="/biz/edit" icon={<Pencil size={22} />} label="정보수정요청" desc="사무소 정보 정정" />
+          <button className="biz-btn" onClick={openConsumerApp}>
+            <span className="biz-btn-ic"><Home size={22} /></span>
+            <b>콕집 (일반)</b>
+            <span className="biz-btn-desc">일반 사용자 앱 열기</span>
+          </button>
         </div>
 
         {pushSupported() && (
@@ -277,8 +296,7 @@ function BizHome({ office, authH, hasHomepage, role, staffName, onLogout }: {
           </button>
         )}
 
-        <div className="biz-foot">
-          <a href="https://koczip.com/" target="_blank" rel="noreferrer">콕집 홈(일반)</a>
+        <div className="biz-foot" style={{ justifyContent: "flex-end" }}>
           <button onClick={onLogout}><LogOut size={12} /> 로그아웃</button>
         </div>
       </div>
