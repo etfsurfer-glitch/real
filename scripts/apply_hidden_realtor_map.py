@@ -31,16 +31,32 @@ def main() -> None:
         for nm, pfx, rid, note in SEED:
             c.execute("INSERT OR IGNORE INTO hidden_realtor_map VALUES (?,?,?,?)", (nm, pfx, rid, note))
         total = 0
-        for nm, pfx, rid, _ in c.execute("SELECT * FROM hidden_realtor_map").fetchall():
+        maps = c.execute("SELECT realtor_name, cortar_prefix, realtor_id FROM hidden_realtor_map").fetchall()
+        for nm, pfx, rid in maps:
             cur = c.execute(
                 "UPDATE listings_current SET realtor_id=? "
                 "WHERE realtor_id IS NULL AND realtor_name=? AND complex_no IN "
                 "(SELECT complex_no FROM complexes WHERE cortar_no LIKE ?)",
                 (rid, nm, pfx + "%"))
             if cur.rowcount:
-                print(f"  {nm}({pfx}) → {rid}: {cur.rowcount}건 귀속")
+                print(f"  [단지형] {nm}({pfx}) → {rid}: {cur.rowcount}건")
             total += cur.rowcount
         c.commit()
+    # 비단지 4DB(상가·사무실·빌라·단독)도 동일 귀속 — cortar_no 직접 보유
+    for dbf in ("listings_sangga.sqlite", "listings_office.sqlite",
+                "listings_villa.sqlite", "listings_house.sqlite"):
+        path = DB.parent / dbf
+        if not path.exists():
+            continue
+        with sqlite3.connect(path) as rc:
+            for nm, pfx, rid in maps:
+                cur = rc.execute(
+                    "UPDATE listings SET realtor_id=? WHERE (realtor_id IS NULL OR realtor_id='') "
+                    "AND realtor_name=? AND cortar_no LIKE ?", (rid, nm, pfx + "%"))
+                if cur.rowcount:
+                    print(f"  [{dbf.split('_')[1].split('.')[0]}] {nm}({pfx}) → {rid}: {cur.rowcount}건")
+                total += cur.rowcount
+            rc.commit()
     print(f"hidden_realtor_map 적용: {total}건")
 
 

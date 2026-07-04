@@ -37,6 +37,17 @@ def main():
             "JOIN realtor_match rm ON rm.sys_regno=vb.sys_regno "
             "WHERE rm.realtor_id IS NOT NULL AND vb.phone IS NOT NULL").fetchall():
         add(phone, rid)
+    # ③ 네이버 미매칭 vworld 사무소(영업만) → 합성 ID vw{sys_regno} (2026-07-03)
+    #    네이버 ID 숨김·미사용 사무소도 vworld 등록 전화 인증만으로 연결되게.
+    #    선택 시 lounge_select가 naver_realtors에 자동 프로비저닝 + 숨김매물 자동귀속.
+    n3_before = len(pairs)
+    for phone, sregno in con.execute(
+            "SELECT vb.phone, vb.sys_regno FROM vworld_brokers vb "
+            "WHERE vb.status='영업' AND vb.phone IS NOT NULL AND NOT EXISTS "
+            "(SELECT 1 FROM realtor_match rm WHERE rm.sys_regno=vb.sys_regno "
+            " AND rm.realtor_id IS NOT NULL)").fetchall():
+        add(phone, f"vw{sregno}")
+    print(f"  ③ vworld 미매칭(영업) 합성ID 페어: {len(pairs) - n3_before}")
 
     con.execute("DELETE FROM realtor_phone_index")
     con.executemany("INSERT OR IGNORE INTO realtor_phone_index VALUES(?,?)", list(pairs))

@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import pickle
 import sqlite3
+import threading as _threading
 import sys
 from pathlib import Path
 from typing import Any, Literal
@@ -8770,6 +8771,15 @@ def _office_brief(realtor_id):
             "SELECT realtor_id, realtor_name, address, representative_name, "
             "representative_tel_no, cell_phone_no, latitude, longitude "
             "FROM naver_realtors WHERE realtor_id=?", (realtor_id,)).fetchone()
+    if not r and realtor_id.startswith("vw") and realtor_id[2:].isdigit():
+        # 합성 ID(네이버 미등록 vworld 사무소) — 프로비저닝 전에도 vworld 정보로 표시
+        with _open_db() as c:
+            v = c.execute("SELECT business_name, address, representative, phone "
+                          "FROM vworld_brokers WHERE sys_regno=?", (realtor_id[2:],)).fetchone()
+        if v:
+            return {"realtor_id": realtor_id, "realtor_name": v[0], "address": v[1],
+                    "representative": v[2], "tel": (v[3] or "").split()[0] if v[3] else None,
+                    "cell": None, "latitude": None, "longitude": None}
     if not r:
         return {"realtor_id": realtor_id, "realtor_name": None}
     return {"realtor_id": r[0], "realtor_name": r[1], "address": r[2],
@@ -8794,6 +8804,111 @@ def _require_owner(c, uid) -> str:
     if (m[1] or "owner") != "owner":
         raise HTTPException(403, "대표님만 사용할 수 있는 기능입니다")
     return m[0]
+
+
+def _provision_vworld_office(rid: str) -> None:
+    """합성 ID(vw{sys_regno}) 사무소를 naver_realtors에 등록(멱등) — 상세페이지·검색·브리핑용."""
+    if not (rid.startswith("vw") and rid[2:].isdigit()):
+        return
+    with _open_db() as c:
+        if c.execute("SELECT 1 FROM naver_realtors WHERE realtor_id=?", (rid,)).fetchone():
+            return
+        v = c.execute("SELECT business_name, representative, address, phone, ra_regno, sgg_cd "
+                      "FROM vworld_brokers WHERE sys_regno=?", (rid[2:],)).fetchone()
+        if not v:
+            return
+        c.execute(
+            "INSERT OR IGNORE INTO naver_realtors(realtor_id, realtor_name, representative_name, "
+            "address, establish_registration_no, representative_tel_no, cortar_no, raw_json, fetched_at) "
+            "VALUES(?,?,?,?,?,?,?,?,datetime('now'))",
+            (rid, v[0], v[1], v[2], v[4], (v[3] or "").split()[0] if v[3] else None,
+             (v[5] + "00000") if v[5] else None,
+             _json.dumps({"source": "vworld_auto", "sys_regno": rid[2:]}, ensure_ascii=False)))
+        c.commit()
+
+
+def _auto_attribute_hidden_listings(rid: str) -> None:
+    """네이버 ID 숨김 사무소의 매물 자동 귀속(정확도 우선, 백그라운드 스레드용).
+
+    후보: 같은 시군구 + 상호 '정확일치'인 NULL-ID 매물. 검증: 후보 상세 API의
+    개설등록번호 == vworld 등록번호(숫자 정규화)일 때만 hidden_realtor_map 등록·적용.
+    등록번호 불일치가 하나라도 나오면 중단(동명 사무소 혼재) + 텔레그램 수동확인 요청.
+    """
+    if not (rid.startswith("vw") and rid[2:].isdigit()):
+        return
+    try:
+        with _open_db() as c:
+            v = c.execute("SELECT business_name, sgg_cd, ra_regno FROM vworld_brokers "
+                          "WHERE sys_regno=?", (rid[2:],)).fetchone()
+            if not v or not v[1]:
+                return
+            name, sgg, ra_regno = v[0], v[1], _re_lounge.sub(r"\D", "", v[2] or "")
+            if c.execute("SELECT 1 FROM hidden_realtor_map WHERE realtor_name=? AND cortar_prefix=?",
+                         (name, sgg)).fetchone():
+                return   # 이미 매핑됨
+            arts = [r[0] for r in c.execute(
+                "SELECT l.article_no FROM listings_current l JOIN complexes cx "
+                "ON cx.complex_no=l.complex_no WHERE l.realtor_id IS NULL "
+                "AND l.realtor_name=? AND cx.cortar_no LIKE ? LIMIT 5",
+                (name, sgg + "%")).fetchall()]
+        if not arts or not ra_regno:
+            return
+        from collector.article_detail import fetch_article_detail
+        from collector.creds import ensure_creds
+        creds = ensure_creds()
+        confirmed = mismatched = 0
+        for an in arts[:3]:
+            st_, d = fetch_article_detail(an, None, creds)
+            if st_ != 200 or not d:
+                continue
+            reg = _re_lounge.sub(r"\D", "", ((d.get("articleRealtor") or {}).get("establishRegistrationNo") or ""))
+            if not reg:
+                continue
+            if reg == ra_regno:
+                confirmed += 1
+            else:
+                mismatched += 1
+        if mismatched or not confirmed:
+            if mismatched:
+                try:
+                    from scripts.tg_notify import tg_send_async
+                    tg_send_async(f"⚠️ 숨김ID 매물 자동귀속 보류 — {name}({sgg}) 등록번호 불일치 "
+                                  f"{mismatched}건(동명 사무소 혼재 의심). 수동 확인 필요: {rid}")
+                except Exception:
+                    pass
+            return
+        # 확정 — 매핑 등록 + 즉시 적용(단지형+비단지)
+        with _open_db() as c:
+            c.execute("CREATE TABLE IF NOT EXISTS hidden_realtor_map (realtor_name TEXT NOT NULL, "
+                      "cortar_prefix TEXT NOT NULL, realtor_id TEXT NOT NULL, note TEXT, "
+                      "PRIMARY KEY (realtor_name, cortar_prefix))")
+            c.execute("INSERT OR IGNORE INTO hidden_realtor_map VALUES (?,?,?,?)",
+                      (name, sgg, rid, f"자동귀속 — 상세 등록번호 {confirmed}건 확인(2026 auto)"))
+            n = c.execute("UPDATE listings_current SET realtor_id=? WHERE realtor_id IS NULL "
+                          "AND realtor_name=? AND complex_no IN (SELECT complex_no FROM complexes "
+                          "WHERE cortar_no LIKE ?)", (rid, name, sgg + "%")).rowcount
+            c.commit()
+        n2 = 0
+        for cat, dbf in _NONRESI_DB.items():
+            path = DB_PATH.parent / dbf
+            if not path.exists():
+                continue
+            try:
+                with sqlite3.connect(path) as rc:
+                    n2 += rc.execute(
+                        "UPDATE listings SET realtor_id=? WHERE (realtor_id IS NULL OR realtor_id='') "
+                        "AND realtor_name=? AND cortar_no LIKE ?", (rid, name, sgg + "%")).rowcount
+                    rc.commit()
+            except sqlite3.Error:
+                pass
+        try:
+            from scripts.tg_notify import tg_send_async
+            tg_send_async(f"🔗 숨김ID 매물 자동귀속 — {name}({sgg}) → {rid}: "
+                          f"단지형 {n}건·비단지 {n2}건 (등록번호 {confirmed}건 검증)")
+        except Exception:
+            pass
+    except Exception:
+        pass   # 자동귀속 실패는 본 기능(연결)에 무영향
 
 
 @app.get("/lounge/status")
@@ -9243,6 +9358,10 @@ def lounge_select(body: dict, user: dict = Depends(current_user)):
             "method='phone', matched_phone=excluded.matched_phone, updated_at=datetime('now')",
             (uid, rid, "phone", phone))
         c.commit()
+    # 네이버 미등록(합성 vw) 사무소 — 기본정보 등록 + 숨김ID 매물 자동귀속(백그라운드)
+    if rid.startswith("vw"):
+        _provision_vworld_office(rid)
+        _threading.Thread(target=_auto_attribute_hidden_listings, args=(rid,), daemon=True).start()
     return {"ok": True, "office": _office_brief(rid)}
 
 
@@ -10741,6 +10860,9 @@ def admin_resolve_verification(vid: int, body: dict, _admin: dict = Depends(admi
         else:
             raise HTTPException(400, "action must be approve|reject")
         c.commit()
+    if action == "approve" and rid and str(rid).startswith("vw"):
+        _provision_vworld_office(str(rid))
+        _threading.Thread(target=_auto_attribute_hidden_listings, args=(str(rid),), daemon=True).start()
     if action == "approve":
         try:
             _send_web_push([uid], "중개사 인증 승인 완료 🎉",
