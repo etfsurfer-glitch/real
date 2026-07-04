@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import FetchError from "../components/FetchError";
-import { Flame, ExternalLink, Phone, MapPin } from "lucide-react";
+import { Flame, ExternalLink, Phone, MapPin, X } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { Link, useParams } from "react-router-dom";
 import ComplexDashboard from "./ComplexDashboard";
@@ -1004,8 +1004,29 @@ function txfMonths<T extends { deal_ymd: string }>(rows: T[]): { ym: string; lis
   return out;
 }
 
+// 같은 유닛(평형·층)의 과거 계약 연쇄 — 종전 보증금/월세가 일치하는 이전 계약을 따라간다.
+function rentChain(r: Rent, all: Rent[]): Rent[] {
+  const chain = [r];
+  let cur = r;
+  for (let i = 0; i < 6; i++) {
+    if (!cur.pre_deposit) break;
+    const prev = all.find((x) => x !== cur && x.deal_ymd < cur.deal_ymd
+      && areaKey(x.excl_use_ar) === areaKey(cur.excl_use_ar)
+      && x.floor === cur.floor
+      && x.deposit === cur.pre_deposit
+      && (cur.pre_monthly_rent ? x.monthly_rent === cur.pre_monthly_rent : true));
+    if (!prev) break;
+    chain.push(prev);
+    cur = prev;
+  }
+  return chain;
+}
+
+const fmtDot = (ymd: string) => ymd.slice(2).replace(/-/g, ".");
+
 function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" }) {
   const [area, setArea] = useState<number | null>(null);
+  const [hist, setHist] = useState<Rent | null>(null);
 
   const groups = useMemo(() => {
     const m = new Map<number, number>();
@@ -1046,15 +1067,19 @@ function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" })
               const cur = kind === "wolse" && r.pre_monthly_rent ? r.monthly_rent : r.deposit;
               const pct = renew && base && cur ? ((cur - base) / base) * 100 : null;
               return (
-                <div key={i} className="txf-row">
+                <div key={i} className="txf-row txf-click" onClick={() => setHist(r)}
+                  title="계약 히스토리 보기">
                   <span className="txf-day">{r.deal_ymd.slice(8, 10)}</span>
                   <span className="txf-price" style={{ color: kind === "wolse" ? "#1f9d63" : "#7048e8" }}>
                     {formatWon(r.deposit)}{kind === "wolse" && ` / ${Math.round(r.monthly_rent / 10000)}만`}
                   </span>
                   <span className="txf-badges">
                     {renew && (
-                      <span className="txf-b" style={{ background: "#f1f5f9", color: "#475569" }}>
-                        갱신{pct != null && Math.abs(pct) >= 0.5 && (
+                      <span className="txf-b" style={r.use_rr_right === "사용"
+                        ? { background: "#fef2f2", color: "#d23b3b" }
+                        : { background: "#f1f5f9", color: "#475569" }}>
+                        {r.use_rr_right === "사용" ? "갱신권" : "갱신"}
+                        {pct != null && Math.abs(pct) >= 0.5 && (
                           <b style={{ color: pct > 0 ? "#d23b3b" : "#1268d3", marginLeft: 2 }}>
                             {pct > 0 ? "↑" : "↓"}{Math.abs(pct).toFixed(1)}%
                           </b>
@@ -1074,6 +1099,50 @@ function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" })
           </div>
         ))}
       </div>
+
+      {hist && (
+        <div className="modal-overlay" onClick={() => setHist(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-head">
+              <span className="modal-title">{fmtDot(hist.deal_ymd)} 계약 히스토리</span>
+              <button className="phone-banner-x" aria-label="닫기" onClick={() => setHist(null)}><X size={16} /></button>
+            </div>
+            <div className="muted" style={{ fontSize: 12, margin: "2px 0 10px" }}>
+              {hist.excl_use_ar != null && `전용 ${Math.round(hist.excl_use_ar)}㎡`}
+              {hist.floor != null && ` · ${hist.floor}층`} — 같은 조건(평형·층·종전금액)으로 추적한 이력입니다
+            </div>
+            <div style={{ display: "grid", gap: 0 }}>
+              {rentChain(hist, rows).map((h, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "9px 0",
+                  borderTop: i > 0 ? "1px solid #f1f5f9" : "none", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12.5, color: "#64748b", fontVariantNumeric: "tabular-nums", width: 68 }}>{fmtDot(h.deal_ymd)}</span>
+                  <b style={{ fontSize: 15, color: kind === "wolse" ? "#1f9d63" : "#7048e8", whiteSpace: "nowrap" }}>
+                    {kind === "wolse" ? "월세" : "전세"} {formatWon(h.deposit)}{kind === "wolse" && ` / ${Math.round(h.monthly_rent / 10000)}만`}
+                  </b>
+                  {h.use_rr_right === "사용" && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>갱신요구권</span>}
+                  {h.use_rr_right !== "사용" && (h.contract_type ?? "").includes("갱신") && <span className="txf-b" style={{ background: "#f1f5f9", color: "#475569" }}>갱신</span>}
+                  {(h.contract_type ?? "").includes("신규") && <span className="txf-b" style={{ background: "#e8f1fd", color: "#1268d3" }}>신규</span>}
+                  {h.contract_term && <span style={{ marginLeft: "auto", fontSize: 12, color: "#8296ab", fontVariantNumeric: "tabular-nums" }}>{h.contract_term.replace("~", " ~ ")}</span>}
+                </div>
+              ))}
+              {(() => {
+                const last = rentChain(hist, rows).slice(-1)[0];
+                if (!last.pre_deposit) return null;
+                return (
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "9px 0", borderTop: "1px solid #f1f5f9" }}>
+                    <span style={{ fontSize: 12.5, color: "#b6c2d0", width: 68 }}>그 이전</span>
+                    <b style={{ fontSize: 15, color: "#94a3b8", whiteSpace: "nowrap" }}>
+                      {kind === "wolse" ? "월세" : "전세"} {formatWon(last.pre_deposit)}
+                      {kind === "wolse" && last.pre_monthly_rent != null && ` / ${Math.round(last.pre_monthly_rent / 10000)}만`}
+                    </b>
+                    <span className="muted" style={{ fontSize: 11.5 }}>종전 계약(신고 데이터 범위 밖)</span>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

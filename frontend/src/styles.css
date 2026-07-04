@@ -3051,3 +3051,5 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .txf-meta { margin-left: auto; font-size: 12px; color: #8296ab; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 4px; }
 .txf-dot { width: 7px; height: 7px; border-radius: 99px; display: inline-block; flex-shrink: 0; }
+.txf-click { cursor: pointer; transition: background .1s; }
+.txf-click:hover { background: #f6faff; }
