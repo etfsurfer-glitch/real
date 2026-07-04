@@ -2,11 +2,23 @@ import { useEffect, useState, useRef, ReactNode } from "react";
 import { Loading } from "../components/Loading";
 import ShareBar from "../components/ShareBar";
 import { Trophy, TrendingUp, Home, BadgePercent, ChevronRight, Flame, Layers, MapPin } from "lucide-react";
+import { RentHistModal, SaleHistModal, fmtDot, type RentLike, type SaleLike } from "../lib/txhist";
 
 const API = import.meta.env.VITE_API_BASE;
 
 type RecordHigh = { area_key: number; price: number; date: string; prev_high: number | null };
 type Tx = { date: string; price: number; area: number | null; floor: number | null; is_silv?: boolean };
+// 통합 최근거래(매매+전세+월세) — summary.recent_all
+type RA = { kind: "sale" | "jeonse" | "wolse"; date: string; price: number; rent: number;
+  area: number | null; floor: number | null; dong: string | null; silv_kind: string | null;
+  direct: boolean; registered: boolean; renew: boolean; rr: boolean;
+  pre_deposit: number | null; pre_rent: number | null; record_high: boolean };
+type TxData = { sale: SaleLike[]; jeonse: RentLike[]; wolse: RentLike[] };
+const RA_META: Record<RA["kind"], { label: string; c: string; bg: string }> = {
+  sale:   { label: "매매", c: "#1268d3", bg: "#e8f1fd" },
+  jeonse: { label: "전세", c: "#7048e8", bg: "#f0e9ff" },
+  wolse:  { label: "월세", c: "#1f9d63", bg: "#eefaf2" },
+};
 type TypeRow = { area_name: string; sale_count: number; sale_min: number | null; sale_max: number | null;
   jeonse_count: number; jeonse_min: number | null; jeonse_max: number | null; rent_count: number;
   supply_area: number | null; exclusive_area: number | null; type_households: number | null };
@@ -16,6 +28,7 @@ type Summary = {
   building_count: number | null; parking_per_household: number | null;
   latitude: number | null; longitude: number | null;
   record_high: RecordHigh | null; recent_tx: Tx[]; recent_high: number | null;
+  recent_all?: RA[];
   listing_counts: { A1: number; B1: number; B2: number; total: number }; by_type: TypeRow[];
 };
 // /complex/{no}/quick-deals: price(원), discount(음수), avg_real(실거래평균), naver_url
@@ -38,9 +51,11 @@ function builtYM(s: string | null | undefined): string {
   return m ? `${m[1]}.${m[2]}` : "";
 }
 
-export default function ComplexDashboard({ complexNo, onGo, children }: {
+export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
   complexNo: string; onGo: (s: "tx" | "trend" | "realtor") => void; children?: ReactNode;
+  tx?: TxData | null;
 }) {
+  const [hist, setHist] = useState<RA | null>(null);
   const [s, setS] = useState<Summary | null>(null);
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const shareRef = useRef<HTMLDivElement>(null);
@@ -103,19 +118,80 @@ export default function ComplexDashboard({ complexNo, onGo, children }: {
           value={deals ? `${deals.length}` : "-"} unit="건" sub="실거래 평균보다 싼 매물" />
       </div>
 
-      {/* 최근 실거래 (최고가 표시) */}
-      <div className="cdash-h"><h3><TrendingUp size={15} strokeWidth={2.3} /> 최근 실거래</h3>
+      {/* 최근 거래 — 매매·전세·월세 통합 피드(2026-07-04). 클릭=히스토리 팝업 */}
+      <div className="cdash-h"><h3><TrendingUp size={15} strokeWidth={2.3} /> 최근 거래 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>매매·전세·월세 · 누르면 이력</span></h3>
         <button className="cdash-more" onClick={() => onGo("tx")}>전체 실거래 <ChevronRight size={13} /></button></div>
-      {s.recent_tx.length === 0 ? <div className="cdash-empty">최근 실거래가 없어요</div>
-        : <div className="cdash-tx">
+      {(() => {
+        const ra = s.recent_all ?? [];
+        if (ra.length === 0 && s.recent_tx.length === 0) return <div className="cdash-empty">최근 실거래가 없어요</div>;
+        if (ra.length === 0) return (
+          <div className="cdash-tx">
             {s.recent_tx.map((t, i) => (
               <div key={i} className="cdash-tx-row">
-                <span className="cdash-tx-date">{ymd(t.date)}{t.is_silv && <span className="ctx-badge tx-silv-badge">분양권</span>}</span>
+                <span className="cdash-tx-date">{ymd(t.date)}</span>
                 <span className="cdash-tx-meta">전용 {t.area != null ? t.area.toFixed(2) : "-"}㎡ · {t.floor ?? "-"}층</span>
                 <span className="cdash-tx-price">{won(t.price)}</span>
               </div>
             ))}
-          </div>}
+          </div>
+        );
+        return (
+          <div className="txf" style={{ marginTop: 0 }}>
+            {ra.map((t, i) => {
+              const m = RA_META[t.kind];
+              const pct = t.renew && t.pre_deposit
+                ? ((t.kind === "wolse" && t.pre_rent ? (t.rent - t.pre_rent) / t.pre_rent
+                    : (t.price - t.pre_deposit) / t.pre_deposit) * 100) : null;
+              return (
+                <div key={i} className="txf-row txf-click" onClick={() => (tx ? setHist(t) : onGo("tx"))} title="이력 보기">
+                  <span className="txf-day" style={{ width: 56 }}>{fmtDot(t.date)}</span>
+                  <span className="txf-b" style={{ background: m.bg, color: m.c }}>{m.label}</span>
+                  <span className="txf-price" style={{ color: m.c }}>
+                    {won(t.price)}{t.kind === "wolse" && ` / ${Math.round(t.rent / 10000)}만`}
+                  </span>
+                  <span className="txf-badges">
+                    {t.record_high && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>신고가</span>}
+                    {t.silv_kind && <span className="txf-b" style={{ background: "#f0e9ff", color: "#6b39c9" }}>{t.silv_kind}</span>}
+                    {t.direct && <span className="txf-b" style={{ background: "#fff7ea", color: "#c4791a" }}>직거래</span>}
+                    {t.registered && <span className="txf-b" style={{ background: "#eefaf2", color: "#1f9d63" }}>등기</span>}
+                    {t.rr && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>갱신권</span>}
+                    {!t.rr && t.renew && (
+                      <span className="txf-b" style={{ background: "#f1f5f9", color: "#475569" }}>
+                        재계약{pct != null && Math.abs(pct) >= 0.5 && (
+                          <b style={{ color: pct > 0 ? "#d23b3b" : "#1268d3", marginLeft: 2 }}>
+                            {pct > 0 ? "↑" : "↓"}{Math.abs(pct).toFixed(1)}%
+                          </b>
+                        )}
+                      </span>
+                    )}
+                  </span>
+                  <span className="txf-meta">
+                    {t.area != null ? `${Math.round(t.area)}㎡` : "-"}
+                    {t.floor != null && ` · ${t.floor}층`}
+                    {t.dong && ` · ${t.dong}${String(t.dong).endsWith("동") ? "" : "동"}`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {hist && tx && hist.kind === "sale" && (
+        <SaleHistModal onClose={() => setHist(null)} all={tx.sale}
+          r={{ deal_ymd: hist.date, deal_amount: hist.price, excl_use_ar: hist.area, floor: hist.floor,
+               dealing_gbn: hist.direct ? "직거래" : null, dong: hist.dong, registered: hist.registered,
+               silv_kind: hist.silv_kind }} />
+      )}
+      {hist && tx && hist.kind !== "sale" && (() => {
+        const all = hist.kind === "wolse" ? tx.wolse : tx.jeonse;
+        // recent_all 행에 대응하는 원본 전월세 행 찾기(계약일·보증금·층 일치)
+        const r = all.find((x) => x.deal_ymd === hist.date && x.deposit === hist.price && x.floor === hist.floor)
+          ?? { deal_ymd: hist.date, deposit: hist.price, monthly_rent: hist.rent, excl_use_ar: hist.area,
+               floor: hist.floor, contract_type: hist.renew ? "갱신" : null, contract_term: null,
+               use_rr_right: hist.rr ? "사용" : null, pre_deposit: hist.pre_deposit, pre_monthly_rent: hist.pre_rent };
+        return <RentHistModal r={r} all={all} kind={hist.kind} onClose={() => setHist(null)} />;
+      })()}
 
       {/* 평형별 호가 (최저~최고) */}
       <div className="cdash-h"><h3><Layers size={15} strokeWidth={2.3} /> 타입별 호가 <span className="muted">매매·전세 최저~최고</span></h3>

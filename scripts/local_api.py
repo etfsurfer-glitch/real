@@ -2897,6 +2897,40 @@ def complex_summary(complex_no: str):
             "WHERE matched_complex_no=? AND is_cancelled=0 "
             "ORDER BY deal_ymd DESC LIMIT 8", (complex_no, complex_no)).fetchall()
         recent_tx = [{"date": r[0], "price": r[1], "area": r[2], "floor": r[3], "is_silv": bool(r[4])} for r in rtx]
+        # 최근 거래 통합 피드(매매+전세+월세, 종합탭 시인성 개선 2026-07-04) — 뱃지에 필요한
+        # 신고가·직거래·등기·재계약·갱신권·종전금액까지 포함. 신고가=같은 평형그룹의 이전 최고가 경신.
+        ra = d.execute(
+            "SELECT 'sale' kind, t.deal_ymd, t.deal_amount price, 0 rent, t.excl_use_ar, t.floor, "
+            "  json_extract(t.raw,'$.aptDong') dong, t.dealing_gbn, "
+            "  (json_extract(t.raw,'$.rgstDate') IS NOT NULL AND json_extract(t.raw,'$.rgstDate')!='') registered, "
+            "  NULL contract_type, NULL use_rr, NULL pre_dep, NULL pre_rent, NULL silv_kind "
+            "FROM transactions t WHERE t.matched_complex_no=? AND t.is_cancelled=0 "
+            "UNION ALL "
+            "SELECT 'sale', deal_ymd, deal_amount, 0, excl_use_ar, floor, NULL, dealing_gbn, 0, "
+            "  NULL, NULL, NULL, NULL, ownership_gbn FROM silv_transactions "
+            "WHERE matched_complex_no=? AND is_cancelled=0 "
+            "UNION ALL "
+            "SELECT CASE WHEN monthly_rent>0 THEN 'wolse' ELSE 'jeonse' END, deal_ymd, deposit, "
+            "  monthly_rent, excl_use_ar, floor, NULL, NULL, 0, "
+            "  contract_type, use_rr_right, pre_deposit, pre_monthly_rent, NULL "
+            "FROM rentals WHERE matched_complex_no=? "
+            "ORDER BY deal_ymd DESC LIMIT 10",
+            (complex_no, complex_no, complex_no)).fetchall()
+        recent_all = []
+        for r in ra:
+            kind, ymd_, price, rent, ar, fl, dong, gbn, regi, ctype, urr, pdep, prent, silv = r
+            row = {"kind": kind, "date": ymd_, "price": price, "rent": rent or 0,
+                   "area": ar, "floor": fl, "dong": dong, "silv_kind": silv,
+                   "direct": gbn == "직거래", "registered": bool(regi),
+                   "renew": bool(ctype and "갱신" in str(ctype)), "rr": urr == "사용",
+                   "pre_deposit": pdep, "pre_rent": prent, "record_high": False}
+            if kind == "sale" and not silv and ar is not None and price:
+                prev = d.execute(
+                    "SELECT MAX(deal_amount) FROM transactions WHERE matched_complex_no=? "
+                    "AND is_cancelled=0 AND deal_ymd<? AND CAST(excl_use_ar/10 AS INT)=CAST(?/10 AS INT)",
+                    (complex_no, ymd_, ar)).fetchone()[0]
+                row["record_high"] = bool(prev is None or price > prev)
+            recent_all.append(row)
         cnt = {"A1": 0, "B1": 0, "B2": 0}
         for t, n in d.execute("SELECT trade_type, COUNT(*) FROM listings_current WHERE complex_no=? GROUP BY trade_type", (complex_no,)):
             if t in cnt:
@@ -2932,6 +2966,7 @@ def complex_summary(complex_no: str):
         "latitude": cx[8], "longitude": cx[9],
         "record_high": record_high,
         "recent_tx": recent_tx, "recent_high": max((x["price"] for x in recent_tx), default=None),
+        "recent_all": recent_all,
         "listing_counts": cnt, "by_type": by_type,
     }
 
