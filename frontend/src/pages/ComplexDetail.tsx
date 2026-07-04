@@ -1125,20 +1125,6 @@ function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" })
                   {h.contract_term && <span style={{ marginLeft: "auto", fontSize: 12, color: "#8296ab", fontVariantNumeric: "tabular-nums" }}>{h.contract_term.replace("~", " ~ ")}</span>}
                 </div>
               ))}
-              {(() => {
-                const last = rentChain(hist, rows).slice(-1)[0];
-                if (!last.pre_deposit) return null;
-                return (
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "9px 0", borderTop: "1px solid #f1f5f9" }}>
-                    <span style={{ fontSize: 12.5, color: "#b6c2d0", width: 68 }}>그 이전</span>
-                    <b style={{ fontSize: 15, color: "#94a3b8", whiteSpace: "nowrap" }}>
-                      {kind === "wolse" ? "월세" : "전세"} {formatWon(last.pre_deposit)}
-                      {kind === "wolse" && last.pre_monthly_rent != null && ` / ${Math.round(last.pre_monthly_rent / 10000)}만`}
-                    </b>
-                    <span className="muted" style={{ fontSize: 11.5 }}>종전 계약(신고 데이터 범위 밖)</span>
-                  </div>
-                );
-              })()}
             </div>
           </div>
         </div>
