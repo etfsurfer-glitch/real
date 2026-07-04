@@ -8,6 +8,10 @@ case "$2" in
 esac
 if [ "$1" = "start" ]; then
   MSG="▶️ ${NAME_KO} 시작"
+elif [ "$1" = "end-quiet" ]; then
+  # 고빈도 잡(catchup 30분 주기)용 — 성공은 침묵, 실패만 알림
+  [ "${SERVICE_RESULT:-success}" = "success" ] && exit 0
+  MSG="🚨 ${NAME_KO} 오류 — ${SERVICE_RESULT} (exit ${EXIT_STATUS:-?})"
 else
   if [ "${SERVICE_RESULT:-success}" = "success" ]; then
     MSG="✅ ${NAME_KO} 완료"
