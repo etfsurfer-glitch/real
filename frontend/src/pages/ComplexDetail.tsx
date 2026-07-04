@@ -1078,7 +1078,7 @@ function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" })
                       <span className="txf-b" style={r.use_rr_right === "사용"
                         ? { background: "#fef2f2", color: "#d23b3b" }
                         : { background: "#f1f5f9", color: "#475569" }}>
-                        {r.use_rr_right === "사용" ? "갱신권" : "갱신"}
+                        {r.use_rr_right === "사용" ? "갱신권" : "재계약"}
                         {pct != null && Math.abs(pct) >= 0.5 && (
                           <b style={{ color: pct > 0 ? "#d23b3b" : "#1268d3", marginLeft: 2 }}>
                             {pct > 0 ? "↑" : "↓"}{Math.abs(pct).toFixed(1)}%
@@ -1120,7 +1120,7 @@ function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" })
                     {kind === "wolse" ? "월세" : "전세"} {formatWon(h.deposit)}{kind === "wolse" && ` / ${Math.round(h.monthly_rent / 10000)}만`}
                   </b>
                   {h.use_rr_right === "사용" && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>갱신요구권</span>}
-                  {h.use_rr_right !== "사용" && (h.contract_type ?? "").includes("갱신") && <span className="txf-b" style={{ background: "#f1f5f9", color: "#475569" }}>갱신</span>}
+                  {h.use_rr_right !== "사용" && (h.contract_type ?? "").includes("갱신") && <span className="txf-b" style={{ background: "#f1f5f9", color: "#475569" }}>재계약</span>}
                   {(h.contract_type ?? "").includes("신규") && <span className="txf-b" style={{ background: "#e8f1fd", color: "#1268d3" }}>신규</span>}
                   {h.contract_term && <span style={{ marginLeft: "auto", fontSize: 12, color: "#8296ab", fontVariantNumeric: "tabular-nums" }}>{h.contract_term.replace("~", " ~ ")}</span>}
                 </div>
