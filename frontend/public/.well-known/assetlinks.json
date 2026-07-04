@@ -8,7 +8,20 @@
       "package_name": "com.koczip.app",
       "sha256_cert_fingerprints": [
         "32:16:BC:5A:77:A7:9E:11:25:4B:8E:DC:51:E2:10:FE:D7:BC:33:B9:84:22:E6:20:A5:19:1F:D1:C9:3B:6D:0E",
-        "4A:AC:DE:BC:35:D4:0B:B8:CD:35:7D:1C:EA:5F:40:30:17:A7:8B:E5:C8:81:3E:4F:E1:F2:AA:6C:C3:45:BC:00"
+        "4A:AC:DE:BC:35:D4:0B:B8:CD:35:7D:1C:EA:5F:40:30:17:A7:8B:E5:C8:81:3E:4F:E1:F2:AA:6C:C3:45:BC:00",
+        "B5:44:CA:E7:09:E1:38:28:96:19:4A:91:CD:AD:BD:77:55:0C:47:43:74:7A:1B:8A:9E:70:9F:6A:6D:54:1D:8F"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.koczip.realtor",
+      "sha256_cert_fingerprints": [
+        "B5:44:CA:E7:09:E1:38:28:96:19:4A:91:CD:AD:BD:77:55:0C:47:43:74:7A:1B:8A:9E:70:9F:6A:6D:54:1D:8F"
       ]
     }
   }

@@ -181,6 +181,8 @@ export default function BizApp() {
 // 미설치 시 플레이스토어(browser_fallback_url). iOS·데스크톱은 웹으로.
 function openConsumerApp() {
   if (/Android/i.test(navigator.userAgent)) {
+    // 런처 인텐트로 앱 자체를 실행(https 인텐트는 같은 도메인이라 커스텀탭으로 새는 문제).
+    // 미설치면 fallback으로 플레이스토어.
     window.location.href =
       "intent://koczip.com/#Intent;scheme=https;package=com.koczip.app;" +
       "S.browser_fallback_url=" +
