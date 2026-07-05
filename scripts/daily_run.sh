@@ -97,6 +97,7 @@ step "step 12b: backfill_trend_cache (시군구 호가추이)" $PY -u scripts/ba
 step "step 13: region_listings(비단지 전국)" $PY -u scripts/collect_region_listings.py --all; region_exit=$?
 # 13b) 비단지 수집(step13) 후 중개사 집계 재빌드 — step9b는 region 전이라 당일 비단지 미반영이므로,
 #      여기서 한 번 더 돌려 realtor_region_counts·랭킹·우리동네에 오늘 비단지까지 반영(재발방지).
+step "step 13-pre: hidden_realtor_map(비단지 신규분 귀속)" $PY -u scripts/apply_hidden_realtor_map.py
 step "step 13b: build_realtor_dong (비단지 반영)" $PY -u scripts/build_realtor_dong.py; rdong2_exit=$?
 
 log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} villa=${villa_exit:-NA} house=${house_exit:-NA} comm=${comm_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} trendcache=${trendcache_exit:-NA} region=${region_exit:-NA}"
