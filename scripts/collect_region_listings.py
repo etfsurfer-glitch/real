@@ -239,13 +239,21 @@ def _write_dong(conns: dict, cortar: str, items: list[dict], natural: bool, toda
 
 
 def _all_dongs() -> list[str]:
-    """전국 동 목록 — naverreal.sqlite 를 ★읽기전용(mode=ro)★으로 열어 단지보유 동(동레벨 10자리)."""
+    """전국 동 목록 — 단지보유 동 ∪ 전국 법정동(all_cortars, 읽기전용).
+    단지보유 동만 돌면 시골 면(面)의 토지·전원주택이 구조적으로 누락(2026-07-05
+    매물맛집 토지 12건 사각 발견) → build_all_cortars.py 로 만든 전국 목록과 합집합."""
     path = os.path.join(DATA_DIR, "naverreal.sqlite")
     ro = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        return [r[0] for r in ro.execute(
+        dongs = {r[0] for r in ro.execute(
             "SELECT DISTINCT cortar_no FROM complexes "
-            "WHERE cortar_no IS NOT NULL AND length(cortar_no)=10 ORDER BY cortar_no")]
+            "WHERE cortar_no IS NOT NULL AND length(cortar_no)=10")}
+        try:
+            dongs |= {r[0] for r in ro.execute(
+                "SELECT cortar_no FROM all_cortars WHERE length(cortar_no)=10")}
+        except sqlite3.OperationalError:
+            pass   # all_cortars 미구축 시 기존 범위로 동작
+        return sorted(dongs)
     finally:
         ro.close()
 
