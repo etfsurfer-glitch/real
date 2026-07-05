@@ -36,13 +36,13 @@ PAGE_CAP = 3000   # 안전상한(자연정지가 먼저 멈춰야 정상). 도�
 
 # 카테고리 → (DB파일, 응답 유형명 집합, 권리금 여부)
 CATEGORIES = {
-    "sangga": ("listings_sangga.sqlite", {"상가점포"}, True),
-    "office": ("listings_office.sqlite", {"사무실"}, False),
+    "sangga": ("listings_sangga.sqlite", {"상가점포", "상가"}, True),
+    "office": ("listings_office.sqlite", {"사무실", "사무소"}, False),
     "villa":  ("listings_villa.sqlite",  {"빌라/연립", "빌라단지-연립", "다세대"}, False),
     "house":  ("listings_house.sqlite",  {"단독/다가구", "전원주택"}, False),   # +전원주택(JWJT)
-    "land":     ("listings_land.sqlite",     {"토지/임야"}, False),          # TJ
+    "land":     ("listings_land.sqlite",     {"토지/임야", "토지"}, False),          # TJ
     "factory":  ("listings_factory.sqlite",  {"공장/창고"}, False),          # GJCG
-    "building": ("listings_building.sqlite", {"빌딩/건물", "상가건물", "상가주택"}, True),  # GM/SGJT 통건물(권리금 가능)
+    "building": ("listings_building.sqlite", {"빌딩/건물", "상가건물", "상가주택", "건물"}, True),  # GM/SGJT 통건물(권리금 가능)
     "knowledge": ("listings_knowledge.sqlite", {"지식산업센터"}, False),      # APTHGJ 지식산업센터(지산)
     "redev":     ("listings_redev.sqlite",     {"재개발"}, False),            # JGB 재개발
     # OR 원룸 — 응답 유형명이 '방'(원룸 아님 주의). 빌라 통계 오염 방지 위해 격리 DB(2026-07-05).
@@ -222,6 +222,10 @@ def _write_dong(conns: dict, cortar: str, items: list[dict], natural: bool, toda
             continue
         seen.add(an)
         cat = _name_to_cat(it.get("articleRealEstateTypeName"))
+        if not cat:
+            # 세부 유형명이 '기타' 등 비표준이면 대분류(realEstateTypeName)로 폴백
+            # (2026-07-05: 천안 성성동 '건물/기타' 3건이 분류 실패로 누락되던 것 발견)
+            cat = _name_to_cat(it.get("realEstateTypeName"))
         if not cat:
             continue
         _upsert(conns, cat, it, cortar, today, CATEGORIES[cat][2])
