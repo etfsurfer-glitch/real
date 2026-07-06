@@ -2890,14 +2890,18 @@ def complex_summary(complex_no: str):
                         "WHERE complex_no=? AND kind IN ('sale','silv','offi_sale') ORDER BY record_price DESC LIMIT 1",
                         (complex_no,)).fetchone()
         record_high = {"area_key": rec[0], "price": rec[1], "date": rec[2], "prev_high": rec[3]} if rec else None
-        # 최근 실거래 = 매매 + 분양권 통합(신축 분양권 단지는 매매가 없어 비어 보이던 문제 수정).
+        # 최근 실거래 = 매매 + 분양권 + 오피매매 통합(신축 분양권 단지·오피스텔 단지가
+        # 비어 보이던 문제 수정 — 오피 실거래는 offi_transactions에 별도 적재).
         rtx = d.execute(
             "SELECT deal_ymd, deal_amount, excl_use_ar, floor, 0 AS is_silv FROM transactions "
             "WHERE matched_complex_no=? AND is_cancelled=0 "
             "UNION ALL "
             "SELECT deal_ymd, deal_amount, excl_use_ar, floor, 1 AS is_silv FROM silv_transactions "
             "WHERE matched_complex_no=? AND is_cancelled=0 "
-            "ORDER BY deal_ymd DESC LIMIT 8", (complex_no, complex_no)).fetchall()
+            "UNION ALL "
+            "SELECT deal_ymd, deal_amount, excl_use_ar, floor, 0 AS is_silv FROM offi_transactions "
+            "WHERE matched_complex_no=? AND is_cancelled=0 "
+            "ORDER BY deal_ymd DESC LIMIT 8", (complex_no, complex_no, complex_no)).fetchall()
         recent_tx = [{"date": r[0], "price": r[1], "area": r[2], "floor": r[3], "is_silv": bool(r[4])} for r in rtx]
         # 최근 거래 통합 피드(매매+전세+월세, 종합탭 시인성 개선 2026-07-04) — 뱃지에 필요한
         # 신고가·직거래·등기·재계약·갱신권·종전금액까지 포함. 신고가=같은 평형그룹의 이전 최고가 경신.
@@ -2905,30 +2909,41 @@ def complex_summary(complex_no: str):
             "SELECT 'sale' kind, t.deal_ymd, t.deal_amount price, 0 rent, t.excl_use_ar, t.floor, "
             "  json_extract(t.raw,'$.aptDong') dong, t.dealing_gbn, "
             "  (json_extract(t.raw,'$.rgstDate') IS NOT NULL AND json_extract(t.raw,'$.rgstDate')!='') registered, "
-            "  NULL contract_type, NULL use_rr, NULL pre_dep, NULL pre_rent, NULL silv_kind "
+            "  NULL contract_type, NULL use_rr, NULL pre_dep, NULL pre_rent, NULL silv_kind, 'apt' src "
             "FROM transactions t WHERE t.matched_complex_no=? AND t.is_cancelled=0 "
             "UNION ALL "
             "SELECT 'sale', deal_ymd, deal_amount, 0, excl_use_ar, floor, NULL, dealing_gbn, 0, "
-            "  NULL, NULL, NULL, NULL, ownership_gbn FROM silv_transactions "
+            "  NULL, NULL, NULL, NULL, ownership_gbn, 'silv' FROM silv_transactions "
             "WHERE matched_complex_no=? AND is_cancelled=0 "
+            "UNION ALL "
+            "SELECT 'sale', t.deal_ymd, t.deal_amount, 0, t.excl_use_ar, t.floor, NULL, t.dealing_gbn, "
+            "  (json_extract(t.raw,'$.rgstDate') IS NOT NULL AND json_extract(t.raw,'$.rgstDate')!=''), "
+            "  NULL, NULL, NULL, NULL, NULL, 'offi' FROM offi_transactions t "
+            "WHERE t.matched_complex_no=? AND t.is_cancelled=0 "
             "UNION ALL "
             "SELECT CASE WHEN monthly_rent>0 THEN 'wolse' ELSE 'jeonse' END, deal_ymd, deposit, "
             "  monthly_rent, excl_use_ar, floor, NULL, NULL, 0, "
-            "  contract_type, use_rr_right, pre_deposit, pre_monthly_rent, NULL "
+            "  contract_type, use_rr_right, pre_deposit, pre_monthly_rent, NULL, 'apt' "
             "FROM rentals WHERE matched_complex_no=? "
+            "UNION ALL "
+            "SELECT CASE WHEN monthly_rent>0 THEN 'wolse' ELSE 'jeonse' END, deal_ymd, deposit, "
+            "  monthly_rent, excl_use_ar, floor, NULL, NULL, 0, "
+            "  contract_type, use_rr_right, pre_deposit, pre_monthly_rent, NULL, 'offi' "
+            "FROM offi_rentals WHERE matched_complex_no=? "
             "ORDER BY deal_ymd DESC LIMIT 10",
-            (complex_no, complex_no, complex_no)).fetchall()
+            (complex_no, complex_no, complex_no, complex_no, complex_no)).fetchall()
         recent_all = []
         for r in ra:
-            kind, ymd_, price, rent, ar, fl, dong, gbn, regi, ctype, urr, pdep, prent, silv = r
+            kind, ymd_, price, rent, ar, fl, dong, gbn, regi, ctype, urr, pdep, prent, silv, src = r
             row = {"kind": kind, "date": ymd_, "price": price, "rent": rent or 0,
                    "area": ar, "floor": fl, "dong": dong, "silv_kind": silv,
                    "direct": gbn == "직거래", "registered": bool(regi),
                    "renew": bool(ctype and "갱신" in str(ctype)), "rr": urr == "사용",
                    "pre_deposit": pdep, "pre_rent": prent, "record_high": False}
             if kind == "sale" and not silv and ar is not None and price:
+                tbl = "offi_transactions" if src == "offi" else "transactions"
                 prev = d.execute(
-                    "SELECT MAX(deal_amount) FROM transactions WHERE matched_complex_no=? "
+                    f"SELECT MAX(deal_amount) FROM {tbl} WHERE matched_complex_no=? "
                     "AND is_cancelled=0 AND deal_ymd<? AND CAST(excl_use_ar/10 AS INT)=CAST(?/10 AS INT)",
                     (complex_no, ymd_, ar)).fetchone()[0]
                 row["record_high"] = bool(prev is None or price > prev)
