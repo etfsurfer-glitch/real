@@ -310,16 +310,26 @@ def main():
     grand = {c: 0 for c in CATEGORIES}
     n_partial = 0
     try:
+        # 동시 제출을 워커×4로 제한(bounded) — 전체 5,374동을 한꺼번에 제출하면 완료 결과가
+        # 직렬 DB쓰기보다 빨리 쌓여 메모리 6GB+ 적체 → OOM(2026-07-06 11시 런 킬). 소비하며 재보급.
         with ThreadPoolExecutor(max_workers=nworkers) as exe:
-            futs = {exe.submit(_fetch_dong, cortar, creds, ips[i % len(ips)]): cortar
-                    for i, cortar in enumerate(todo)}
-            for fut in as_completed(futs):
-                cortar = futs[fut]
+            it = iter(list(enumerate(todo)))
+            futs = {}
+            def _refill():
+                for i, cortar in it:
+                    futs[exe.submit(_fetch_dong, cortar, creds, ips[i % len(ips)])] = cortar
+                    if len(futs) >= nworkers * 4:
+                        break
+            _refill()
+            while futs:
+                fut = next(as_completed(futs))
+                cortar = futs.pop(fut)
                 try:
                     _c, items, natural = fut.result()
                 except Exception:
                     items, natural = [], False
                 total, per_cat, status = _write_dong(conns, cortar, items, natural, today)
+                del items
                 n_dong += 1
                 if status == "partial":
                     n_partial += 1
@@ -327,6 +337,7 @@ def main():
                     grand[cat] += per_cat[cat]
                 if total > 0 or n_dong % 300 == 0:
                     print(f"  [{cortar}] {total} {per_cat} {status}  ({n_dong}/{len(todo)})", flush=True)
+                _refill()
 
         # delisting 정리 — 전국 전수운영 후에만(부분 실행은 다른 동을 잘못 지움). 2일간 안 보인 매물=빠진 매물.
         if args.all and not args.limit:
