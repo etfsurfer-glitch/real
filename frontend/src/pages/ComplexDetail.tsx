@@ -772,18 +772,29 @@ function PriceTrendSection({ trend, householdByType }: {
     const m = a.match(/[0-9.]+/);
     return m ? parseFloat(m[0]) : Number.MAX_SAFE_INTEGER;
   };
-  // 평형 묶음: 같은 숫자(115C·115D→115)를 하나로. 단일 타입 평형은 원래 이름 유지
+  // 면적 묶음: 이웃 면적과 3㎡ 이내면 같은 클러스터(83·84·85→"83~85"). 단일이면 원래 이름 유지
   const rawNames = Array.from(new Set(rows.map((r) => r.area_name ?? "-")));
-  const numKey = (a: string) => {
+  const uniqNums = Array.from(new Set(rawNames.map(areaNum)
+    .filter((n) => n !== Number.MAX_SAFE_INTEGER))).sort((a, b) => a - b);
+  const clusterOfNum: Record<number, number> = {};
+  let cid = 0;
+  uniqNums.forEach((n, i) => {
+    clusterOfNum[n] = i > 0 && n - uniqNums[i - 1] <= 3 ? clusterOfNum[uniqNums[i - 1]] : cid++;
+  });
+  const clusterMembers: Record<number, string[]> = {};
+  for (const a of rawNames) {
     const n = areaNum(a);
-    return n === Number.MAX_SAFE_INTEGER ? a : String(n);
-  };
-  const membersOf: Record<string, string[]> = {};
-  for (const a of rawNames) (membersOf[numKey(a)] ??= []).push(a);
+    if (n !== Number.MAX_SAFE_INTEGER) (clusterMembers[clusterOfNum[n]] ??= []).push(a);
+  }
   const keyOf = (a: string) => {
     if (!grouped) return a;
-    const k = numKey(a);
-    return (membersOf[k]?.length ?? 0) > 1 ? k : a;
+    const n = areaNum(a);
+    const c = n === Number.MAX_SAFE_INTEGER ? null : clusterOfNum[n];
+    if (c == null) return a;
+    const ms = clusterMembers[c];
+    if (ms.length === 1) return ms[0];
+    const ns = ms.map(areaNum);
+    return `${Math.min(...ns)}~${Math.max(...ns)}`;
   };
   const areas = Array.from(new Set(rawNames.map(keyOf)))
     .sort((x, y) => areaNum(x) - areaNum(y) || x.localeCompare(y));
@@ -815,7 +826,7 @@ function PriceTrendSection({ trend, householdByType }: {
   const hhOf = (key: string) => {
     let s = 0, found = false;
     for (const [k, v] of Object.entries(householdByType)) {
-      if (k === key || (grouped && numKey(k) === key)) { s += v; found = true; }
+      if ((grouped ? keyOf(k) : k) === key) { s += v; found = true; }
     }
     return found ? s : null;
   };
@@ -847,7 +858,7 @@ function PriceTrendSection({ trend, householdByType }: {
         ))}
         <span style={{ width: 1, alignSelf: "stretch", background: "#e2e8f0", margin: "4px 4px" }} />
         <button type="button" className={`chip ${grouped ? "active" : ""}`}
-          onClick={() => { setGrouped(true); setSel(null); }}>평형 묶음</button>
+          onClick={() => { setGrouped(true); setSel(null); }}>면적 묶음</button>
         <button type="button" className={`chip ${!grouped ? "active" : ""}`}
           onClick={() => { setGrouped(false); setSel(null); }}>타입별</button>
       </div>
@@ -956,7 +967,7 @@ function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf }: {
 }) {
   // 모바일 폭(약 370px)에서도 가로 스크롤 없이 통째로 보이도록 좁은 좌표계 사용
   // 세로는 와이드 비율(약 3.7:1) — 표와 나란히 놓여도 차트가 화면을 잡아먹지 않게
-  const W = 460, H = 126, L = 46, R = 50, T = 12, B = 22;
+  const W = 460, H = 126, L = 46, R = 58, T = 12, B = 22;   // R은 "112~115"형 그룹 라벨 폭 확보
   const vals: number[] = [];
   for (const a of areas) for (const v of seriesOf(a)) if (v != null) vals.push(v);
   if (!vals.length || weeks.length < 2) return null;
