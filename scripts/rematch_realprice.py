@@ -83,7 +83,7 @@ def main() -> int:
             except Exception:
                 local["errors"] += 1
                 continue
-            trace = rp_match.match_one_with_trace(tx, idx, keep_top=3)
+            trace = rp_match.match_one_with_trace(tx, idx, keep_top=3, prefer_offi=False)
             if trace.get("chosen"):
                 chosen = trace["chosen"]
                 updates.append((

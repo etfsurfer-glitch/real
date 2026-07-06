@@ -98,7 +98,7 @@ def _process_task(lawd_cd: str, ymd: str, index: rp_match.ComplexIndex,
     match_results = {}
     for tx in items:
         rid = rp_storage.make_rental_id(tx)
-        trace = rp_match.match_one_with_trace(tx, index, keep_top=3)
+        trace = rp_match.match_one_with_trace(tx, index, keep_top=3, prefer_offi=False)
         match_results[rid] = trace
         if trace["chosen"]:
             result["matched"] += 1

@@ -190,7 +190,7 @@ def load_complexes(conn: sqlite3.Connection, cortar_prefix: str | None = None
     """
     sql = (
         "SELECT c.complex_no, c.complex_name, c.cortar_no, c.detail_address, "
-        "       c.road_address, r.cortar_name "
+        "       c.road_address, r.cortar_name, c.real_estate_type_name "
         "FROM complexes c LEFT JOIN regions r ON r.cortar_no = c.cortar_no"
     )
     params: tuple = ()
@@ -208,6 +208,7 @@ def load_complexes(conn: sqlite3.Connection, cortar_prefix: str | None = None
             "road_address_norm": normalize_road(r[4] or ""),
             "dong_name": r[5] or "",
             "variants": name_variants(r[1] or ""),
+            "is_offi": (r[6] or "") in ("오피스텔", "오피스텔분양권"),
         })
     return out
 
@@ -281,6 +282,7 @@ def _candidate_summary(c: dict, method: str, score: float, reason: str) -> dict:
         "cortar_no": c["cortar_no"],
         "detail_address": c.get("detail_address", ""),
         "dong_name": c["dong_name"],
+        "is_offi": bool(c.get("is_offi")),
         "method": method,
         "score": round(score, 4),
         "reason": reason,
@@ -288,7 +290,8 @@ def _candidate_summary(c: dict, method: str, score: float, reason: str) -> dict:
 
 
 def match_one_with_trace(tx: dict, index: ComplexIndex,
-                         keep_top: int = 5) -> dict:
+                         keep_top: int = 5,
+                         prefer_offi: bool | None = None) -> dict:
     """Match a single transaction. Returns a dict suitable for storage as
     transactions.match_details JSONB.
 
@@ -468,8 +471,16 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
                 _candidate_summary(best, "fuzzy+dong", best_score, best_reason)
             )
 
-    # Sort candidates by score desc, then by method preference
-    candidates.sort(key=lambda x: x["score"], reverse=True)
+    # Sort candidates by score desc. 동점이면 거래 출처와 단지 유형이 맞는 쪽 우선
+    # (오피스텔 거래 API ↔ 오피스텔 단지). 같은 지번에 아파트+오피 단지가 공존하는
+    # 주상복합(예: 동탄역롯데캐슬 119652/119653)에서 오피 거래가 아파트로 빨려
+    # 들어가던 오귀속 방지. 점수 자체는 건드리지 않는 tie-break 전용.
+    def _type_penalty(cand: dict) -> int:
+        if prefer_offi is None:
+            return 0
+        return 0 if cand.get("is_offi") == prefer_offi else 1
+
+    candidates.sort(key=lambda x: (-x["score"], _type_penalty(x)))
     candidates = candidates[:keep_top]
 
     chosen = None
@@ -495,9 +506,10 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
     }
 
 
-def match_one(tx: dict, index: ComplexIndex) -> tuple[str | None, str, float]:
+def match_one(tx: dict, index: ComplexIndex,
+              prefer_offi: bool | None = None) -> tuple[str | None, str, float]:
     """Compact variant: just (complex_no, method, score) — no trace overhead."""
-    trace = match_one_with_trace(tx, index, keep_top=1)
+    trace = match_one_with_trace(tx, index, keep_top=1, prefer_offi=prefer_offi)
     if trace["chosen"]:
         ch = trace["chosen"]
         return ch["complex_no"], ch["method"], ch["score"]

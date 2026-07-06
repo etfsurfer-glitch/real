@@ -42,10 +42,10 @@ from collector.realprice import storage as rp_storage  # noqa: E402
 # 테이블별 PK 컬럼 + 사람에게 보여줄 키. 모든 테이블이 sgg_cd, raw,
 # matched_*, manual_override 컬럼은 공통이라 SQL 은 PK 이름만 바꾸면 됨.
 TABLE_SPECS = {
-    "apt":       {"table": "transactions",      "pk": "deal_id",   "label": "아파트 매매"},
-    "rent":      {"table": "rentals",           "pk": "rental_id", "label": "아파트 전월세"},
-    "offi":      {"table": "offi_transactions", "pk": "deal_id",   "label": "오피스텔 매매"},
-    "offi_rent": {"table": "offi_rentals",      "pk": "rental_id", "label": "오피스텔 전월세"},
+    "apt":       {"table": "transactions",      "pk": "deal_id",   "label": "아파트 매매",   "prefer_offi": False},
+    "rent":      {"table": "rentals",           "pk": "rental_id", "label": "아파트 전월세", "prefer_offi": False},
+    "offi":      {"table": "offi_transactions", "pk": "deal_id",   "label": "오피스텔 매매", "prefer_offi": True},
+    "offi_rent": {"table": "offi_rentals",      "pk": "rental_id", "label": "오피스텔 전월세", "prefer_offi": True},
 }
 
 
@@ -103,7 +103,8 @@ def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
             except Exception:
                 local["errors"] += 1
                 continue
-            trace = rp_match.match_one_with_trace(tx, idx, keep_top=3)
+            trace = rp_match.match_one_with_trace(tx, idx, keep_top=3,
+                                                  prefer_offi=spec.get("prefer_offi"))
             if trace.get("chosen"):
                 chosen = trace["chosen"]
                 updates.append((

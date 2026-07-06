@@ -97,7 +97,7 @@ def _process_trade(lawd_cd: str, ymd: str, index: rp_match.ComplexIndex,
     match_results = {}
     for tx in items:
         did = rp_storage.make_offi_deal_id(tx)
-        trace = rp_match.match_one_with_trace(tx, index, keep_top=3)
+        trace = rp_match.match_one_with_trace(tx, index, keep_top=3, prefer_offi=True)
         match_results[did] = trace
         if trace["chosen"]:
             result["matched"] += 1
@@ -122,7 +122,7 @@ def _process_rent(lawd_cd: str, ymd: str, index: rp_match.ComplexIndex,
     match_results = {}
     for tx in items:
         rid = rp_storage.make_offi_rental_id(tx)
-        trace = rp_match.match_one_with_trace(tx, index, keep_top=3)
+        trace = rp_match.match_one_with_trace(tx, index, keep_top=3, prefer_offi=True)
         match_results[rid] = trace
         if trace["chosen"]:
             result["matched"] += 1
