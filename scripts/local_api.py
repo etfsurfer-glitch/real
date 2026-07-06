@@ -11142,6 +11142,59 @@ def buywizard_policy_put(policy: dict, _admin: dict = Depends(admin_user)):
     return {"ok": True}
 
 
+class BuyWizardCandidates(BaseModel):
+    region_codes: list[str] = Field(default_factory=list)
+    dong_codes: list[str] = Field(default_factory=list)
+    area_min: float = 0
+    area_max: float = 300
+    max_price: int = 0            # 원 — 계산기(클라이언트)가 산출한 구매가능 상한
+
+
+@app.post("/admin/buywizard/candidates")
+def buywizard_candidates(p: BuyWizardCandidates, _admin: dict = Depends(admin_user)):
+    """비용계산은 클라이언트(레퍼런스 복제 로직)가 하고, 서버는 후보 매물만 공급.
+    현재 매물(최신 스냅샷·매매) × 12개월 실거래 평균."""
+    if not p.region_codes and not p.dong_codes:
+        raise HTTPException(400, "지역을 선택하세요")
+    prefixes = [d[:10] for d in p.dong_codes] if p.dong_codes else [c[:5] for c in p.region_codes]
+    conds = " OR ".join("c.cortar_no LIKE ?" for _ in prefixes)
+    with _open_db() as d:
+        rows = d.execute(
+            f"""SELECT l.complex_no, c.complex_name, c.cortar_no, r.cortar_name,
+                       l.area_name, l.area2_m2,
+                       MIN(l.deal_or_warrant_price), COUNT(*),
+                       c.total_household_count, c.use_approve_ymd
+                FROM listings_current l
+                JOIN complexes c ON c.complex_no = l.complex_no
+                LEFT JOIN regions r ON r.cortar_no = c.cortar_no
+                WHERE l.trade_type = 'A1'
+                  AND c.real_estate_type_name IN ('아파트', '재건축')
+                  AND ({conds})
+                  AND l.area2_m2 BETWEEN ? AND ?
+                  AND l.deal_or_warrant_price > 0 AND l.deal_or_warrant_price <= ?
+                  AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings_current)
+                GROUP BY l.complex_no, l.area_name
+                ORDER BY MIN(l.deal_or_warrant_price) DESC
+                LIMIT 300""",
+            [x + "%" for x in prefixes] + [p.area_min, p.area_max, p.max_price or 10**13],
+        ).fetchall()
+        items = []
+        for (cno, cname, cortar, rname, aname, excl, min_ask, n_ask, hh, approve) in rows:
+            tx = d.execute(
+                """SELECT AVG(deal_amount), COUNT(*), MAX(deal_ymd) FROM transactions
+                   WHERE matched_complex_no=? AND is_cancelled=0
+                     AND deal_ymd >= date('now','-12 months')
+                     AND ABS(excl_use_ar - ?) <= 1.5""", (cno, excl or 0)).fetchone()
+            items.append({
+                "complex_no": cno, "complex_name": cname, "region": rname,
+                "area_name": aname, "excl": excl, "min_ask": min_ask, "n_ask": n_ask,
+                "tx_avg": round(tx[0]) if tx and tx[0] else None,
+                "tx_n": tx[1] if tx else 0, "tx_last": tx[2] if tx else None,
+                "households": hh, "approve_ymd": approve,
+            })
+    return {"items": items}
+
+
 @app.post("/admin/buywizard/recommend")
 def buywizard_recommend(p: BuyWizardProfile, _admin: dict = Depends(admin_user)):
     profile = p.dict()
