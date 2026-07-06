@@ -955,7 +955,8 @@ function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf }: {
   seriesOf: (a: string) => (number | null)[]; colorOf: (a: string) => string;
 }) {
   // 모바일 폭(약 370px)에서도 가로 스크롤 없이 통째로 보이도록 좁은 좌표계 사용
-  const W = 460, H = 250, L = 46, R = 50, T = 14, B = 24;
+  // 세로는 와이드 비율(약 3.7:1) — 표와 나란히 놓여도 차트가 화면을 잡아먹지 않게
+  const W = 460, H = 126, L = 46, R = 50, T = 12, B = 22;
   const vals: number[] = [];
   for (const a of areas) for (const v of seriesOf(a)) if (v != null) vals.push(v);
   if (!vals.length || weeks.length < 2) return null;
@@ -966,7 +967,9 @@ function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf }: {
   const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
   const fmtTick = (v: number) => (v >= 1e8 ? `${(v / 1e8).toFixed(hi - lo < 2e8 ? 1 : 0)}억` : `${Math.round(v / 1e4).toLocaleString()}만`);
   const ticks = [0, 1, 2, 3].map((i) => lo + ((hi - lo) * i) / 3);
-  // 라인 끝 타입명 라벨 — 겹치면 12px 간격으로 밀어냄
+  // 라인 끝 타입명 라벨 — 겹치면 위→아래로 밀어낸 뒤, 아래로 넘치면 아래→위로 되밀기.
+  // 라벨이 세로 공간보다 많으면 간격·폰트를 줄여 전부 판독 가능하게 배분
+  const maxY = H - B - 1, minY = T + 3;
   const ends = areas
     .map((a) => {
       const s = seriesOf(a);
@@ -975,11 +978,19 @@ function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf }: {
     })
     .filter((e): e is { a: string; ly: number } => e != null)
     .sort((p, q) => p.ly - q.ly);
+  const GAP = ends.length > 1 ? Math.min(11, (maxY - minY) / (ends.length - 1)) : 11;
+  const labelFont = GAP >= 10.5 ? 12 : 9;
   for (let i = 1; i < ends.length; i++) {
-    if (ends[i].ly - ends[i - 1].ly < 12) ends[i].ly = ends[i - 1].ly + 12;
+    if (ends[i].ly - ends[i - 1].ly < GAP) ends[i].ly = ends[i - 1].ly + GAP;
+  }
+  if (ends.length) {
+    ends[ends.length - 1].ly = Math.min(ends[ends.length - 1].ly, maxY);
+    for (let i = ends.length - 2; i >= 0; i--) {
+      ends[i].ly = Math.min(ends[i].ly, ends[i + 1].ly - GAP);
+    }
   }
   const labelY: Record<string, number> = {};
-  for (const e of ends) labelY[e.a] = Math.min(H - B - 2, Math.max(T + 4, e.ly));
+  for (const e of ends) labelY[e.a] = Math.max(minY, e.ly);
   // 매주 눈금 — 월이 바뀌는 주만 "6월1주", 나머지는 "2주"로 압축해 전 주차 표기
   const xLabels = weeks.map((w, i) => {
     const mon = parseInt(w.slice(5, 7), 10);
@@ -1022,7 +1033,7 @@ function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf }: {
                 strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" />
               {lastPt && <circle cx={lastPt[0]} cy={lastPt[1]} r={3.2} fill={colorOf(a)} />}
               {lastPt && (
-                <text x={W - R + 7} y={labelY[a] + 3.5} fontSize="12" fontWeight="700" fill={colorOf(a)}>{a}</text>
+                <text x={W - R + 7} y={labelY[a] + 3.5} fontSize={labelFont} fontWeight="700" fill={colorOf(a)}>{a}</text>
               )}
             </g>
           );
