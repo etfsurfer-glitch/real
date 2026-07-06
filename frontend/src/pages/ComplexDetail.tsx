@@ -1429,6 +1429,7 @@ function PriceScatter({
           />
           <YAxis
             dataKey="price"
+            domain={["auto", "auto"]}
             tickFormatter={(v: number) => priceFmt(v)}
             tick={{ fontSize: 11 }}
             width={60}
