@@ -393,7 +393,7 @@ export default function ComplexDetail() {
       )}
 
       {section === "trend" && (
-        trend.length > 0 ? <PriceTrendSection trend={trend} />
+        trend.length > 0 ? <PriceTrendSection trend={trend} householdByType={householdByType} />
           : <div className="muted">가격 변동 이력이 없습니다.</div>
       )}
 
@@ -744,7 +744,9 @@ function QuickDealSection({ deals }: { deals: DealRow[] }) {
   );
 }
 
-function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
+function PriceTrendSection({ trend, householdByType }: {
+  trend: TrendRow[]; householdByType: Record<string, number>;
+}) {
   const [tab, setTab] = useState<"A1" | "B1" | "B2">("A1");
   const [sel, setSel] = useState<Set<string> | null>(null);   // 차트 표시 타입(null=기본 상위 3개)
   const priceLabel = tab === "A1" ? "매매가" : "보증금";
@@ -785,6 +787,12 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
   for (const k of Object.keys(acc)) cell[k] = acc[k].n ? acc[k].s / acc[k].n : null;
 
   const seriesOf = (a: string) => shownWeeks.map((w) => cell[`${a}|${w}`] ?? null);
+
+  // 타입별 현재 매물수 — rows가 snapshot_date 오름차순이라 마지막 대입이 최신
+  const lastCount: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.listing_count != null) lastCount[r.area_name ?? "-"] = r.listing_count;
+  }
 
   // 기본은 데이터 많은 상위 3개만 — 전 타입을 한 번에 그리면 난잡해 판독 불가
   const dataCount = (a: string) => seriesOf(a).filter((v) => v != null).length;
@@ -844,6 +852,8 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
               <thead>
                 <tr>
                   <th>면적타입</th>
+                  <th className="num">세대</th>
+                  <th className="num">매물</th>
                   {shownWeeks.map((w, i) => (
                     <th key={w} className="num"
                       style={i === shownWeeks.length - 1 ? { background: "#f0f6ff", color: "#1268d3" } : undefined}>
@@ -870,6 +880,12 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
                         <i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 99,
                           background: on ? colorOf(a) : "#cbd5e1", marginRight: 6 }} />
                         {a}
+                      </td>
+                      <td className="num" style={{ color: "#8296ab" }}>
+                        {householdByType[a] != null ? householdByType[a].toLocaleString() : "-"}
+                      </td>
+                      <td className="num" style={{ color: "#334155", fontWeight: 600 }}>
+                        {lastCount[a] != null ? lastCount[a].toLocaleString() : "-"}
                       </td>
                       {series.map((v, i) => (
                         <td key={i} className="num"
@@ -933,8 +949,13 @@ function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf }: {
   }
   const labelY: Record<string, number> = {};
   for (const e of ends) labelY[e.a] = Math.min(H - B - 2, Math.max(T + 4, e.ly));
-  // 주차 라벨이 겹치면 마지막 주 기준으로 한 칸씩 건너뜀
-  const xStep = weeks.length >= 7 ? 2 : 1;
+  // 매주 눈금 — 월이 바뀌는 주만 "6월1주", 나머지는 "2주"로 압축해 전 주차 표기
+  const xLabels = weeks.map((w, i) => {
+    const mon = parseInt(w.slice(5, 7), 10);
+    const wk = weekLabel[w].split(" ")[1] ?? weekLabel[w];
+    const prevMon = i > 0 ? parseInt(weeks[i - 1].slice(5, 7), 10) : null;
+    return i === 0 || mon !== prevMon ? `${mon}월${wk}` : wk;
+  });
   return (
     <div style={{ marginBottom: 12 }}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: 640, display: "block" }}>
@@ -944,9 +965,14 @@ function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf }: {
             <text x={L - 6} y={y(tv) + 3.5} textAnchor="end" fontSize="10.5" fill="#94a3b8">{fmtTick(tv)}</text>
           </g>
         ))}
-        {weeks.map((w, i) => (weeks.length - 1 - i) % xStep === 0 && (
-          <text key={w} x={x(i)} y={H - 7} textAnchor="middle" fontSize="10.5" fill="#94a3b8">{weekLabel[w]}</text>
+        {weeks.map((w, i) => (
+          <g key={w}>
+            <line x1={x(i)} x2={x(i)} y1={T} y2={H - B} stroke="#f3f6fa" strokeWidth="1" />
+            <line x1={x(i)} x2={x(i)} y1={H - B} y2={H - B + 4} stroke="#cbd5e1" strokeWidth="1" />
+            <text x={x(i)} y={H - 7} textAnchor="middle" fontSize="9.5" fill="#94a3b8">{xLabels[i]}</text>
+          </g>
         ))}
+        <line x1={L} x2={W - R} y1={H - B} y2={H - B} stroke="#dbe3ec" strokeWidth="1" />
         {areas.map((a) => {
           const s = seriesOf(a);
           const pts = s.map((v, i) => (v == null ? null : [x(i), y(v)] as const));
