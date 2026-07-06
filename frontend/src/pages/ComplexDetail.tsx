@@ -746,13 +746,11 @@ function QuickDealSection({ deals }: { deals: DealRow[] }) {
 
 function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
   const [tab, setTab] = useState<"A1" | "B1" | "B2">("A1");
+  const [focus, setFocus] = useState<string | null>(null);   // 타입 하이라이트
   const priceLabel = tab === "A1" ? "매매가" : "보증금";
 
-  // 해당 거래유형 행만 추리고, 주차·면적타입별 평균가 인덱싱.
-  // 날짜별은 의미가 약해 "5월 1주/2주…" 주차 단위로 묶는다.
   const rows = trend.filter((r) => r.trade_type === tab);
 
-  // snapshot_date → 월·주차 버킷 ("2026-05-W2", 라벨 "5월 2주")
   const weekOf = (d: string) => {
     const day = parseInt(d.slice(8, 10), 10);
     const wk = Math.min(5, Math.ceil(day / 7));
@@ -765,10 +763,16 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
     weekLabel[w.key] = w.label;
     dateToWeek[d] = w.key;
   }
-  // 컬럼이 너무 많아지면 최근 8주만
   const shownWeeks = Object.keys(weekLabel).sort().slice(-8);
-  const areas = Array.from(new Set(rows.map((r) => r.area_name ?? "-")));
-  // (area_name|week) → 그 주 스냅샷 평균가들의 평균
+  // 면적 숫자 기준 정렬(83A < 84B < 101A …) — 문자열 정렬로 중구난방이던 문제 해소
+  const areaNum = (a: string) => {
+    const m = a.match(/[0-9.]+/);
+    return m ? parseFloat(m[0]) : Number.MAX_SAFE_INTEGER;
+  };
+  const areas = Array.from(new Set(rows.map((r) => r.area_name ?? "-")))
+    .sort((x, y) => areaNum(x) - areaNum(y) || x.localeCompare(y));
+  const colorOf = (a: string) => AREA_COLORS[areas.indexOf(a) % AREA_COLORS.length];
+
   const acc: Record<string, { s: number; n: number }> = {};
   for (const r of rows) {
     if (r.price_avg == null) continue;
@@ -780,23 +784,17 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
   const cell: Record<string, number | null> = {};
   for (const k of Object.keys(acc)) cell[k] = acc[k].n ? acc[k].s / acc[k].n : null;
 
+  const seriesOf = (a: string) => shownWeeks.map((w) => cell[`${a}|${w}`] ?? null);
+
   return (
     <>
       <div className="section-title" style={{ marginTop: 4 }}>
         면적타입별 평균 {priceLabel} 추이
       </div>
-      <div className="chip-row" style={{ marginBottom: 12 }}>
-        {([
-          ["A1", "매매"],
-          ["B1", "전세"],
-          ["B2", "월세"],
-        ] as const).map(([k, label]) => (
-          <button
-            key={k}
-            type="button"
-            className={`chip ${tab === k ? "active" : ""}`}
-            onClick={() => setTab(k)}
-          >
+      <div className="chip-row" style={{ marginBottom: 10 }}>
+        {([["A1", "매매"], ["B1", "전세"], ["B2", "월세"]] as const).map(([k, label]) => (
+          <button key={k} type="button" className={`chip ${tab === k ? "active" : ""}`}
+            onClick={() => { setTab(k); setFocus(null); }}>
             {label}
           </button>
         ))}
@@ -804,50 +802,136 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
       {areas.length === 0 || shownWeeks.length === 0 ? (
         <div className="muted">변동 이력 없음</div>
       ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table>
-            <thead>
-              <tr>
-                <th>면적타입</th>
-                {shownWeeks.map((w) => (
-                  <th key={w} className="num">{weekLabel[w]}</th>
-                ))}
-                <th className="num">변동</th>
-              </tr>
-            </thead>
-            <tbody>
-              {areas.map((a) => {
-                const series = shownWeeks.map((w) => cell[`${a}|${w}`] ?? null);
-                const first = series.find((v) => v != null) ?? null;
-                const lastIdx = [...series].reverse().findIndex((v) => v != null);
-                const last = lastIdx === -1 ? null : series[series.length - 1 - lastIdx];
-                const pct =
-                  first != null && last != null && first !== 0
-                    ? ((last - first) / first) * 100
-                    : null;
-                return (
-                  <tr key={a}>
-                    <td>{a}</td>
-                    {series.map((v, i) => (
-                      <td key={i} className="num">{formatWon(v)}</td>
-                    ))}
-                    <td
-                      className="num"
-                      style={{
-                        fontWeight: 600,
-                        color: pct == null ? "#bbb" : pct > 0 ? "#c0392b" : pct < 0 ? "#1268d3" : "#888",
-                      }}
-                    >
-                      {pct == null ? "—" : `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {/* 타입 칩 — 클릭=해당 타입 하이라이트(차트·표 연동) */}
+          <div className="chip-row" style={{ marginBottom: 8, gap: 5 }}>
+            {areas.map((a) => (
+              <button key={a} type="button" className={`chip ${focus === a ? "active" : ""}`}
+                style={{ paddingLeft: 9 }}
+                onClick={() => setFocus(focus === a ? null : a)}>
+                <i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 99,
+                  background: colorOf(a), marginRight: 5, verticalAlign: "0" }} />
+                {a}
+              </button>
+            ))}
+          </div>
+          <TrendChart weeks={shownWeeks} weekLabel={weekLabel} areas={areas}
+            seriesOf={seriesOf} colorOf={colorOf} focus={focus} />
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>면적타입</th>
+                  {shownWeeks.map((w, i) => (
+                    <th key={w} className="num"
+                      style={i === shownWeeks.length - 1 ? { background: "#f0f6ff", color: "#1268d3" } : undefined}>
+                      {weekLabel[w]}
+                    </th>
+                  ))}
+                  <th className="num">변동</th>
+                </tr>
+              </thead>
+              <tbody>
+                {areas.map((a) => {
+                  const series = seriesOf(a);
+                  const first = series.find((v) => v != null) ?? null;
+                  const lastIdx = [...series].reverse().findIndex((v) => v != null);
+                  const last = lastIdx === -1 ? null : series[series.length - 1 - lastIdx];
+                  const pct = first != null && last != null && first !== 0
+                    ? ((last - first) / first) * 100 : null;
+                  const isNew = series[0] == null && last != null;   // 최근에 등장한 타입
+                  const dim = focus != null && focus !== a;
+                  return (
+                    <tr key={a} style={{ opacity: dim ? 0.35 : 1, cursor: "pointer" }}
+                      onClick={() => setFocus(focus === a ? null : a)}>
+                      <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>
+                        <i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 99,
+                          background: colorOf(a), marginRight: 6 }} />
+                        {a}
+                      </td>
+                      {series.map((v, i) => (
+                        <td key={i} className="num"
+                          style={i === series.length - 1
+                            ? { background: "#f6faff", fontWeight: 700 }
+                            : { color: "#64748b" }}>
+                          {formatWon(v)}
+                        </td>
+                      ))}
+                      <td className="num" style={{ whiteSpace: "nowrap" }}>
+                        {isNew ? (
+                          <span className="txf-b" style={{ background: "#e8f1fd", color: "#1268d3" }}>신규</span>
+                        ) : pct == null ? (
+                          <span style={{ color: "#bbb" }}>—</span>
+                        ) : (
+                          <b style={{ color: pct > 0.05 ? "#d23b3b" : pct < -0.05 ? "#1268d3" : "#8296ab" }}>
+                            {pct > 0 ? "▲" : pct < 0 ? "▼" : ""}{Math.abs(pct).toFixed(1)}%
+                          </b>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </>
+  );
+}
+
+/** 호가추이 라인차트 — 주차 × 타입별 평균가. 칩/행 클릭 시 해당 타입 강조. */
+function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf, focus }: {
+  weeks: string[]; weekLabel: Record<string, string>; areas: string[];
+  seriesOf: (a: string) => (number | null)[]; colorOf: (a: string) => string; focus: string | null;
+}) {
+  const W = 720, H = 210, L = 52, R = 14, T = 12, B = 26;
+  const vals: number[] = [];
+  for (const a of areas) for (const v of seriesOf(a)) if (v != null) vals.push(v);
+  if (!vals.length || weeks.length < 2) return null;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.08 || hi * 0.02;
+  lo -= pad; hi += pad;
+  const x = (i: number) => L + (i / (weeks.length - 1)) * (W - L - R);
+  const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const fmtTick = (v: number) => (v >= 1e8 ? `${(v / 1e8).toFixed(v >= 1e9 ? 0 : 1)}억` : `${Math.round(v / 1e4).toLocaleString()}만`);
+  const ticks = [0, 1, 2, 3].map((i) => lo + ((hi - lo) * i) / 3);
+  return (
+    <div style={{ overflowX: "auto", marginBottom: 12 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 520, display: "block" }}>
+        {ticks.map((tv, i) => (
+          <g key={i}>
+            <line x1={L} x2={W - R} y1={y(tv)} y2={y(tv)} stroke="#eef2f7" strokeWidth="1" />
+            <text x={L - 6} y={y(tv) + 3.5} textAnchor="end" fontSize="10.5" fill="#94a3b8">{fmtTick(tv)}</text>
+          </g>
+        ))}
+        {weeks.map((w, i) => (
+          <text key={w} x={x(i)} y={H - 8} textAnchor="middle" fontSize="10.5" fill="#94a3b8">{weekLabel[w]}</text>
+        ))}
+        {areas.map((a) => {
+          const s = seriesOf(a);
+          const pts = s.map((v, i) => (v == null ? null : [x(i), y(v)] as const));
+          const dim = focus != null && focus !== a;
+          // null 건너뛰며 세그먼트 연결
+          let d = "";
+          let pen = false;
+          for (const pt of pts) {
+            if (!pt) { pen = false; continue; }
+            d += `${pen ? "L" : "M"}${pt[0].toFixed(1)} ${pt[1].toFixed(1)}`;
+            pen = true;
+          }
+          return (
+            <g key={a} opacity={dim ? 0.13 : 1}>
+              <path d={d} fill="none" stroke={colorOf(a)}
+                strokeWidth={focus === a ? 2.6 : 1.8} strokeLinejoin="round" strokeLinecap="round" />
+              {pts.map((pt, i) => pt && (
+                <circle key={i} cx={pt[0]} cy={pt[1]} r={focus === a ? 3.2 : 2.2} fill={colorOf(a)} />
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 
