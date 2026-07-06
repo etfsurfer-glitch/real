@@ -749,6 +749,7 @@ function PriceTrendSection({ trend, householdByType }: {
 }) {
   const [tab, setTab] = useState<"A1" | "B1" | "B2">("A1");
   const [sel, setSel] = useState<Set<string> | null>(null);   // 차트 표시 타입(null=기본 상위 3개)
+  const [grouped, setGrouped] = useState(true);               // 평형 묶음(83A·83B→83) / 타입별
   const priceLabel = tab === "A1" ? "매매가" : "보증금";
 
   const rows = trend.filter((r) => r.trade_type === tab);
@@ -771,28 +772,53 @@ function PriceTrendSection({ trend, householdByType }: {
     const m = a.match(/[0-9.]+/);
     return m ? parseFloat(m[0]) : Number.MAX_SAFE_INTEGER;
   };
-  const areas = Array.from(new Set(rows.map((r) => r.area_name ?? "-")))
+  // 평형 묶음: 같은 숫자(115C·115D→115)를 하나로. 단일 타입 평형은 원래 이름 유지
+  const rawNames = Array.from(new Set(rows.map((r) => r.area_name ?? "-")));
+  const numKey = (a: string) => {
+    const n = areaNum(a);
+    return n === Number.MAX_SAFE_INTEGER ? a : String(n);
+  };
+  const membersOf: Record<string, string[]> = {};
+  for (const a of rawNames) (membersOf[numKey(a)] ??= []).push(a);
+  const keyOf = (a: string) => {
+    if (!grouped) return a;
+    const k = numKey(a);
+    return (membersOf[k]?.length ?? 0) > 1 ? k : a;
+  };
+  const areas = Array.from(new Set(rawNames.map(keyOf)))
     .sort((x, y) => areaNum(x) - areaNum(y) || x.localeCompare(y));
   const colorOf = (a: string) => AREA_COLORS[areas.indexOf(a) % AREA_COLORS.length];
 
+  // 주별 평균 — 매물수 가중평균(묶음 시 타입 간 매물 비중 반영)
   const acc: Record<string, { s: number; n: number }> = {};
   for (const r of rows) {
     if (r.price_avg == null) continue;
-    const k = `${r.area_name ?? "-"}|${dateToWeek[r.snapshot_date]}`;
+    const wgt = r.listing_count || 1;
+    const k = `${keyOf(r.area_name ?? "-")}|${dateToWeek[r.snapshot_date]}`;
     if (!acc[k]) acc[k] = { s: 0, n: 0 };
-    acc[k].s += r.price_avg;
-    acc[k].n += 1;
+    acc[k].s += r.price_avg * wgt;
+    acc[k].n += wgt;
   }
   const cell: Record<string, number | null> = {};
   for (const k of Object.keys(acc)) cell[k] = acc[k].n ? acc[k].s / acc[k].n : null;
 
   const seriesOf = (a: string) => shownWeeks.map((w) => cell[`${a}|${w}`] ?? null);
 
-  // 타입별 현재 매물수 — rows가 snapshot_date 오름차순이라 마지막 대입이 최신
+  // 현재 매물수 = 최신 스냅샷 합계(묶음이면 멤버 타입 합산)
+  const maxDate = rows.reduce((m, r) => (r.snapshot_date > m ? r.snapshot_date : m), "");
   const lastCount: Record<string, number> = {};
   for (const r of rows) {
-    if (r.listing_count != null) lastCount[r.area_name ?? "-"] = r.listing_count;
+    if (r.snapshot_date !== maxDate) continue;
+    const k = keyOf(r.area_name ?? "-");
+    lastCount[k] = (lastCount[k] ?? 0) + (r.listing_count ?? 0);
   }
+  const hhOf = (key: string) => {
+    let s = 0, found = false;
+    for (const [k, v] of Object.entries(householdByType)) {
+      if (k === key || (grouped && numKey(k) === key)) { s += v; found = true; }
+    }
+    return found ? s : null;
+  };
 
   // 기본은 데이터 많은 상위 3개만 — 전 타입을 한 번에 그리면 난잡해 판독 불가
   const dataCount = (a: string) => seriesOf(a).filter((v) => v != null).length;
@@ -819,6 +845,11 @@ function PriceTrendSection({ trend, householdByType }: {
             {label}
           </button>
         ))}
+        <span style={{ width: 1, alignSelf: "stretch", background: "#e2e8f0", margin: "4px 4px" }} />
+        <button type="button" className={`chip ${grouped ? "active" : ""}`}
+          onClick={() => { setGrouped(true); setSel(null); }}>평형 묶음</button>
+        <button type="button" className={`chip ${!grouped ? "active" : ""}`}
+          onClick={() => { setGrouped(false); setSel(null); }}>타입별</button>
       </div>
       {areas.length === 0 || shownWeeks.length === 0 ? (
         <div className="muted">변동 이력 없음</div>
@@ -882,7 +913,7 @@ function PriceTrendSection({ trend, householdByType }: {
                         {a}
                       </td>
                       <td className="num" style={{ color: "#8296ab" }}>
-                        {householdByType[a] != null ? householdByType[a].toLocaleString() : "-"}
+                        {hhOf(a)?.toLocaleString() ?? "-"}
                       </td>
                       <td className="num" style={{ color: "#334155", fontWeight: 600 }}>
                         {lastCount[a] != null ? lastCount[a].toLocaleString() : "-"}
@@ -958,7 +989,7 @@ function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf }: {
   });
   return (
     <div style={{ marginBottom: 12 }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: 640, display: "block" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }}>
         {ticks.map((tv, i) => (
           <g key={i}>
             <line x1={L} x2={W - R} y1={y(tv)} y2={y(tv)} stroke="#eef2f7" strokeWidth="1" />
