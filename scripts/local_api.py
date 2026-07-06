@@ -11107,6 +11107,53 @@ def admin_resident_reject(rid: int, _admin: dict = Depends(admin_user)) -> dict:
     return {"ok": True, "status": "rejected"}
 
 
+# ---------------------------------------------------------------------------
+# 아파트매수마법사 (관리자 가오픈 — 검증 후 메인 오픈 예정)
+# ---------------------------------------------------------------------------
+from scripts import buy_wizard as _bw  # noqa: E402
+
+
+class BuyWizardProfile(BaseModel):
+    cash_on_hand: int
+    annual_income: int = 0
+    existing_annual_payment: int = 0        # 기존대출 연 원리금 상환액(원)
+    buyer_type: str = "none"                # none|sell_one|keep_one|multi
+    is_first_time: bool = False
+    purpose: str = "live"                   # live|gap
+    region_codes: list[str] = Field(default_factory=list)   # 시군구 cortar 5+자리
+    dong_codes: list[str] = Field(default_factory=list)
+    area_min: float = 0
+    area_max: float = 300
+    mortgage_rate: float | None = None
+    loan_years: int | None = None
+    preserve_cash: int | None = None
+
+
+@app.get("/admin/buywizard/policy")
+def buywizard_policy_get(_admin: dict = Depends(admin_user)):
+    return _bw.load_policy()
+
+
+@app.put("/admin/buywizard/policy")
+def buywizard_policy_put(policy: dict, _admin: dict = Depends(admin_user)):
+    cur = _bw.load_policy()
+    cur.update(policy or {})
+    _bw.save_policy(cur)
+    return {"ok": True}
+
+
+@app.post("/admin/buywizard/recommend")
+def buywizard_recommend(p: BuyWizardProfile, _admin: dict = Depends(admin_user)):
+    profile = p.dict()
+    if profile.get("preserve_cash") is None:
+        profile["preserve_cash"] = _bw.load_policy()["preserve_cash_default"]
+    with _open_db() as c:
+        out = _bw.recommend(c, profile, _bw.load_policy())
+    out["disclaimer"] = ("실제 대출 가능액과 세금은 금융기관·지자체·개인 조건에 따라 "
+                         "달라질 수 있습니다. 방·욕실 수는 전용면적 기반 추정치입니다.")
+    return out
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

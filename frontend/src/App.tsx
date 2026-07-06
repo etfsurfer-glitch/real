@@ -6,7 +6,7 @@ import {
   Sparkles, LayoutDashboard, BadgePercent,
   TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, type LucideIcon,
+  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Wand2, type LucideIcon,
 } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
@@ -25,6 +25,7 @@ import Realtor from "./pages/Realtor";
 import SuspiciousRealtors from "./pages/SuspiciousRealtors";
 import AdminDashboard from "./pages/AdminDashboard";
 import AuditRealtor from "./pages/AuditRealtor";
+import BuyWizard from "./pages/BuyWizard";
 import AdminReviews from "./pages/AdminReviews";
 import AdminRealtorMatch from "./pages/AdminRealtorMatch";
 import AdminUsers from "./pages/AdminUsers";
@@ -345,6 +346,7 @@ function AppShell() {
         <Route path="/admin/data-sources" element={<RequireAdmin><AdminDataSources /></RequireAdmin>} />
         <Route path="/admin/push" element={<RequireAdmin><AdminPush /></RequireAdmin>} />
         <Route path="/admin/audit" element={<RequireAdmin><AuditRealtor /></RequireAdmin>} />
+        <Route path="/admin/buywizard" element={<RequireAdmin><BuyWizard /></RequireAdmin>} />
         <Route path="/admin/today" element={<RequireAdmin><AdminTodayStats /></RequireAdmin>} />
         <Route path="/admin/ops" element={<RequireAdmin><AdminOps /></RequireAdmin>} />
         <Route path="/admin/kpi" element={<RequireAdmin><AdminKpi /></RequireAdmin>} />
@@ -415,6 +417,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/resident", label: "입주민 인증", icon: HomeIcon },
   { to: "/admin/realtor-requests", label: "중개사 라운지", icon: Building2 },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck },
+  { to: "/admin/buywizard", label: "매수마법사", icon: Wand2 },
 ];
 
 function AdminBar() {
