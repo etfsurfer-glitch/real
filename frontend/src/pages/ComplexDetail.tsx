@@ -746,7 +746,7 @@ function QuickDealSection({ deals }: { deals: DealRow[] }) {
 
 function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
   const [tab, setTab] = useState<"A1" | "B1" | "B2">("A1");
-  const [focus, setFocus] = useState<string | null>(null);   // 타입 하이라이트
+  const [sel, setSel] = useState<Set<string> | null>(null);   // 차트 표시 타입(null=기본 상위 3개)
   const priceLabel = tab === "A1" ? "매매가" : "보증금";
 
   const rows = trend.filter((r) => r.trade_type === tab);
@@ -786,6 +786,19 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
 
   const seriesOf = (a: string) => shownWeeks.map((w) => cell[`${a}|${w}`] ?? null);
 
+  // 기본은 데이터 많은 상위 3개만 — 전 타입을 한 번에 그리면 난잡해 판독 불가
+  const dataCount = (a: string) => seriesOf(a).filter((v) => v != null).length;
+  const defaultSel = [...areas]
+    .sort((x, y) => dataCount(y) - dataCount(x) || areaNum(x) - areaNum(y))
+    .slice(0, 3);
+  const shownSet = sel ?? new Set(defaultSel);
+  const toggleArea = (a: string) => {
+    const next = new Set(shownSet);
+    if (next.has(a)) next.delete(a); else next.add(a);
+    if (next.size === 0) return;   // 최소 1개 유지
+    setSel(next);
+  };
+
   return (
     <>
       <div className="section-title" style={{ marginTop: 4 }}>
@@ -794,7 +807,7 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
       <div className="chip-row" style={{ marginBottom: 10 }}>
         {([["A1", "매매"], ["B1", "전세"], ["B2", "월세"]] as const).map(([k, label]) => (
           <button key={k} type="button" className={`chip ${tab === k ? "active" : ""}`}
-            onClick={() => { setTab(k); setFocus(null); }}>
+            onClick={() => { setTab(k); setSel(null); }}>
             {label}
           </button>
         ))}
@@ -803,20 +816,29 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
         <div className="muted">변동 이력 없음</div>
       ) : (
         <>
-          {/* 타입 칩 — 클릭=해당 타입 하이라이트(차트·표 연동) */}
+          {/* 타입 칩 — 다중선택 토글: 선택한 타입만 차트에 그림 */}
           <div className="chip-row" style={{ marginBottom: 8, gap: 5 }}>
-            {areas.map((a) => (
-              <button key={a} type="button" className={`chip ${focus === a ? "active" : ""}`}
-                style={{ paddingLeft: 9 }}
-                onClick={() => setFocus(focus === a ? null : a)}>
-                <i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 99,
-                  background: colorOf(a), marginRight: 5, verticalAlign: "0" }} />
-                {a}
+            {areas.map((a) => {
+              const on = shownSet.has(a);
+              return (
+                <button key={a} type="button" className={`chip ${on ? "active" : ""}`}
+                  style={{ paddingLeft: 9 }} onClick={() => toggleArea(a)}>
+                  <i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 99,
+                    background: on ? colorOf(a) : "#cbd5e1", marginRight: 5, verticalAlign: "0" }} />
+                  {a}
+                </button>
+              );
+            })}
+            {areas.length > 3 && (
+              <button type="button" className={`chip ${shownSet.size === areas.length ? "active" : ""}`}
+                onClick={() => setSel(shownSet.size === areas.length ? new Set(defaultSel) : new Set(areas))}>
+                전체
               </button>
-            ))}
+            )}
           </div>
-          <TrendChart weeks={shownWeeks} weekLabel={weekLabel} areas={areas}
-            seriesOf={seriesOf} colorOf={colorOf} focus={focus} />
+          <TrendChart weeks={shownWeeks} weekLabel={weekLabel}
+            areas={areas.filter((a) => shownSet.has(a))}
+            seriesOf={seriesOf} colorOf={colorOf} />
           <div style={{ overflowX: "auto" }}>
             <table>
               <thead>
@@ -840,13 +862,13 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
                   const pct = first != null && last != null && first !== 0
                     ? ((last - first) / first) * 100 : null;
                   const isNew = series[0] == null && last != null;   // 최근에 등장한 타입
-                  const dim = focus != null && focus !== a;
+                  const on = shownSet.has(a);
                   return (
-                    <tr key={a} style={{ opacity: dim ? 0.35 : 1, cursor: "pointer" }}
-                      onClick={() => setFocus(focus === a ? null : a)}>
+                    <tr key={a} style={{ opacity: on ? 1 : 0.5, cursor: "pointer" }}
+                      onClick={() => toggleArea(a)}>
                       <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>
                         <i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 99,
-                          background: colorOf(a), marginRight: 6 }} />
+                          background: on ? colorOf(a) : "#cbd5e1", marginRight: 6 }} />
                         {a}
                       </td>
                       {series.map((v, i) => (
@@ -880,38 +902,54 @@ function PriceTrendSection({ trend }: { trend: TrendRow[] }) {
   );
 }
 
-/** 호가추이 라인차트 — 주차 × 타입별 평균가. 칩/행 클릭 시 해당 타입 강조. */
-function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf, focus }: {
+/** 호가추이 라인차트 — 선택된 타입만 그림. y축은 선택 라인에 맞춰 자동 확대, 라인 끝에 타입명 라벨. */
+function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf }: {
   weeks: string[]; weekLabel: Record<string, string>; areas: string[];
-  seriesOf: (a: string) => (number | null)[]; colorOf: (a: string) => string; focus: string | null;
+  seriesOf: (a: string) => (number | null)[]; colorOf: (a: string) => string;
 }) {
-  const W = 720, H = 210, L = 52, R = 14, T = 12, B = 26;
+  // 모바일 폭(약 370px)에서도 가로 스크롤 없이 통째로 보이도록 좁은 좌표계 사용
+  const W = 460, H = 250, L = 46, R = 50, T = 14, B = 24;
   const vals: number[] = [];
   for (const a of areas) for (const v of seriesOf(a)) if (v != null) vals.push(v);
   if (!vals.length || weeks.length < 2) return null;
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  const pad = (hi - lo) * 0.08 || hi * 0.02;
+  const pad = (hi - lo) * 0.12 || hi * 0.01;
   lo -= pad; hi += pad;
   const x = (i: number) => L + (i / (weeks.length - 1)) * (W - L - R);
   const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-  const fmtTick = (v: number) => (v >= 1e8 ? `${(v / 1e8).toFixed(v >= 1e9 ? 0 : 1)}억` : `${Math.round(v / 1e4).toLocaleString()}만`);
+  const fmtTick = (v: number) => (v >= 1e8 ? `${(v / 1e8).toFixed(hi - lo < 2e8 ? 1 : 0)}억` : `${Math.round(v / 1e4).toLocaleString()}만`);
   const ticks = [0, 1, 2, 3].map((i) => lo + ((hi - lo) * i) / 3);
+  // 라인 끝 타입명 라벨 — 겹치면 12px 간격으로 밀어냄
+  const ends = areas
+    .map((a) => {
+      const s = seriesOf(a);
+      for (let i = s.length - 1; i >= 0; i--) if (s[i] != null) return { a, ly: y(s[i]!) };
+      return null;
+    })
+    .filter((e): e is { a: string; ly: number } => e != null)
+    .sort((p, q) => p.ly - q.ly);
+  for (let i = 1; i < ends.length; i++) {
+    if (ends[i].ly - ends[i - 1].ly < 12) ends[i].ly = ends[i - 1].ly + 12;
+  }
+  const labelY: Record<string, number> = {};
+  for (const e of ends) labelY[e.a] = Math.min(H - B - 2, Math.max(T + 4, e.ly));
+  // 주차 라벨이 겹치면 마지막 주 기준으로 한 칸씩 건너뜀
+  const xStep = weeks.length >= 7 ? 2 : 1;
   return (
-    <div style={{ overflowX: "auto", marginBottom: 12 }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 520, display: "block" }}>
+    <div style={{ marginBottom: 12 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: 640, display: "block" }}>
         {ticks.map((tv, i) => (
           <g key={i}>
             <line x1={L} x2={W - R} y1={y(tv)} y2={y(tv)} stroke="#eef2f7" strokeWidth="1" />
             <text x={L - 6} y={y(tv) + 3.5} textAnchor="end" fontSize="10.5" fill="#94a3b8">{fmtTick(tv)}</text>
           </g>
         ))}
-        {weeks.map((w, i) => (
-          <text key={w} x={x(i)} y={H - 8} textAnchor="middle" fontSize="10.5" fill="#94a3b8">{weekLabel[w]}</text>
+        {weeks.map((w, i) => (weeks.length - 1 - i) % xStep === 0 && (
+          <text key={w} x={x(i)} y={H - 7} textAnchor="middle" fontSize="10.5" fill="#94a3b8">{weekLabel[w]}</text>
         ))}
         {areas.map((a) => {
           const s = seriesOf(a);
           const pts = s.map((v, i) => (v == null ? null : [x(i), y(v)] as const));
-          const dim = focus != null && focus !== a;
           // null 건너뛰며 세그먼트 연결
           let d = "";
           let pen = false;
@@ -920,13 +958,15 @@ function TrendChart({ weeks, weekLabel, areas, seriesOf, colorOf, focus }: {
             d += `${pen ? "L" : "M"}${pt[0].toFixed(1)} ${pt[1].toFixed(1)}`;
             pen = true;
           }
+          const lastPt = [...pts].reverse().find((p) => p != null);
           return (
-            <g key={a} opacity={dim ? 0.13 : 1}>
+            <g key={a}>
               <path d={d} fill="none" stroke={colorOf(a)}
-                strokeWidth={focus === a ? 2.6 : 1.8} strokeLinejoin="round" strokeLinecap="round" />
-              {pts.map((pt, i) => pt && (
-                <circle key={i} cx={pt[0]} cy={pt[1]} r={focus === a ? 3.2 : 2.2} fill={colorOf(a)} />
-              ))}
+                strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" />
+              {lastPt && <circle cx={lastPt[0]} cy={lastPt[1]} r={3.2} fill={colorOf(a)} />}
+              {lastPt && (
+                <text x={W - R + 7} y={labelY[a] + 3.5} fontSize="12" fontWeight="700" fill={colorOf(a)}>{a}</text>
+              )}
             </g>
           );
         })}
