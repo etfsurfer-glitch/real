@@ -74,6 +74,7 @@ step "step 7: fetch_complex_detail"        $PY -u scripts/fetch_complex_detail.p
 step "step 8: fetch_naver_realtors"        $PY -u scripts/fetch_naver_realtors_direct.py --only-missing --parallel 8; nrealtor_exit=$?
 
 # 9~10) 매칭 (시군구-local 안전 병렬)
+step "step 8-pre-a: hidden 신규 검증(등록번호, 일 300그룹)" $PY -u scripts/build_hidden_realtor_map.py --limit 300 --workers 3
 step "step 8-pre: hidden_realtor_map(숨김ID 귀속)" $PY -u scripts/apply_hidden_realtor_map.py
 
 step "step 9: match_clean (realtor)"       $PY -u scripts/match_clean.py; match_exit=$?

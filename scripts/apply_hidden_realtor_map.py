@@ -42,12 +42,11 @@ def main() -> None:
                 print(f"  [단지형] {nm}({pfx}) → {rid}: {cur.rowcount}건")
             total += cur.rowcount
         c.commit()
-    # 비단지 4DB(상가·사무실·빌라·단독)도 동일 귀속 — cortar_no 직접 보유
-    for dbf in ("listings_sangga.sqlite", "listings_office.sqlite",
-                "listings_villa.sqlite", "listings_house.sqlite"):
-        path = DB.parent / dbf
-        if not path.exists():
-            continue
+    # 비단지 전체 DB(상가·사무실·빌라·단독·원룸·토지·건물·공장·지산·재개발)도 동일 귀속
+    import glob as _glob
+    for path_s in sorted(_glob.glob(str(DB.parent / "listings_*.sqlite"))):
+        path = Path(path_s)
+        dbf = path.name
         with sqlite3.connect(path) as rc:
             for nm, pfx, rid in maps:
                 cur = rc.execute(

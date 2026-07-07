@@ -2487,7 +2487,33 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
                 if rid not in seen:
                     nat = ranks["national"].get(rid)
                     seen.add(rid); items.append((rid, name, nat[1] if nat else 0))
+        items += _vworld_search_fallback(q, sido, seen)
     return _realtors_search_finish(q, sido, items, limit)
+
+
+def _vworld_search_fallback(q: str, sido: str, seen: set) -> list:
+    """네이버 프로필이 없는 사무소도 공부(vworld) 상호·대표로 검색되게 하는 폴백.
+    브라운홈즈(동대문, 네이버 ID 숨김) 사례 — 매물에 중개사 정보가 있는데 검색 실종 방지.
+    이미 네이버 ID로 매칭(realtor_match)됐거나 프로비저닝된 사무소는 naver 경로가 커버."""
+    core = _office_core(q) or q
+    out = []
+    with _open_db() as c:
+        cond = ("vb.status='영업' AND (vb.business_name LIKE ? OR vb.representative = ?) "
+                "AND NOT EXISTS (SELECT 1 FROM realtor_match rm WHERE rm.sys_regno=vb.sys_regno "
+                "                AND rm.realtor_id IS NOT NULL)")
+        params: list = [f"%{core}%", q]
+        if sido:
+            # sgg_cd 5자리의 앞 2자리 = 시도
+            cond += " AND substr(vb.sgg_cd,1,2)=?"; params.append(sido)
+        for sregno, name in c.execute(
+                f"SELECT vb.sys_regno, vb.business_name FROM vworld_brokers vb "
+                f"WHERE {cond} LIMIT 40", params):
+            rid = f"vw{sregno}"
+            if rid in seen:
+                continue
+            seen.add(rid)
+            out.append((rid, name, 0))
+    return out
 
 
 def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
@@ -2521,6 +2547,19 @@ def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
                 f"FROM realtor_match m LEFT JOIN vworld_brokers vb ON vb.sys_regno=m.sys_regno "
                 f"WHERE m.realtor_id IN ({qm})", ids):
                 meta[rid] = (staff or None, int(est) if (est and est.isdigit()) else None)
+            # vworld 폴백(vw{sys_regno}) — 프로비저닝 전이라 naver_realtors에 없을 수 있음
+            vw_missing = [rid for rid in ids if rid.startswith("vw") and rid not in info]
+            if vw_missing:
+                qm2 = ",".join("?" * len(vw_missing))
+                for sregno, rep, addr, est in c.execute(
+                        f"SELECT sys_regno, representative, address, substr(registered_ymd,1,4) "
+                        f"FROM vworld_brokers WHERE sys_regno IN ({qm2})",
+                        [r[2:] for r in vw_missing]):
+                    rid = f"vw{sregno}"
+                    info[rid] = (rep, addr)
+                    staff = c.execute("SELECT COUNT(*) FROM vworld_employees WHERE sys_regno=?",
+                                      (sregno,)).fetchone()[0]
+                    meta[rid] = (staff or None, int(est) if (est and est.isdigit()) else None)
 
     def _loc(addr: str | None) -> str | None:
         if not addr:
