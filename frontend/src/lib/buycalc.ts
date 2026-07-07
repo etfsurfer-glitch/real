@@ -2,6 +2,7 @@
 // 디컴파일 분석 후 동일 산식으로 복제 (2026-07-07). 전부 원(₩) 단위, 클라이언트 즉시 계산.
 
 export type RegionalType = "seoul" | "overconcentration" | "metro" | "other";
+export type LoanRegion = "regulated" | "capital" | "other";
 
 export type CalcInput = {
   salePrice: number;            // 매매가
@@ -13,6 +14,7 @@ export type CalcInput = {
   regionalType: RegionalType;   // 방공제·채권 도시구분
   manualDefenseFund: number | null;
   isAdjustedArea: boolean;      // 조정대상지역
+  loanRegion: LoanRegion;       // 대출규제 지역구분 (규제지역/수도권 비규제/그 외)
   houseCount: number;           // 구입 전 보유 주택 수 0~3
   isOver85m2: boolean;
   isFirstTime: boolean;
@@ -36,7 +38,7 @@ export const DEFAULT_INPUT: CalcInput = {
   salePrice: 500_000_000, loanAmount: 300_000_000, currentCash: 200_000_000,
   downPaymentRatio: 10, hasDownPaymentPaid: false,
   hasDefenseFund: true, regionalType: "seoul", manualDefenseFund: null,
-  isAdjustedArea: false, houseCount: 0, isOver85m2: false,
+  isAdjustedArea: false, loanRegion: "regulated", houseCount: 0, isOver85m2: false,
   isFirstTime: false, isTempTwoHouse: false,
   standardPrice: 350_000_000, contingencyRatio: 10,
   brokerageFeePreset: "auto", manualBrokerageFee: 0,
@@ -95,6 +97,47 @@ export function nationalHousingBond(standardPrice: number, isCity: boolean): num
     : e < 6e8 ? (isCity ? 0.026 : 0.021)
     : (isCity ? 0.031 : 0.026);
   return Math.floor(Math.floor(e * r) * 0.12);
+}
+
+// ---- 정부 대출규제 (2025.6.27·10.15 대책 기준 — 정책 변경 시 이 블록만 수정) ----
+//  · 수도권·규제지역: 2주택 이상 추가구입, 1주택 유지 추가구입 → 주담대 금지
+//  · 규제지역 LTV 50% (무주택·처분조건부, 생애최초 포함) / 수도권 비규제 70%
+//  · 비규제 지방: 무주택 70%, 생애최초 80%, 1주택 유지·다주택 60%
+//  · 수도권·규제지역 주담대 총액 캡: 15억↓ 6억 / 15~25억 4억 / 25억↑ 2억
+export type LoanReg = {
+  banned: boolean; reason: string;
+  ltv: number; ltvAmt: number; cap: number | null; maxLoan: number;
+  buyerLabel: string;
+};
+
+export function loanRegulation(i: Pick<CalcInput,
+  "salePrice" | "loanRegion" | "houseCount" | "isTempTwoHouse" | "isFirstTime">): LoanReg {
+  const capitalOrReg = i.loanRegion !== "other";
+  const buyer =
+    i.houseCount === 0 ? "무주택"
+    : i.isTempTwoHouse ? "처분조건부(일시적 2주택)"
+    : i.houseCount === 1 ? "1주택 유지"
+    : "다주택";
+
+  if (capitalOrReg && (buyer === "다주택" || buyer === "1주택 유지")) {
+    return { banned: true, buyerLabel: buyer,
+      reason: `수도권·규제지역 ${buyer} 추가 구입은 주담대가 금지됩니다 (2025.6.27 대책)`,
+      ltv: 0, ltvAmt: 0, cap: null, maxLoan: 0 };
+  }
+  let ltv: number;
+  if (i.loanRegion === "regulated") ltv = 0.5;
+  else if (i.loanRegion === "capital") ltv = 0.7;
+  else if (buyer === "1주택 유지" || buyer === "다주택") ltv = 0.6;
+  else ltv = i.isFirstTime ? 0.8 : 0.7;
+
+  const ltvAmt = Math.floor(i.salePrice * ltv);
+  let cap: number | null = null;
+  if (capitalOrReg) {
+    cap = i.salePrice <= 1_500_000_000 ? 600_000_000
+      : i.salePrice <= 2_500_000_000 ? 400_000_000 : 200_000_000;
+  }
+  return { banned: false, buyerLabel: buyer, reason: "",
+    ltv, ltvAmt, cap, maxLoan: Math.min(ltvAmt, cap ?? Infinity) };
 }
 
 export function defenseFundAmount(t: RegionalType): number {
@@ -239,13 +282,20 @@ export function calculate(i: CalcInput): CalcResult {
   };
 }
 
-/** 현재 대출금·현금 고정 상태에서 cashGap≥0 인 최대 매매가 (추천 연동용). */
+/** 가격별 실제 적용 대출금 = min(사용자 대출금, 규제 한도) — 규제가 가격에 따라 변함 */
+export function effectiveLoan(base: CalcInput, price: number): number {
+  const reg = loanRegulation({ ...base, salePrice: price });
+  return Math.max(0, Math.min(base.loanAmount, reg.maxLoan));
+}
+
+/** 현재 대출금·현금 기준 cashGap≥0 인 최대 매매가 (추천 연동용). 규제 한도 자동 반영. */
 export function maxAffordablePrice(base: CalcInput): number {
   const feasible = (price: number) => {
     const std = base.standardPrice > 0 && base.salePrice > 0
       ? Math.floor(price * (base.standardPrice / base.salePrice))
       : Math.floor(price * 0.7);
-    return calculate({ ...base, salePrice: price, standardPrice: std }).cashGap >= 0;
+    return calculate({ ...base, salePrice: price, standardPrice: std,
+      loanAmount: effectiveLoan(base, price) }).cashGap >= 0;
   };
   if (!feasible(10_000_000)) return 0;
   let lo = 10_000_000, hi = 10_000_000_000;

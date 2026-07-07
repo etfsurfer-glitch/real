@@ -11,7 +11,8 @@ import {
 import { useAuth } from "../auth";
 import {
   CalcInput, DEFAULT_INPUT, calculate, maxAffordablePrice, defenseFundAmount,
-  brokerageFee, lawyerFee, STAGE_LABEL, STAGE_ORDER, fmtWon, fmtEok,
+  brokerageFee, lawyerFee, loanRegulation, effectiveLoan,
+  STAGE_LABEL, STAGE_ORDER, fmtWon, fmtEok,
 } from "../lib/buycalc";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -50,6 +51,8 @@ export default function BuyWizard() {
 
   const res = useMemo(() => calculate(inp), [inp]);
   const ok = res.cashGap >= 0;
+  const reg = useMemo(() => loanRegulation(inp), [inp]);
+  const loanOver = !reg.banned && inp.loanAmount > reg.maxLoan;
 
   // ---- 추천 섹션 상태 ----
   const [sidos, setSidos] = useState<Region[]>([]);
@@ -272,6 +275,58 @@ export default function BuyWizard() {
               onSet={(v) => set({ loanAmount: v })} />
             <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
               * 인지세는 대출금액 기준 자동 계산 (1천만~5천만: 5만 · ~1억: 10만 · 1억 초과: 15만)
+            </div>
+
+            {/* 정부 대출규제 한도 체크 — 지역·가격·주택상황에 따라 대출 가능액이 달라짐 */}
+            <div style={{ marginTop: 10, border: `1px solid ${loanOver || reg.banned ? "#f4c7c7" : BORDER}`,
+              background: loanOver || reg.banned ? "#fef7f7" : "#f8fafc", borderRadius: 10, padding: "10px 12px" }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
+                🏛 정부 대출규제 한도
+                <Hint text={"2025.6.27·10.15 대책 기준입니다.\n• 수도권·규제지역: 다주택/1주택(유지) 추가구입 주담대 금지\n• 규제지역 LTV 50%, 수도권 비규제 70%, 지방 70%(생애최초 80%)\n• 수도권·규제지역 주담대 캡: 15억↓ 6억 / 15~25억 4억 / 25억↑ 2억\n실제 한도는 DSR·은행 심사로 더 줄 수 있습니다."} />
+              </div>
+              <div className="chip-row" style={{ marginBottom: 8 }}>
+                {([["regulated", "규제지역 (서울 등)"], ["capital", "수도권 비규제"], ["other", "그 외 지방"]] as const).map(([k, l]) => (
+                  <button key={k} type="button" className={`chip ${inp.loanRegion === k ? "active" : ""}`}
+                    onClick={() => set({ loanRegion: k })}>{l}</button>
+                ))}
+              </div>
+              {reg.banned ? (
+                <div style={{ fontSize: 13, color: RED, fontWeight: 600 }}>{reg.reason}</div>
+              ) : (
+                <>
+                  <div style={{ display: "grid", gap: 3, fontSize: 12.5, color: "#475569" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span>LTV {Math.round(reg.ltv * 100)}% ({reg.buyerLabel}{inp.isFirstTime && inp.houseCount === 0 ? "·생애최초" : ""})</span>
+                      <b>{fmtEok(reg.ltvAmt)}</b>
+                    </div>
+                    {reg.cap != null && (
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span>가격별 주담대 캡 (매매가 {fmtEok(inp.salePrice)})</span>
+                        <b>{fmtEok(reg.cap)}</b>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${BORDER}`, paddingTop: 4, marginTop: 2 }}>
+                      <span style={{ fontWeight: 700, color: "#0f172a" }}>최대 대출 가능액</span>
+                      <b style={{ color: PRIMARY, fontSize: 13.5 }}>{fmtEok(reg.maxLoan)}</b>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                    {loanOver ? (
+                      <span style={{ fontSize: 12.5, color: RED, fontWeight: 600 }}>
+                        입력 대출금이 규제 한도를 {fmtEok(inp.loanAmount - reg.maxLoan)} 초과합니다
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 12.5, color: GREEN }}>입력 대출금 {fmtEok(inp.loanAmount)} — 한도 이내 ✓</span>
+                    )}
+                    {inp.loanAmount !== reg.maxLoan && (
+                      <button type="button" className="chip" style={{ fontSize: 12 }}
+                        onClick={() => set({ loanAmount: reg.maxLoan })}>
+                        한도({fmtEok(reg.maxLoan)})를 대출금에 적용
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
             <label style={{ fontSize: 13.5, display: "flex", gap: 6, alignItems: "center", marginTop: 8 }}>
               <input type="checkbox" checked={inp.hasDefenseFund}
@@ -645,7 +700,9 @@ export default function BuyWizard() {
                 const std = inp.salePrice > 0
                   ? Math.floor(it.min_ask * (inp.standardPrice / inp.salePrice))
                   : Math.floor(it.min_ask * 0.7);
-                const c = calculate({ ...inp, salePrice: it.min_ask, standardPrice: std });
+                // 대출금은 매물가 기준 규제 한도(LTV·가격별 캡)로 자동 캡핑
+                const c = calculate({ ...inp, salePrice: it.min_ask, standardPrice: std,
+                  loanAmount: effectiveLoan(inp, it.min_ask) });
                 const feasible = c.cashGap >= 0;
                 const disc = it.tx_avg ? (it.tx_avg - it.min_ask) / it.tx_avg : null;
                 return (
