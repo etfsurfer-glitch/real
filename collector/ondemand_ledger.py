@@ -475,3 +475,40 @@ def commercial_for_pnu(pnu, datago_keys):
     _cput(ck, r)
     _cache[ck] = r
     return r
+
+
+def title_sets_for_pnu(pnu, datago_keys):
+    """PNU → 같은 지번 '주건축물 전체 동'의 총층·사용승인 집합(any-match 대조용).
+
+    같은 지번 다동(여의도 iM증권: A동 업무 19층 + B동 근생 2층)에서 네이버 inline
+    대장이 한 동(B동)만 반환 → ⑥총층·⑨사용승인 오탐 나던 문제(2026-07-07).
+    비단지 점검은 이 집합을 led에 병합해 '어느 동과 맞으면 통과'로 대조한다.
+    캐시 키 TS1(영속). 없음확정=None 캐시, 일시오류=캐시 금지."""
+    j = _pnu_to_jibun(pnu)
+    if not j:
+        return None
+    sgg, bjd, plat, bun, ji = j
+    ck = f"TS1{sgg}{bjd}{plat}{bun}{ji}"
+    if ck in _cache:
+        return _cache[ck]
+    v = _cget(ck)
+    if v is not _MISS:
+        _cache[ck] = v
+        return v
+    if isinstance(datago_keys, str):
+        datago_keys = [datago_keys]
+    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji}
+    items = _br_items(BR_URL, base, datago_keys)
+    if items is _ERR:
+        return None                    # 일시 실패 — 캐시 금지(재시도)
+
+    def g(it, tag):
+        return (it.findtext(tag) or "").strip()
+
+    main = [it for it in items if g(it, "mainAtchGbCd") in ("", "0")] or items
+    floors = sorted({f for f in (_int(g(it, "grndFlrCnt")) for it in main) if f})
+    useaps = sorted({g(it, "useAprDay") for it in main if g(it, "useAprDay")})
+    v = {"grnd_flr_all": floors, "use_apr_all": useaps} if (floors or useaps) else None
+    _cput(ck, v)
+    _cache[ck] = v
+    return v

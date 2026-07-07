@@ -10126,7 +10126,7 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
     from collector.listing_audit import audit_listing
     from collector.ondemand_ledger import (ledger_for_coord, expos_areas_for_coord,
                                            expos_areas_for_pnu, flr_ouln_for_pnu,
-                                           commercial_for_pnu)
+                                           commercial_for_pnu, title_sets_for_pnu)
     det = fetch_and_extract(r["article_no"], None, creds)
     if det is None or det.get("_delisted"):
         return _audit_skip_result(r, _NONRESI_LABEL.get(cat, cat), delisted=bool(det))
@@ -10145,6 +10145,7 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
     # 상가·사무실 매물인데 대장이 주거/숙박 타워를 가리키면(단지내상가 등) → 같은 지번의
     # 별도 '상가동' 대장을 찾아 그 동 기준으로 대조(사용자 지시). 상가동 없으면 기존대로
     # 대조 생략(led_comparable=False 경로).
+    _swapped = False
     if (cat in ("sangga", "office", "knowledge") and dks and led and led.get("pnu")
             and any(k in (led.get("main_purps") or "")
                     for k in ("공동주택", "아파트", "오피스텔", "숙박", "기숙사", "도시형생활"))):
@@ -10152,6 +10153,19 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
         comm = commercial_for_pnu(_pnu, dks)
         if comm:
             led = dict(comm, pnu=_pnu)
+            _swapped = True
+    # ⑥총층·⑨사용승인 any-match — 같은 지번 '전체 주건축물 동' 집합으로 대조.
+    # 네이버 inline 대장이 한 동만 반환해 오탐 나던 문제(여의도 iM증권 A동 19층 매물이
+    # B동 근생 2층과 대조돼 위반 오판, 2026-07-07). 상가동 스왑 케이스는 스왑 집합이
+    # 이미 any-match라 병합하지 않음(주거타워 층수 섞이면 미탐 위험).
+    if (not _swapped and dks and led and led.get("pnu") and not led.get("grnd_flr_all")):
+        _ts = title_sets_for_pnu(led["pnu"], dks)
+        if _ts:
+            led = dict(led)
+            if _ts.get("grnd_flr_all"):
+                led["grnd_flr_all"] = _ts["grnd_flr_all"]
+            if _ts.get("use_apr_all"):
+                led["use_apr_all"] = _ts["use_apr_all"]
     # ⑬ 층별 용도(층별개요) — inline 대장의 pnu로 온디맨드(혼합건물 정밀 점검).
     floors = flr_ouln_for_pnu(led["pnu"], dks) if (dks and led and led.get("pnu")) else None
     res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos, floors=floors))
