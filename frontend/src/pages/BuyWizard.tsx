@@ -404,11 +404,22 @@ export default function BuyWizard() {
           <PresetRow label={`법무사 비용 — 자동: ${fmtWon(lawyerFee(inp.salePrice))}`}
             options={[["auto", "자동 계산"], ["manual", "직접 입력"]]}
             value={inp.lawyerFeePreset}
-            onSelect={(v) => set({ lawyerFeePreset: v as CalcInput["lawyerFeePreset"] })} />
+            onSelect={(v) => set({ lawyerFeePreset: v as CalcInput["lawyerFeePreset"],
+              ...(v === "manual" && !inp.manualLawyerFee ? { manualLawyerFee: lawyerFee(inp.salePrice) } : {}) })} />
           {inp.lawyerFeePreset === "manual" && (
-            <MoneyField label="법무사 비용 직접 입력" value={inp.manualLawyerFee} quick={[]}
-              onSet={(v) => set({ manualLawyerFee: v })} />
+            <>
+              <MoneyField label="법무사 비용 직접 입력" value={inp.manualLawyerFee} quick={[]}
+                onSet={(v) => set({ manualLawyerFee: v })} />
+              <SetChips value={inp.manualLawyerFee} onSet={(v) => set({ manualLawyerFee: v })}
+                amounts={[[0, "셀프등기 0원"], [5e5, "50만"], [7e5, "70만"], [1e6, "100만"], [15e5, "150만"]]} />
+            </>
           )}
+          <GuideBox title="법무사 비용 가이드 (등기 대행 보수, 통상 수준)" rows={[
+            ["매매가 1억 이하", "약 50만원"],
+            ["1억 ~ 3억", "약 70만원"],
+            ["3억 ~ 5억", "약 100만원"],
+            ["5억 초과", "약 150만원 내외"],
+          ]} note="누진 보수+일당·교통비로 견적 차이가 큽니다. 셀프등기 시 보수 0원(취득세 등 공과금은 동일). 은행 연계 법무사는 근저당 설정비를 은행이 부담하는 경우가 많습니다." />
           <MoneyField label="관리비예치금 (단지마다 다름)" value={inp.managementDeposit}
             quick={Q_MGMT} onSet={(v) => set({ managementDeposit: v })} />
           <PresetRow label="청소 비용"
@@ -422,11 +433,22 @@ export default function BuyWizard() {
           <PresetRow label="이사 비용"
             options={[["none", "없음"], ["small", "100만원"], ["medium", "150만원"], ["large", "200만원"], ["manual", "직접 입력"]]}
             value={inp.movingFeePreset}
-            onSelect={(v) => set({ movingFeePreset: v as CalcInput["movingFeePreset"] })} />
+            onSelect={(v) => set({ movingFeePreset: v as CalcInput["movingFeePreset"],
+              ...(v === "manual" && !inp.manualMovingFee ? { manualMovingFee: 15e5 } : {}) })} />
           {inp.movingFeePreset === "manual" && (
-            <MoneyField label="이사 비용 직접 입력" value={inp.manualMovingFee} quick={[]}
-              onSet={(v) => set({ manualMovingFee: v })} />
+            <>
+              <MoneyField label="이사 비용 직접 입력" value={inp.manualMovingFee} quick={[]}
+                onSet={(v) => set({ manualMovingFee: v })} />
+              <SetChips value={inp.manualMovingFee} onSet={(v) => set({ manualMovingFee: v })}
+                amounts={[[5e5, "50만"], [1e6, "100만"], [15e5, "150만"], [2e6, "200만"], [25e5, "250만"]]} />
+            </>
           )}
+          <GuideBox title="이사 비용 가이드 (포장이사 기준)" rows={[
+            ["원룸·소형 (5톤 미만)", "40만 ~ 80만원"],
+            ["20평대 (59㎡)", "100만 ~ 150만원"],
+            ["30평대 (84㎡)", "150만 ~ 250만원"],
+            ["40평대 이상", "250만원 ~"],
+          ]} note="사다리차(5~15만)·에어컨 이전(10~20만)·입주청소는 별도. 손 없는 날·주말·월말은 20~30% 할증됩니다." />
           <PresetRow label="인테리어 비용"
             options={[["none", "없음"], ["basic", "기본 (매매가 3%)"], ["standard", "표준 (매매가 5%)"], ["premium", "프리미엄 (매매가 8%)"], ["manual", "직접 입력"]]}
             value={inp.interiorFeePreset}
@@ -727,6 +749,46 @@ function MoneyField({ label, value, quick, onSet, hint }: {
         </div>
       )}
       {hint && <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>{hint}</div>}
+    </div>
+  );
+}
+
+/** 가이드 금액으로 '설정'하는 칩 (퀵버튼의 +누적과 달리 값 지정) */
+function SetChips({ value, onSet, amounts }: {
+  value: number; onSet: (v: number) => void; amounts: [number, string][];
+}) {
+  return (
+    <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap" }}>
+      {amounts.map(([v, l]) => (
+        <button key={l} type="button" onClick={() => onSet(v)}
+          style={{ fontSize: 12, padding: "3px 11px", borderRadius: 99,
+            border: `1px solid ${value === v ? PRIMARY : BORDER}`,
+            background: value === v ? "#e8f1fd" : "#fff",
+            color: value === v ? PRIMARY : "#334155", cursor: "pointer", fontWeight: 600 }}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 대략적인 금액 가이드라인 박스 */
+function GuideBox({ title, rows, note }: {
+  title: string; rows: [string, string][]; note?: string;
+}) {
+  return (
+    <div style={{ background: "#f8fafc", border: `1px solid ${BORDER}`, borderRadius: 10,
+      padding: "10px 12px", fontSize: 12.5 }}>
+      <div style={{ fontWeight: 700, color: "#475569", marginBottom: 6 }}>{title}</div>
+      <div style={{ display: "grid", gap: 3 }}>
+        {rows.map(([k, v]) => (
+          <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: "#64748b" }}>{k}</span>
+            <b style={{ fontVariantNumeric: "tabular-nums", color: "#334155" }}>{v}</b>
+          </div>
+        ))}
+      </div>
+      {note && <div className="muted" style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>{note}</div>}
     </div>
   );
 }
