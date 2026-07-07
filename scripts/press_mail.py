@@ -66,7 +66,22 @@ def read_rows(path: Path) -> list[dict]:
                              "name": r[idx.get("name", 0)].strip() if "name" in idx else ""})
             except IndexError:
                 continue
-    return [r for r in rows if "@" in r["email"]]
+    rows = [r for r in rows if "@" in r["email"]]
+    # 이메일 중복 제거(공용 제보주소에 기자 2명 등재된 케이스) — 1통만, 호칭은 부서 톤으로
+    seen: dict[str, dict] = {}
+    for r in rows:
+        key = r["email"].lower()
+        if key in seen:
+            if seen[key]["name"] != r["name"]:
+                seen[key]["name"] = f"{seen[key]['org']} 부동산 담당"
+            continue
+        # 비인명(편집부 등)·공용주소 티가 나는 로컬파트는 부서 호칭
+        local = key.split("@")[0]
+        if r["name"] in ("편집부", "취재부", "보도국", "부동산부") or \
+           any(t in local for t in ("jebo", "press", "desk", "webmaster", "master")):
+            r["name"] = f"{r['org']} 부동산 담당"
+        seen[key] = r
+    return list(seen.values())
 
 
 def build_msg(row: dict, smtp_user: str) -> EmailMessage:
