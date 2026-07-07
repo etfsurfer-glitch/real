@@ -138,8 +138,9 @@ export function RealtorByDong() {
               realtor_name: x.realtor_name || "공인중개사", listings: x.count || 0,
               staff_count: x.staff_count ?? null, established_year: ey,
               tenure_years: ey ? yr - ey : null, phone: null,
-              naver_linked: !!x.realtor_id, sido: x.sido,
-            } as DongRealtor & { sido?: string };
+              naver_linked: !!x.realtor_id,
+              region: x.location ?? null, rep: x.representative ?? null,
+            } as DongRealtor & { region?: string | null; rep?: string | null };
           }));
         }).catch(() => setQRes([]));
     }, 300);
@@ -231,7 +232,14 @@ export function RealtorByDong() {
               {(qRes ?? []).map((r, i) => (
                 <RealtorRowLink key={r.sys_regno} r={r} className="dong-row">
                   <span className="dong-rank">{i + 1}</span>
-                  <span className="dong-name">{r.realtor_name}{r.sido && <em style={{ color: "#9aa7b8", fontWeight: 400 }}> {r.sido}</em>}</span>
+                  <span className="dong-name">{r.realtor_name}
+                    {((r as { region?: string | null }).region || (r as { rep?: string | null }).rep) && (
+                      <em style={{ color: "#9aa7b8", fontWeight: 400, fontStyle: "normal", fontSize: "0.86em", display: "block" }}>
+                        {(r as { region?: string | null }).region}
+                        {(r as { rep?: string | null }).rep ? ` · 대표 ${(r as { rep?: string | null }).rep}` : ""}
+                      </em>
+                    )}
+                  </span>
                   <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
                   <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
                   <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>

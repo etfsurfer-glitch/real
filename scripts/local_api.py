@@ -2516,6 +2516,40 @@ def _vworld_search_fallback(q: str, sido: str, seen: set) -> list:
     return out
 
 
+def _live_realtor_counts(rids: list[str]) -> dict[str, int]:
+    """검색 결과용 실시간 보유매물 카운트(전 매물 DB). 랭킹 pkl에 없는 신규·vw귀속
+    사무소가 '매물 0'으로 보이던 문제 — idx_l_rid_snap 복합 인덱스로 건당 0.1ms 실측(2026-07-07)."""
+    import glob as _g
+    out = {r: 0 for r in rids}
+    if not rids:
+        return out
+    try:
+        with _open_db() as c:
+            qm = ",".join("?" * len(rids))
+            for rid, n in c.execute(
+                    f"SELECT realtor_id, COUNT(*) FROM listings_current "
+                    f"WHERE realtor_id IN ({qm}) GROUP BY realtor_id", rids):
+                out[rid] += n
+        for f in sorted(_g.glob(str(DB_PATH.parent / "listings_*.sqlite"))):
+            d = sqlite3.connect(f"file:{f}?mode=ro", uri=True)
+            try:
+                snap = d.execute("SELECT MAX(snapshot_date) FROM listings").fetchone()[0]
+                if snap:
+                    qm = ",".join("?" * len(rids))
+                    for rid, n in d.execute(
+                            f"SELECT realtor_id, COUNT(*) FROM listings "
+                            f"WHERE snapshot_date=? AND realtor_id IN ({qm}) GROUP BY realtor_id",
+                            [snap] + rids):
+                        out[rid] += n
+            except sqlite3.Error:
+                pass
+            finally:
+                d.close()
+    except sqlite3.Error:
+        pass
+    return out
+
+
 def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
     # 정확 상호 우선: '명가' 검색 시 상호 핵심어가 정확히 '명가'인 사무소(전국 군포 명가공인 등)를
     # '푸르지오명가' 같은 파생 상호(매물 많음)보다 위로 — 흔한 상호가 묻히지 않게.
@@ -2533,6 +2567,7 @@ def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
     info: dict = {}
     meta: dict = {}   # rid -> (staff_count, established_year) — 우리동네와 같은 톤으로 직원·업력 보강
     ids = [rid for rid, _n, _c in items]
+    region_of: dict[str, str] = {}   # rid -> "서울특별시 중구 신당동" (cortar 기반, 동 수준)
     if ids:
         with _open_db() as c:
             qm = ",".join("?" * len(ids))
@@ -2540,6 +2575,17 @@ def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
                 f"SELECT realtor_id, representative_name, address "
                 f"FROM naver_realtors WHERE realtor_id IN ({qm})", ids):
                 info[rid] = (rep, addr)
+            # 지역: 주소 앞 3토큰은 도로명("중구 퇴계로")이 섞임 → cortar_no로 법정동까지 정확히
+            for rid, rsi, rsg, rdo in c.execute(
+                f"SELECT nr.realtor_id, si.cortar_name, sg.cortar_name, do_.cortar_name "
+                f"FROM naver_realtors nr "
+                f"LEFT JOIN regions si ON si.cortar_no=substr(nr.cortar_no,1,2)||'00000000' "
+                f"LEFT JOIN regions sg ON sg.cortar_no=substr(nr.cortar_no,1,5)||'00000' "
+                f"LEFT JOIN regions do_ ON do_.cortar_no=nr.cortar_no AND substr(nr.cortar_no,6,5)!='00000' "
+                f"WHERE nr.realtor_id IN ({qm}) AND nr.cortar_no IS NOT NULL", ids):
+                parts = [x for x in (rsi, rsg, rdo) if x]
+                if parts:
+                    region_of[rid] = " ".join(parts)
             for rid, staff, est in c.execute(
                 f"SELECT m.realtor_id, "
                 f"(SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=m.sys_regno), "
@@ -2547,32 +2593,47 @@ def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
                 f"FROM realtor_match m LEFT JOIN vworld_brokers vb ON vb.sys_regno=m.sys_regno "
                 f"WHERE m.realtor_id IN ({qm})", ids):
                 meta[rid] = (staff or None, int(est) if (est and est.isdigit()) else None)
-            # vworld 폴백(vw{sys_regno}) — 프로비저닝 전이라 naver_realtors에 없을 수 있음
-            vw_missing = [rid for rid in ids if rid.startswith("vw") and rid not in info]
-            if vw_missing:
-                qm2 = ",".join("?" * len(vw_missing))
-                for sregno, rep, addr, est in c.execute(
-                        f"SELECT sys_regno, representative, address, substr(registered_ymd,1,4) "
+            # vworld 폴백(vw{sys_regno}) — 프로비저닝 전이거나 cortar가 시군구 레벨이라
+            # 동이 빠지는 사무소는 vworld의 dong_name(주소 파싱)으로 동 수준까지 보강
+            vw_all = [rid for rid in ids if rid.startswith("vw")]
+            if vw_all:
+                qm2 = ",".join("?" * len(vw_all))
+                for sregno, rep, addr, est, dong_nm in c.execute(
+                        f"SELECT sys_regno, representative, address, substr(registered_ymd,1,4), dong_name "
                         f"FROM vworld_brokers WHERE sys_regno IN ({qm2})",
-                        [r[2:] for r in vw_missing]):
+                        [r[2:] for r in vw_all]):
                     rid = f"vw{sregno}"
-                    info[rid] = (rep, addr)
-                    staff = c.execute("SELECT COUNT(*) FROM vworld_employees WHERE sys_regno=?",
-                                      (sregno,)).fetchone()[0]
-                    meta[rid] = (staff or None, int(est) if (est and est.isdigit()) else None)
+                    if rid not in info:
+                        info[rid] = (rep, addr)
+                        staff = c.execute("SELECT COUNT(*) FROM vworld_employees WHERE sys_regno=?",
+                                          (sregno,)).fetchone()[0]
+                        meta[rid] = (staff or None, int(est) if (est and est.isdigit()) else None)
+                    if dong_nm:
+                        base = region_of.get(rid)
+                        if base and dong_nm not in base:
+                            region_of[rid] = f"{base} {dong_nm}"
+                        elif not base and addr:
+                            region_of[rid] = " ".join(addr.split()[:2] + [dong_nm])
 
-    def _loc(addr: str | None) -> str | None:
+    def _loc(rid: str, addr: str | None) -> str | None:
+        if region_of.get(rid):
+            return region_of[rid]                     # cortar 기반 "시도 시군구 동"
         if not addr:
             return None
         toks = addr.split()
-        return " ".join(toks[:3]) if toks else None  # 시도 시군구 읍면동까지
+        return " ".join(toks[:3]) if toks else None   # 폴백: 주소 앞 3토큰
+
+    # 랭킹 인덱스에 없어 매물 0으로 보이는 사무소(vw 귀속·신규)는 라이브 카운트로 보정
+    zero_ids = [rid for rid, _n, c_ in items if rid and c_ == 0]
+    live = _live_realtor_counts(zero_ids) if zero_ids else {}
 
     return {
         "q": q, "sido": sido,
         "items": [
-            {"realtor_id": rid, "realtor_name": name, "count": n,
+            {"realtor_id": rid, "realtor_name": name,
+             "count": (live.get(rid) or n) if n == 0 else n,
              "representative": (info.get(rid) or (None, None))[0],
-             "location": _loc((info.get(rid) or (None, None))[1]),
+             "location": _loc(rid, (info.get(rid) or (None, None))[1]),
              "address": (info.get(rid) or (None, None))[1],
              "staff_count": (meta.get(rid) or (None, None))[0],
              "established_year": (meta.get(rid) or (None, None))[1]}
