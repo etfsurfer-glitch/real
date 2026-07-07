@@ -62,22 +62,24 @@ function usePhoneState() {
 export function PhoneModal({ token, onClose, onDone }: { token: string; onClose: () => void; onDone: () => void }) {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
-  const [stage, setStage] = useState<"phone" | "code">("phone");
+  // 단계 전환 대신 '발송됨' 상태 — 번호는 계속 보이고 인증번호 칸이 아래 추가된다
+  // (발송 후 화면이 통째로 바뀌어 번호가 사라지니 변화를 인지 못하던 문제, 2026-07-07).
+  const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
   const codeRef = useRef<HTMLInputElement>(null);
 
-  // 인증번호 단계로 가면 입력칸에 자동 포커스 + 보이게 스크롤(모바일서 키보드에 가려 안 보이던 문제 보완)
+  // 발송되면 인증번호 칸에 자동 포커스 + 보이게 스크롤(모바일서 키보드에 가려 안 보이던 문제 보완)
   useEffect(() => {
-    if (stage === "code") {
+    if (sent) {
       const t = setTimeout(() => {
         codeRef.current?.scrollIntoView({ block: "center" });
         codeRef.current?.focus();
       }, 60);
       return () => clearTimeout(t);
     }
-  }, [stage]);
+  }, [sent]);
 
   const auth = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
@@ -108,8 +110,8 @@ export function PhoneModal({ token, onClose, onDone }: { token: string; onClose:
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(errText(d, r.status));
-      setStage("code");
-      setMsg("인증번호를 발송했어요. 5분 안에 입력해주세요.");
+      setSent(true);
+      setCode("");
       if (d.dev_code) setDevCode(d.dev_code); // 알리고 미설정(개발) 시 화면에 노출
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
@@ -135,37 +137,67 @@ export function PhoneModal({ token, onClose, onDone }: { token: string; onClose:
 
   // 모달은 portal 로 document.body 에 렌더. 헤더(backdrop-filter)·계정 드롭다운
   // 안에서 열려도 그 containing block 에 갇히지 않고 viewport 기준 정중앙에 뜬다.
+  const fmtPhone = (p: string) =>
+    p.length === 11 ? `${p.slice(0, 3)}-${p.slice(3, 7)}-${p.slice(7)}` : p;
+
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+      {/* 팝업 크게 — 번호+인증칸이 한 화면에 여유 있게 */}
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 440, width: "calc(100vw - 32px)", padding: "22px 22px 20px" }}>
         <div className="modal-head">
           <span className="modal-title"><ShieldCheck size={16} strokeWidth={2.2} aria-hidden /> 휴대폰 번호 인증</span>
           <button className="phone-banner-x" aria-label="닫기" onClick={onClose}><X size={16} /></button>
         </div>
 
-        {stage === "phone" ? (
-          <>
-            <label className="modal-label">휴대폰 번호</label>
-            <input
-              className="ai-input" inputMode="numeric" placeholder="01012345678"
-              value={phone} onChange={(e) => setPhone(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") sendCode(); }}
-            />
-            <button className="auth-btn kakao modal-cta" disabled={busy || !phone} onClick={sendCode}>
-              {busy ? "발송 중…" : "인증번호 받기"}
+        {/* ① 휴대폰 번호 — 발송 후에도 계속 표시(어디로 보냈는지 확인 가능) */}
+        <label className="modal-label">휴대폰 번호</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            className="ai-input" inputMode="numeric" placeholder="" maxLength={11}
+            value={phone} readOnly={sent}
+            style={sent ? { background: "#f1f5f9", color: "#475569", flex: 1 } : { flex: 1 }}
+            onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ""))}
+            onKeyDown={(e) => { if (e.key === "Enter" && !sent) sendCode(); }}
+          />
+          {sent && (
+            <button type="button" className="phone-banner-x"
+              style={{ fontSize: 13, padding: "0 12px", whiteSpace: "nowrap" }}
+              onClick={() => { setSent(false); setCode(""); setMsg(""); setDevCode(null); }}>
+              번호 변경
             </button>
-          </>
-        ) : (
+          )}
+        </div>
+
+        {!sent && (
+          <button className="auth-btn kakao modal-cta" disabled={busy || phone.length < 10} onClick={sendCode}>
+            {busy ? "발송 중…" : "인증번호 받기"}
+          </button>
+        )}
+
+        {/* ② 발송되면 아래에 인증번호 칸이 '추가'됨 — 화면 변화가 분명히 보이게 */}
+        {sent && (
           <>
-            <label className="modal-label">인증번호 6자리</label>
+            <div style={{ margin: "12px 0 4px", padding: "10px 12px", background: "#eefaf2",
+              border: "1px solid #bfe8cf", borderRadius: 10, fontSize: 13.5, color: "#1f7a4d", lineHeight: 1.5 }}>
+              ✓ <b>{fmtPhone(phone)}</b> 로 인증번호를 보냈어요.<br />
+              문자를 확인하고 아래에 입력해주세요. (5분 유효)
+            </div>
+            <label className="modal-label" style={{ marginTop: 10 }}>인증번호 6자리</label>
             <input
               ref={codeRef}
-              className="ai-input" inputMode="numeric" autoComplete="one-time-code" placeholder="● ● ● ● ● ●" maxLength={6}
+              className="ai-input" inputMode="numeric" autoComplete="one-time-code" placeholder="" maxLength={6}
+              style={{ letterSpacing: 6, fontSize: 18, textAlign: "center" }}
               value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
               onKeyDown={(e) => { if (e.key === "Enter") verify(); }}
             />
             <button className="auth-btn kakao modal-cta" disabled={busy || code.length < 6} onClick={verify}>
               {busy ? "확인 중…" : "인증 완료"}
+            </button>
+            <button type="button" disabled={busy} onClick={sendCode}
+              style={{ marginTop: 8, width: "100%", background: "none", border: "none",
+                color: "#64748b", fontSize: 12.5, textDecoration: "underline", cursor: "pointer" }}>
+              문자가 안 왔나요? 재발송
             </button>
           </>
         )}
