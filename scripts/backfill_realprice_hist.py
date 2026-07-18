@@ -196,14 +196,16 @@ def main() -> int:
     hist.close()
     total_cells = len(months) * len(regions)
 
-    # 키 구성: 기존 키 + (검증 통과한) 추가 키 — 워커 1개/키
+    # 키 구성: 기존 키 + (검증 통과한) 추가 키들(KEY2~KEY9) — 워커 1개/키
     keys = [rp_api.settings.data_go_kr_service_key]
-    k2 = os.getenv("DATA_GO_KR_SERVICE_KEY2", "").strip()
-    if k2:
-        if _validate_key(k2):
-            keys.append(k2)
+    for i in range(2, 10):
+        kx = os.getenv(f"DATA_GO_KR_SERVICE_KEY{i}", "").strip()
+        if not kx:
+            continue
+        if _validate_key(kx):
+            keys.append(kx)
         else:
-            print("[warn] KEY2 검증 실패(활용신청 미승인?) — 단일 키로 진행", flush=True)
+            print(f"[warn] KEY{i} 검증 실패(활용신청 미승인?) — 제외", flush=True)
     # 키별 일일 예산: 키1은 일일수집 몫을 남기고, 추가 키는 전량 사용
     budgets = [args.max_calls] + [9500] * (len(keys) - 1)
     print(f"대상 {len(months)}개월 × {len(regions)}시군구 = {total_cells:,}셀, "
