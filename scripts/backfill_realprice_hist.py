@@ -33,18 +33,56 @@ HIST_DB = HIST_DIR / "realprice_hist.sqlite"
 FIRST_YM = "200601"
 LAST_YM = "202305"   # 본 DB transactions가 2023-06부터 — 경계 중복 없음
 
-# 콜 수 계측 — fetch_all이 내부에서 페이지를 도는 것을 래핑으로 센다.
+# 멀티키 병렬: 워커(스레드)마다 자기 키로 조회 — fetch_xml을 스레드로컬 키 주입형으로 교체.
+# 키2(DATA_GO_KR_SERVICE_KEY2)는 시작 시 검증 실패(미신청 403 등)면 자동 제외.
+import os
+import threading
+import urllib.parse
+import urllib.request
+
+_tls = threading.local()
+_calls_lock = threading.Lock()
 _calls = {"n": 0}
-_orig_fetch_xml = rp_api.fetch_xml
 
 
-def _counting_fetch_xml(*a, **kw):
-    _calls["n"] += 1
-    time.sleep(0.25)   # 예의상 스로틀(초당 4콜)
-    return _orig_fetch_xml(*a, **kw)
+def _keyed_fetch_xml(lawd_cd, deal_ymd, page_no=1, num_rows=1000,
+                     timeout=20, retries=3, endpoint=rp_api.ENDPOINT):
+    key = getattr(_tls, "key", None) or rp_api.settings.data_go_kr_service_key
+    qs = urllib.parse.urlencode({
+        "serviceKey": key, "LAWD_CD": lawd_cd, "DEAL_YMD": deal_ymd,
+        "pageNo": str(page_no), "numOfRows": str(num_rows),
+    })
+    url = f"{endpoint}?{qs}"
+    with _calls_lock:
+        _calls["n"] += 1
+    _tls.calls = getattr(_tls, "calls", 0) + 1
+    time.sleep(0.25)   # 키별 스로틀(워커당 초당 최대 4콜)
+    last = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/xml"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if attempt < retries - 1:
+                time.sleep(2 * (attempt + 1))
+    raise APIError(f"fetch failed after {retries} attempts: {last}")
 
 
-rp_api.fetch_xml = _counting_fetch_xml
+rp_api.fetch_xml = _keyed_fetch_xml
+
+
+def _validate_key(key: str) -> bool:
+    try:
+        qs = urllib.parse.urlencode({"serviceKey": key, "LAWD_CD": "11680",
+                                     "DEAL_YMD": "200601", "numOfRows": "1"})
+        req = urllib.request.Request(f"{rp_api.ENDPOINT}?{qs}",
+                                     headers={"Accept": "application/xml"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return b"<resultCode>000" in r.read()
+    except Exception:
+        return False
 
 
 def _tg(msg: str) -> None:
@@ -155,41 +193,82 @@ def main() -> int:
     months = _months()
     hist = _open_hist()
     done = {(r[0], r[1]) for r in hist.execute("SELECT ym, sgg FROM progress")}
+    hist.close()
     total_cells = len(months) * len(regions)
-    print(f"대상 {len(months)}개월 × {len(regions)}시군구 = {total_cells:,}셀, 완료 {len(done):,}", flush=True)
+
+    # 키 구성: 기존 키 + (검증 통과한) 추가 키 — 워커 1개/키
+    keys = [rp_api.settings.data_go_kr_service_key]
+    k2 = os.getenv("DATA_GO_KR_SERVICE_KEY2", "").strip()
+    if k2:
+        if _validate_key(k2):
+            keys.append(k2)
+        else:
+            print("[warn] KEY2 검증 실패(활용신청 미승인?) — 단일 키로 진행", flush=True)
+    # 키별 일일 예산: 키1은 일일수집 몫을 남기고, 추가 키는 전량 사용
+    budgets = [args.max_calls] + [9500] * (len(keys) - 1)
+    print(f"대상 {len(months)}개월 × {len(regions)}시군구 = {total_cells:,}셀, "
+          f"완료 {len(done):,} · 키 {len(keys)}개(예산 {'+'.join(map(str, budgets))})", flush=True)
     if args.dry:
         return 0
 
-    budget_hit = False
-    for ym in months:
-        month_done_before = all((ym, sgg) in done for sgg in regions)
-        if month_done_before:
-            continue
-        for sgg in regions:
-            if (ym, sgg) in done:
-                continue
-            if _calls["n"] >= args.max_calls:
-                budget_hit = True
-                break
-            try:
-                rows = [_to_row(it, sgg) for it in fetch_all(sgg, ym)]
-            except APIError as e:
-                msg = str(e)
-                if "LIMIT" in msg.upper() or "EXCEED" in msg.upper():
-                    _tg(f"⏸ 실거래 백필: 일일 쿼터 도달({_calls['n']}콜) — 내일 재개")
-                    budget_hit = True
-                    break
-                print(f"[skip] {ym} {sgg}: {msg[:100]}", flush=True)
-                continue   # progress 미기록 → 다음 실행에서 재시도
-            hist.executemany("INSERT INTO hist VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
-            hist.execute("INSERT OR REPLACE INTO progress VALUES (?,?,?,?,?)",
-                         (ym, sgg, len(rows), len(rows), datetime.now().isoformat(timespec="seconds")))
-            hist.commit()
-            done.add((ym, sgg))
-        if budget_hit:
-            break
-        if all((ym, sgg) in done for sgg in regions):
-            _publish_month(hist, ym)
+    done_lock = threading.Lock()
+    pub_lock = threading.Lock()
+    published: set[str] = set()
+    state = {"budget_hit": False, "quota": False}
+
+    def month_complete(ym: str) -> bool:
+        return all((ym, sg) in done for sg in regions)
+
+    def worker(idx: int) -> None:
+        _tls.key = keys[idx]
+        _tls.calls = 0
+        wh = _open_hist()   # 워커별 커넥션(WAL)
+        wh.execute("PRAGMA busy_timeout=30000")
+        my_regions = [sg for i, sg in enumerate(regions) if i % len(keys) == idx]
+        for ym in months:
+            for sgg in my_regions:
+                if (ym, sgg) in done:
+                    continue
+                if _tls.calls >= budgets[idx]:
+                    state["budget_hit"] = True
+                    wh.close()
+                    return
+                try:
+                    rows = [_to_row(it, sgg) for it in fetch_all(sgg, ym)]
+                except APIError as e:
+                    msg = str(e)
+                    if "LIMIT" in msg.upper() or "EXCEED" in msg.upper():
+                        state["quota"] = True
+                        wh.close()
+                        return
+                    print(f"[skip] {ym} {sgg}: {msg[:100]}", flush=True)
+                    continue   # progress 미기록 → 다음 실행에서 재시도
+                wh.executemany("INSERT INTO hist VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+                wh.execute("INSERT OR REPLACE INTO progress VALUES (?,?,?,?,?)",
+                           (ym, sgg, len(rows), len(rows), datetime.now().isoformat(timespec="seconds")))
+                wh.commit()
+                with done_lock:
+                    done.add((ym, sgg))
+                    complete = month_complete(ym)
+                if complete:
+                    with pub_lock:
+                        if ym not in published:
+                            published.add(ym)
+                            try:
+                                _publish_month(wh, ym)
+                            except Exception as pe:  # noqa: BLE001
+                                print(f"[publish-err] {ym}: {pe}", flush=True)
+        wh.close()
+
+    threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(len(keys))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    budget_hit = state["budget_hit"] or state["quota"]
+    if state["quota"]:
+        _tg(f"⏸ 실거래 백필: 일일 쿼터 도달({_calls['n']:,}콜) — 내일 재개")
+    hist = _open_hist()   # 이하 보정·집계용
 
     # 이번 실행에서 새로 완결된 월 중 publish 누락분 보정(재시작 안전)
     with sqlite3.connect(MAIN_DB, timeout=60) as main:
