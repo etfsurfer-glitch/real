@@ -146,20 +146,61 @@ def parse_response(xml_bytes: bytes) -> tuple[list[dict], dict]:
     return items, meta
 
 
-def fetch_all(lawd_cd: str, deal_ymd: str,
-              endpoint: str = ENDPOINT) -> Iterator[dict]:
-    """Yield every transaction for a 시군구·month, walking pages.
+# 전남광주통합특별시(2026-07-01 광주광역시+전라남도 통합) — data.go.kr이 이 지역을
+# 새 시도코드 12로 서빙(옛 광주 29·전남 46 코드는 0 반환). 내부는 표준 29/46로 유지
+# (과거 실거래·complexes·regions·rollup 전부 그 코드라 연속성 위해) → 표준코드로 요청이
+# 오면 실제 조회만 12xxx로 하고, 응답 sggCd를 표준으로 되돌린다(투명 remap). 응답의
+# aptSeq·umdNm은 여전히 옛 형식(예: aptSeq=29170-74)이라 deal_id 일치=재수집 중복 0.
+_STD_TO_NEW = {
+    "29110": "12210", "29140": "12240", "29155": "12270", "29170": "12300", "29200": "12330",
+    "46110": "12110", "46130": "12130", "46150": "12150", "46170": "12170", "46230": "12190",
+    "46710": "12710", "46720": "12720", "46730": "12730", "46770": "12740", "46780": "12750",
+    "46790": "12760", "46800": "12770", "46810": "12780", "46820": "12790", "46830": "12800",
+    "46840": "12810", "46860": "12820", "46870": "12830", "46880": "12840", "46890": "12850",
+    "46900": "12860", "46910": "12870",
+}
 
-    Pass endpoint=ENDPOINT_RENT to read the rent feed instead of sale.
-    """
+
+# 인천 행정구역 개편(2026-07-01) — 중구+동구 → 제물포구(28125)·영종구(28155),
+# 서구 → 서구(28275)·검단구(28290). 옛 코드 28110/28140/28260은 202607부터 0 반환.
+# 광주·전남과 달리 1:N 분할합병이라, 표준(옛) 코드 하나가 새 코드 여러 개를 조회한다.
+# 제물포구(28125)는 옛 중구 원도심 + 옛 동구 전체가 섞임 → **aptSeq 접두(옛 구코드 유지 실측:
+# 28125 응답의 aptSeq="28140-21" 등)**로 옛 구를 판별하고, aptSeq 없는 피드는 법정동명 폴백.
+_OLD_DONGGU_UMDS = {"만석동", "화수동", "화평동", "송현동", "송림동", "창영동", "금곡동"}  # 옛 인천 동구
+# 표준코드 → [(새코드, 필터)] — 필터: None=전부 수용 / "28110"·"28140"=그 옛 구 소속만
+_STD_TO_NEW_MULTI = {
+    "28110": [("28155", None), ("28125", "28110")],   # 옛 중구 = 영종구 전체 + 제물포구 中 중구계
+    "28140": [("28125", "28140")],                    # 옛 동구 = 제물포구 中 동구계
+    "28260": [("28275", None), ("28290", None)],      # 옛 서구 = 서구(잔여) + 검단구
+}
+
+
+def _old_incheon_gu(it: dict) -> str | None:
+    """제물포구 레코드의 옛 구(28110 중구/28140 동구) 판별. aptSeq 접두 우선, 동명 폴백."""
+    seq = str(it.get("aptSeq") or "")
+    if seq.startswith("28110"):
+        return "28110"
+    if seq.startswith("28140"):
+        return "28140"
+    umd = (it.get("umdNm") or "").strip()
+    if umd:
+        return "28140" if umd in _OLD_DONGGU_UMDS else "28110"
+    return None
+
+
+def _fetch_pages(api_lawd: str, deal_ymd: str, endpoint: str, std_cd: str | None) -> Iterator[dict]:
+    """단일 (실제 조회코드) 페이지 순회. std_cd가 있으면 응답 sggCd를 표준코드로 되돌린다."""
     page = 1
     while True:
-        body = fetch_xml(lawd_cd, deal_ymd, page_no=page, endpoint=endpoint)
+        body = fetch_xml(api_lawd, deal_ymd, page_no=page, endpoint=endpoint)
         items, meta = parse_response(body)
         if not items:
             return
+        if std_cd:
+            for it in items:
+                if it.get("sggCd"):
+                    it["sggCd"] = std_cd
         yield from items
-        # Stop when we've fetched all rows or got a short page.
         try:
             total = int(meta.get("totalCount") or 0)
         except ValueError:
@@ -175,3 +216,22 @@ def fetch_all(lawd_cd: str, deal_ymd: str,
         page += 1
         if page > 50:  # safety
             return
+
+
+def fetch_all(lawd_cd: str, deal_ymd: str,
+              endpoint: str = ENDPOINT) -> Iterator[dict]:
+    """Yield every transaction for a 시군구·month, walking pages.
+
+    Pass endpoint=ENDPOINT_RENT to read the rent feed instead of sale.
+    """
+    multi = _STD_TO_NEW_MULTI.get(lawd_cd)
+    if multi:   # 인천 분할합병 — 새 코드 여러 개를 모아 표준코드로 수용
+        for new_cd, want_old in multi:
+            for it in _fetch_pages(new_cd, deal_ymd, endpoint, std_cd=lawd_cd):
+                if want_old and _old_incheon_gu(it) != want_old:
+                    continue   # 제물포구 혼합분 중 다른 옛 구 소속(그 구의 조회에서 수용됨)
+                yield it
+        return
+    api_lawd = _STD_TO_NEW.get(lawd_cd, lawd_cd)   # 광주/전남은 12xxx로 실제 조회
+    std_cd = lawd_cd if api_lawd != lawd_cd else None  # 응답 sggCd를 되돌릴 표준코드
+    yield from _fetch_pages(api_lawd, deal_ymd, endpoint, std_cd)

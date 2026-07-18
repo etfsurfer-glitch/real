@@ -1,11 +1,13 @@
 import { useRef, useState } from "react";
 import { useStickyState } from "../hooks/useStickyState";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { Loading } from "../components/Loading";
 import ShareBar from "../components/ShareBar";
 import { useFetchJson } from "../hooks/useFetchJson";
 import { RegionSelect, useRegionFilter } from "../components/RegionSelect";
 import { useDeferredUrl, ApplyButton } from "../hooks/useDeferredUrl";
+import FavHeart from "../components/FavHeart";
+import FavDashLink from "../components/FavDashLink";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -138,26 +140,54 @@ export function Select<T extends string | number>({
   );
 }
 
-const SUB_TABS: { to: string; label: string }[] = [
-  { to: "/tx-stats/region-pulse", label: "지역별 거래량" },
-  { to: "/tx-stats/top-price", label: "실거래가 최고" },
-  { to: "/tx-stats/record-high", label: "단지별 신고가" },
-  { to: "/tx-stats/top-volume", label: "거래량" },
-  { to: "/tx-stats/turnover", label: "거래회전율" },
-  { to: "/tx-stats/pyeong-price", label: "평당가" },
-  { to: "/tx-stats/price-change", label: "가격 변동률" },
-  { to: "/tx-stats/gap", label: "갭투자" },
-  { to: "/tx-stats/yield", label: "월세수익률" },
-  { to: "/tx-stats/low-price", label: "시세차이거래(20%↓)" },
-  { to: "/tx-stats/cancelled", label: "취소거래" },
+// 실거래 메뉴의 단일 원본 — 헤더 드롭다운(App.tsx)과 이 페이지 서브탭이 같이 쓴다.
+// 라벨·순서를 여기서만 고치면 두 곳이 함께 바뀐다(불일치 재발 방지).
+export const TX_GROUPS: { title: string; items: { to: string; label: string; subs?: { to: string; label: string }[] }[] }[] = [
+  { title: "시장 흐름", items: [
+    { to: "/tx-stats/region-pulse", label: "기간별 거래량", subs: [
+      { to: "/tx-stats/volume/daily", label: "일별" },
+      { to: "/tx-stats/volume/weekly", label: "주간" },
+      { to: "/tx-stats/volume/monthly", label: "월별" },
+      { to: "/tx-stats/volume/quarterly", label: "분기별" },
+      { to: "/tx-stats/volume/yearly", label: "연도별" },
+    ] },
+      { to: "/tx-stats/timemachine", label: "부동산타임머신" },
+    { to: "/tx-stats/top-volume", label: "단지별 거래량" },
+    { to: "/tx-stats/turnover", label: "거래회전율" },
+  ] },
+  { title: "가격", items: [
+    { to: "/tx-stats/top-price", label: "실거래 최고가" },
+    { to: "/tx-stats/record-high", label: "단지별 신고가" },
+    { to: "/tx-stats/pyeong-price", label: "평당가" },
+    { to: "/tx-stats/price-change", label: "가격 변동률" },
+  ] },
+  { title: "투자", items: [
+    { to: "/tx-stats/gap", label: "갭투자" },
+    { to: "/tx-stats/yield", label: "월세수익률" },
+    { to: "/tx-stats/low-price", label: "시세차이 저가" },
+  ] },
+  { title: "데이터·상품", items: [
+    { to: "/tx-stats/cancelled", label: "취소거래" },
+    { to: "/tx-stats/presale", label: "분양권" },
+  ] },
 ];
+
+const SUB_TABS: { to: string; label: string }[] = TX_GROUPS.flatMap((g) => g.items);
 
 export function TxStatsLayout() {
   const shareRef = useRef<HTMLDivElement>(null);
+  const { pathname } = useLocation();
+  // 현재 경로가 속한 상위 탭의 하위 페이지(일별~연도별)를 둘째 줄로 노출
+  const activeSubs = TX_GROUPS.flatMap((g) => g.items).find(
+    (it) => it.subs && (pathname.startsWith(it.to) || it.subs.some((sb) => pathname.startsWith(sb.to)))
+  )?.subs;
   return (
     <div ref={shareRef} className="share-target">
       <Link to="/overview" className="back">← 전국현황</Link>
-      <h2 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 700 }}>실거래 통계</h2>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 12px" }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>실거래 통계</h2>
+        <FavDashLink />
+      </div>
       <nav className="sub-nav">
         {SUB_TABS.map((t) => (
           <NavLink key={t.to} to={t.to} className={({ isActive }) => isActive ? "active" : ""}>
@@ -165,6 +195,15 @@ export function TxStatsLayout() {
           </NavLink>
         ))}
       </nav>
+      {activeSubs && (
+        <nav className="sub-nav sub-nav-row2">
+          {activeSubs.map((t) => (
+            <NavLink key={t.to} to={t.to} className={({ isActive }) => isActive ? "active" : ""}>
+              {t.label}
+            </NavLink>
+          ))}
+        </nav>
+      )}
       <ShareBar targetRef={shareRef} title="실거래 통계" fileName="콕집_실거래통계" />
       <Outlet />
     </div>
@@ -205,7 +244,7 @@ export function TxTopPrice() {
               <td style={{ color: "#999" }}>{i + 1}</td>
               <td>
                 {it.complex_no ? (
-                  <Link to={`/complex/${it.complex_no}`}>{it.complex_name ?? it.complex_no}</Link>
+                  <><Link to={`/complex/${it.complex_no}`}>{it.complex_name ?? it.complex_no}</Link><FavHeart complexNo={String(it.complex_no)} complexName={it.complex_name ?? undefined} /></>
                 ) : (it.complex_name ?? "—")}
                 {it.region_name && (
                   <div className="muted" style={{ fontSize: 11 }}>{it.region_name}</div>
@@ -308,7 +347,7 @@ export function TxLowPrice() {
               <td style={{ color: "#999" }}>{i + 1}</td>
               <td>
                 {it.complex_no ? (
-                  <Link to={`/complex/${it.complex_no}`}>{it.complex_name ?? it.complex_no}</Link>
+                  <><Link to={`/complex/${it.complex_no}`}>{it.complex_name ?? it.complex_no}</Link><FavHeart complexNo={String(it.complex_no)} complexName={it.complex_name ?? undefined} /></>
                 ) : (it.complex_name ?? "—")}
                 <span style={{ fontSize: 10, color: "#aaa", marginLeft: 6 }}>
                   {it.asset === "offi" ? "오피" : "아파트"} · 평균 {it.group_size}건
@@ -370,7 +409,7 @@ export function TxTopVolume() {
               <td style={{ color: "#999" }}>{i + 1}</td>
               <td>
                 {it.complex_no ? (
-                  <Link to={`/complex/${it.complex_no}`}>{it.complex_name ?? it.complex_no}</Link>
+                  <><Link to={`/complex/${it.complex_no}`}>{it.complex_name ?? it.complex_no}</Link><FavHeart complexNo={String(it.complex_no)} complexName={it.complex_name ?? undefined} /></>
                 ) : (it.complex_name ?? "—")}
                 {it.region_name && (
                   <div className="muted" style={{ fontSize: 11 }}>{it.region_name}</div>

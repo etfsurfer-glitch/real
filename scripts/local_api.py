@@ -19,6 +19,7 @@ import pickle
 import sqlite3
 import threading as _threading
 import sys
+import hashlib as _hashlib
 from pathlib import Path
 from typing import Any, Literal
 
@@ -287,6 +288,8 @@ def _classify_path(method: str, path: str):
         return None
     if path in ("/health", "/favicon.ico", "/perf"):
         return None
+    if path == "/events/pageview":
+        return None  # 페이지뷰는 핸들러에서 kind='page'로 직접 기록(미들웨어 중복 방지)
     if path.startswith("/ai/ask"):
         return None  # AI는 핸들러에서 질문/답변까지 상세 기록
     parts = path.split("/")
@@ -716,6 +719,109 @@ def top_complexes(days: int = 7, limit: int = 5):
     return result
 
 
+# ── 부동산타임머신: 큐레이션 정책·규제 연대기(발표일 기준, 공식 발표 원문 검증) ──
+# 날짜·내용 오류는 신뢰도 직결 — 수정 시 반드시 1차 출처(정부 보도자료) 대조할 것.
+_TIMEMACHINE_EVENTS = [
+    {"d": "2003-10-29", "cat": "강화", "title": "10·29 주택시장 안정 종합대책",
+     "desc": "종합부동산세 도입 예고, 주택거래신고제 도입, LTV 강화 — 참여정부 첫 종합대책.", "src": "재정경제부 등 합동"},
+    {"d": "2005-08-31", "cat": "강화", "title": "8·31 부동산 종합대책",
+     "desc": "종부세 세대별 합산·과세기준 6억 하향, 2주택 양도세 중과(50%) 등 수요억제 종합판.", "src": "정부 합동"},
+    {"d": "2006-01-01", "cat": "제도", "title": "실거래가 신고 의무제 시행",
+     "desc": "모든 부동산 거래의 실거래가 신고 의무화 — 이후 공식 실거래 통계의 출발점.", "src": "건설교통부"},
+    {"d": "2006-03-30", "cat": "강화", "title": "3·30 대책 — 재건축초과이익환수 도입",
+     "desc": "재건축 부담금 도입, 안전진단 강화 등 재건축 규제 정비.", "src": "정부 합동"},
+    {"d": "2008-09-15", "cat": "거시", "title": "글로벌 금융위기",
+     "desc": "리먼브라더스 파산 — 이후 부동산 시장 장기 침체 국면.", "src": "거시 이벤트"},
+    {"d": "2008-11-03", "cat": "완화", "title": "11·3 경제난국 극복 종합대책",
+     "desc": "강남 3구 제외 투기지역·투기과열지구 해제, 재건축 규제 완화 등 위기 대응 부양.", "src": "정부 합동"},
+    {"d": "2013-04-01", "cat": "완화", "title": "4·1 서민 주거안정 종합대책",
+     "desc": "신규·미분양 취득 시 양도세 5년 면제, 생애최초 취득세 면제 — 침체기 수요 진작.", "src": "국토교통부 등 합동"},
+    {"d": "2014-07-24", "cat": "완화", "title": "새 경제팀 경제정책방향(LTV·DTI 완화)",
+     "desc": "LTV 70%·DTI 60% 전 금융권 단일화 — 이른바 \"빚내서 집 사라\" 완화 기조 전환점.", "src": "기획재정부·금융위"},
+    {"d": "2014-12-29", "cat": "완화", "title": "부동산 3법 국회 통과",
+     "desc": "분양가상한제 탄력 적용, 재건축초과이익환수 유예, 재건축 조합원 3주택 허용.", "src": "국회"},
+    {"d": "2016-11-03", "cat": "강화", "title": "11·3 주택시장 안정적 관리방안",
+     "desc": "강남 4구 등 분양권 전매제한 강화, 청약 1순위·재당첨 제한 — 과열 조정 개시.", "src": "국토교통부"},
+    {"d": "2017-08-02", "cat": "강화", "title": "8·2 주택시장 안정화 대책",
+     "desc": "투기과열지구·투기지역 부활, 다주택자 양도세 중과, 규제지역 LTV·DTI 40%.", "src": "국토교통부 등 합동"},
+    {"d": "2018-09-13", "cat": "강화", "title": "9·13 주택시장 안정대책",
+     "desc": "종부세 최고세율 3.2% 인상, 규제지역 2주택 이상 주담대 원천 금지.", "src": "정부 합동"},
+    {"d": "2019-12-16", "cat": "강화", "title": "12·16 주택시장 안정화 방안",
+     "desc": "15억 초과 아파트 주담대 전면 금지, 9억 초과분 LTV 20% — 초강력 대출 규제.", "src": "정부 합동"},
+    {"d": "2020-03-11", "cat": "거시", "title": "코로나19 팬데믹 선언",
+     "desc": "WHO 팬데믹 선언 — 이후 초저금리·유동성 확대가 집값 급등의 배경으로.", "src": "거시 이벤트"},
+    {"d": "2020-06-17", "cat": "강화", "title": "6·17 주택시장 안정 대책",
+     "desc": "수도권 대부분 조정대상지역·투기과열지구 확대, 갭투자 차단(전세대출 제한).", "src": "정부 합동"},
+    {"d": "2020-07-10", "cat": "강화", "title": "7·10 주택시장 안정 보완대책",
+     "desc": "다주택자 취득세 최대 12% 중과, 종부세 최고 6%, 등록임대 축소.", "src": "정부 합동"},
+    {"d": "2020-07-31", "cat": "제도", "title": "임대차 2법 시행",
+     "desc": "계약갱신청구권(2+2)·전월세상한제(5%) 즉시 시행. 전월세신고제는 2021년 6월부터.", "src": "국회·국토교통부"},
+    {"d": "2021-08-26", "cat": "거시", "title": "한국은행 기준금리 인상 개시",
+     "desc": "0.50→0.75% — 초저금리 종료, 긴축 전환의 시작. 2023년 1월 3.50%까지 인상.", "src": "한국은행"},
+    {"d": "2022-05-10", "cat": "완화", "title": "다주택자 양도세 중과 한시 배제",
+     "desc": "보유 2년 이상 다주택자 양도세 중과 1년 배제(이후 연장 반복) — 매물 유도.", "src": "기획재정부"},
+    {"d": "2023-01-03", "cat": "완화", "title": "1·3 대책 — 규제지역 전면 해제",
+     "desc": "강남 3구·용산 제외 전 지역 규제 해제, 전매제한 완화, 중도금대출 12억 상한 폐지.", "src": "국토교통부"},
+    {"d": "2023-01-30", "cat": "완화", "title": "특례보금자리론 출시",
+     "desc": "9억 이하 주택 대상 고정금리 정책대출(1년 한시) — 침체기 수요 하방 지지.", "src": "금융위원회"},
+    {"d": "2024-04-27", "cat": "공급", "title": "노후계획도시특별법 시행",
+     "desc": "1기 신도시 등 노후계획도시 재건축 특례(안전진단 면제·용적률 상향) 근거법 시행.", "src": "국토교통부"},
+    {"d": "2024-09-01", "cat": "강화", "title": "스트레스 DSR 2단계 시행",
+     "desc": "가산금리 확대 적용으로 대출 한도 축소 — 가계부채 관리 강화.", "src": "금융위원회"},
+    {"d": "2024-11-27", "cat": "공급", "title": "1기 신도시 선도지구 선정",
+     "desc": "분당·일산·평촌·중동·산본 13개 구역 3만 6천 호 — 2027년 착공 목표.", "src": "국토교통부"},
+    {"d": "2025-06-27", "cat": "강화", "title": "6·27 가계부채 관리 강화 방안",
+     "desc": "수도권·규제지역 주택구입 주담대 한도 6억 원 제한(6/28 시행) — 사상 초유의 총량 상한.", "src": "금융위원회 등 합동"},
+    {"d": "2025-10-15", "cat": "강화", "title": "10·15 주택시장 안정화 대책",
+     "desc": "서울 전역·경기 12곳 규제지역+토지거래허가구역 지정(10/20 효력), 15억 초과 주담대 한도 축소.", "src": "국토교통부 등 합동"},
+    {"d": "2025-12-12", "cat": "공급", "title": "부산 노후계획도시 선도지구 선정",
+     "desc": "화명·금곡(코오롱하늘채 1·2차)과 해운대(두산1차·LG·대림1차) 7,318가구 — 지방권 최초.", "src": "국토교통부·부산광역시"},
+    {"d": "2026-07-15", "cat": "공급", "title": "대전 노후계획도시 선도지구 선정",
+     "desc": "둔산 13구역(목련·크로바)·14구역(한가람·공작한양)·송촌 6구역(보람·삼익소월) 7,797가구.", "src": "국토교통부·대전광역시"},
+]
+
+
+@app.get("/stats/timemachine")
+def timemachine():
+    """부동산타임머신: 정책·규제 연대기 + 전국 아파트 월별 거래량·평균가(콕집 DB 구간)."""
+    # 백필이 월 단위로 게시되므로 캐시 키에 게시 월 수를 섞는다(진행 즉시 반영)
+    try:
+        with _open_db() as c:
+            _histn = c.execute("SELECT COUNT(DISTINCT ym) FROM tx_hist_monthly").fetchone()[0]
+    except Exception:
+        _histn = 0
+    _ck = f"timemachine:v2:{_histn}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
+    with _open_db() as c:
+        rows = c.execute(
+            """
+            SELECT substr(deal_ymd,1,7) m, COUNT(*) n, CAST(AVG(deal_amount) AS INT) avg
+            FROM transactions WHERE is_cancelled=0
+            GROUP BY m ORDER BY m
+            """
+        ).fetchall()
+        live_from = rows[0][0] if rows else "9999-99"
+        # 과거분 백필(tx_hist_monthly, 완결 월만 게시) — 2023-06 이전 구간을 앞에 붙임
+        try:
+            hist = c.execute(
+                "SELECT ym, n, avg_amount FROM tx_hist_monthly "
+                "WHERE sgg_cd='ALL' AND ym < ? ORDER BY ym", (live_from,),
+            ).fetchall()
+        except Exception:
+            hist = []
+    series = ([{"m": h[0], "n": h[1], "avg": h[2]} for h in hist]
+              + [{"m": r[0], "n": r[1], "avg": r[2]} for r in rows])
+    out = {
+        "series": series,
+        "events": _TIMEMACHINE_EVENTS,
+        "data_from": series[0]["m"] if series else None,
+    }
+    _cache_put(_ck, out)
+    return out
+
+
 @app.get("/stats/listing-trend")
 def listing_trend(days: int = 60):
     """일별 매물 수 추이 (snapshot_date × trade_type).
@@ -723,10 +829,17 @@ def listing_trend(days: int = 60):
     """
     if days < 1 or days > 365:
         raise HTTPException(400, "days out of range")
+    # 인메모리+디스크 캐시(데이터버전 연동 — 재빌드 시 자동 무효로 정확성 유지).
+    # 60일×전셀 GROUP BY 콜드 ~9s → 캐시 히트 즉시.
+    _ck = f"listingtrend2:{days}"   # v2 — 실매물 결측일 비율추정 채움(키 변경으로 구캐시 무효)
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
     with _open_db() as c:
         rows = c.execute(
             """
-            SELECT snapshot_date, trade_type, SUM(listing_count) AS n
+            SELECT snapshot_date, trade_type, SUM(listing_count) AS n,
+                   SUM(unit_count) AS u
             FROM complex_daily_agg
             WHERE snapshot_date >= date('now', ?)
             GROUP BY snapshot_date, trade_type
@@ -735,9 +848,237 @@ def listing_trend(days: int = 60):
             (f"-{days} days",),
         ).fetchall()
     by_date: dict[str, dict] = {}
-    for d, t, n in rows:
-        by_date.setdefault(d, {"snapshot_date": d, "A1": 0, "B1": 0, "B2": 0})[t] = n
-    return {"days": days, "series": list(by_date.values())}
+    for d, t, n, u in rows:
+        e = by_date.setdefault(d, {"snapshot_date": d, "A1": 0, "B1": 0, "B2": 0})
+        e[t] = n
+        # 실매물(중복 광고 합침) — 백필 전 과거분은 NULL이라 키 생략(차트가 결측 처리)
+        if u is not None:
+            e[f"{t}_u"] = int(round(u))
+    series = list(by_date.values())
+    # 실매물 결측일(6/14·6/28 — 파케이 스냅샷 유실로 백필 불가)은 인접일의
+    # 실매물/광고 비율을 평균해 추정치로 채운다(차트 연속성, 사용자 지정).
+    for t in ("A1", "B1", "B2"):
+        uk = f"{t}_u"
+        have = [i for i, e in enumerate(series) if uk in e and e.get(t)]
+        for i, e in enumerate(series):
+            if uk in e or not e.get(t):
+                continue
+            prev_i = max((j for j in have if j < i), default=None)
+            next_i = min((j for j in have if j > i), default=None)
+            ratios = [series[j][uk] / series[j][t]
+                      for j in (prev_i, next_i) if j is not None and series[j][t]]
+            if ratios:
+                e[uk] = int(round(e[t] * sum(ratios) / len(ratios)))
+    out = {"days": days, "series": series}
+    _cache_put(_ck, out)
+    return out
+
+
+@app.get("/stats/listing-counts")
+def listing_counts(asset: str | None = None):
+    """시도별 현재 매물수 — 최신 스냅샷의 거래유형별 광고수(listing_count)와
+    실매물수(unit_count=Σ1/same_addr_cnt) + 전일·7일 전 대비 증감.
+    매물호가 '지역별 매물수' 탭용. 시도 정렬은 프런트 SIDO_ORDER(통계청 관례)."""
+    _ck = f"listingcounts:{asset or ''}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
+    with _open_db() as c:
+        dates = [r[0] for r in c.execute(
+            "SELECT DISTINCT snapshot_date FROM complex_daily_agg "
+            "ORDER BY snapshot_date DESC LIMIT 8")]
+        if not dates:
+            return {"as_of": None, "national": None, "regions": []}
+        as_of, prev = dates[0], (dates[1] if len(dates) > 1 else None)
+        week = dates[7] if len(dates) > 7 else None
+        sido_names = {r[0][:2]: r[1] for r in c.execute(
+            "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city'")}
+        snaps = [d for d in (as_of, prev, week) if d]
+        ph = ",".join("?" * len(snaps))
+        rows = c.execute(
+            f"SELECT a.snapshot_date, substr(cx.cortar_no,1,2) AS sido, a.trade_type, "
+            f"       SUM(a.listing_count) AS n, SUM(a.unit_count) AS u "
+            f"FROM complex_daily_agg a JOIN complexes cx ON cx.complex_no = a.complex_no "
+            f"WHERE a.snapshot_date IN ({ph}){_asset_type_clause(asset)} "
+            f"GROUP BY 1, 2, 3", snaps).fetchall()
+    by: dict[str, dict] = {}
+    nat = {"sido_code": "00", "sido_name": "전국",
+           "A1": 0, "B1": 0, "B2": 0, "A1_u": 0, "B1_u": 0, "B2_u": 0,
+           "total": 0, "total_u": 0, "prev_total": 0, "week_total": 0}
+    for d, sido, t, n, u in rows:
+        if not sido or sido not in sido_names or t not in ("A1", "B1", "B2"):
+            continue
+        e = by.setdefault(sido, {
+            "sido_code": sido, "sido_name": sido_names[sido],
+            "A1": 0, "B1": 0, "B2": 0, "A1_u": 0, "B1_u": 0, "B2_u": 0,
+            "total": 0, "total_u": 0, "prev_total": 0, "week_total": 0})
+        if d == as_of:
+            e[t] += n
+            e["total"] += n
+            nat[t] += n
+            nat["total"] += n
+            if u:
+                e[f"{t}_u"] += int(round(u))
+                e["total_u"] += int(round(u))
+                nat[f"{t}_u"] += int(round(u))
+                nat["total_u"] += int(round(u))
+        elif d == prev:
+            e["prev_total"] += n
+            nat["prev_total"] += n
+        elif d == week:
+            e["week_total"] += n
+            nat["week_total"] += n
+    out = {"as_of": as_of, "prev_date": prev, "week_date": week, "asset": asset or "all",
+           "national": nat, "regions": list(by.values())}
+    _cache_put(_ck, out)
+    return out
+
+
+@app.get("/stats/complex-finder")
+def complex_finder(sigungu: str, asset: str = "apt"):
+    """맞춤단지 찾기(관리자 가오픈) — 시군구 전체를 '단지×평형' 행으로 한 번에 반환.
+    필터·정렬은 클라이언트(와이드+클라이언트필터 패턴, 시군구당 수천 행).
+    행 필드(짧은 키 — 페이로드 절약):
+      c 단지no, n 단지명, d 동, y 사용승인ymd, hh 단지세대, py 평형명, sa 공급㎡, ea 전용㎡,
+      ah 평형세대, ask/an/au 매매 최저호가·광고수·실매물, js/jn 전세 최저호가·건수,
+      gap 갭, jr 전세가율(호가), la/ld 최근 매매실거래 금액·일, n12/a12 12개월 건수·평균,
+      pk/pd 신고가 금액·일, vp 전고점대비%, sw/swm 지하철역·도보분, sc/scm/scd 배정초·도보분·거리m,
+      rc/bc 방·욕실수, et 현관유형(계단식/복도식), lat/lng 좌표(지도뷰)"""
+    code = (sigungu or "").strip()
+    if len(code) >= 5 and code[:5].isdigit():
+        code = code[:5]
+        reg_cl, reg_p = "substr(cortar_no,1,5)=?", code
+    elif len(code) >= 2 and code[:2].isdigit():
+        # 시도 단위(2자리) — 시 전체 조회 허용
+        code = code[:2]
+        reg_cl, reg_p = "substr(cortar_no,1,2)=?", code
+    else:
+        raise HTTPException(400, "sigungu(cortar 앞 2자리=시도 또는 5자리=시군구) 필요")
+    _ck = f"finder5:{code}:{asset or ''}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
+    with _open_db() as c:
+        cxs = c.execute(
+            f"SELECT complex_no, complex_name, dong_name, total_household_count, "
+            f"use_approve_ymd, latitude, longitude "
+            f"FROM complexes cx WHERE {reg_cl}"
+            f"{_asset_type_clause(asset)}", (reg_p,)).fetchall()
+        ids = [r["complex_no"] for r in cxs]
+        if not ids:
+            return {"sigungu": sg5, "asset": asset, "rows": [], "n_complex": 0}
+        ph = ",".join("?" * len(ids))
+        cx_by = {r["complex_no"]: r for r in cxs}
+        area_cols = {r[1] for r in c.execute("PRAGMA table_info(complex_areas)")}
+        room_sel = (", room_cnt, bath_cnt, entrance_type"
+                    if "room_cnt" in area_cols else
+                    ", NULL AS room_cnt, NULL AS bath_cnt, NULL AS entrance_type")
+        areas = c.execute(
+            f"SELECT complex_no, pyeong_name, supply_area, exclusive_area, household_count"
+            f"{room_sel} "
+            f"FROM complex_areas WHERE complex_no IN ({ph}) AND exclusive_area IS NOT NULL",
+            ids).fetchall()
+        # 현재 호가 — 평형명(area_name=pyeong_name 동일 어휘) 단위 최저가·광고수·실매물
+        lst: dict = {}
+        for r in c.execute(
+            f"SELECT complex_no, area_name, trade_type, COUNT(*) n, "
+            f"MIN(CASE WHEN deal_or_warrant_price > 0 THEN deal_or_warrant_price END) mn, "
+            f"SUM(1.0/MAX(same_addr_cnt,1)) u "
+            f"FROM listings_current WHERE complex_no IN ({ph}) AND trade_type IN ('A1','B1') "
+            f"GROUP BY 1, 2, 3", ids):
+            lst[(r["complex_no"], r["area_name"], r["trade_type"])] = r
+        # 실거래 — 평형 전용면적 ±3.5㎡ 밴드(전역 표준). asset=all 이면 아파트+오피 UNION.
+        if asset == "offi":
+            src = "offi_transactions"
+        elif asset == "all":
+            src = ("(SELECT matched_complex_no, excl_use_ar, is_cancelled, deal_amount, deal_ymd "
+                   "FROM transactions UNION ALL "
+                   "SELECT matched_complex_no, excl_use_ar, is_cancelled, deal_amount, deal_ymd "
+                   "FROM offi_transactions)")
+        else:
+            src = "transactions"
+        a_join = (
+            f"FROM complex_areas ca JOIN {src} tx ON tx.matched_complex_no = ca.complex_no "
+            f"AND tx.excl_use_ar BETWEEN ca.exclusive_area-3.5 AND ca.exclusive_area+3.5 "
+            f"AND tx.is_cancelled = 0 AND tx.deal_amount > 0 "
+            f"WHERE ca.complex_no IN ({ph}) AND ca.exclusive_area IS NOT NULL")
+        agg: dict = {}
+        for r in c.execute(
+            f"SELECT ca.complex_no || '|' || ca.pyeong_name AS aid, "
+            f"SUM(CASE WHEN tx.deal_ymd >= date('now','-12 months') THEN 1 ELSE 0 END) n12, "
+            f"AVG(CASE WHEN tx.deal_ymd >= date('now','-12 months') THEN tx.deal_amount END) a12 "
+            f"{a_join} GROUP BY 1", ids):
+            agg[r["aid"]] = {"n12": r["n12"], "a12": round(r["a12"]) if r["a12"] else None}
+        for r in c.execute(
+            f"SELECT aid, amt, d, rl, rp FROM ("
+            f"SELECT ca.complex_no || '|' || ca.pyeong_name AS aid, "
+            f"tx.deal_amount amt, tx.deal_ymd d, "
+            f"ROW_NUMBER() OVER (PARTITION BY ca.complex_no, ca.pyeong_name "
+            f"ORDER BY tx.deal_ymd DESC, tx.deal_amount DESC) rl, "
+            f"ROW_NUMBER() OVER (PARTITION BY ca.complex_no, ca.pyeong_name "
+            f"ORDER BY tx.deal_amount DESC, tx.deal_ymd DESC) rp {a_join}) "
+            f"WHERE rl = 1 OR rp = 1", ids):
+            e = agg.setdefault(r["aid"], {})
+            if r["rl"] == 1:
+                e["la"], e["ld"] = r["amt"], r["d"]
+            if r["rp"] == 1:
+                e["pk"], e["pd"] = r["amt"], r["d"]
+        # 지하철·배정초 (사전계산 테이블 — 없으면 생략)
+        sw: dict = {}
+        sc: dict = {}
+        try:
+            for r in c.execute(f"SELECT complex_no, station_name, walk_min, lines "
+                               f"FROM complex_subway WHERE complex_no IN ({ph})", ids):
+                st = r[1] if str(r[1]).endswith("역") else f"{r[1]}역"
+                sw[r[0]] = (st, r[2], r[3])
+        except Exception:
+            pass
+        try:
+            for r in c.execute(f"SELECT complex_no, school_name, walk_min, distance_m "
+                               f"FROM complex_school WHERE complex_no IN ({ph})", ids):
+                sc[r[0]] = (r[1], r[2], r[3])
+        except Exception:
+            pass
+    rows = []
+    for a in areas:
+        cno, py = a["complex_no"], a["pyeong_name"]
+        cxr = cx_by[cno]
+        A = lst.get((cno, py, "A1"))
+        B = lst.get((cno, py, "B1"))
+        ask = A["mn"] if A else None
+        js = B["mn"] if B else None
+        g = agg.get(f"{cno}|{py}", {})
+        la, pk = g.get("la"), g.get("pk")
+        rows.append({
+            "c": cno, "n": cxr["complex_name"], "d": cxr["dong_name"],
+            "y": cxr["use_approve_ymd"], "hh": cxr["total_household_count"],
+            "py": py, "sa": a["supply_area"], "ea": a["exclusive_area"],
+            "ah": a["household_count"],
+            "ask": ask, "an": A["n"] if A else 0,
+            "au": int(round(A["u"])) if A and A["u"] else 0,
+            "js": js, "jn": B["n"] if B else 0,
+            "gap": (ask - js) if ask and js else None,
+            "jr": round(js / ask * 100, 1) if ask and js else None,
+            "la": la, "ld": g.get("ld"),
+            "n12": g.get("n12") or 0, "a12": g.get("a12"),
+            "pk": pk, "pd": g.get("pd"),
+            "vp": round((la - pk) / pk * 100, 1) if la and pk else None,
+            "sw": sw.get(cno, (None, None, None))[0], "swm": sw.get(cno, (None, None, None))[1],
+            "swl": sw.get(cno, (None, None, None))[2],
+            "sc": sc.get(cno, (None, None, None))[0], "scm": sc.get(cno, (None, None, None))[1],
+            "scd": sc.get(cno, (None, None, None))[2],
+            "rc": a["room_cnt"], "bc": a["bath_cnt"], "et": a["entrance_type"],
+            "lat": float(cxr["latitude"]) if cxr["latitude"] else None,
+            "lng": float(cxr["longitude"]) if cxr["longitude"] else None,
+        })
+    # 시도 단위는 페이로드가 커서(서울 26MB) 의미 있는 행(매물/전세/최근 실거래 보유)만.
+    if len(code) == 2:
+        rows = [r for r in rows if r["an"] > 0 or r["jn"] > 0 or r["n12"] > 0]
+    # null 키 생략(sparse) — 프런트는 undefined/null 동일 처리, 페이로드 30%+ 절감
+    rows = [{k: v for k, v in r.items() if v is not None} for r in rows]
+    out = {"sigungu": code, "asset": asset, "n_complex": len(ids), "rows": rows}
+    _cache_put(_ck, out)
+    return out
 
 
 @app.get("/stats/avg-price-trend")
@@ -1238,6 +1579,18 @@ def realtors_national(limit: int = 20, scope: str = "complex"):
                     "established_year": reg[:4] if len(reg) >= 4 else None,
                     "staff_count": er[4] or None,
                 }
+            # naver_realtors 프로필이 없는 상업전문 사무소(다온에셋 등)는 소재지를 매물 지역
+            # (realtor_region_sido, 매물 최다 시도)에서 유도. 직원·업력은 vworld 매칭 없으면 여전히 없음.
+            miss = [i for i in ids if not info.get(i, {}).get("sido")]
+            if miss:
+                _phm = ",".join("?" * len(miss))
+                for rid, sd in c.execute(
+                    f"SELECT realtor_id, sido FROM realtor_region_sido WHERE realtor_id IN ({_phm}) "
+                    "ORDER BY (villa_n+house_n+sangga_n+office_n+land_n+factory_n+building_n"
+                    "+knowledge_n+redev_n+oneroom_n) DESC", miss):
+                    e = info.setdefault(rid, {})
+                    if not e.get("sido"):
+                        e["sido"] = sido_names.get((sd or "")[:2])
     items = []
     for r in rows:
         e = info.get(r[0], {})
@@ -1442,10 +1795,26 @@ def nonresi_stats(cat: str, cortar: str = "", trade: str = ""):
     tt = {"A1": "매매", "B1": "전세", "B2": "월세"}
     M = 10000  # 만원→원
     with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as c:
+        # 가격 평균은 자릿수 오타 제외(거래유형별 중위값의 0.4~2.5배 밖 컷 — 아파트 agg와 동일 원칙).
+        # 월세(rent)는 만원 단위 3~1,000(3만~1천만원/월) sane band. 건수(n)는 전체 그대로.
         rows = c.execute(
-            f"SELECT trade_type, COUNT(*), AVG(deal_or_warrant_price), AVG(rent_price), "
-            f"AVG(area1_m2), AVG(NULLIF(deal_or_warrant_price,0)/NULLIF(area1_m2,0)) "
-            f"FROM listings {wsql} GROUP BY trade_type", params).fetchall()
+            f"""WITH base AS (SELECT trade_type, deal_or_warrant_price pr, rent_price rp, area1_m2 ar
+                              FROM listings {wsql}),
+                med AS (SELECT tt, AVG(pr) m FROM (
+                          SELECT trade_type tt, pr,
+                                 ROW_NUMBER() OVER (PARTITION BY trade_type ORDER BY pr) rn,
+                                 COUNT(*) OVER (PARTITION BY trade_type) n
+                          FROM base WHERE pr > 0)
+                        WHERE rn IN ((n+1)/2, n/2+1) GROUP BY tt)
+                SELECT b.trade_type, COUNT(*),
+                       AVG(CASE WHEN b.pr > 0 AND (m.m IS NULL OR b.pr BETWEEN m.m*0.4 AND m.m*2.5)
+                                THEN b.pr END),
+                       AVG(CASE WHEN b.rp BETWEEN 3 AND 1000 THEN b.rp END),
+                       AVG(b.ar),
+                       AVG(CASE WHEN b.pr > 0 AND (m.m IS NULL OR b.pr BETWEEN m.m*0.4 AND m.m*2.5)
+                                THEN b.pr / NULLIF(b.ar, 0) END)
+                FROM base b LEFT JOIN med m ON m.tt = b.trade_type
+                GROUP BY b.trade_type""", params).fetchall()
         by_trade = []
         for t, n, dp, rp, ar, ppm in rows:
             d = {"trade": tt.get(t, t), "n": n,
@@ -1467,6 +1836,97 @@ def nonresi_stats(cat: str, cortar: str = "", trade: str = ""):
             "region_name": region_name, "total": total, "by_trade": by_trade,
             "top_buildings": [{"name": b, "n": n} for b, n in tops],
             "source": "호가", "realprice": _nonresi_realprice(cat, cortar)}
+
+
+_SIDO_STD = {"11": "서울", "26": "부산", "27": "대구", "28": "인천", "29": "광주",
+             "30": "대전", "31": "울산", "36": "세종", "41": "경기", "51": "강원",
+             "43": "충북", "44": "충남", "52": "전북", "46": "전남", "47": "경북",
+             "48": "경남", "50": "제주"}
+_TT_KO = {"A1": "매매", "B1": "전세", "B2": "월세"}
+
+
+def _villa_agg_db(cat: str = "villa"):
+    if cat not in _NONRESI_DB:
+        raise HTTPException(400, f"cat must be one of {sorted(_NONRESI_DB)}")
+    path = DB_PATH.parent / _NONRESI_DB[cat]
+    if not path.exists():
+        raise HTTPException(503, f"{cat} DB 없음")
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+
+
+@app.get("/stats/nonresi/trend")
+def nonresi_trend(cat: str = "villa", region: str = "00", trade: str = ""):
+    """비단지 일별 매물 추이 — 카테고리 DB region_daily 축적분(전 10종, 2026-07-11~).
+    region: '00'(전국)|시도 2자리(광주29·전남46 표준)|시군구 5자리(네이버 코드).
+    trade 생략=전 유형. 가격 단위 만원: med/avg/p25/p75=매매·전세가(월세는 보증금),
+    ppm2=매매 ㎡당 중위(전용, 없으면 area1), rent_med/rent_avg=월세.
+    units=중복 광고 제거 실매물."""
+    where, params = ["region=?"], [region]
+    if trade in ("A1", "B1", "B2"):
+        where.append("trade_type=?"); params.append(trade)
+    with _villa_agg_db(cat) as c:
+        rows = c.execute(
+            f"""SELECT snapshot_date, trade_type, ads, units, px_med, px_avg, px_p25,
+                       px_p75, ppm2_med, rent_med, rent_avg
+                FROM region_daily WHERE {' AND '.join(where)}
+                ORDER BY snapshot_date, trade_type""", params).fetchall()
+    name = "전국" if region == "00" else _SIDO_STD.get(region)
+    if name is None and len(region) == 5:
+        with _open_db() as mc:
+            r = mc.execute("SELECT cortar_name FROM regions WHERE cortar_type='dvsn' "
+                           "AND substr(cortar_no,1,5)=? LIMIT 1", (region,)).fetchone()
+            name = r[0] if r else None
+        if name is None:  # 광주·전남 네이버 12* — villa_region_map 이름 폴백
+            with _villa_agg_db() as c:
+                r = c.execute("SELECT sido_std, name FROM villa_region_map WHERE sgg5=?",
+                              (region,)).fetchone()
+                name = f"{_SIDO_STD.get(r[0], '')} {r[1]}".strip() if r else None
+    return {"cat": cat, "region": region, "region_name": name, "unit": "만원",
+            "rows": [{"d": d, "t": _TT_KO.get(t, t), "ads": a, "units": u,
+                      "med": m, "avg": av, "p25": p25, "p75": p75,
+                      "ppm2": pp, "rent_med": rm, "rent_avg": ra}
+                     for d, t, a, u, m, av, p25, p75, pp, rm, ra in rows]}
+
+
+@app.get("/stats/nonresi/regions")
+def nonresi_regions(cat: str = "villa", level: str = "sido", sido: str = "", date: str = ""):
+    """비단지 지역별 매물표(매매·전세·월세 광고/실매물/중위가) — region_daily 최신일(전 10종).
+    level: sido(전국+17시도) | sigungu(시군구, sido=2자리로 좁히기 가능). date 생략=최신."""
+    with _villa_agg_db(cat) as c:
+        d = date or c.execute("SELECT MAX(snapshot_date) FROM region_daily").fetchone()[0]
+        if level == "sido":
+            cond, params = "length(region)=2 OR region='00'", [d]
+        else:
+            cond, params = "length(region)=5", [d]
+            if sido:
+                # 광주29·전남46은 네이버 12* 시군구를 포함(매핑은 villa DB에만 있음)
+                with _villa_agg_db() as vc:
+                    extra = [r[0] for r in vc.execute(
+                        "SELECT sgg5 FROM villa_region_map WHERE sido_std=?", (sido,))]
+                ph = ",".join("?" * len(extra)) or "''"
+                cond += f" AND (substr(region,1,2)=? OR region IN ({ph}))"
+                params += [sido] + extra
+        rows = c.execute(
+            f"""SELECT region, trade_type, ads, units, px_med, ppm2_med, rent_med
+                FROM region_daily WHERE snapshot_date=? AND ({cond})""",
+            params).fetchall()
+    names = dict(_SIDO_STD, **{"00": "전국"})
+    if level != "sido":
+        with _open_db() as mc:
+            names = {r[0][:5]: r[1] for r in mc.execute(
+                "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='dvsn'")}
+        with _villa_agg_db() as c:  # 광주·전남 네이버 12* 이름 폴백
+            for sgg5, nm, std in c.execute("SELECT sgg5, name, sido_std FROM villa_region_map"):
+                names.setdefault(sgg5, f"{_SIDO_STD.get(std, '')} {nm}".strip())
+    out = {}
+    for reg, t, a, u, m, pp, rm in rows:
+        e = out.setdefault(reg, {"code": reg, "name": names.get(reg), "trades": {}})
+        e["trades"][_TT_KO.get(t, t)] = {"ads": a, "units": u, "med": m,
+                                         **({"ppm2": pp} if t == "A1" else {}),
+                                         **({"rent_med": rm} if t == "B2" else {})}
+    ordered = sorted(out.values(),
+                     key=lambda e: (-1 if e["code"] == "00" else sido_rank(e["code"]), e["code"]))
+    return {"cat": cat, "date": d, "level": level, "unit": "만원", "rows": ordered}
 
 
 # 비단지 실거래 테이블 매핑. sangga/office는 같은 nrg_transactions를 building_use로 분기.
@@ -2479,11 +2939,18 @@ def realtors_search(q: str = "", sido: str = "", limit: int = 30):
         with _open_db() as c:
             # 필러어 제거한 핵심어로 LIKE (없으면 원문). '동대구푸르지오부동산'→'%동대구푸르지오%'
             like_term = q_core if q_core else q
-            cond, params = "(realtor_name LIKE ? OR representative_name = ?)", [f"%{like_term}%", q]
+            cond, params = "(nr.realtor_name LIKE ? OR nr.representative_name = ?)", [f"%{like_term}%", q]
             if sido:
-                cond += " AND substr(cortar_no,1,2)=?"; params.append(sido)
+                cond += " AND substr(nr.cortar_no,1,2)=?"; params.append(sido)
+            # 핵심어가 짧으면(예 '참공인'→'참') 매칭이 수백 건 → 무정렬 LIMIT은 실매물 보유 사무소를
+            # 임의로 탈락시킴(금천 참공인 69건 누락). 비단지 매물수 내림차순으로 의미있는 곳부터.
             for rid, name in c.execute(
-                    f"SELECT realtor_id, realtor_name FROM naver_realtors WHERE {cond} LIMIT 80", params):
+                    f"SELECT nr.realtor_id, nr.realtor_name FROM naver_realtors nr "
+                    f"LEFT JOIN realtor_region_counts rc ON rc.realtor_id=nr.realtor_id "
+                    f"WHERE {cond} ORDER BY (COALESCE(rc.villa_n,0)+COALESCE(rc.house_n,0)"
+                    f"+COALESCE(rc.sangga_n,0)+COALESCE(rc.office_n,0)+COALESCE(rc.land_n,0)"
+                    f"+COALESCE(rc.factory_n,0)+COALESCE(rc.building_n,0)+COALESCE(rc.knowledge_n,0)"
+                    f"+COALESCE(rc.redev_n,0)+COALESCE(rc.oneroom_n,0)) DESC LIMIT 80", params):
                 if rid not in seen:
                     nat = ranks["national"].get(rid)
                     seen.add(rid); items.append((rid, name, nat[1] if nat else 0))
@@ -2547,10 +3014,44 @@ def _live_realtor_counts(rids: list[str]) -> dict[str, int]:
                 d.close()
     except sqlite3.Error:
         pass
+    # vworld-only 사무소(vw{sys_regno})는 매물에 realtor_id가 없어(위 카운트=0) — CP 제휴
+    # 매물을 등록번호로 귀속한 office_region_counts로 보정([[naverreal-region-office-attribution]]).
+    vw_ids = [r for r in rids if r and r.startswith("vw")]
+    if vw_ids:
+        attr = DB_PATH.parent / "office_attribution.sqlite"
+        if attr.exists():
+            try:
+                with sqlite3.connect(f"file:{attr}?mode=ro", uri=True) as ac:
+                    qm = ",".join("?" * len(vw_ids))
+                    for sregno, total in ac.execute(
+                            f"SELECT sys_regno, total FROM office_region_counts WHERE sys_regno IN ({qm})",
+                            [r[2:] for r in vw_ids]):
+                        out[f"vw{sregno}"] = out.get(f"vw{sregno}", 0) + total
+            except sqlite3.Error:
+                pass
     return out
 
 
 def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
+    # 비단지 전용 사무소 보정: 랭킹 count는 단지형(listings_current) 기반이라 상가·사무실·지산만
+    # 취급하는 사무소는 count=0 → 동명 사무소에 밀려 limit에서 잘림(금천 참공인 69건 사례).
+    # realtor_region_counts(비단지 10종)로 채워 정상 랭크되게 한다.
+    zero = [r[0] for r in items if not r[2]]
+    if zero:
+        reg: dict = {}
+        with _open_db() as c:
+            for i in range(0, len(zero), 400):
+                chunk = zero[i:i + 400]
+                ph = ",".join("?" * len(chunk))
+                for rid, n in c.execute(
+                        f"SELECT realtor_id, (COALESCE(villa_n,0)+COALESCE(house_n,0)+COALESCE(sangga_n,0)"
+                        f"+COALESCE(office_n,0)+COALESCE(land_n,0)+COALESCE(factory_n,0)+COALESCE(building_n,0)"
+                        f"+COALESCE(knowledge_n,0)+COALESCE(redev_n,0)+COALESCE(oneroom_n,0)) "
+                        f"FROM realtor_region_counts WHERE realtor_id IN ({ph})", chunk):
+                    if n:
+                        reg[rid] = n
+        if reg:
+            items = [(rid, nm, (c0 or reg.get(rid, 0))) for rid, nm, c0 in items]
     # 정확 상호 우선: '명가' 검색 시 상호 핵심어가 정확히 '명가'인 사무소(전국 군포 명가공인 등)를
     # '푸르지오명가' 같은 파생 상호(매물 많음)보다 위로 — 흔한 상호가 묻히지 않게.
     qc = _office_core(q) or q
@@ -2764,9 +3265,80 @@ def _build_ranks() -> dict:
     return out
 
 
+@app.get("/realtor/{realtor_id}/staff")
+def realtor_staff(realtor_id: str):
+    """소속 직원 명단 — 국가공간정보(V-World) 부동산중개업 공시 그대로.
+    이름·구분(공인중개사/중개보조원 등)·직위(대표/소속…)·상태 전부 반환.
+    vworld는 공부상 공개 정보라 실명 노출 가능(사이트 회원 별명정책과 무관)."""
+    with _open_db() as c:
+        row = c.execute("SELECT sys_regno FROM realtor_match WHERE realtor_id=?",
+                        (realtor_id,)).fetchone()
+        sys_regno = row[0] if row and row[0] else None
+        if not sys_regno and realtor_id.startswith("vw"):
+            sys_regno = realtor_id[2:]           # vw프로비저닝 사무소(vw+sys_regno)
+        if not sys_regno:
+            raise HTTPException(404, "V-World 매칭 정보가 없는 사무소입니다")
+        rows = c.execute(
+            "SELECT employee_name, role, position, status, business_name, fetched_at "
+            "FROM vworld_employees WHERE sys_regno=?", (sys_regno,)).fetchall()
+    # 대표 → 공인중개사(소속) → 중개보조원 → 기타, 같은 그룹 안은 이름순
+    def _ord(r):
+        pos, role = r[2] or "", r[1] or ""
+        if pos == "대표":
+            g = 0
+        elif role in ("공인중개사", "중개인", "법인"):
+            g = 1
+        elif role == "중개보조원":
+            g = 2
+        else:
+            g = 3
+        return (g, r[0] or "")
+    rows = sorted(rows, key=_ord)
+    return {
+        "realtor_id": realtor_id,
+        "sys_regno": sys_regno,
+        "business_name": rows[0][4] if rows else None,
+        "as_of": max((r[5] or "" for r in rows), default=None),
+        "count": len(rows),
+        "items": [{"name": r[0], "role": r[1], "position": r[2], "status": r[3]}
+                  for r in rows],
+    }
+
+
+def _office_region_sys_regno(realtor_id: str) -> str | None:
+    """중개사 realtor_id → 사무소 sys_regno. vw{sys_regno}는 직접, 네이버는 realtor_match 경유."""
+    if realtor_id.startswith("vw") and realtor_id[2:].isdigit():
+        return realtor_id[2:]
+    with _open_db() as c:
+        r = c.execute("SELECT sys_regno FROM realtor_match WHERE realtor_id=? AND sys_regno IS NOT NULL",
+                      (realtor_id,)).fetchone()
+        return r[0] if r else None
+
+
+def _office_region_cats(realtor_id: str) -> dict:
+    """이 사무소의 비단지 CP매물 귀속 카테고리별 수(office_region_counts.by_cat).
+    등록번호 기반 귀속([[naverreal-region-office-attribution]])."""
+    attr = DB_PATH.parent / "office_attribution.sqlite"
+    if not attr.exists():
+        return {}
+    sys_regno = _office_region_sys_regno(realtor_id)
+    if not sys_regno:
+        return {}
+    try:
+        with sqlite3.connect(f"file:{attr}?mode=ro", uri=True) as ac:
+            r = ac.execute("SELECT by_cat FROM office_region_counts WHERE sys_regno=?", (sys_regno,)).fetchone()
+            return _json.loads(r[0]) if r and r[0] else {}
+    except (sqlite3.Error, ValueError):
+        return {}
+
+
 @app.get("/realtor/{realtor_id}")
 def realtor_detail(realtor_id: str):
     """중개사 상세: 전국 등수, 시도별 등수, 단지별 매물 집계."""
+    # vw{sys_regno}(vworld-only 사무소)는 상세 접근 시 naver_realtors에 자동등록(멱등) →
+    # 검색엔 뜨는데 상세는 404나던 문제 해결(2026-07-14). CP제휴 매물은 아래 region_listings로.
+    if realtor_id.startswith("vw") and realtor_id[2:].isdigit():
+        _provision_vworld_office(realtor_id)
     ranks = _rank_tables()
     nat = ranks["national"].get(realtor_id)
     if nat:
@@ -2898,6 +3470,13 @@ def realtor_detail(realtor_id: str):
     while len(vals) < 10:   # 구버전 테이블(oneroom_n 없음) 호환
         vals.append(0)
     _v, _h, _s, _o, _l, _f, _b, _k, _r, _or = vals[:10]
+    # CP 제휴 등 realtor_id 없는 비단지 매물을 등록번호로 귀속한 수(office_region_counts)를 합산
+    _rcat = _office_region_cats(realtor_id)
+    if _rcat:
+        _v += _rcat.get("villa", 0); _h += _rcat.get("house", 0); _s += _rcat.get("sangga", 0)
+        _o += _rcat.get("office", 0); _l += _rcat.get("land", 0); _f += _rcat.get("factory", 0)
+        _b += _rcat.get("building", 0); _k += _rcat.get("knowledge", 0); _r += _rcat.get("redev", 0)
+        _or += _rcat.get("oneroom", 0)
     listing_breakdown = {
         "complex": total_count, "villa": _v, "house": _h, "sangga": _s, "office": _o,
         "land": _l, "factory": _f, "building": _b, "knowledge": _k, "redev": _r, "oneroom": _or,
@@ -3039,24 +3618,49 @@ def complex_summary(complex_no: str):
                    "area": ar, "floor": fl, "dong": dong, "silv_kind": silv,
                    "direct": gbn == "직거래", "registered": bool(regi),
                    "renew": bool(ctype and "갱신" in str(ctype)), "rr": urr == "사용",
-                   "pre_deposit": pdep, "pre_rent": prent, "record_high": False}
+                   "pre_deposit": pdep, "pre_rent": prent,
+                   "record_high": False, "complex_record_high": False}
             if kind == "sale" and not silv and ar is not None and price:
                 tbl = "offi_transactions" if src == "offi" else "transactions"
+                # 타입신고가: 같은 평형그룹(전용 10㎡ 버킷) 내 이전 최고가 경신
                 prev = d.execute(
                     f"SELECT MAX(deal_amount) FROM {tbl} WHERE matched_complex_no=? "
                     "AND is_cancelled=0 AND deal_ymd<? AND CAST(excl_use_ar/10 AS INT)=CAST(?/10 AS INT)",
                     (complex_no, ymd_, ar)).fetchone()[0]
                 row["record_high"] = bool(prev is None or price > prev)
+                # 단지신고가: 단지 전체(아파트+오피, 분양권 제외) 이전 최고가 경신 ⟹ 타입신고가도 참
+                prevc = d.execute(
+                    "SELECT MAX(mx) FROM ("
+                    "  SELECT MAX(deal_amount) mx FROM transactions WHERE matched_complex_no=? AND is_cancelled=0 AND deal_ymd<?"
+                    "  UNION ALL SELECT MAX(deal_amount) FROM offi_transactions WHERE matched_complex_no=? AND is_cancelled=0 AND deal_ymd<?)",
+                    (complex_no, ymd_, complex_no, ymd_)).fetchone()[0]
+                row["complex_record_high"] = bool(prevc is None or price > prevc)
             recent_all.append(row)
         cnt = {"A1": 0, "B1": 0, "B2": 0}
-        for t, n in d.execute("SELECT trade_type, COUNT(*) FROM listings_current WHERE complex_no=? GROUP BY trade_type", (complex_no,)):
+        units = {"A1": 0, "B1": 0, "B2": 0}   # 실매물(중복 광고 합침)
+        for t, n, u in d.execute(
+                "SELECT trade_type, COUNT(*), SUM(1.0/MAX(COALESCE(same_addr_cnt,1),1)) "
+                "FROM listings_current WHERE complex_no=? GROUP BY trade_type", (complex_no,)):
             if t in cnt:
                 cnt[t] = n
+                units[t] = int(round(u or 0))
         cnt["total"] = cnt["A1"] + cnt["B1"] + cnt["B2"]
+        units["total"] = units["A1"] + units["B1"] + units["B2"]
+        # 평형별 min~max — 자릿수 오타(예: 5.9억→61.8억) 제외: 셀 중위값의 0.4~2.5배 밖 컷
         rows = d.execute(
-            "SELECT area_name, trade_type, COUNT(*), MIN(deal_or_warrant_price), MAX(deal_or_warrant_price) "
-            "FROM listings_current WHERE complex_no=? AND deal_or_warrant_price>0 AND deal_or_warrant_price<1000000000000 "
-            "GROUP BY area_name, trade_type", (complex_no,)).fetchall()
+            """WITH p AS (
+                 SELECT area_name, trade_type, deal_or_warrant_price pr,
+                        ROW_NUMBER() OVER (PARTITION BY area_name, trade_type ORDER BY deal_or_warrant_price) rn,
+                        COUNT(*) OVER (PARTITION BY area_name, trade_type) n
+                 FROM listings_current
+                 WHERE complex_no=? AND deal_or_warrant_price>0 AND deal_or_warrant_price<1000000000000),
+               md AS (SELECT area_name, trade_type, AVG(pr) m FROM p
+                      WHERE rn IN ((n+1)/2, n/2+1) GROUP BY area_name, trade_type)
+               SELECT p.area_name, p.trade_type, COUNT(*),
+                      MIN(CASE WHEN p.pr BETWEEN md.m*0.4 AND md.m*2.5 THEN p.pr END),
+                      MAX(CASE WHEN p.pr BETWEEN md.m*0.4 AND md.m*2.5 THEN p.pr END)
+               FROM p JOIN md ON md.area_name=p.area_name AND md.trade_type=p.trade_type
+               GROUP BY p.area_name, p.trade_type""", (complex_no,)).fetchall()
         # 타입명(area_name) → 전용/공급 면적·세대수 (complex_areas: pyeong_name == listings.area_name)
         areas_map = {pn: (sup, exc, hh) for pn, sup, exc, hh in d.execute(
             "SELECT pyeong_name, supply_area, exclusive_area, household_count FROM complex_areas WHERE complex_no=?",
@@ -3076,6 +3680,8 @@ def complex_summary(complex_no: str):
         elif t == "B2":
             e["rent_count"] = n
     by_type = sorted(types.values(), key=lambda x: -(x["sale_max"] or x["jeonse_max"] or 0))
+    subway = _complex_subway(d, complex_no)
+    school = _complex_school(d, complex_no)
     return {
         "complex_no": complex_no, "complex_name": cx[0], "region": region, "households": cx[1],
         "use_approve_ymd": cx[2], "builder": cx[3], "dong_name": cx[4], "asset_type": cx[5],
@@ -3084,8 +3690,338 @@ def complex_summary(complex_no: str):
         "record_high": record_high,
         "recent_tx": recent_tx, "recent_high": max((x["price"] for x in recent_tx), default=None),
         "recent_all": recent_all,
-        "listing_counts": cnt, "by_type": by_type,
+        "listing_counts": cnt, "listing_units": units, "by_type": by_type,
+        "subway": subway, "school": school,
     }
+
+
+def _complex_subway(d, complex_no: str):
+    """단지 최근접 지하철역(사전계산 complex_subway). 없으면 None.
+    거리=직선거리, 도보분=직선×1.25 우회계수÷80m/분 (build_subway.py 배치 산출)."""
+    try:
+        r = d.execute("SELECT station_name, lines, distance_m, walk_min FROM complex_subway "
+                      "WHERE complex_no=?", (complex_no,)).fetchone()
+    except Exception:
+        return None
+    if not r:
+        return None
+    st = r[0] if str(r[0]).endswith("역") else f"{r[0]}역"   # 원본에 '역' 유무 혼재(도농역/송파)
+    return {"station": st, "lines": r[1], "distance_m": r[2], "walk_min": r[3]}
+
+
+@app.get("/complex/{complex_no}/subway-nearby")
+def complex_subway_nearby(complex_no: str, radius_km: float = 2.0, limit: int = 8):
+    """단지 주변 지하철역 — 반경 내 역을 거리순으로(주변역 팝업·지도용).
+    도보분 = 직선거리 ×1.25(도로 우회계수) ÷ 80m/분."""
+    radius_km = max(0.5, min(radius_km, 5.0))
+    limit = max(1, min(limit, 15))
+    with _open_db() as d:
+        cx = d.execute("SELECT complex_name, latitude, longitude FROM complexes "
+                       "WHERE complex_no=?", (complex_no,)).fetchone()
+        if not cx or not cx[1] or not cx[2]:
+            raise HTTPException(404, "단지 좌표가 없어요")
+        lat0, lng0 = float(cx[1]), float(cx[2])
+        import math
+        dlat = radius_km / 111.0
+        dlng = radius_km / (111.0 * max(math.cos(math.radians(lat0)), 0.01))
+        rows = d.execute(
+            "SELECT station_name, lat, lng, lines FROM subway_stations "
+            "WHERE lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?",
+            (lat0 - dlat, lat0 + dlat, lng0 - dlng, lng0 + dlng)).fetchall()
+        items = []
+        for nm, la, ln, lines in rows:
+            dm = _haversine_km(lat0, lng0, la, ln) * 1000
+            if dm > radius_km * 1000:
+                continue
+            st = nm if str(nm).endswith("역") else f"{nm}역"
+            items.append({"station": st, "lines": lines, "lat": la, "lng": ln,
+                          "distance_m": round(dm), "walk_min": max(1, round(dm * 1.25 / 80))})
+        items.sort(key=lambda x: x["distance_m"])
+        # 같은 역명 병합(승강장 분리로 두 번 잡히는 수서역 3호선/분당선 등) — 가까운 쪽 좌표 + 노선 합침
+        merged: dict = {}
+        for x in items:
+            if x["station"] in merged:
+                m = merged[x["station"]]
+                m["lines"] = "·".join(sorted(set(m["lines"].split("·")) | set(x["lines"].split("·"))))
+            else:
+                merged[x["station"]] = x
+        items = list(merged.values())
+    return {"complex_no": complex_no, "complex_name": cx[0],
+            "lat": lat0, "lng": lng0, "radius_km": radius_km, "items": items[:limit]}
+
+
+@app.get("/complex/{complex_no}/school-map")
+def complex_school_map(complex_no: str, radius_km: float = 1.5):
+    """배정 초등학교 팝업 — 배정교(공동학구 포함)·학구 경계 GeoJSON·인근 초등학교.
+    경계는 학구도(통학구역) 15m 간소화본, WGS84 외곽 링 목록."""
+    import json as _json
+    with _open_db() as d:
+        cx = d.execute("SELECT complex_name, latitude, longitude FROM complexes "
+                       "WHERE complex_no=?", (complex_no,)).fetchone()
+        if not cx or not cx[1] or not cx[2]:
+            raise HTTPException(404, "단지 좌표가 없어요")
+        lat0, lng0 = float(cx[1]), float(cx[2])
+        row = d.execute("SELECT school_id, names_all, src, zone_ids FROM complex_school "
+                        "WHERE complex_no=?", (complex_no,)).fetchone()
+        assigned, zones = [], []
+        if row:
+            names = (row[1] or "").split("·")
+            ids = [r[0] for r in d.execute(
+                f"SELECT school_id FROM elementary_schools WHERE name IN "
+                f"({','.join('?' * len(names))})", names)] if names and names[0] else []
+            if row[0] and row[0] not in ids:
+                ids.insert(0, row[0])
+            for sid, nm, la, ln in d.execute(
+                    f"SELECT school_id, name, lat, lng FROM elementary_schools "
+                    f"WHERE school_id IN ({','.join('?' * len(ids))})", ids) if ids else []:
+                dm = _haversine_km(lat0, lng0, la, ln) * 1000
+                assigned.append({"school_id": sid, "name": nm, "lat": la, "lng": ln,
+                                 "distance_m": round(dm),
+                                 "walk_min": max(1, round(dm * 1.25 / 80))})
+            assigned.sort(key=lambda x: x["distance_m"])
+            for zid in (row[3] or "").split("·"):
+                if not zid:
+                    continue
+                zr = d.execute("SELECT geojson FROM school_zones WHERE zone_id=?", (zid,)).fetchone()
+                if zr:
+                    zones.append(_json.loads(zr[0]))
+        # 인근 초등학교(참고용, 배정 제외)
+        import math
+        dlat = radius_km / 111.0
+        dlng = radius_km / (111.0 * max(math.cos(math.radians(lat0)), 0.01))
+        aset = {a["school_id"] for a in assigned}
+        nearby = []
+        for sid, nm, la, ln in d.execute(
+                "SELECT school_id, name, lat, lng FROM elementary_schools "
+                "WHERE lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?",
+                (lat0 - dlat, lat0 + dlat, lng0 - dlng, lng0 + dlng)):
+            if sid in aset:
+                continue
+            dm = _haversine_km(lat0, lng0, la, ln) * 1000
+            if dm > radius_km * 1000:
+                continue
+            nearby.append({"school_id": sid, "name": nm, "lat": la, "lng": ln,
+                           "distance_m": round(dm), "walk_min": max(1, round(dm * 1.25 / 80))})
+        nearby.sort(key=lambda x: x["distance_m"])
+    return {"complex_no": complex_no, "complex_name": cx[0], "lat": lat0, "lng": lng0,
+            "src": (row[2] if row else None), "assigned": assigned,
+            "zones": zones, "nearby": nearby[:6]}
+
+
+def _pearson(xs: list, ys: list):
+    n = len(xs)
+    if n < 3:
+        return None
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxy = sum((a - mx) * (b - my) for a, b in zip(xs, ys))
+    sxx = sum((a - mx) ** 2 for a in xs)
+    syy = sum((b - my) ** 2 for b in ys)
+    if sxx <= 0 or syy <= 0:
+        return None
+    return sxy / (sxx * syy) ** 0.5
+
+
+def _px_buckets(excl: float) -> list:
+    """전용면적 ±3.5㎡ 밴드가 걸치는 5㎡ 버킷들(중간 버킷 포함 — 밴드폭 6.8㎡는
+    버킷 경계 2개를 걸칠 수 있어 lo·hi만 취하면 가운데가 빠진다)."""
+    lo, hi = int((excl - 3.4) // 5) * 5, int((excl + 3.4) // 5) * 5
+    return [b for b in range(max(0, lo), hi + 1, 5)]
+
+
+def _px_series(d, complex_no: str, buckets: list, start_ym: str) -> dict:
+    """complex_month_px에서 밴드 월별 가중평균 시계열 {ym: (avg, n)}."""
+    ph = ",".join("?" * len(buckets))
+    out = {}
+    for ym, a, n in d.execute(
+            f"SELECT ym, SUM(avg_amt*n)/SUM(n), SUM(n) FROM complex_month_px "
+            f"WHERE complex_no=? AND b IN ({ph}) AND ym >= ? GROUP BY ym",
+            (complex_no, *buckets, start_ym)).fetchall():
+        out[ym] = (a, n)
+    return out
+
+
+def _px_recent(series: dict, last_ym: str):
+    """최근 6개월 내 관측치 가중평균(현재가 근사)."""
+    from datetime import date
+    y, m = int(last_ym[:4]), int(last_ym[5:7])
+    keep = set()
+    for i in range(6):
+        mm = m - i
+        yy = y
+        while mm <= 0:
+            mm += 12
+            yy -= 1
+        keep.add(f"{yy:04d}-{mm:02d}")
+    num = den = 0.0
+    for ym, (a, n) in series.items():
+        if ym in keep:
+            num += a * n
+            den += n
+    return (num / den) if den else None
+
+
+@app.get("/stats/similar-complexes")
+def similar_complexes(complex_no: str, area_name: str = "", years: int = 3,
+                      scope: str = "sido", limit: int = 30):
+    """유사 단지 — 기준 단지·평형의 월별 실거래가 흐름과 상관도가 높은 단지 랭킹.
+    유사도 = 선택 기간 월평균 거래가 시계열의 피어슨 상관(같은 달 관측치만, 최소 6개월).
+    scope: sigungu(같은 시군구) | sido(같은 시도) | national(전국)."""
+    from datetime import date
+    years = years if years in (1, 3, 5) else 3
+    limit = max(5, min(limit, 50))
+    today = date.today()
+    start_ym = f"{today.year - years:04d}-{today.month:02d}"
+    last_ym = f"{today.year:04d}-{today.month:02d}"
+
+    with _open_db() as d:
+        base = d.execute("SELECT complex_name, cortar_no, total_household_count, use_approve_ymd "
+                         "FROM complexes WHERE complex_no=?", (complex_no,)).fetchone()
+        if not base:
+            raise HTTPException(404, "단지를 찾을 수 없어요")
+        # 기준 전용면적: area_name 지정 시 그 타입, 아니면 거래 최다 버킷
+        excl = None
+        if area_name:
+            row = d.execute("SELECT exclusive_area FROM complex_areas WHERE complex_no=? "
+                            "AND pyeong_name=? AND exclusive_area IS NOT NULL", (complex_no, area_name)).fetchone()
+            excl = row[0] if row else None
+        if excl is None:
+            row = d.execute("SELECT b FROM complex_month_px WHERE complex_no=? AND b>=0 AND ym>=? "
+                            "GROUP BY b ORDER BY SUM(n) DESC LIMIT 1", (complex_no, start_ym)).fetchone()
+            if not row:
+                return {"reference": None, "items": [], "note": "기준 단지의 기간 내 실거래가 부족해요"}
+            excl = row[0] + 2.5
+        buckets = _px_buckets(float(excl))
+
+        ref_series = _px_series(d, complex_no, buckets, start_ym)
+        min_common = max(6, int(years * 12 * 0.35))
+        if len(ref_series) < min_common:
+            return {"reference": None, "items": [],
+                    "note": f"기준 단지의 해당 평형 실거래 관측월이 {len(ref_series)}개뿐이라 흐름 비교가 어려워요 (최소 {min_common}개월)"}
+
+        ct = str(base[1] or "")
+        prefix = {"sigungu": ct[:5], "sido": ct[:2], "national": ""}.get(scope, ct[:2])
+        ph = ",".join("?" * len(buckets))
+        rows = d.execute(
+            f"""SELECT p.complex_no, p.ym, SUM(p.avg_amt*p.n)/SUM(p.n), SUM(p.n)
+                FROM complex_month_px p JOIN complexes c ON c.complex_no = p.complex_no
+                WHERE p.b IN ({ph}) AND p.ym >= ? AND p.complex_no <> ?
+                  {"AND c.cortar_no LIKE ?" if prefix else ""}
+                GROUP BY p.complex_no, p.ym""",
+            (*buckets, start_ym, complex_no, *((prefix + "%",) if prefix else ()))).fetchall()
+
+        cand: dict = {}
+        for cno, ym, a, n in rows:
+            cand.setdefault(cno, {})[ym] = (a, n)
+
+        ref_recent = _px_recent(ref_series, last_ym)
+        scored = []
+        for cno, series in cand.items():
+            common = sorted(set(series) & set(ref_series))
+            if len(common) < min_common:
+                continue
+            corr = _pearson([ref_series[k][0] for k in common], [series[k][0] for k in common])
+            if corr is None or corr < 0.3:
+                continue
+            scored.append((corr, len(common), cno, series))
+        scored.sort(key=lambda x: -x[0])
+        scored = scored[:limit]
+
+        # 상위 후보 enrich
+        items = []
+        sido_names = {r[0]: r[1] for r in d.execute(
+            "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city'")}
+        for corr, n_common, cno, series in scored:
+            cx = d.execute("SELECT complex_name, cortar_no, dong_name, total_household_count, "
+                           "use_approve_ymd FROM complexes WHERE complex_no=?", (cno,)).fetchone()
+            if not cx:
+                continue
+            cct = str(cx[1] or "")
+            sgg = d.execute("SELECT cortar_name FROM regions WHERE cortar_no=?",
+                            (cct[:5] + "0" * 5,)).fetchone()
+            region = " ".join(x for x in [
+                _SIDO_SHORT.get(sido_names.get(cct[:2] + "0" * 8), sido_names.get(cct[:2] + "0" * 8)),
+                sgg[0] if sgg else None, cx[2]] if x)
+            recent = _px_recent(series, last_ym)
+            # 해당 밴드 타입의 현재 매매 매물
+            names = [r[0] for r in d.execute(
+                "SELECT pyeong_name FROM complex_areas WHERE complex_no=? "
+                "AND exclusive_area IS NOT NULL AND ABS(exclusive_area - ?) <= 3.5", (cno, excl))]
+            ask = {"n": 0, "min": None}
+            if names:
+                ph2 = ",".join("?" * len(names))
+                row = d.execute(
+                    f"SELECT COUNT(*), MIN(CASE WHEN deal_or_warrant_price>0 THEN deal_or_warrant_price END) "
+                    f"FROM listings_current WHERE complex_no=? AND trade_type='A1' AND area_name IN ({ph2})",
+                    (cno, *names)).fetchone()
+                ask = {"n": row[0], "min": row[1]}
+            rec = d.execute("SELECT record_price FROM tx_record_rollup WHERE complex_no=? "
+                            "AND area_key BETWEEN ? AND ? ORDER BY record_price DESC LIMIT 1",
+                            (cno, excl - 3.5, excl + 3.5)).fetchone()
+            items.append({
+                "complex_no": cno, "complex_name": cx[0], "region": region,
+                "households": cx[3], "approve_year": (str(cx[4])[:4] if cx[4] else None),
+                "similarity": round(corr * 100, 1), "months": n_common,
+                "recent_avg": round(recent) if recent else None,
+                "diff_pct": (round((recent - ref_recent) / ref_recent * 100, 1)
+                             if recent and ref_recent else None),
+                "ask": ask,
+                "record_high": rec[0] if rec else None,
+                "vs_peak_pct": (round((recent / rec[0] - 1) * 100, 1) if recent and rec and rec[0] else None),
+                "series": [[ym, round(series[ym][0])] for ym in sorted(series)],
+            })
+
+        return {
+            "reference": {
+                "complex_no": complex_no, "complex_name": base[0],
+                "excl": round(float(excl), 1), "buckets": buckets,
+                "recent_avg": round(ref_recent) if ref_recent else None,
+                "series": [[ym, round(ref_series[ym][0])] for ym in sorted(ref_series)],
+            },
+            "years": years, "scope": scope, "min_common_months": min_common,
+            "items": items,
+        }
+
+
+@app.get("/stats/px-series")
+def px_series(nos: str, years: int = 3, area_name: str = "", mode: str = "sqm"):
+    """단지 월별 실거래 시계열 — 비교 차트용.
+    mode=sqm: 전평형 ㎡당가(원/㎡, 평형 구성이 달라도 비교 가능) / band: 첫 단지의
+    area_name 전용면적 ±3.5㎡ 밴드 평균 거래가."""
+    from datetime import date
+    ids = [x.strip() for x in (nos or "").split(",") if x.strip()][:6]
+    if not ids:
+        raise HTTPException(400, "nos required")
+    years = years if years in (1, 3, 5) else 3
+    today = date.today()
+    start_ym = f"{today.year - years:04d}-{today.month:02d}"
+    out = []
+    with _open_db() as d:
+        buckets = [-1]
+        if mode == "band" and area_name:
+            row = d.execute("SELECT exclusive_area FROM complex_areas WHERE complex_no=? "
+                            "AND pyeong_name=? AND exclusive_area IS NOT NULL", (ids[0], area_name)).fetchone()
+            if row:
+                buckets = _px_buckets(float(row[0]))
+        for cno in ids:
+            nm = d.execute("SELECT complex_name FROM complexes WHERE complex_no=?", (cno,)).fetchone()
+            series = _px_series(d, cno, buckets, start_ym)
+            out.append({"complex_no": cno, "complex_name": nm[0] if nm else cno,
+                        "series": [[ym, round(series[ym][0])] for ym in sorted(series)]})
+    return {"mode": ("band" if buckets != [-1] else "sqm"), "years": years, "items": out}
+
+
+def _complex_school(d, complex_no: str):
+    """단지 배정 초등학교(사전계산 complex_school, 학구도 폴리곤 기준).
+    src='zone'=학구도 배정 / 'near'=학구도 미포함 지역의 인근 학교(배정 아님)."""
+    try:
+        r = d.execute("SELECT school_name, names_all, n_schools, distance_m, walk_min, src "
+                      "FROM complex_school WHERE complex_no=?", (complex_no,)).fetchone()
+    except Exception:
+        return None
+    if not r:
+        return None
+    return {"name": r[0], "names_all": r[1], "n": r[2],
+            "distance_m": r[3], "walk_min": r[4], "src": r[5]}
 
 
 def _haversine_km(lat1, lon1, lat2, lon2) -> float:
@@ -3098,9 +4034,11 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> float:
 
 @app.get("/complex/{complex_no}/nearby-transactions")
 def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int = 12,
-                                radius_km: float = 1.5, limit: int = 12):
+                                radius_km: float = 1.5, limit: int = 12,
+                                include_listings: int = 0):
     """인근 단지 실거래가 — 대상단지 좌표 기준 반경 내 같은유형(아파트/오피) 단지들의 최근
-    매매 실거래. area>0이면 전용면적±3.5㎡(같은 평형)만, area=0이면 전체평형. 거리순."""
+    매매 실거래. area>0이면 전용면적±3.5㎡(같은 평형)만, area=0이면 전체평형. 거리순.
+    include_listings=1이면 단지별 현재 매물(매매 건수·최저호가)도 함께 반환(관심단지 팝업용)."""
     import math
     months = max(1, min(months, 60))
     radius_km = max(0.2, min(radius_km, 5.0))
@@ -3113,6 +4051,7 @@ def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int 
             return {"complex_no": complex_no, "target_name": None, "nearby": [], "areas": []}
         lat0, lon0 = float(tgt["latitude"]), float(tgt["longitude"])
         asset_apt = (tgt["real_estate_type"] or "") != "OPST"
+        tbl = "transactions" if asset_apt else "offi_transactions"
         areas = [{"pyeong_name": r["pyeong_name"], "exclusive_area": r["exclusive_area"],
                   "household_count": r["household_count"]}
                  for r in c.execute(
@@ -3140,7 +4079,6 @@ def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int 
         if near:
             ids = [r["complex_no"] for _, r in near]
             ph = ",".join("?" * len(ids))
-            tbl = "transactions" if asset_apt else "offi_transactions"
             params: list = [*ids, f"-{months} months"]
             area_cl = ""
             if area and area > 0:
@@ -3166,12 +4104,31 @@ def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int 
                 f"WHERE matched_complex_no IN ({ph}){am_area} AND is_cancelled=0 "
                 f"GROUP BY matched_complex_no", am_params):
                 allmax[r["cno"]] = r["mx"]
+            # 현재 매물(매매) — 건수·최저호가 (관심단지 주변단지 팝업용)
+            lst: dict = {}
+            sub_by: dict = {}
+            if include_listings:
+                for r in c.execute(
+                    f"SELECT complex_no AS cno, COUNT(*) AS n, "
+                    f"MIN(CASE WHEN deal_or_warrant_price > 0 THEN deal_or_warrant_price END) AS mn "
+                    f"FROM listings_current WHERE complex_no IN ({ph}) AND trade_type='A1' "
+                    f"GROUP BY complex_no", ids):
+                    lst[r["cno"]] = {"n": r["n"], "ask_min": r["mn"]}
+                try:
+                    for r in c.execute(
+                        f"SELECT complex_no, station_name, walk_min FROM complex_subway "
+                        f"WHERE complex_no IN ({ph})", ids):
+                        st = r[1] if str(r[1]).endswith("역") else f"{r[1]}역"
+                        sub_by[r[0]] = {"station": st, "walk_min": r[2]}
+                except Exception:
+                    pass
             for d, r in near:
                 deals = by.get(r["complex_no"], [])
                 amts = [x["deal_amount"] for x in deals if x["deal_amount"]]
                 result.append({
                     "complex_no": r["complex_no"], "complex_name": r["complex_name"],
                     "dong_name": r["dong_name"], "distance_m": round(d * 1000),
+                    "lat": float(r["latitude"]), "lng": float(r["longitude"]),
                     "households": r["total_household_count"],
                     "use_approve_ymd": r["use_approve_ymd"],
                     "deal_count": len(deals),
@@ -3179,10 +4136,33 @@ def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int 
                     "max_amount": max(amts) if amts else None,   # 최근 12개월 최고
                     "all_time_max": allmax.get(r["complex_no"]),  # 역대 최고(거래내역 표시용)
                     "recent": deals[:5],
+                    **({"listings": lst.get(r["complex_no"]) or {"n": 0, "ask_min": None},
+                        "subway": sub_by.get(r["complex_no"])}
+                       if include_listings else {}),
                 })
+        # 기준단지 자신도 같은 잣대(기간·평형)로 집계 — 지도에서 주변과 나란히 비교
+        me_params: list = [complex_no, f"-{months} months"]
+        me_area = ""
+        if area and area > 0:
+            me_area = " AND excl_use_ar BETWEEN ? AND ?"
+            me_params += [area - 3.5, area + 3.5]
+        me_amts = [r["deal_amount"] for r in c.execute(
+            f"SELECT deal_amount FROM {tbl} WHERE matched_complex_no=? "
+            f"AND deal_ymd >= date('now', ?){me_area} AND is_cancelled=0", me_params)
+            if r["deal_amount"]]
+        me = {"deal_count": len(me_amts),
+              "avg_amount": round(sum(me_amts) / len(me_amts)) if me_amts else None}
+        if include_listings:
+            r = c.execute(
+                "SELECT COUNT(*) AS n, "
+                "MIN(CASE WHEN deal_or_warrant_price > 0 THEN deal_or_warrant_price END) AS mn "
+                "FROM listings_current WHERE complex_no=? AND trade_type='A1'",
+                (complex_no,)).fetchone()
+            me["listings"] = {"n": r["n"], "ask_min": r["mn"]}
     return {"complex_no": complex_no, "target_name": tgt["complex_name"],
+            "lat": lat0, "lng": lon0,
             "asset": "apt" if asset_apt else "offi", "area": area, "months": months,
-            "radius_km": radius_km, "areas": areas, "nearby": result}
+            "radius_km": radius_km, "areas": areas, "self": me, "nearby": result}
 
 
 @app.get("/complex/{complex_no}/areas")
@@ -3205,6 +4185,42 @@ def complex_areas_endpoint(complex_no: str):
             for r in rows
         ],
     }
+
+
+@app.get("/complex/{complex_no}/listing-daily")
+def complex_listing_daily(complex_no: str, days: int = 31):
+    """단지매물분석: 일자별 매물수·실매물수·호가(면적타입×거래유형별 원자료).
+    complex_daily_agg 그대로 내려주고 집계(전체/면적선택)는 프론트에서.
+    """
+    if days < 1 or days > 92:
+        raise HTTPException(400, "days out of range")
+    _ck = f"cxlistdaily:{complex_no}:{days}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
+    with _open_db() as c:
+        rows = c.execute(
+            """
+            SELECT snapshot_date, area_name, trade_type,
+                   listing_count, unit_count, price_avg, price_min, price_max, rent_avg
+            FROM complex_daily_agg
+            WHERE complex_no = ? AND snapshot_date >= date('now', ?)
+            ORDER BY snapshot_date ASC
+            """,
+            (complex_no, f"-{days} days"),
+        ).fetchall()
+    out = {
+        "complex_no": complex_no,
+        "days": days,
+        "rows": [
+            {"d": r[0], "area": r[1], "t": r[2], "n": r[3],
+             "u": (int(round(r[4])) if r[4] is not None else None),
+             "avg": r[5], "min": r[6], "max": r[7], "ravg": r[8]}
+            for r in rows
+        ],
+    }
+    _cache_put(_ck, out)
+    return out
 
 
 @app.get("/complex/{complex_no}/realtors")
@@ -3974,6 +4990,63 @@ def tx_top_volume(days: int = 30, trade: str = "A1", asset: str = "all",
     return _res
 
 
+@app.get("/stats/tx-region-volume")
+def tx_region_volume(level: str = "sido", parent: str = "", days: int = 30,
+                     trade: str = "A1", limit: int = 30):
+    """지역(시도/시군구/동) 실거래 '거래량 순위' — parent 하위 지역을 기간(days) 내 거래수로 랭킹.
+    level=sido(전국→17시도) / sigungu(parent=시도2자리 → 시군구) / dong(parent=시군구5자리 → 동).
+    trade A1(매매)/B1(전세)/B2(월세). 카드뉴스 '지역별 거래량 순위'용."""
+    days = min(max(int(days), 1), 3650)
+    limit = min(max(int(limit), 1), 100)
+    if trade == "A1":
+        srcs = [("transactions", "is_cancelled=0"), ("offi_transactions", "is_cancelled=0")]
+    elif trade == "B1":
+        srcs = [("rentals", "+monthly_rent=0"), ("offi_rentals", "+monthly_rent=0")]
+    else:
+        srcs = [("rentals", "+monthly_rent>0"), ("offi_rentals", "+monthly_rent>0")]
+    if level == "dong":
+        grp = "umd_nm"; where = "substr(sgg_cd,1,5)=?"; wp = [parent[:5]]
+    elif level == "sigungu":
+        grp = "substr(sgg_cd,1,5)"; where = "substr(sgg_cd,1,2)=?"; wp = [parent[:2]]
+    else:
+        grp = "substr(sgg_cd,1,2)"; where = "1=1"; wp = []
+    _ck = f"txregvol:{level}:{parent}:{days}:{trade}:{limit}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
+    with _open_db() as c:
+        existing = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        parts, params = [], []
+        for tbl, cond in srcs:
+            if tbl not in existing:
+                continue
+            parts.append(f"SELECT {grp} g, COUNT(*) n FROM {tbl} "
+                         f"WHERE {cond} AND deal_ymd>=date('now',?) AND {where} GROUP BY g")
+            params += [f"-{days} days"] + wp
+        if not parts:
+            return {"items": []}
+        union = " UNION ALL ".join(parts)
+        rows = c.execute(f"SELECT g, SUM(n) n FROM ({union}) WHERE g IS NOT NULL AND g!='' "
+                         f"GROUP BY g ORDER BY n DESC LIMIT ?", params + [limit]).fetchall()
+        # 지역명 붙이기
+        names: dict = {}
+        if level == "sido":
+            names = {g: _SIDO_STD.get(g, g) for g, _ in rows}
+        elif level == "sigungu":
+            codes = [g for g, _ in rows]
+            if codes:
+                ph = ",".join("?" * len(codes))
+                names = {r[0][:5]: r[1] for r in c.execute(
+                    f"SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='dvsn' "
+                    f"AND substr(cortar_no,1,5) IN ({ph})", codes)}
+        else:  # dong — g가 이미 동명
+            names = {g: g for g, _ in rows}
+    items = [{"region_code": g, "region_name": names.get(g, g), "count": n} for g, n in rows]
+    _res = {"level": level, "parent": parent, "days": days, "trade": trade, "items": items}
+    _cache_put(_ck, _res)
+    return _res
+
+
 @app.get("/stats/tx-low-price")
 def tx_low_price(days: int = 180, discount: float = 0.20, min_samples: int = 3,
                  asset: str = "all", area_class: str = "all", sido: str | None = None,
@@ -4328,10 +5401,13 @@ def tx_price_change(window_days: int = 90, asset: str = "apt", min_samples: int 
 
 @app.get("/stats/tx-asking-vs-real")
 def tx_asking_vs_real(days: int = 90, min_samples: int = 3, area_class: str = "all",
-                      limit: int = 100, order: str = "desc"):
-    """호가(매물) vs 실거래가 갭. asking/real ratio 큰 순 (호가가 더 비쌈)."""
+                      limit: int = 100, order: str = "desc", sido: str | None = None,
+                      sigungu: str | None = None, dong: str | None = None):
+    """호가(매물) vs 실거래가 갭. asking/real ratio 큰 순 (호가가 더 비쌈).
+    order='desc'=호가 프리미엄(매도강세) / 'asc'=호가 역전(실거래보다 낮은 저평가·매수기회)."""
     cutoff = f"-{days} days"
     direction = "ASC" if order == "asc" else "DESC"
+    reg_cond, reg_params = _cx_region_clause(sido, sigungu, dong)
     # 호가는 공급면적(area1_m2), 실거래는 전용면적(supply_area 매핑) 기준으로 각각 필터
     ac_ask, ac_ask_p = _area_cond("area1_m2", area_class, col_supply="area1_m2")
     ac_real, ac_real_p = _area_cond("excl_use_ar", area_class)
@@ -4363,10 +5439,10 @@ def tx_asking_vs_real(days: int = 90, min_samples: int = 3, area_class: str = "a
             FROM asking a
             JOIN real_tx t ON t.cno = a.complex_no AND t.area_key = a.area_key
             LEFT JOIN complexes cx ON cx.complex_no = a.complex_no{_REGION_JOINS}
-            WHERE t.avg_real > 0
+            WHERE t.avg_real > 0{reg_cond}
             ORDER BY gap_rate {direction} LIMIT ?
             """,
-            (*ac_ask_p, min_samples, cutoff, *ac_real_p, min_samples, limit),
+            (*ac_ask_p, min_samples, cutoff, *ac_real_p, min_samples, *reg_params, limit),
         ).fetchall()
     return {
         "days": days, "order": order,
@@ -4660,6 +5736,11 @@ def changes_summary(sido: str | None = None, sigungu: str | None = None, dong: s
     sido/sigungu 미지정 시 전국. asset(apt/offi)로 아파트/오피스텔 구분.
     필터는 complexes.cortar_no/real_estate_type 로 적용 (complex_daily_agg ⨝ complexes).
     """
+    # 버전연동 캐시 — 데이터 재빌드 시 자동 무효(정확성), 그 전엔 즉시응답(전국 콜드 ~2s).
+    _ck = f"chsummary:{sido or ''}:{sigungu or ''}:{dong or ''}:{asset or ''}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
     # 지역 필터 SQL fragment. complexes 를 join 해서 cortar_no prefix 로 거름.
     region_join = ""
     region_clause = ""
@@ -4710,6 +5791,25 @@ def changes_summary(sido: str | None = None, sigungu: str | None = None, dong: s
 
         cur, cur_cplx = totals(latest)
         old, _ = totals(prev)
+
+        # 실매물(중복 광고 합침) — 같은 집을 여러 중개업소가 올린 광고를 1건으로.
+        # 광고 수와 동일 테이블(complex_daily_agg.unit_count, daily가 같은 쿼리에서 동시
+        # 계산)에서 읽어 두 수치가 항상 같은 행에서 나온다(정합 보장 + 원장 풀스캔 회피).
+        units_by: dict[str, int] = {}
+        try:
+            if latest:
+                units_by = {
+                    t: int(round(u))
+                    for t, u in c.execute(
+                        f"SELECT a.trade_type, SUM(a.unit_count) FROM complex_daily_agg a"
+                        f"{region_join} WHERE a.snapshot_date=?{region_clause}"
+                        f" GROUP BY a.trade_type",
+                        (latest, *region_params),
+                    )
+                    if u is not None
+                }
+        except Exception:  # noqa: BLE001 — 실매물 계산 실패해도 기존 응답은 유지
+            units_by = {}
 
         def avg_price(d, t):
             """거래유형별 가중 평균 호가 (지역 필터 적용 + sane bound)."""
@@ -4789,6 +5889,8 @@ def changes_summary(sido: str | None = None, sigungu: str | None = None, dong: s
             "avg_price": avg_cur[t],
             "avg_prev": avg_old[t],
             "avg_change": _change(avg_cur[t], avg_old[t]),
+            # 실매물(중복 광고 합침) — 광고 대비 배수는 프런트에서 count/units
+            "units": units_by.get(t),
         }
         for t in ("A1", "B1", "B2")
     }
@@ -4796,7 +5898,7 @@ def changes_summary(sido: str | None = None, sigungu: str | None = None, dong: s
     trades["B2"]["rent_avg"] = rent_cur
     trades["B2"]["rent_prev"] = rent_old
     trades["B2"]["rent_change"] = _change(rent_cur, rent_old)
-    return {
+    out = {
         "latest_date": latest,
         "prev_date": prev,
         # prev 가 latest 의 바로 전날(연속일)인지 — 수집 누락으로 며칠 건너뛴 경우
@@ -4804,6 +5906,7 @@ def changes_summary(sido: str | None = None, sigungu: str | None = None, dong: s
         "prev_is_yesterday": _consecutive_days(prev, latest),
         "complex_count": cur_cplx,
         "total": sum(cur.values()),
+        "total_units": (sum(units_by.values()) if units_by else None),
         "trades": trades,
         "event_date": ev_date,
         "events_up": up,
@@ -4811,16 +5914,18 @@ def changes_summary(sido: str | None = None, sigungu: str | None = None, dong: s
         "sido": sido,
         "sigungu": sigungu,
     }
+    _cache_put(_ck, out)
+    return out
 
 
 @app.get("/stats/changes/sido-list")
 def changes_sido_list():
-    """시도 드롭다운용 목록 (regions.cortar_type='city')."""
+    """시도 드롭다운용 목록 (regions.cortar_type='city') — 표준 배열 순서."""
     with _open_db() as c:
         rows = c.execute(
-            "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city' "
-            "ORDER BY cortar_no"
+            "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='city'"
         ).fetchall()
+    rows = sorted(rows, key=lambda r: sido_rank(r[0]))
     return {"items": [{"code": r[0], "name": r[1]} for r in rows]}
 
 
@@ -4904,7 +6009,8 @@ def changes_region_rank(
                SUM(CASE WHEN a.snapshot_date=d.lo THEN a.price_avg*a.listing_count ELSE 0 END)*1.0
                  / NULLIF(SUM(CASE WHEN a.snapshot_date=d.lo THEN a.listing_count ELSE 0 END),0) AS prev_avg,
                SUM(CASE WHEN a.snapshot_date=d.hi THEN a.listing_count ELSE 0 END) AS listings,
-               COUNT(DISTINCT CASE WHEN a.snapshot_date=d.hi THEN a.complex_no END) AS complexes
+               COUNT(DISTINCT CASE WHEN a.snapshot_date=d.hi THEN a.complex_no END) AS complexes,
+               SUM(CASE WHEN a.snapshot_date=d.hi THEN COALESCE(a.unit_count,0) ELSE 0 END) AS units
         FROM complex_daily_agg a
         JOIN complexes cx ON cx.complex_no=a.complex_no
         JOIN dts d ON a.snapshot_date IN (d.hi, d.lo){area_join}
@@ -4944,6 +6050,8 @@ def changes_region_rank(
                 "change": _change(r[2], r[3]),
                 "listings": r[4],
                 "complexes": r[5],
+                # 실매물(중복 광고 합침) — 미백필/미집계면 0 → None 처리
+                "units": (int(round(r[6])) if r[6] else None),
             }
             for r in rows
         ],
@@ -4956,19 +6064,24 @@ def changes_movers(
     sido: str | None = None,
     sigungu: str | None = None, dong: str | None = None,
     asset: str | None = None,
-    min_listings: int = 2,
+    days: int = 7,
+    min_listings: int = 5,
     min_complex_listings: int = 50,
     limit: int = 5,
 ):
-    """상승 / 하락 top — 단지·평형별 최신 스냅샷 vs 가장 오래된 스냅샷 price_avg 비교.
-    데이터가 6일치뿐이라 변동폭은 작지만, 데이터가 쌓이면 같은 쿼리가 의미를 갖는다.
-    rate 는 ±급변(오타) 컷을 위해 -80%~+100% 로 클램프.
+    """상승 / 하락 top — 단지·평형별 최신 스냅샷 vs 비교 기준일 price_avg 비교.
+    days: 비교 기간(일). 기준일 = 최신일-days 이후 첫 스냅샷. 0=전체 기간.
+    (전체 기간 비교는 매물 구성 변화가 누적돼 변동률이 과장될 수 있음 — 기본 7일.)
+    rate 는 ±급변(오타·구성변화) 컷을 위해 -80%~+100% 로 클램프.
+    min_listings: 단지×평형 매물이 양일 모두 이 값 이상 — 소표본 평균 변동 노이즈 억제.
     min_complex_listings: 최신 스냅샷에서 단지 전체 매물(전 거래유형 합)이 이 값 이상인
     단지만 — 소형/유령 단지의 노이즈를 거른다."""
     if trade not in ("A1", "B1", "B2"):
         raise HTTPException(400, "bad trade")
     if limit < 1 or limit > 50:
         raise HTTPException(400, "limit out of range")
+    if days < 0 or days > 365:
+        raise HTTPException(400, "days out of range")
     lo = _PRICE_LO.get(trade, 1_000_000)
     if sigungu:
         sido_clause = " AND substr(cx.cortar_no,1,5)=substr(?,1,5)"
@@ -4978,10 +6091,18 @@ def changes_movers(
         sido_clause = ""
     asset_clause = _asset_type_clause(asset)  # cx LEFT JOIN 됨
 
+    # 비교 기준일: days=0 이면 전체 기간(단, 부분수집일 5/18 제외), 아니면 최신-days 이후 첫 스냅샷
+    if days == 0:
+        lo_expr = "(SELECT MIN(snapshot_date) FROM complex_daily_agg WHERE snapshot_date > '2026-05-18')"
+    else:
+        lo_expr = ("(SELECT MIN(snapshot_date) FROM complex_daily_agg "
+                   f"WHERE snapshot_date >= date((SELECT MAX(snapshot_date) FROM complex_daily_agg), '-{int(days)} days') "
+                   "AND snapshot_date > '2026-05-18')")
+
     def _sql(direction: str) -> str:
         return f"""
             WITH d AS (
-              SELECT MIN(snapshot_date) lo, MAX(snapshot_date) hi FROM complex_daily_agg
+              SELECT {lo_expr} lo, MAX(snapshot_date) hi FROM complex_daily_agg
             ),
             ct AS (
               SELECT complex_no, SUM(listing_count) AS total
@@ -5043,7 +6164,11 @@ def changes_movers(
     with _open_db() as c:
         up = c.execute(_sql("DESC"), _params()).fetchall()
         down = c.execute(_sql("ASC"), _params()).fetchall()
-    return {"trade": trade, "up": _fmt(up), "down": _fmt(down)}
+        dts = c.execute(
+            f"SELECT {lo_expr}, MAX(snapshot_date) FROM complex_daily_agg").fetchone()
+    return {"trade": trade, "days": days,
+            "from_date": (dts[0] if dts else None), "to_date": (dts[1] if dts else None),
+            "up": _fmt(up), "down": _fmt(down)}
 
 
 @app.get("/stats/changes/events")
@@ -5699,7 +6824,7 @@ def quick_deals(
           (lg.asking_min - rx.avg_real) * 1.0 / rx.avg_real AS discount_min,
           (lg.asking_max - rx.avg_real) * 1.0 / rx.avg_real AS discount_max,
           (lg.asking_avg - rx.avg_real) * 1.0 / rx.avg_real AS discount_avg,
-          cx.complex_name, cx.cortar_no, {_REGION_NAME_COL}
+          cx.complex_name, cx.cortar_no, {_REGION_NAME_COL}, cx.total_household_count
         FROM listing_groups lg
         JOIN real_tx rx
           ON rx.cno = lg.complex_no
@@ -5740,6 +6865,7 @@ def quick_deals(
             "complex_name": r[15],
             "cortar_no": r[16],
             "region_name": r[17],
+            "households": r[18],     # 세대수(카드뉴스 조건 필터용)
             # 단지 페이지 / Naver 검증
             "naver_complex_url": f"https://new.land.naver.com/complexes/{r[0]}",
         }
@@ -6289,6 +7415,50 @@ class AiAskBody(BaseModel):
     history: list[dict] = []   # [{"role":"user"|"model","text":"..."}] 멀티턴 맥락
 
 
+# 접속 IP → 지역 캐시(질문마다 ip-api 왕복 방지). {ip: (ts, region|None)}
+_IP_REGION_CACHE: dict = {}
+
+
+def _ask_user_region(request: Request) -> str | None:
+    """ask용 접속 지역 추정 — /ai/region 로직 재사용 + IP별 1시간 캐시.
+    실패/해외/사설IP면 None(→ AI는 전국 기본). 지역이 틀릴 수 있으므로
+    프롬프트에서 '접속 위치 기준' 명시와 정정 안내를 강제한다."""
+    try:
+        ip = None
+        for h in ("cf-connecting-ip", "x-real-ip"):
+            v = request.headers.get(h)
+            if v:
+                ip = v.strip(); break
+        if not ip:
+            xff = request.headers.get("x-forwarded-for")
+            if xff:
+                ip = xff.split(",")[0].strip()
+        if not ip and request.client:
+            ip = request.client.host
+        if not ip:
+            return None
+        hit = _IP_REGION_CACHE.get(ip)
+        if hit and _time.time() - hit[0] < 3600:
+            return hit[1]
+        private = ip in ("::1", "localhost") or ip.startswith(
+            ("127.", "10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31."))
+        import urllib.request as _u
+        target = "" if private else ip
+        url = (f"http://ip-api.com/json/{target}"
+               "?fields=status,countryCode,regionName,city,query&lang=ko")
+        with _u.urlopen(url, timeout=2) as resp:
+            geo = _json.load(resp)
+        region = None
+        if geo.get("status") == "success" and geo.get("countryCode") == "KR":
+            region = _kr_region_from_geo(geo.get("regionName"), geo.get("city"))
+        if len(_IP_REGION_CACHE) > 5000:   # 무한 성장 방지
+            _IP_REGION_CACHE.clear()
+        _IP_REGION_CACHE[ip] = (_time.time(), region)
+        return region
+    except Exception:  # noqa: BLE001 — 지역 추정 실패는 조용히 전국 기본
+        return None
+
+
 def _log_ai(user: dict, question: str, *, answer=None, tools=None, usage=None,
             status: int = 200, error=None, duration_ms=None, request=None) -> None:
     """AI 질문-답변을 상세 로그로 남긴다(질문/답변/사용도구/토큰/소요시간)."""
@@ -6325,7 +7495,8 @@ def ai_ask_post(body: AiAskBody, request: Request, user: dict = Depends(current_
     t0 = _time.perf_counter()
     try:
         from scripts.ai_agent import run_agent
-        res = run_agent(q, history=body.history, nickname=nick)
+        res = run_agent(q, history=body.history, nickname=nick,
+                        user_region=_ask_user_region(request))
         _log_ai(user, q, answer=(res or {}).get("answer"),
                 tools=(res or {}).get("tools_used") or (res or {}).get("tools"),
                 usage=(res or {}).get("usage"),
@@ -6364,7 +7535,8 @@ def ai_ask_stream(body: AiAskBody, request: Request, user: dict = Depends(curren
         err = None
         try:
             from scripts.ai_agent import run_agent_stream
-            for ev in run_agent_stream(q, history=body.history, nickname=nick):
+            for ev in run_agent_stream(q, history=body.history, nickname=nick,
+                                       user_region=_ask_user_region(request)):
                 if ev.get("type") == "done":
                     fin["answer"] = ev.get("answer")
                     fin["tools"] = ev.get("tools_used")
@@ -6885,22 +8057,42 @@ def admin_kpi_target(body: KpiTargetBody, _admin: dict = Depends(admin_user)):
     return {"ok": True}
 
 
+# 프런트 라우트(정규화된 페이지 키) → 직관적 페이지명. 페이지뷰 분석·대시보드 공용.
+# 더 구체적인 경로를 앞에 둔다(startswith 매칭). 신규 페이지는 여기만 추가하면 분석에 잡힘.
+_PAGE_RULES = [
+    ("/today/find", "TODAY·오늘의급매"), ("/today", "TODAY·우리동네"),
+    ("/finder", "맞춤단지 찾기"), ("/similar", "유사단지"),
+    ("/quick-deals", "급매찾기"), ("/quick", "급매찾기"),
+    ("/buy-calculator", "아파트매수계산기"), ("/admin/buywizard", "아파트매수계산기(관리자)"),
+    ("/jeonse-check", "깡통전세지수"),
+    ("/changes/counts", "지역별 매물수"), ("/changes", "매물 호가"),
+    ("/tx-stats", "실거래 통계"),
+    ("/realtors", "중개사무소 랭킹"), ("/realtor/", "중개사 상세"),
+    ("/nonresi/villa", "빌라·연립 통계"), ("/nonresi/sangga", "상가 통계"),
+    ("/nonresi/office", "사무실 통계"), ("/nonresi/house", "단독·다가구 통계"),
+    ("/nonresi", "비단지 통계"),
+    ("/complex/", "단지 상세"), ("/complex", "단지 상세"),
+    ("/deal-map", "실거래 지도"), ("/map", "지도"),
+    ("/cancelled", "취소거래"), ("/suspicious", "이상매물"),
+    ("/forum", "토론장"), ("/lounge", "중개사 라운지"),
+    ("/my/favorites", "관심단지"), ("/ai", "AI 분석"), ("/overview", "전국현황"),
+    ("/biz", "중개사앱"), ("/r/", "중개사 홈페이지"),
+    ("/terms", "약관"), ("/privacy", "개인정보"), ("/delete-account", "회원탈퇴"),
+    ("/me", "내 정보"), ("/account", "내 정보"),
+    ("/admin/logs", "관리자·로그"), ("/admin/today", "관리자·오늘통계"),
+    ("/admin/users", "관리자·회원"), ("/admin/kpi", "관리자·KPI"),
+    ("/admin", "관리자"),
+]
+
+
 def _page_label(path: str | None) -> str:
-    """경로 → 직관적 페이지명. 관리자 대시보드 표시용."""
+    """경로 → 직관적 페이지명. 관리자 대시보드·페이지분석 표시용."""
     if not path:
         return "기타"
     p = path.split("?")[0]
     if p in ("/", ""):
         return "홈"
-    rules = [
-        ("/today", "TODAY·우리동네"), ("/quick-deals", "급매찾기"), ("/jeonse-check", "깡통전세지수"),
-        ("/changes", "매물가격추이"), ("/tx-stats", "실거래 통계"), ("/realtors", "중개사 랭킹"),
-        ("/complex", "단지 상세"), ("/realtor/", "중개사 상세"), ("/map", "지도"),
-        ("/forum", "토론장"), ("/lounge", "중개사 라운지"), ("/ai", "AI 분석"),
-        ("/nonresi", "상가·빌라·사무실"), ("/overview", "전국현황"), ("/quick", "급매찾기"),
-        ("/me", "내 정보"), ("/admin", "관리자"), ("/r/", "중개사 홈페이지"), ("/cancelled", "취소거래"),
-    ]
-    for pre, lbl in rules:
+    for pre, lbl in _PAGE_RULES:
         if p.startswith(pre):
             return lbl
     return p
@@ -6983,6 +8175,39 @@ def admin_today_stats(_admin: dict = Depends(admin_user)):
             f"SELECT COUNT(DISTINCT user_id), COUNT(DISTINCT CASE WHEN user_id IN "
             f"(SELECT user_id FROM event_log WHERE ts>={_lb} AND ts<{_tod} AND user_id IS NOT NULL AND user_id<>'') "
             f"THEN user_id END) FROM event_log WHERE ts>={_tod} AND user_id IS NOT NULL AND user_id<>''").fetchone()
+        # 디바이스(고유 IP 기준) — user_agent 로 모바일/PC 구분(둘 다에서 접속한 IP는 양쪽 집계)
+        _MOB = "(user_agent LIKE '%Mobile%' OR user_agent LIKE '%Android%' OR user_agent LIKE '%iPhone%' OR user_agent LIKE '%iPad%')"
+        dev = c.execute(
+            f"SELECT COUNT(DISTINCT CASE WHEN {_MOB} THEN ip END), "
+            f"       COUNT(DISTINCT CASE WHEN NOT {_MOB} THEN ip END) "
+            f"FROM event_log WHERE {T} AND ip IS NOT NULL AND ip<>''").fetchone()
+        # 비로그인 방문자(고유 IP 중 로그인 이벤트 없는 IP)
+        guest = c.execute(
+            f"SELECT COUNT(DISTINCT ip) FROM event_log WHERE {T} AND ip IS NOT NULL AND ip<>'' "
+            f"AND ip NOT IN (SELECT ip FROM event_log WHERE {T} AND user_id IS NOT NULL AND user_id<>'')").fetchone()[0]
+        # 활동 유형별 이벤트 수(오늘)
+        by_kind = [{"kind": k, "n": n} for k, n in c.execute(
+            f"SELECT kind, COUNT(*) FROM event_log WHERE {T} GROUP BY kind ORDER BY 2 DESC")]
+        # 로그인 경로(오늘 로그인 이벤트의 provider별)
+        by_provider = [{"provider": (p or "기타"), "n": n} for p, n in c.execute(
+            f"SELECT provider, COUNT(*) FROM event_log WHERE {T} AND kind='login' GROUP BY provider ORDER BY 2 DESC")]
+        # 오늘 인기 단지 조회 top (view_complex ref)
+        top_complex_today = [{"ref": r, "n": n} for r, n in c.execute(
+            f"SELECT ref, COUNT(*) FROM event_log WHERE {T} AND kind='view_complex' AND ref IS NOT NULL AND ref<>'' "
+            f"GROUP BY ref ORDER BY 2 DESC LIMIT 8")]
+    # 단지명 붙이기(있으면)
+    if top_complex_today:
+        try:
+            with _open_db() as dc:
+                nm = {str(r[0]): r[1] for r in dc.execute(
+                    "SELECT complex_no, complex_name FROM complexes WHERE complex_no IN (%s)"
+                    % ",".join("?" * len(top_complex_today)),
+                    [x["ref"] for x in top_complex_today]).fetchall()}
+            for x in top_complex_today:
+                x["name"] = nm.get(str(x["ref"]), x["ref"])
+        except Exception:  # noqa: BLE001
+            for x in top_complex_today:
+                x["name"] = x["ref"]
     with _reviews_db() as rc:
         new_signups = rc.execute(
             "SELECT COUNT(*) FROM user_profiles WHERE agreed_terms_at IS NOT NULL "
@@ -6994,6 +8219,10 @@ def admin_today_stats(_admin: dict = Depends(admin_user)):
         "peak_concurrent": peak_concurrent, "peak_window": peak_window,
         "new_signups": new_signups, "total_users": total_users,
         "hourly": hourly, "top_paths": top_paths,
+        "devices": {"mobile": dev[0] or 0, "pc": dev[1] or 0},
+        "guest_visitors": guest or 0,
+        "by_kind": by_kind, "by_provider": by_provider,
+        "top_complex_today": top_complex_today,
         "returning": {
             "ip_today": ti or 0, "ip_returning": ri or 0,
             "ip_rate": round((ri / ti) if ti else 0.0, 3),
@@ -7266,6 +8495,70 @@ SIDO_NAMES = {
     # 데이터는 전부 52로 적재됨 — 45를 넣으면 0건 유령 row가 생긴다.
 }
 
+# 시도 표준 배열 순서 — 통계청·국토부·부동산원 발표 관례(행정표준코드 순).
+# 강원(42→51)·전북(45→52) 특별자치도 개편으로 코드 숫자 정렬은 이 순서가
+# 깨지므로(강원·전북이 제주 뒤로 밀림) 반드시 이 표로 정렬한다. 신·구 코드 병기.
+SIDO_ORDER = ["11", "26", "27", "28", "29", "30", "31", "36",
+              "41", "42", "51", "43", "44", "45", "52", "46", "47", "48", "50"]
+
+
+def sido_rank(code: str) -> int:
+    """cortar/시군구 코드(앞 2자리) → 표준 배열 인덱스. 미지정 코드는 뒤로."""
+    try:
+        return SIDO_ORDER.index((code or "")[:2])
+    except ValueError:
+        return len(SIDO_ORDER)
+
+
+# ── 지역별 실거래: 기간단위(일/주/월/분기/연) × 카테고리 시계열 ─────────────
+# 카테고리 6종 테이블이 전부 동일 스키마(deal_ymd·deal_amount·sgg_cd·is_cancelled)라 단일 쿼리.
+_SERIES_TBL = {
+    "apt": "transactions", "offi": "offi_transactions", "silv": "silv_transactions",
+    "villa": "rh_transactions", "house": "sh_transactions", "nrg": "nrg_transactions",
+}
+_SERIES_UNIT = {
+    # (버킷 SQL, 기본 구간 수)
+    "day":     ("substr(deal_ymd,1,10)", 60),
+    "week":    ("strftime('%Y-W%W', deal_ymd)", 52),
+    "month":   ("substr(deal_ymd,1,7)", 36),
+    "quarter": ("substr(deal_ymd,1,4) || '-Q' || ((CAST(substr(deal_ymd,6,2) AS INTEGER)+2)/3)", 20),
+    "year":    ("substr(deal_ymd,1,4)", 30),
+}
+
+
+@app.get("/stats/tx-region-series")
+def tx_region_series(unit: str = "month", asset: str = "apt",
+                     sido: str | None = None, sigungu: str | None = None,
+                     limit: int = 0):
+    """지역별 실거래 시계열 — unit=day|week|month|quarter|year, asset=apt|offi|silv|villa|house|nrg.
+    건수 + 평균거래가. 해제거래 제외. 지역: 전국(기본)/시도/시군구."""
+    if unit not in _SERIES_UNIT:
+        raise HTTPException(400, "unit must be day|week|month|quarter|year")
+    tbl = _SERIES_TBL.get(asset)
+    if not tbl:
+        raise HTTPException(400, f"asset must be one of {','.join(_SERIES_TBL)}")
+    bucket, default_n = _SERIES_UNIT[unit]
+    n = max(4, min(limit or default_n, 400))
+    w, params = ["is_cancelled=0", "deal_ymd IS NOT NULL"], []
+    if sigungu:
+        w.append("substr(sgg_cd,1,5)=substr(?,1,5)"); params.append(sigungu)
+    elif sido:
+        w.append("substr(sgg_cd,1,2)=substr(?,1,2)"); params.append(sido)
+    _ck = f"txseries:{unit}:{asset}:{sido or ''}:{sigungu or ''}:{n}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
+    with _open_db() as c:
+        rows = c.execute(
+            f"SELECT {bucket} p, COUNT(*) n, AVG(deal_amount) avg_amt "
+            f"FROM {tbl} WHERE {' AND '.join(w)} GROUP BY p ORDER BY p DESC LIMIT ?",
+            [*params, n]).fetchall()
+    items = [{"period": r[0], "count": r[1],
+              "avg_amt": round(r[2]) if r[2] else None} for r in reversed(rows)]
+    out = {"unit": unit, "asset": asset, "items": items}
+    _cache_put(_ck, out)
+    return out
+
 
 @app.get("/stats/tx-region-pulse")
 def tx_region_pulse(asset: str = "apt"):
@@ -7439,11 +8732,11 @@ def tx_region_pulse(asset: str = "apt"):
         rec["avg3y_prev_change"] = _change(pred_prev, avg3_prev)
         return rec
 
-    # 전국 합계
+    # 전국 합계 — 시도는 표준 배열 순서(서울→부산→…→제주)로
     all_sidos = set(agg.keys()) | set(SIDO_NAMES.keys())
     items = []
     nat_agg = {k: 0.0 for k in cols if k != "sido"}
-    for sido in sorted(all_sidos):
+    for sido in sorted(all_sidos, key=sido_rank):
         d = agg.get(sido, {k: 0.0 for k in cols if k != "sido"})
         items.append(make_rec(sido, d))
         for k, v in d.items():
@@ -7483,6 +8776,7 @@ def tx_region_pulse(asset: str = "apt"):
 REVIEWS_DB: Path = DB_PATH.parent / "reviews.sqlite"
 REVIEW_DOCS_DIR: Path = DB_PATH.parent / "review_docs"
 FORUM_IMG_DIR: Path = DB_PATH.parent / "forum_images"
+BIZ_CONTRACT_DIR: Path = DB_PATH.parent / "biz_contracts"   # 계약서 원본(외부 서빙 안 함)
 _REVIEW_DOC_MAX_BYTES = 10 * 1024 * 1024  # 10MB
 _REVIEW_DOC_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".heic"}
 
@@ -7490,6 +8784,7 @@ _REVIEW_DOC_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".heic"}
 def _init_reviews_db() -> None:
     REVIEW_DOCS_DIR.mkdir(parents=True, exist_ok=True)
     FORUM_IMG_DIR.mkdir(parents=True, exist_ok=True)
+    BIZ_CONTRACT_DIR.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(REVIEWS_DB) as c:
         c.executescript(
             """
@@ -7717,10 +9012,67 @@ def _init_reviews_db() -> None:
               used_at      TEXT
             );
             CREATE INDEX IF NOT EXISTS rsi_phone_idx ON realtor_staff_invites(phone_digits, used_at);
+
+            -- 계약서 업로드 → AI 파싱 (관리자 가오픈, 추후 중개사 회원 개방)
+            CREATE TABLE IF NOT EXISTS biz_contracts (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id      TEXT NOT NULL,
+              realtor_id   TEXT,               -- 연동 사무소(있으면)
+              doc_path     TEXT,
+              parsed_json  TEXT,               -- Gemini 추출 결과(JSON)
+              status       TEXT NOT NULL DEFAULT 'parsed',   -- parsed|confirmed
+              created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS bzc_user_idx ON biz_contracts(user_id, created_at DESC);
+
+            -- 중개사 자체 캘린더 일정 (계약일·중도금·잔금·입주·만기 등)
+            CREATE TABLE IF NOT EXISTS biz_events (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id      TEXT NOT NULL,
+              realtor_id   TEXT,
+              contract_id  INTEGER,            -- 출처 계약서(수기 입력이면 NULL)
+              title        TEXT NOT NULL,
+              event_date   TEXT NOT NULL,      -- YYYY-MM-DD
+              event_time   TEXT,               -- HH:MM (선택)
+              event_type   TEXT NOT NULL DEFAULT '기타',  -- 계약|중도금|잔금|입주|만기|기타
+              memo         TEXT,
+              created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS bze_user_date_idx ON biz_events(user_id, event_date);
+
+            -- 고객(계약 당사자) — 중개사 **본인 사무소 전용** CRM. 계약서에서 추출한 임대인·임차인·
+            -- 매도인·매수인을 (이름+연락처)로 dedupe해 누적. 주민등록번호·계좌는 저장하지 않는다.
+            -- 다른 기능(상담리드·매물 등)에서 customer_id로 연결한다.
+            CREATE TABLE IF NOT EXISTS biz_customers (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id      TEXT NOT NULL,
+              realtor_id   TEXT,
+              name         TEXT NOT NULL,
+              phone        TEXT,
+              address      TEXT,
+              is_company   INTEGER NOT NULL DEFAULT 0,
+              memo         TEXT,
+              created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS bzcu_uniq ON biz_customers(user_id, name, COALESCE(phone,''));
+            CREATE INDEX IF NOT EXISTS bzcu_user_idx ON biz_customers(user_id, updated_at DESC);
+
+            -- 계약 ↔ 고객(역할) 연결 — 한 고객이 여러 계약에, 한 계약에 여러 당사자
+            CREATE TABLE IF NOT EXISTS biz_contract_parties (
+              contract_id  INTEGER NOT NULL,
+              customer_id  INTEGER NOT NULL,
+              role         TEXT NOT NULL,      -- 임대인|임차인|매도인|매수인|중개사
+              PRIMARY KEY (contract_id, customer_id, role)
+            );
+            CREATE INDEX IF NOT EXISTS bzcp_cust_idx ON biz_contract_parties(customer_id);
             """
         )
         # 기존 테이블에 신규 컬럼 보강(있으면 무시) — 전화번호=유니크 비즈니스키, 회원번호=내부키
         for ddl in (
+            "ALTER TABLE biz_contracts ADD COLUMN doc_hash TEXT",   # 동일 파일 재파싱 방지(비용 0)
+            # doc_hash 보강 뒤에 인덱스(컬럼 생성 전에 만들면 실패) — 재업로드 조회용
+            "CREATE INDEX IF NOT EXISTS bzc_hash_idx ON biz_contracts(user_id, doc_hash)",
             "ALTER TABLE user_profiles ADD COLUMN member_no INTEGER",
             "ALTER TABLE user_profiles ADD COLUMN provider TEXT",
             "ALTER TABLE user_profiles ADD COLUMN points INTEGER NOT NULL DEFAULT 0",
@@ -7732,6 +9084,7 @@ def _init_reviews_db() -> None:
             "ALTER TABLE user_profiles ADD COLUMN consent_version TEXT",      # 동의한 약관/방침 버전
             "ALTER TABLE user_profiles ADD COLUMN marketing_opt_in INTEGER NOT NULL DEFAULT 0",  # 마케팅 수신(선택)
             "ALTER TABLE user_profiles ADD COLUMN marketing_opt_in_at TEXT",  # 마케팅 동의/철회 시각
+            "ALTER TABLE user_profiles ADD COLUMN age_confirmed_at TEXT",     # 만14세 이상 자가확인 시각
             "ALTER TABLE user_profiles ADD COLUMN nickname_awarded INTEGER NOT NULL DEFAULT 0",  # 닉네임 20p 1회
             # 직원 시스템 — 기존 연결자(전화매칭=대표번호 인증)는 전부 대표(owner)·활성(active)
             "ALTER TABLE realtor_members ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'",   # owner|assoc|assist
@@ -7947,6 +9300,58 @@ def me(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+class PageView(BaseModel):
+    path: str          # 정규화된 페이지 키(예: /complex/:id, /finder) — 프런트가 정규화
+    ref: str | None = None    # 대상 id(단지번호·중개사id 등)
+
+
+@app.post("/events/pageview")
+async def log_pageview(pv: PageView, request: Request):
+    """SPA 라우트 이동당 1건 — 정확한 '페이지뷰'. API 호출 단위 로그(view_complex 등)는
+    단지 1방문에 8~10건이 쌓여 방문수가 부풀므로, 이 깨끗한 이벤트로 페이지 분석을 한다.
+    로그인 여부와 무관하게 기록(uid 있으면 귀속). 실패는 조용히 무시."""
+    p = (pv.path or "").split("?")[0][:120]
+    if not p.startswith("/"):
+        return {"ok": False}
+    uid, email = _jwt_user(request.headers.get("authorization"))
+    _log_event(
+        "page", user_id=uid, email=email, member_no=_member_no(uid),
+        path=p, method="GET", ref=(pv.ref or None), status=200,
+        ip=_client_ip(request), user_agent=request.headers.get("user-agent"))
+    return {"ok": True}
+
+
+@app.get("/admin/page-analytics")
+def admin_page_analytics(_admin: dict = Depends(admin_user), days: int = 7):
+    """페이지별 분석 — 깨끗한 페이지뷰(kind='page') 기준. 페이지마다 조회수·방문자(IP)·
+    로그인사용자(uid) + 일별 추이 + 인기 단지(중복 방문 아닌 실제 방문수)."""
+    days = min(max(int(days), 1), 90)
+    T = f"kind='page' AND date(ts,'+9 hours') >= date('now','+9 hours','-{days} days')"
+    with _logs_db() as c:
+        has = c.execute("SELECT COUNT(*) FROM event_log WHERE kind='page'").fetchone()[0]
+        summary = c.execute(
+            f"SELECT COUNT(*), COUNT(DISTINCT ip), COUNT(DISTINCT user_id) FROM event_log WHERE {T}").fetchone()
+        pages = [{"key": p, "label": _page_label(p), "views": n, "visitors": v, "users": u}
+                 for p, n, v, u in c.execute(
+                     f"SELECT path, COUNT(*) n, COUNT(DISTINCT ip) v, COUNT(DISTINCT user_id) u "
+                     f"FROM event_log WHERE {T} GROUP BY path ORDER BY n DESC LIMIT 60")]
+        # 같은 라벨(예: /complex/:id 여러 단지)로 묶은 집계도 제공
+        bylabel: dict = {}
+        for pg in pages:
+            a = bylabel.setdefault(pg["label"], {"label": pg["label"], "views": 0, "visitors": 0, "users": 0})
+            a["views"] += pg["views"]; a["visitors"] += pg["visitors"]; a["users"] += pg["users"]
+        grouped = sorted(bylabel.values(), key=lambda x: -x["views"])
+        trend = [{"day": d, "views": n, "visitors": v} for d, n, v in c.execute(
+            f"SELECT date(ts,'+9 hours') d, COUNT(*), COUNT(DISTINCT ip) FROM event_log WHERE {T} GROUP BY d ORDER BY d")]
+        top_complex = [{"ref": r, "visits": n, "visitors": v} for r, n, v in c.execute(
+            f"SELECT ref, COUNT(*), COUNT(DISTINCT ip) FROM event_log "
+            f"WHERE {T} AND path LIKE '/complex%' AND ref IS NOT NULL AND ref<>'' "
+            f"GROUP BY ref ORDER BY 2 DESC LIMIT 15")]
+    return {"days": days, "has_data": bool(has), "summary": {
+        "views": summary[0], "visitors": summary[1], "users": summary[2]},
+        "pages": grouped, "pages_raw": pages, "trend": trend, "top_complex": top_complex}
+
+
 @app.post("/events/login")
 def log_login(request: Request, user: dict = Depends(current_user)) -> dict:
     """프런트가 로그인(SIGNED_IN) 직후 호출 — 로그인 기록을 남긴다."""
@@ -8132,6 +9537,211 @@ def my_favorite_remove(complex_no: str, user: dict = Depends(current_user)):
     return {"ok": True}
 
 
+def _fav_dash_item(d, cno: str, cname, rv_count: int, area_name: str = "") -> dict:
+    """관심단지 카드 1개 요약. area_name(면적타입) 지정 시 그 타입 기준으로 전부 재계산.
+    매물·호가·일별집계는 area_name 정확 일치, 실거래·신고가는 해당 타입 전용면적 ±3.5㎡ 밴드."""
+    area_name = (area_name or "").strip()
+    base = d.execute(
+        "SELECT complex_name, cortar_no, dong_name, total_household_count, "
+        "use_approve_ymd FROM complexes WHERE complex_no=?", (cno,)).fetchone()
+    nm = cname or (base[0] if base else cno)
+    # 지역명: cortar → 시도·시군구 + 법정동
+    region = ""
+    if base and base[1]:
+        ct = str(base[1])
+        names = {r[0]: r[1] for r in d.execute(
+            "SELECT cortar_no, cortar_name FROM regions WHERE cortar_no IN (?,?)",
+            (ct[:2] + "0" * 8, ct[:5] + "0" * 5)).fetchall()}
+        sido_nm = names.get(ct[:2] + "0" * 8)
+        if sido_nm:  # 카드 메타 압축용 축약("경기도"→"경기", "서울시"→"서울")
+            sido_nm = _SIDO_SHORT.get(sido_nm) or (sido_nm[:-1] if len(sido_nm) == 3 and sido_nm.endswith("시") else sido_nm)
+        sgg_nm = names.get(ct[:5] + "0" * 5)
+        if sgg_nm and len(sgg_nm) >= 3 and sgg_nm.endswith("시"):
+            sgg_nm = sgg_nm[:-1]           # "남양주시"→"남양주" (구·군은 유지)
+        parts = [sido_nm, sgg_nm, base[2]]
+        region = " ".join(p for p in parts if p)
+
+    # 면적타입 목록(선택기용) + 선택 타입의 전용면적(실거래 밴드용)
+    areas, seen_a = [], set()
+    for pn, ex, hh in d.execute(
+            "SELECT pyeong_name, exclusive_area, household_count FROM complex_areas "
+            "WHERE complex_no=? AND pyeong_name IS NOT NULL ORDER BY exclusive_area", (cno,)):
+        if pn in seen_a:
+            continue
+        seen_a.add(pn)
+        areas.append({"pyeong_name": pn, "exclusive_area": ex, "households": hh})
+    excl = None
+    if area_name:
+        excl = next((a["exclusive_area"] for a in areas if a["pyeong_name"] == area_name), None)
+
+    a_cl = " AND area_name=?" if area_name else ""      # 매물·일별집계 필터
+    a_pr: tuple = (area_name,) if area_name else ()
+    tx_cl, tx_pr = "", ()                                # 실거래 ±3.5㎡ 밴드
+    if excl is not None:
+        tx_cl, tx_pr = " AND excl_use_ar BETWEEN ? AND ?", (excl - 3.5, excl + 3.5)
+
+    # 매물 현황 — 광고 건수 + 실매물(중복 합침) + 유형별 최저호가
+    cur = {"A1": {"n": 0, "min": None}, "B1": {"n": 0, "min": None}, "B2": {"n": 0, "min": None}}
+    units = 0.0
+    for t, n, u, mn in d.execute(
+            "SELECT trade_type, COUNT(*), SUM(1.0/MAX(same_addr_cnt,1)), "
+            "MIN(CASE WHEN deal_or_warrant_price > 0 THEN deal_or_warrant_price END) "
+            f"FROM listings_current WHERE complex_no=?{a_cl} GROUP BY trade_type",
+            (cno, *a_pr)).fetchall():
+        if t in cur:
+            cur[t] = {"n": n, "min": mn}
+            units += u or 0
+    total_n = sum(v["n"] for v in cur.values())
+    # 월세 최저 — 월세액 기준 최저 매물의 (보증금, 월세) 쌍
+    rent_min = d.execute(
+        "SELECT deal_or_warrant_price, rent_price FROM listings_current "
+        f"WHERE complex_no=? AND trade_type='B2' AND rent_price > 0{a_cl} "
+        "ORDER BY rent_price ASC, deal_or_warrant_price ASC LIMIT 1", (cno, *a_pr)).fetchone()
+
+    # 전일 대비 매물 변화 + 매매 최저호가 7일 전 비교 (complex_daily_agg)
+    snaps = [r[0] for r in d.execute(
+        "SELECT DISTINCT snapshot_date FROM complex_daily_agg WHERE complex_no=? "
+        "ORDER BY snapshot_date DESC LIMIT 8", (cno,)).fetchall()]
+    day_change = None
+    if len(snaps) >= 2:
+        two = {sd: n for sd, n in d.execute(
+            "SELECT snapshot_date, SUM(listing_count) FROM complex_daily_agg "
+            f"WHERE complex_no=? AND snapshot_date IN (?,?){a_cl} GROUP BY snapshot_date",
+            (cno, snaps[0], snaps[1], *a_pr)).fetchall()}
+        if snaps[0] in two and snaps[1] in two:
+            day_change = (two[snaps[0]] or 0) - (two[snaps[1]] or 0)
+    ask_min_7d = None
+    if snaps:
+        old_sd = snaps[-1]
+        row = d.execute(
+            "SELECT MIN(price_min) FROM complex_daily_agg WHERE complex_no=? "
+            f"AND snapshot_date=? AND trade_type='A1' AND price_min > 0{a_cl}",
+            (cno, old_sd, *a_pr)).fetchone()
+        if row and row[0]:
+            ask_min_7d = {"date": old_sd, "price": row[0]}
+
+    # 이번주 신규 등록
+    new_week = d.execute(
+        "SELECT COUNT(*) FROM listings_current WHERE complex_no=? "
+        f"AND article_confirm_ymd >= strftime('%Y%m%d','now','-7 days'){a_cl}",
+        (cno, *a_pr)).fetchone()[0]
+
+    # 실거래 — 최근 1건 + 90일 평균. 매매+분양권 전매+오피 매매 통합
+    # (입주 전 단지는 분양권 거래가 유일한 실거래 — 비어 보이던 문제 수정)
+    tx_union = (
+        "SELECT deal_amount, deal_ymd, excl_use_ar, floor, 'sale' AS kind FROM transactions "
+        "WHERE matched_complex_no=? AND is_cancelled=0 "
+        f"AND COALESCE(dealing_gbn,'') <> '직거래'{tx_cl} "
+        "UNION ALL "
+        "SELECT deal_amount, deal_ymd, excl_use_ar, floor, 'silv' FROM silv_transactions "
+        "WHERE matched_complex_no=? AND is_cancelled=0 "
+        f"AND COALESCE(dealing_gbn,'') <> '직거래'{tx_cl} "
+        "UNION ALL "
+        "SELECT deal_amount, deal_ymd, excl_use_ar, floor, 'offi' FROM offi_transactions "
+        "WHERE matched_complex_no=? AND is_cancelled=0 "
+        f"AND COALESCE(dealing_gbn,'') <> '직거래'{tx_cl} ")
+    tx_u_pr = (cno, *tx_pr, cno, *tx_pr, cno, *tx_pr)
+    last_tx = d.execute(
+        f"SELECT deal_amount, deal_ymd, excl_use_ar, floor, kind FROM ({tx_union}) "
+        "ORDER BY deal_ymd DESC LIMIT 1", tx_u_pr).fetchone()
+    a90 = d.execute(
+        f"SELECT AVG(deal_amount), COUNT(*) FROM ({tx_union}) "
+        "WHERE deal_ymd >= date('now','-90 days')", tx_u_pr).fetchone()
+    j90 = d.execute(
+        "SELECT AVG(deposit), COUNT(*) FROM rentals "
+        f"WHERE matched_complex_no=? AND COALESCE(monthly_rent,0)=0{tx_cl} "
+        "AND deal_ymd >= date('now','-90 days')", (cno, *tx_pr)).fetchone()
+    jeonse_ratio, jeonse_src = None, None
+    if a90 and j90 and (a90[1] or 0) >= 3 and (j90[1] or 0) >= 3 and a90[0]:
+        jeonse_ratio = round(j90[0] / a90[0] * 100, 1)
+        jeonse_src = "tx"
+    elif cur["A1"]["min"] and cur["B1"]["min"]:
+        # 실거래 표본 부족(신축·거래한산) — 호가 기준 폴백(최저 전세호가/최저 매매호가)
+        jeonse_ratio = round(cur["B1"]["min"] / cur["A1"]["min"] * 100, 1)
+        jeonse_src = "ask"
+
+    # 신고가 — 전체: 최근 경신 순(뉴스성) / 타입 선택: 그 면적 밴드의 역대 최고가
+    if excl is not None:
+        rec = d.execute(
+            "SELECT area_key, record_price, record_date FROM tx_record_rollup "
+            "WHERE complex_no=? AND kind IN ('sale','silv','offi_sale') "
+            "AND area_key BETWEEN ? AND ? "
+            "ORDER BY record_price DESC LIMIT 1", (cno, excl - 3.5, excl + 3.5)).fetchone()
+    else:
+        rec = d.execute(
+            "SELECT area_key, record_price, record_date FROM tx_record_rollup "
+            "WHERE complex_no=? AND kind IN ('sale','silv','offi_sale') "
+            "ORDER BY record_date DESC LIMIT 1", (cno,)).fetchone()
+
+    # 급매 — 기존 단지 급매 엔드포인트 재사용(평형별 실거래평균 대비 5%↓)
+    try:
+        qd = complex_quick_deals(cno, days=90, trade_type="A1")
+        qd_items = qd.get("items", [])
+        if area_name:
+            qd_items = [x for x in qd_items if x.get("area_name") == area_name]
+        # dedup(realtor_count 반영) 전 count 필드는 전체 기준이라, 타입 선택 시 items로 재계산
+        qd_n = len(qd_items) if area_name else qd.get("count", 0)
+        discs = [x.get("discount") for x in qd_items if x.get("discount") is not None]
+        qd_best = round(-min(discs) * 100, 1) if discs else None
+    except Exception:
+        qd_n, qd_best = 0, None
+
+    return {
+        "complex_no": cno, "complex_name": nm, "region": region,
+        "households": base[3] if base else None,
+        "approve_year": (str(base[4])[:4] if base and base[4] else None),
+        "subway": _complex_subway(d, cno),
+        "school": _complex_school(d, cno),
+        "areas": areas, "area_name": area_name or None,
+        "listings": {
+            "total": total_n, "units": round(units, 1),
+            "A1": cur["A1"]["n"], "B1": cur["B1"]["n"], "B2": cur["B2"]["n"],
+            "day_change": day_change, "new_week": new_week,
+        },
+        "ask_min": {"A1": cur["A1"]["min"], "B1": cur["B1"]["min"],
+                    "B2": ({"deposit": rent_min[0], "rent": rent_min[1]} if rent_min else None)},
+        "ask_min_7d": ask_min_7d,
+        "last_tx": ({"price": last_tx[0], "date": last_tx[1], "area": last_tx[2],
+                     "floor": last_tx[3], "kind": last_tx[4]} if last_tx else None),
+        "tx_90d": {"avg": (round(a90[0]) if a90 and a90[0] else None),
+                   "n": (a90[1] if a90 else 0)},
+        "jeonse_ratio": jeonse_ratio, "jeonse_src": jeonse_src,
+        "record_high": ({"area_key": rec[0], "price": rec[1], "date": rec[2]} if rec else None),
+        "quick_deals": {"n": qd_n, "best_discount": qd_best},
+        "reviews": rv_count,
+    }
+
+
+@app.get("/me/favorites/dashboard")
+def my_favorites_dashboard(user: dict = Depends(current_user),
+                           complex_no: str = "", area_name: str = ""):
+    """관심단지 대시보드 — 단지별 콕집 서비스 요약(매물·최저호가·급매·신고가·실거래·리뷰).
+    complex_no 지정 시 그 단지 1개만(카드 면적타입 전환용 — area_name과 함께).
+    가오픈: 노출은 프런트에서 관리자만. 데이터 스키마는 회원 공통 전제로 설계."""
+    with _reviews_db() as c:
+        favs = c.execute("SELECT complex_no, complex_name FROM realtor_fav_complexes "
+                         "WHERE user_id=? ORDER BY created_at DESC", (user["id"],)).fetchall()
+        if complex_no:
+            favs = [f for f in favs if str(f[0]) == complex_no]   # 본인 관심단지만 허용
+        rv_counts = {}
+        if favs:
+            qmarks = ",".join("?" * len(favs))
+            for cno, n in c.execute(
+                    f"SELECT complex_no, COUNT(*) FROM complex_reviews "
+                    f"WHERE complex_no IN ({qmarks}) GROUP BY complex_no",
+                    [f[0] for f in favs]).fetchall():
+                rv_counts[str(cno)] = n
+
+    items = []
+    if favs:
+        with _open_db() as d:
+            for cno, cname in favs:
+                items.append(_fav_dash_item(
+                    d, cno, cname, rv_counts.get(str(cno), 0),
+                    area_name if complex_no else ""))
+    return {"items": items}
+
+
 @app.get("/admin/push/stats")
 def admin_push_stats(_admin: dict = Depends(admin_user)):
     with _reviews_db() as c:
@@ -8216,21 +9826,25 @@ def set_nickname(body: NicknameBody, user: dict = Depends(current_user)) -> dict
 class ConsentBody(BaseModel):
     agree_terms: bool      # 이용약관 동의 (필수)
     agree_privacy: bool    # 개인정보 수집·이용 동의 (필수)
+    age14: bool = False    # 만 14세 이상 자가확인 (필수)
     marketing: bool = False  # 마케팅·혜택 알림 수신 (선택)
 
 
 @app.post("/me/consent")
 def set_consent(body: ConsentBody, user: dict = Depends(current_user)) -> dict:
-    """최초 로그인 시 약관·개인정보 동의 기록(동의 시각·버전 보관 — 감사 대비).
-    필수 2개 미동의 시 거부."""
+    """최초 로그인 시 약관·개인정보 동의 + 만14세 이상 확인 기록(시각·버전 보관 — 감사 대비).
+    필수 항목 미동의 시 거부."""
     if not (body.agree_terms and body.agree_privacy):
         raise HTTPException(400, "이용약관과 개인정보 수집·이용에 동의해야 이용할 수 있어요")
+    if not body.age14:
+        raise HTTPException(400, "만 14세 이상만 가입할 수 있어요")
     mk = 1 if body.marketing else 0
     with _reviews_db() as c:
         c.execute("INSERT INTO user_profiles(user_id, updated_at) VALUES(?, datetime('now')) "
                   "ON CONFLICT(user_id) DO NOTHING", (user["id"],))
         c.execute(
             "UPDATE user_profiles SET agreed_terms_at=datetime('now'), consent_version=?, "
+            "age_confirmed_at=datetime('now'), "
             "marketing_opt_in=?, marketing_opt_in_at=datetime('now'), updated_at=datetime('now') "
             "WHERE user_id=?",
             (CONSENT_VERSION, mk, user["id"]))
@@ -9289,7 +10903,7 @@ _TRADE_KOR = {"A1": "매매", "B1": "전세", "B2": "월세", "B3": "단기임�
 _RET_KOR = {"APT": "아파트", "JGC": "아파트", "OPST": "오피스텔", "ABYG": "분양권", "OBYG": "분양권"}
 _REGION_CATS = [("빌라", "villa"), ("상가", "sangga"), ("사무실", "office"), ("단독", "house"),
                 ("토지", "land"), ("공장", "factory"), ("빌딩", "building"),
-                ("지식산업센터", "knowledge"), ("재개발", "redev")]
+                ("지식산업센터", "knowledge"), ("재개발", "redev"), ("원룸", "oneroom")]
 
 
 def _ml_price_text(v) -> str:
@@ -9349,6 +10963,24 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                 "parking_total": r[28], "parking_per": r[29], "households": r[30],
                 "approve_ymd": r[31], "builder": r[32], "mgmt_tel": r[33],
             })
+    # vworld-only(vw{sys_regno}) 사무소 — 비단지 CP매물이 realtor_id 없이 등록번호로 귀속됨
+    # ([[naverreal-region-office-attribution]]) → realtor_id 조회로는 0. (정규화이름, sgg)로 매칭.
+    region_by_sgg: dict = {}
+    _sysreg = _office_region_sys_regno(rid)
+    if _sysreg:
+        _attr = DB_PATH.parent / "office_attribution.sqlite"
+        if _attr.exists():
+            try:
+                with sqlite3.connect(f"file:{_attr}?mode=ro", uri=True) as _ac:
+                    for _nm, _sgg in _ac.execute(
+                            "SELECT norm_name, sgg5 FROM region_office_attribution WHERE sys_regno=?", (_sysreg,)):
+                        region_by_sgg.setdefault(_sgg, set()).add(_nm)
+            except sqlite3.Error:
+                pass
+    _norm_office = None
+    if region_by_sgg:
+        from collector.realtor_matching import normalize_name as _norm_office  # noqa: E402
+
     # 2) 비단지 매물(빌라·상가·사무실·단독·토지·공장·빌딩) — 별도 DB
     for ckor, dbkey in _REGION_CATS:
         if cat and cat != ckor:
@@ -9356,7 +10988,14 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
         path = DB_PATH.parent / _NONRESI_DB[dbkey]
         if not path.exists():
             continue
-        w = ["realtor_id=?", "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"]; p = [rid]
+        if region_by_sgg:   # vw 사무소: (빈 realtor_id + 사무소 sgg)로 조회 후 이름 정규화 필터
+            _sggs = list(region_by_sgg.keys())
+            w = ["(realtor_id IS NULL OR realtor_id='')",
+                 f"substr(cortar_no,1,5) IN ({','.join('?' * len(_sggs))})",
+                 "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"]
+            p = list(_sggs)
+        else:
+            w = ["realtor_id=?", "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"]; p = [rid]
         if code:
             w.append("trade_type=?"); p.append(code)
         try:
@@ -9364,11 +11003,14 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
             rrows = rconn.execute(
                 "SELECT article_no,real_estate_type_name,trade_type,deal_or_warrant_price,rent_price,"
                 "area1_m2,area2_m2,floor_info,direction,building_name,article_confirm_ymd,latitude,longitude,"
-                "cortar_no,raw FROM listings "
+                "cortar_no,raw,realtor_name FROM listings "
                 f"WHERE {' AND '.join(w)}", p).fetchall()
             rconn.close()
         except Exception:
             rrows = []
+        if region_by_sgg:   # 정규화 이름이 이 사무소와 일치하는 매물만
+            rrows = [r for r in rrows
+                     if r[15] and _norm_office(r[15]) in region_by_sgg.get((r[13] or "")[:5], set())]
         cortars = {r[13] for r in rrows if r[13]}
         dongmap: dict = {}
         if cortars:
@@ -10267,15 +11909,44 @@ def _audit_peer_mgmt(results: list) -> None:
         res["pass"] = res["violation_count"] == 0
 
 
+def _vw_region_attr(rid: str):
+    """vw{sys_regno} 사무소면 (region_by_sgg={sgg5:{norm_name}}, normalize_name) 반환, 아니면 None.
+    비단지 CP매물은 realtor_id 없이 등록번호로 귀속됨([[naverreal-region-office-attribution]]) →
+    realtor_id 조회로는 0. audit도 (빈 realtor_id + 사무소 sgg + 이름정규화)로 매칭해야 함."""
+    sysreg = _office_region_sys_regno(rid)
+    if not sysreg:
+        return None
+    attr = DB_PATH.parent / "office_attribution.sqlite"
+    if not attr.exists():
+        return None
+    region_by_sgg: dict = {}
+    try:
+        with sqlite3.connect(f"file:{attr}?mode=ro", uri=True) as ac:
+            for nm, sgg in ac.execute(
+                    "SELECT norm_name, sgg5 FROM region_office_attribution WHERE sys_regno=?", (sysreg,)):
+                region_by_sgg.setdefault(sgg, set()).add(nm)
+    except sqlite3.Error:
+        return None
+    if not region_by_sgg:
+        return None
+    from collector.realtor_matching import normalize_name  # noqa: E402
+    return region_by_sgg, normalize_name
+
+
 def _audit_breakdown_for(realtor_id: str) -> dict:
     """중개사 매물을 유형×거래 그룹별 건수로(점검 분할용 — 상세조회 없이 빠름).
     수천건 중개사는 그룹을 골라 배치로 점검한다. admin·lounge 공용."""
     groups: list = []
     name = None
+    vwattr = _vw_region_attr(realtor_id)   # vw 사무소면 비단지는 등록번호 귀속으로 조회
     with _open_db() as c:
         nm = c.execute("SELECT realtor_name FROM listings_current WHERE realtor_id=? LIMIT 1",
                        (realtor_id,)).fetchone()
         name = nm["realtor_name"] if nm else None
+        if name is None:   # vw 사무소 등 listings_current에 없는 경우 naver_realtors 폴백
+            r = c.execute("SELECT realtor_name FROM naver_realtors WHERE realtor_id=? LIMIT 1",
+                          (realtor_id,)).fetchone()
+            name = r["realtor_name"] if r else None
         # 단지형 — 생숙(생활숙박 단지)은 별도 그룹으로 분리(네이버엔 오피로 등록되나 점검 기준 다름)
         agg: dict = {}
         for ret, tr, saeng, n in c.execute(
@@ -10298,13 +11969,29 @@ def _audit_breakdown_for(realtor_id: str) -> dict:
             continue
         try:
             with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
-                for tr, n in rc.execute(
-                        "SELECT trade_type, COUNT(*) FROM listings WHERE realtor_id=? "
-                        "AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings) "  # 최신분만(내려간 매물 제외)
-                        "GROUP BY trade_type", (realtor_id,)):
-                    groups.append({"kind": cat, "kind_label": _NONRESI_LABEL.get(cat, cat),
-                                   "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
-                                   "count": n, "group": "비단지"})
+                if vwattr:   # vw 사무소: 빈 realtor_id + 사무소 sgg 조회 후 이름정규화 필터
+                    region_by_sgg, norm = vwattr
+                    sggs = list(region_by_sgg.keys())
+                    agg: dict = {}
+                    for tr, rn, sgg in rc.execute(
+                            "SELECT trade_type, realtor_name, substr(cortar_no,1,5) FROM listings "
+                            "WHERE (realtor_id IS NULL OR realtor_id='') "
+                            f"AND substr(cortar_no,1,5) IN ({','.join('?' * len(sggs))}) "
+                            "AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings)", sggs):
+                        if rn and norm(rn) in region_by_sgg.get(sgg or "", set()):
+                            agg[tr] = agg.get(tr, 0) + 1
+                    for tr, n in agg.items():
+                        groups.append({"kind": cat, "kind_label": _NONRESI_LABEL.get(cat, cat),
+                                       "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
+                                       "count": n, "group": "비단지"})
+                else:
+                    for tr, n in rc.execute(
+                            "SELECT trade_type, COUNT(*) FROM listings WHERE realtor_id=? "
+                            "AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings) "  # 최신분만(내려간 매물 제외)
+                            "GROUP BY trade_type", (realtor_id,)):
+                        groups.append({"kind": cat, "kind_label": _NONRESI_LABEL.get(cat, cat),
+                                       "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
+                                       "count": n, "group": "비단지"})
         except sqlite3.Error:
             pass
     groups.sort(key=lambda g: -g["count"])
@@ -10394,19 +12081,37 @@ def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) 
     elif kind in _NONRESI_DB:            # 비단지
         path = DB_PATH.parent / _NONRESI_DB[kind]
         if path.exists():
-            params = [realtor_id] + ([trade] if trade else [])
             snap_cl = " AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"  # 최신분만
+            sel = ("SELECT article_no, real_estate_type, real_estate_type_name, trade_type, "
+                   "floor_info, area2_m2, deal_or_warrant_price, building_name, direction, "
+                   "latitude, longitude, realtor_name, cortar_no FROM listings")
+            vwattr = _vw_region_attr(realtor_id)
             with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
                 rc.row_factory = sqlite3.Row
-                total = rc.execute(
-                    "SELECT COUNT(*) FROM listings WHERE realtor_id=?" + trade_cl + snap_cl,
-                    params).fetchone()[0]
-                nrows = [dict(x) for x in rc.execute(
-                    "SELECT article_no, real_estate_type, real_estate_type_name, trade_type, "
-                    "floor_info, area2_m2, deal_or_warrant_price, building_name, direction, "
-                    "latitude, longitude FROM listings WHERE realtor_id=?" + trade_cl + snap_cl
-                    + " ORDER BY article_no LIMIT ? OFFSET ?",
-                    params + [limit, offset]).fetchall()]
+                if vwattr:   # vw 사무소: 빈 realtor_id + 사무소 sgg 조회 → 이름정규화 필터 → 파이썬 offset/limit
+                    region_by_sgg, norm = vwattr
+                    sggs = list(region_by_sgg.keys())
+                    w = ["(realtor_id IS NULL OR realtor_id='')",
+                         f"substr(cortar_no,1,5) IN ({','.join('?' * len(sggs))})",
+                         "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"]
+                    p = list(sggs) + ([trade] if trade else [])
+                    if trade:
+                        w.append("trade_type=?")
+                    allrows = [dict(x) for x in rc.execute(
+                        sel + " WHERE " + " AND ".join(w) + " ORDER BY article_no", p).fetchall()]
+                    allrows = [r for r in allrows if r.get("realtor_name")
+                               and norm(r["realtor_name"]) in region_by_sgg.get((r.get("cortar_no") or "")[:5], set())]
+                    total = len(allrows)
+                    nrows = allrows[offset:offset + limit]
+                else:
+                    params = [realtor_id] + ([trade] if trade else [])
+                    total = rc.execute(
+                        "SELECT COUNT(*) FROM listings WHERE realtor_id=?" + trade_cl + snap_cl,
+                        params).fetchone()[0]
+                    nrows = [dict(x) for x in rc.execute(
+                        sel + " WHERE realtor_id=?" + trade_cl + snap_cl
+                        + " ORDER BY article_no LIMIT ? OFFSET ?",
+                        params + [limit, offset]).fetchall()]
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=4) as ex:
                 results = list(ex.map(lambda r: _audit_nonresi_one(r, kind, creds, vw, dks), nrows))
@@ -10486,6 +12191,482 @@ async def lounge_verify_doc(realtor_id: str = Form(""), claimed_name: str = Form
     except Exception:
         pass
     return {"ok": True, "id": vid}
+
+
+# ── 계약서 → 캘린더 (관리자 가오픈 — 추후 중개사 회원 개방) ─────────────
+# 계약서(사진/PDF) 업로드 → Gemini Vision으로 일정(계약·중도금·잔금·입주·만기) 추출
+# → 사용자가 확인·수정 후 자체 캘린더(biz_events)에 저장. 구글 캘린더는 프런트에서
+# template URL + /biz/events/ics 로 전달(OAuth 없는 MVP).
+_BIZ_CONTRACT_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".heic", ".pdf"}
+_BIZ_EVENT_TYPES = ("계약", "중도금", "잔금", "입주", "만기", "기타")
+_BIZ_DATE_RE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+_CONTRACT_PROMPT = """당신은 한국 부동산 계약서를 읽는 보조원입니다. 첨부된 계약서 이미지/PDF에서
+아래 JSON 스키마로 내용을 추출하세요. 계약서에 적힌 내용만 쓰고, 없거나 읽을 수 없는 값은 null.
+날짜는 반드시 YYYY-MM-DD. 금액은 원 단위 정수(예: 3억5천 → 350000000).
+
+{
+  "contract_type": "매매|전세|월세|기타",
+  "doc_kind": "문서 종류 그대로 (예: 아파트 매매계약서, 상가 임대차계약서, 전속중개계약서, 확인설명서)",
+  "property_kind": "아파트|오피스텔|상가|사무실|빌라|단독|토지|공장|기타 (없으면 null)",
+  "property_name": "단지·건물명 (없으면 null)",
+  "property_address": "소재지 주소 (없으면 null)",
+  "unit": "동·호수 (없으면 null)",
+  "area": {"exclusive_m2": null, "supply_m2": null, "land_m2": null},
+  "price": {
+    "sale": null,            "deposit": null,        "monthly_rent": null,
+    "maintenance_fee": null, "down_payment": null,   "balance": null,
+    "premium": null,
+    "interim": [{"amount": null, "date": "YYYY-MM-DD", "note": "1차 등"}]
+  },
+  "lease_term": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "months": null},
+  "parties": [
+    {"role": "임대인|임차인|매도인|매수인|중개사", "name": "성명/상호",
+     "phone": "연락처(없으면 null)", "address": "주소(없으면 null)", "is_company": false}
+  ],
+  "special_terms": "특약사항 핵심만 2~3줄 요약 (없으면 null)",
+  "dates": [
+    {"type": "계약|중도금|잔금|입주|만기", "date": "YYYY-MM-DD", "amount": null, "note": "비고(없으면 null)"}
+  ],
+  "caution": "판독이 애매했거나 계약서에 비어있는 중요 항목 짧게 (없으면 null)"
+}
+
+규칙:
+- **날짜가 계약서에 비어있거나 읽을 수 없으면 그 항목은 dates에 넣지 않는다** (date: null 금지).
+  비어있는 중요 날짜(예: 잔금일 미기재)는 caution에 적는다.
+- 계약일은 보통 서명란 옆 작성일. 변경계약이면 변경계약 체결일을 쓰고 note에 '변경계약'.
+- 같은 유형이 여러 번 나오면(중도금 회차, 원계약/변경계약) 각각 추가하고 note로 구분('1차'/'2차'/'원계약').
+- 임대차(전세·월세)는 인도일(임대기간 시작)=입주, 종료일=만기 로 dates에 넣기.
+- 잔금 지급일이 곧 입주(인도)일로 명시돼 있으면 잔금 하나만 넣고 note에 '입주 겸함'.
+- 전속중개계약서·컨설팅용역계약서·권리금계약서 등 매매/임대차가 아닌 계약은 contract_type "기타",
+  계약일·유효기간 만료일(만기)만 dates에 넣는다.
+- 확인설명서만 있고 계약서가 없으면 dates는 빈 배열, caution에 '확인설명서 — 일정 정보 없음'.
+
+당사자(parties) 규칙 — 중개사 본인의 고객관리용:
+- 매매계약서=매도인/매수인, 임대차(전세·월세)=임대인/임차인. 계약서에 적힌 역할 그대로.
+- 공동명의로 여러 명이면 각각 한 줄씩. 법인·상호면 is_company true, name에 상호.
+- 대리인·중개보조원은 넣지 않는다. 개업공인중개사만 role "중개사"로(상호+연락처).
+- **주민등록번호·법인등록번호·계좌번호는 절대 추출하지 않는다**(고유식별정보). 이름·연락처·주소만.
+- 이름이 가려졌거나 판독 불가면 그 사람은 parties에서 빼고 caution에 적는다.
+
+금액·조건 규칙:
+- interim(중도금)은 회차별로 금액+지급일. 없으면 빈 배열.
+- 임대차는 lease_term(임대기간 시작/종료/개월). 매매는 null.
+- 관리비·권리금은 계약서에 명시된 경우만. 부가세 별도 표기는 special_terms에.
+- 면적은 ㎡ 기준 숫자만(평 표기면 ㎡로 환산: 평×3.3058)."""
+
+
+def _parse_contract_gemini(data: bytes, mime: str) -> dict:
+    """계약서 바이트 → Gemini Vision 구조화 추출. 실패 시 예외."""
+    from scripts.ai_agent import _genai
+    from google.genai import types as _gt
+    client = _genai()
+    model = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
+    cfg = _gt.GenerateContentConfig(
+        response_mime_type="application/json", temperature=0.1,
+        thinking_config=_gt.ThinkingConfig(thinking_budget=0))
+    last = None
+    for _ in range(3):  # transient 재시도
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=[_gt.Part.from_bytes(data=data, mime_type=mime),
+                          _gt.Part.from_text(text=_CONTRACT_PROMPT)],
+                config=cfg)
+            return _authjson.loads(resp.text)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            _time.sleep(1.5)
+    raise HTTPException(502, f"계약서 인식 실패: {str(last)[:120]}")
+
+
+def _biz_realtor_id(c: sqlite3.Connection, uid: str) -> str | None:
+    """연동 사무소 realtor_id (없으면 None — 관리자 테스트 허용)."""
+    m = c.execute("SELECT realtor_id FROM realtor_members WHERE user_id=? AND status='active'",
+                  (uid,)).fetchone()
+    return m[0] if m else None
+
+
+_BIZ_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+             ".webp": "image/webp", ".heic": "image/heic", ".pdf": "application/pdf"}
+
+
+@app.post("/biz/contracts")
+async def biz_contract_upload(document: UploadFile = File(...),
+                              user: dict = Depends(admin_user)):
+    """계약서 업로드 + AI 파싱. 원본은 서버에만 보관(외부 서빙 없음)."""
+    data = await document.read()
+    if len(data) > _REVIEW_DOC_MAX_BYTES:
+        raise HTTPException(400, "파일이 너무 큽니다(최대 10MB)")
+    ext = Path(document.filename or "").suffix.lower() or ".jpg"
+    if ext not in _BIZ_CONTRACT_EXTS:
+        raise HTTPException(400, "지원 형식: png/jpg/webp/heic/pdf")
+    mime = _BIZ_MIME[ext]
+    # 내용 해시 캐싱 — 같은 파일을 다시 올리면 Gemini 재호출 없이 기존 결과 재사용.
+    # 비용 0(건당 ~5원 절감) + 같은 계약서가 여러 건으로 쌓이는 중복도 방지.
+    # 캐시 범위는 **본인(user_id)** 한정 — 파싱 결과에 고객 인적사항이 들어 있어 계정 간 공유 금지.
+    doc_hash = _hashlib.sha256(data).hexdigest()
+    cached = already_confirmed = False
+    with _reviews_db() as c:
+        rid = _biz_realtor_id(c, user["id"])
+        prev = c.execute(
+            "SELECT id, parsed_json, status FROM biz_contracts "
+            "WHERE user_id=? AND doc_hash=? AND parsed_json IS NOT NULL ORDER BY id LIMIT 1",
+            (user["id"], doc_hash)).fetchone()
+        if prev:
+            try:
+                parsed = _authjson.loads(prev[1])
+                cid, cached = prev[0], True
+                already_confirmed = (prev[2] == "confirmed")
+            except (ValueError, TypeError):
+                prev = None
+        if not prev:
+            parsed = _parse_contract_gemini(data, mime)      # ← 과금 지점(신규 파일만)
+            cur = c.execute(
+                "INSERT INTO biz_contracts(user_id, realtor_id, parsed_json, doc_hash) VALUES(?,?,?,?)",
+                (user["id"], rid, _authjson.dumps(parsed, ensure_ascii=False), doc_hash))
+            cid = cur.lastrowid
+            dest = BIZ_CONTRACT_DIR / f"ct_{cid}{ext}"
+            dest.write_bytes(data)
+            c.execute("UPDATE biz_contracts SET doc_path=? WHERE id=?", (str(dest), cid))
+        c.commit()
+    # 일정 후보로 정리(프런트 확인 폼용)
+    name = parsed.get("property_name") or parsed.get("property_address") or "계약"
+    cands = []
+    seen = set()   # 계약서+확인설명서 세트 등에서 같은 일정 중복 추출 방지
+    for d in (parsed.get("dates") or []):
+        if not (isinstance(d, dict) and _BIZ_DATE_RE.match(str(d.get("date") or ""))):
+            continue
+        t = d.get("type") if d.get("type") in _BIZ_EVENT_TYPES else "기타"
+        if (t, d["date"]) in seen:
+            continue
+        seen.add((t, d["date"]))
+        note = d.get("note") or ""
+        amt = d.get("amount")
+        memo = " · ".join(x for x in (note, f"{amt:,}원" if isinstance(amt, (int, float)) and amt else "") if x)
+        cands.append({"title": f"{name} {t}{(' ' + note) if note and t == '중도금' else ''}".strip(),
+                      "event_date": d["date"], "event_type": t, "memo": memo or None})
+    return {"ok": True, "contract_id": cid, "parsed": parsed, "candidates": cands,
+            "cached": cached, "already_confirmed": already_confirmed}
+
+
+class BizEventIn(BaseModel):
+    title: str
+    event_date: str                # YYYY-MM-DD
+    event_time: str | None = None  # HH:MM
+    event_type: str = "기타"
+    memo: str | None = None
+    contract_id: int | None = None
+
+
+class BizEventsCreate(BaseModel):
+    events: list[BizEventIn]
+
+
+def _biz_event_row(r) -> dict:
+    return {"id": r[0], "title": r[1], "event_date": r[2], "event_time": r[3],
+            "event_type": r[4], "memo": r[5], "contract_id": r[6], "created_at": r[7]}
+
+
+@app.get("/biz/events")
+def biz_events_list(user: dict = Depends(admin_user),
+                    date_from: str = "", date_to: str = ""):
+    """내 캘린더 일정 목록(기간 필터 선택)."""
+    where, params = ["user_id=?"], [user["id"]]
+    if date_from and _BIZ_DATE_RE.match(date_from):
+        where.append("event_date>=?"); params.append(date_from)
+    if date_to and _BIZ_DATE_RE.match(date_to):
+        where.append("event_date<=?"); params.append(date_to)
+    with _reviews_db() as c:
+        rows = c.execute(
+            f"SELECT id,title,event_date,event_time,event_type,memo,contract_id,created_at "
+            f"FROM biz_events WHERE {' AND '.join(where)} ORDER BY event_date, event_time",
+            params).fetchall()
+    return {"events": [_biz_event_row(r) for r in rows]}
+
+
+@app.post("/biz/events")
+def biz_events_create(body: BizEventsCreate, user: dict = Depends(admin_user)):
+    """일정 저장(확인 폼에서 확정한 후보들 일괄 or 수기 1건)."""
+    if not body.events:
+        raise HTTPException(400, "저장할 일정이 없습니다")
+    if len(body.events) > 50:
+        raise HTTPException(400, "한 번에 50건까지 저장할 수 있어요")
+    with _reviews_db() as c:
+        rid = _biz_realtor_id(c, user["id"])
+        ids = []
+        for e in body.events:
+            if not _BIZ_DATE_RE.match(e.event_date):
+                raise HTTPException(400, f"날짜 형식 오류: {e.event_date}")
+            t = e.event_type if e.event_type in _BIZ_EVENT_TYPES else "기타"
+            cur = c.execute(
+                "INSERT INTO biz_events(user_id,realtor_id,contract_id,title,event_date,"
+                "event_time,event_type,memo) VALUES(?,?,?,?,?,?,?,?)",
+                (user["id"], rid, e.contract_id, e.title.strip()[:120], e.event_date,
+                 (e.event_time or None), t, (e.memo or None)))
+            ids.append(cur.lastrowid)
+        cids = {e.contract_id for e in body.events if e.contract_id}
+        if cids:
+            c.execute("UPDATE biz_contracts SET status='confirmed' WHERE id IN (%s) AND user_id=?"
+                      % ",".join("?" * len(cids)), [*cids, user["id"]])
+            for cid in cids:               # 확정 시 계약 당사자를 고객 DB로 적재
+                _biz_sync_parties(c, user["id"], rid, cid)
+        c.commit()
+    return {"ok": True, "ids": ids}
+
+
+def _biz_sync_parties(c, uid: str, rid: str | None, contract_id: int) -> int:
+    """계약서 parsed_json의 parties → biz_customers 적재 + biz_contract_parties 연결.
+    (이름+연락처)로 dedupe — 같은 고객이 여러 계약에 나와도 1행. 주민번호·계좌는 애초에 추출 안 함."""
+    row = c.execute("SELECT parsed_json FROM biz_contracts WHERE id=? AND user_id=?",
+                    (contract_id, uid)).fetchone()
+    if not row or not row[0]:
+        return 0
+    try:
+        parties = (_json.loads(row[0]) or {}).get("parties") or []
+    except (ValueError, TypeError):
+        return 0
+    n = 0
+    for p in parties:
+        name = (p.get("name") or "").strip()[:60]
+        role = (p.get("role") or "").strip()[:12]
+        if not name or role not in ("임대인", "임차인", "매도인", "매수인", "중개사"):
+            continue
+        phone = (p.get("phone") or "").strip()[:24] or None
+        c.execute(
+            "INSERT INTO biz_customers(user_id,realtor_id,name,phone,address,is_company) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(user_id,name,COALESCE(phone,'')) DO UPDATE SET "
+            "address=COALESCE(excluded.address,biz_customers.address), updated_at=datetime('now')",
+            (uid, rid, name, phone, (p.get("address") or None), 1 if p.get("is_company") else 0))
+        cu = c.execute("SELECT id FROM biz_customers WHERE user_id=? AND name=? AND COALESCE(phone,'')=?",
+                       (uid, name, phone or "")).fetchone()
+        if cu:
+            c.execute("INSERT OR IGNORE INTO biz_contract_parties(contract_id,customer_id,role) VALUES(?,?,?)",
+                      (contract_id, cu[0], role))
+            n += 1
+    return n
+
+
+@app.put("/biz/events/{eid}")
+def biz_event_update(eid: int, body: BizEventIn, user: dict = Depends(admin_user)):
+    if not _BIZ_DATE_RE.match(body.event_date):
+        raise HTTPException(400, "날짜 형식 오류")
+    t = body.event_type if body.event_type in _BIZ_EVENT_TYPES else "기타"
+    with _reviews_db() as c:
+        cur = c.execute(
+            "UPDATE biz_events SET title=?, event_date=?, event_time=?, event_type=?, memo=? "
+            "WHERE id=? AND user_id=?",
+            (body.title.strip()[:120], body.event_date, (body.event_time or None), t,
+             (body.memo or None), eid, user["id"]))
+        c.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "일정이 없습니다")
+    return {"ok": True}
+
+
+@app.get("/biz/contracts")
+def biz_contracts_list(q: str = "", limit: int = 100, user: dict = Depends(admin_user)):
+    """계약관리 목록 — 계약서별 종류·물건·금액·당사자·일정수. parsed_json에서 요약해 준다."""
+    limit = max(1, min(limit, 300))
+    with _reviews_db() as c:
+        rows = c.execute(
+            "SELECT id, parsed_json, doc_path, status, created_at FROM biz_contracts "
+            "WHERE user_id=? ORDER BY id DESC LIMIT ?", (user["id"], limit)).fetchall()
+        ev_n = {r[0]: r[1] for r in c.execute(
+            "SELECT contract_id, COUNT(*) FROM biz_events WHERE user_id=? AND contract_id IS NOT NULL "
+            "GROUP BY contract_id", (user["id"],))}
+        pt_map: dict = {}
+        for cid_, role, name in c.execute(
+                "SELECT cp.contract_id, cp.role, cu.name FROM biz_contract_parties cp "
+                "JOIN biz_customers cu ON cu.id=cp.customer_id WHERE cu.user_id=?", (user["id"],)):
+            pt_map.setdefault(cid_, []).append({"role": role, "name": name})
+    items = []
+    for r in rows:
+        try:
+            p = _json.loads(r[1]) if r[1] else {}
+        except (ValueError, TypeError):
+            p = {}
+        pr = p.get("price") or {}
+        parties = pt_map.get(r[0]) or [
+            {"role": x.get("role"), "name": x.get("name")} for x in (p.get("parties") or []) if x.get("name")]
+        title = " ".join(x for x in [p.get("property_name"), p.get("unit")] if x) or (p.get("property_address") or "계약")
+        if q.strip():
+            hay = f"{title} {p.get('property_address') or ''} " + " ".join(x["name"] or "" for x in parties)
+            if q.strip() not in hay:
+                continue
+        items.append({
+            "id": r[0], "status": r[3], "created_at": r[4],
+            "contract_type": p.get("contract_type"), "doc_kind": p.get("doc_kind"),
+            "property_kind": p.get("property_kind"), "title": title,
+            "address": p.get("property_address"),
+            "price": {"sale": pr.get("sale"), "deposit": pr.get("deposit"), "monthly_rent": pr.get("monthly_rent")},
+            "parties": parties, "events": ev_n.get(r[0], 0),
+            "has_doc": bool(r[2] and Path(r[2]).exists()),
+        })
+    return {"items": items}
+
+
+@app.get("/biz/customers/{customer_id}/contracts")
+def biz_customer_contracts(customer_id: int, user: dict = Depends(admin_user)):
+    """고객관리에서 고객 클릭 → 그 고객이 당사자로 들어간 계약 목록(역할 포함)."""
+    with _reviews_db() as c:
+        cu = c.execute("SELECT id, name, phone, is_company FROM biz_customers WHERE id=? AND user_id=?",
+                       (customer_id, user["id"])).fetchone()
+        if not cu:
+            raise HTTPException(404, "고객을 찾을 수 없습니다")
+        rows = c.execute(
+            "SELECT bc.id, bc.parsed_json, bc.doc_path, bc.status, bc.created_at, cp.role "
+            "FROM biz_contract_parties cp JOIN biz_contracts bc ON bc.id=cp.contract_id "
+            "WHERE cp.customer_id=? AND bc.user_id=? ORDER BY bc.id DESC", (customer_id, user["id"])).fetchall()
+        ev_n = {r[0]: r[1] for r in c.execute(
+            "SELECT contract_id, COUNT(*) FROM biz_events WHERE user_id=? AND contract_id IS NOT NULL "
+            "GROUP BY contract_id", (user["id"],))}
+    items = []
+    for r in rows:
+        try:
+            p = _json.loads(r[1]) if r[1] else {}
+        except (ValueError, TypeError):
+            p = {}
+        pr = p.get("price") or {}
+        items.append({
+            "id": r[0], "role": r[5], "status": r[3], "created_at": r[4],
+            "contract_type": p.get("contract_type"), "property_kind": p.get("property_kind"),
+            "title": " ".join(x for x in [p.get("property_name"), p.get("unit")] if x) or (p.get("property_address") or "계약"),
+            "address": p.get("property_address"),
+            "price": {"sale": pr.get("sale"), "deposit": pr.get("deposit"), "monthly_rent": pr.get("monthly_rent")},
+            "events": ev_n.get(r[0], 0), "has_doc": bool(r[2] and Path(r[2]).exists()),
+        })
+    return {"customer": {"id": cu[0], "name": cu[1], "phone": cu[2], "is_company": bool(cu[3])}, "items": items}
+
+
+@app.get("/biz/contracts/{cid}")
+def biz_contract_detail(cid: int, user: dict = Depends(admin_user)):
+    """계약 상세 — 캘린더 일정 클릭 시 계약서 사진·당사자·계약조건을 함께 보여준다."""
+    with _reviews_db() as c:
+        row = c.execute("SELECT id, parsed_json, doc_path, status, created_at FROM biz_contracts "
+                        "WHERE id=? AND user_id=?", (cid, user["id"])).fetchone()
+        if not row:
+            raise HTTPException(404, "계약서를 찾을 수 없습니다")
+        try:
+            parsed = _json.loads(row[1]) if row[1] else {}
+        except (ValueError, TypeError):
+            parsed = {}
+        # 확정 전이라 아직 고객 적재 안 됐으면 parsed의 parties를 그대로 보여준다
+        parties = [
+            {"customer_id": p[0], "role": p[1], "name": p[2], "phone": p[3], "is_company": bool(p[4])}
+            for p in c.execute(
+                "SELECT cu.id, cp.role, cu.name, cu.phone, cu.is_company FROM biz_contract_parties cp "
+                "JOIN biz_customers cu ON cu.id=cp.customer_id WHERE cp.contract_id=?", (cid,))]
+        if not parties:
+            parties = [{"customer_id": None, "role": p.get("role"), "name": p.get("name"),
+                        "phone": p.get("phone"), "is_company": bool(p.get("is_company"))}
+                       for p in (parsed.get("parties") or []) if p.get("name")]
+        evs = [{"id": e[0], "title": e[1], "event_date": e[2], "event_type": e[3]}
+               for e in c.execute("SELECT id,title,event_date,event_type FROM biz_events "
+                                  "WHERE contract_id=? AND user_id=? ORDER BY event_date", (cid, user["id"]))]
+    doc = Path(row[2]) if row[2] else None
+    return {"id": row[0], "status": row[3], "created_at": row[4], "parsed": parsed,
+            "parties": parties, "events": evs,
+            "doc": {"exists": bool(doc and doc.exists()), "ext": (doc.suffix.lower() if doc else None)}}
+
+
+@app.get("/biz/contracts/{cid}/doc")
+def biz_contract_doc(cid: int, user: dict = Depends(admin_user)):
+    """계약서 원본 파일 서빙(본인 것만). 외부 공개 금지 — 인증된 소유자에게만."""
+    from fastapi.responses import FileResponse
+    with _reviews_db() as c:
+        row = c.execute("SELECT doc_path FROM biz_contracts WHERE id=? AND user_id=?",
+                        (cid, user["id"])).fetchone()
+    if not row or not row[0] or not Path(row[0]).exists():
+        raise HTTPException(404, "원본이 없습니다")
+    p = Path(row[0])
+    mt = {".pdf": "application/pdf", ".png": "image/png", ".webp": "image/webp",
+          ".heic": "image/heic"}.get(p.suffix.lower(), "image/jpeg")
+    return FileResponse(str(p), media_type=mt, headers={"Cache-Control": "private, max-age=300"})
+
+
+@app.get("/biz/customers")
+def biz_customers_list(q: str = "", role: str = "", limit: int = 200, user: dict = Depends(admin_user)):
+    """내 사무소 고객 목록 — 계약서에서 쌓인 임대인·임차인·매도인·매수인.
+    다른 기능(상담리드·매물 매칭 등)에서 customer_id로 연결할 수 있게 한다."""
+    limit = max(1, min(limit, 500))
+    w, p = ["cu.user_id=?"], [user["id"]]
+    if q.strip():
+        w.append("(cu.name LIKE ? OR cu.phone LIKE ?)"); p += [f"%{q.strip()}%"] * 2
+    if role.strip():
+        w.append("EXISTS (SELECT 1 FROM biz_contract_parties cp WHERE cp.customer_id=cu.id AND cp.role=?)")
+        p.append(role.strip())
+    with _reviews_db() as c:
+        rows = c.execute(
+            f"SELECT cu.id, cu.name, cu.phone, cu.is_company, cu.updated_at, cu.address, "
+            f"(SELECT GROUP_CONCAT(DISTINCT cp.role) FROM biz_contract_parties cp WHERE cp.customer_id=cu.id), "
+            f"(SELECT COUNT(*) FROM biz_contract_parties cp WHERE cp.customer_id=cu.id) "
+            f"FROM biz_customers cu WHERE {' AND '.join(w)} ORDER BY cu.updated_at DESC LIMIT ?",
+            [*p, limit]).fetchall()
+        # 목록이 이름·건수뿐이면 누가 누군지 모른다 → 최근 계약(유형·물건·주소·금액)을 요약해 붙인다.
+        ids = [r[0] for r in rows]
+        last: dict = {}
+        if ids:
+            ph = ",".join("?" * len(ids))
+            for cust, pj in c.execute(
+                    f"SELECT cp.customer_id, bc.parsed_json FROM biz_contract_parties cp "
+                    f"JOIN biz_contracts bc ON bc.id=cp.contract_id "
+                    f"WHERE cp.customer_id IN ({ph}) AND bc.user_id=? ORDER BY bc.id ASC", [*ids, user["id"]]):
+                try:
+                    pp = _json.loads(pj) if pj else {}
+                except (ValueError, TypeError):
+                    continue
+                pr = pp.get("price") or {}
+                last[cust] = {   # ORDER BY id ASC → 마지막 덮어쓰기 = 최신 계약
+                    "contract_type": pp.get("contract_type"),
+                    "property_kind": pp.get("property_kind"),
+                    "title": " ".join(x for x in [pp.get("property_name"), pp.get("unit")] if x) or None,
+                    "address": pp.get("property_address"),
+                    "price": {"sale": pr.get("sale"), "deposit": pr.get("deposit"),
+                              "monthly_rent": pr.get("monthly_rent")},
+                }
+    return {"items": [{"id": r[0], "name": r[1], "phone": r[2], "is_company": bool(r[3]),
+                       "updated_at": r[4], "address": r[5],
+                       "roles": (r[6] or "").split(",") if r[6] else [],
+                       "contracts": r[7], "last_contract": last.get(r[0])} for r in rows]}
+
+
+@app.delete("/biz/events/{eid}")
+def biz_event_delete(eid: int, user: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        cur = c.execute("DELETE FROM biz_events WHERE id=? AND user_id=?", (eid, user["id"]))
+        c.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "일정이 없습니다")
+    return {"ok": True}
+
+
+@app.get("/biz/events/ics")
+def biz_events_ics(user: dict = Depends(admin_user)):
+    """내 일정 전체 ICS — 구글/애플 캘린더 가져오기용."""
+    with _reviews_db() as c:
+        rows = c.execute(
+            "SELECT id,title,event_date,event_time,event_type,memo FROM biz_events "
+            "WHERE user_id=? ORDER BY event_date", (user["id"],)).fetchall()
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//koczip//biz-calendar//KO",
+             "CALSCALE:GREGORIAN", "X-WR-CALNAME:콕집 계약 캘린더"]
+    for (i, title, d, tm, typ, memo) in rows:
+        ymd = d.replace("-", "")
+        lines += ["BEGIN:VEVENT", f"UID:koczip-bze-{i}@koczip.com"]
+        if tm and _re.match(r"^\d{2}:\d{2}$", tm):
+            hhmm = tm.replace(":", "")
+            lines.append(f"DTSTART;TZID=Asia/Seoul:{ymd}T{hhmm}00")
+        else:
+            lines.append(f"DTSTART;VALUE=DATE:{ymd}")
+        esc = lambda s: str(s).replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")  # noqa: E731
+        lines.append(f"SUMMARY:{esc(f'[{typ}] {title}')}")
+        if memo:
+            lines.append(f"DESCRIPTION:{esc(memo)}")
+        lines.append("END:VEVENT")
+    lines.append("END:VCALENDAR")
+    from fastapi.responses import Response as _Resp
+    return _Resp("\r\n".join(lines), media_type="text/calendar",
+                 headers={"Content-Disposition": 'attachment; filename="koczip-calendar.ics"'})
 
 
 # ── 중개사 홈페이지 빌더 (Phase B) ─────────────────────────────
@@ -11265,9 +13446,14 @@ class BuyWizardCandidates(BaseModel):
 
 
 @app.post("/admin/buywizard/candidates")
-def buywizard_candidates(p: BuyWizardCandidates, _admin: dict = Depends(admin_user)):
-    """비용계산은 클라이언트(레퍼런스 복제 로직)가 하고, 서버는 후보 매물만 공급.
-    현재 매물(최신 스냅샷·매매) × 12개월 실거래 평균."""
+def buywizard_candidates_admin(p: BuyWizardCandidates, _admin: dict = Depends(admin_user)):
+    return buywizard_candidates(p)
+
+
+@app.post("/buywizard/candidates")
+def buywizard_candidates(p: BuyWizardCandidates):
+    """아파트매수계산기 — 서버는 후보 매물만 공급(공개). 비용계산은 클라이언트(buycalc).
+    현재 매물(최신 스냅샷·매매) × 12개월 실거래 평균. 민감정보 없음."""
     if not p.region_codes and not p.dong_codes:
         raise HTTPException(400, "지역을 선택하세요")
     prefixes = [d[:10] for d in p.dong_codes] if p.dong_codes else [c[:5] for c in p.region_codes]
@@ -11289,7 +13475,7 @@ def buywizard_candidates(p: BuyWizardCandidates, _admin: dict = Depends(admin_us
                   AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings_current)
                 GROUP BY l.complex_no, l.area_name
                 ORDER BY MIN(l.deal_or_warrant_price) DESC
-                LIMIT 300""",
+                LIMIT 600""",
             [x + "%" for x in prefixes] + [p.area_min, p.area_max, p.max_price or 10**13],
         ).fetchall()
         items = []
@@ -11307,6 +13493,85 @@ def buywizard_candidates(p: BuyWizardCandidates, _admin: dict = Depends(admin_us
                 "households": hh, "approve_ymd": approve,
             })
     return {"items": items}
+
+
+# ── 매수계산기 결과 공유 단축링크 ──────────────────────────────────────────
+# 전체 상태를 base64로 URL에 담으면(?d=) 너무 길어 카카오톡 등에서 링크로 인식
+# 안 됨. payload를 서버에 저장하고 짧은 코드(?s=)만 공유한다. 민감정보 없음.
+_SHARE_DB: Path = DB_PATH.parent / "buywizard_shares.sqlite"
+
+
+def _init_share_db() -> None:
+    with sqlite3.connect(_SHARE_DB) as c:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS shares (
+                 id         TEXT PRIMARY KEY,
+                 payload    TEXT NOT NULL,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 hits       INTEGER NOT NULL DEFAULT 0
+               )"""
+        )
+
+
+_init_share_db()
+
+
+class BuyWizardShare(BaseModel):
+    payload: str  # 클라이언트가 만든 base64 상태 블록(기존 ?d= 값과 동일)
+
+
+@app.post("/buywizard/share")
+def buywizard_share_create(p: BuyWizardShare):
+    import secrets as _secrets
+    if not p.payload or len(p.payload) > 20000:
+        raise HTTPException(400, "잘못된 요청")
+    with sqlite3.connect(_SHARE_DB, timeout=5) as c:
+        for _ in range(6):  # 충돌 시 재시도
+            sid = _secrets.token_urlsafe(5)[:7]  # 7자 정도의 짧은 코드
+            try:
+                c.execute("INSERT INTO shares(id, payload) VALUES (?,?)", (sid, p.payload))
+                return {"id": sid}
+            except sqlite3.IntegrityError:
+                continue
+    raise HTTPException(500, "코드 생성 실패")
+
+
+@app.get("/buywizard/share/{sid}")
+def buywizard_share_get(sid: str):
+    if not sid or len(sid) > 16:
+        raise HTTPException(404, "없음")
+    with sqlite3.connect(_SHARE_DB, timeout=5) as c:
+        row = c.execute("SELECT payload FROM shares WHERE id=?", (sid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "만료되었거나 없는 링크")
+        try:
+            c.execute("UPDATE shares SET hits=hits+1 WHERE id=?", (sid,))
+        except Exception:
+            pass
+    return {"payload": row[0]}
+
+
+# 범용 결과 공유(맞춤단지 등) — buywizard와 동일한 shares 테이블 재사용(payload 불투명).
+@app.post("/share")
+def share_create(p: BuyWizardShare):
+    import secrets as _secrets
+    if not p.payload or len(p.payload) > 20000:
+        raise HTTPException(400, "잘못된 요청")
+    with sqlite3.connect(_SHARE_DB, timeout=5) as c:
+        for _ in range(6):
+            sid = _secrets.token_urlsafe(5)[:7]
+            try:
+                c.execute("INSERT INTO shares(id, payload) VALUES (?,?)", (sid, p.payload))
+                return {"id": sid}
+            except sqlite3.IntegrityError:
+                continue
+    raise HTTPException(500, "코드 생성 실패")
+
+
+@app.get("/share/{sid}")
+def share_get(sid: str):
+    return buywizard_share_get(sid)  # 동일 조회 로직 재사용(만료·hits 포함)
 
 
 @app.post("/admin/buywizard/recommend")

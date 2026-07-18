@@ -7,6 +7,7 @@ import ComplexDashboard from "./ComplexDashboard";
 import { usePageMeta } from "../lib/pageMeta";
 import ComplexReviews from "../components/ComplexReviews";
 import FavButton from "../components/FavButton";
+import ListingAnalysis from "../components/ListingAnalysis";
 import {
   CartesianGrid, Legend, ResponsiveContainer, Scatter, ScatterChart,
   Tooltip, XAxis, YAxis,
@@ -190,7 +191,7 @@ export default function ComplexDetail() {
   const [tx, setTx] = useState<TxBundle | null>(null);
   // 분양권/입주권은 별도 탭이 아니라 매매 실거래에 통합(레코드별 뱃지) — 사용자에겐 "실거래" 하나.
   const [txTab, setTxTab] = useState<"A1" | "B1" | "B2">("A1");
-  const [section, setSection] = useState<"summary" | "info" | "tx" | "nearby" | "trend" | "realtor" | "review">("summary");
+  const [section, setSection] = useState<"summary" | "info" | "listing" | "tx" | "nearby" | "trend" | "realtor" | "review">("summary");
   const [realtors, setRealtors] = useState<RealtorRow[] | null>(null);
   const [deals, setDeals] = useState<DealRow[] | null>(null);
   const [areaTypes, setAreaTypes] = useState<AreaType[]>([]);
@@ -315,8 +316,11 @@ export default function ComplexDetail() {
     <>
       <Link to="/overview" className="back">← 전국현황</Link>
       <div className="cx-title-row">
-        <h2 style={{ margin: "0 0 4px" }}>{complex.complex_name}</h2>
-        {complexNo && <FavButton complexNo={complexNo} complexName={complex.complex_name} />}
+        {/* 이름·하트·관심단지 칩을 한 묶음으로 — space-between이라 칩이 가운데 뜨던 것 방지 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", marginBottom: 4 }}>
+          <h2 style={{ margin: 0 }}>{complex.complex_name}</h2>
+          {complexNo && <FavButton complexNo={complexNo} complexName={complex.complex_name} />}
+        </div>
       </div>
       <div className="muted" style={{ marginBottom: 14 }}>
         {(complex.road_address
@@ -331,6 +335,7 @@ export default function ComplexDetail() {
         {([
           ["summary", "종합"],
           ["info", "시세"],
+          ["listing", "매물분석"],
           ["tx", "실거래"],
           ["nearby", "인근단지"],
           ["trend", "호가추이"],
@@ -360,6 +365,15 @@ export default function ComplexDetail() {
           {(["A1", "B1", "B2"] as const).map((t) => (
             <AreaAggSection key={t} tradeType={t} rows={tradeAggs[t]} householdByType={householdByType} />
           ))}
+        </>
+      )}
+
+      {section === "listing" && complexNo && (
+        <>
+          <div className="section-title" style={{ marginTop: 4 }}>
+            단지 매물 분석 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>일자별 매물수·실매물·호가 · 최근 1달</span>
+          </div>
+          <ListingAnalysis complexNo={complexNo} />
         </>
       )}
 
@@ -1146,19 +1160,28 @@ function SaleSection({ rows }: { rows: SaleRow[] }) {
     return rows.filter((r) => areaKey(r.excl_use_ar) === area);
   }, [rows, area]);
 
-  // 신고가: 평형(areaKey)별로 시간순 최고가를 경신한 거래(분양권 제외) 표시 — 콕집 차별점.
-  const recordHigh = useMemo(() => {
-    const set = new Set<SaleRow>();
-    const best = new Map<number, number>();
+  // 신고가 2종(분양권 제외) — 콕집 차별점:
+  //  · 타입신고가: 같은 평형(areaKey) 안에서 시간순 최고가를 경신한 거래.
+  //  · 단지신고가: 단지 전체(모든 평형 통틀어) 최고가를 경신한 거래.
+  //    단지 최고가는 자기 평형에서도 최고이므로 단지신고가 ⟹ 타입신고가(항상 둘 다).
+  const { typeHigh, complexHigh } = useMemo(() => {
+    const typeHigh = new Set<SaleRow>();
+    const complexHigh = new Set<SaleRow>();
+    const bestByType = new Map<number, number>();
+    let bestComplex = 0;
     for (const r of [...rows].sort((a, b) => a.deal_ymd.localeCompare(b.deal_ymd))) {
       const k = areaKey(r.excl_use_ar);
       if (k == null || r.silv_kind || !r.deal_amount) continue;
-      if (r.deal_amount > (best.get(k) ?? 0)) {
-        best.set(k, r.deal_amount);
-        set.add(r);
+      if (r.deal_amount > (bestByType.get(k) ?? 0)) {
+        bestByType.set(k, r.deal_amount);
+        typeHigh.add(r);
+      }
+      if (r.deal_amount > bestComplex) {
+        bestComplex = r.deal_amount;
+        complexHigh.add(r);
       }
     }
-    return set;
+    return { typeHigh, complexHigh };
   }, [rows]);
 
   if (rows.length === 0) return <div className="muted">최근 거래 없음</div>;
@@ -1176,7 +1199,8 @@ function SaleSection({ rows }: { rows: SaleRow[] }) {
                 <span className="txf-day">{r.deal_ymd.slice(8, 10)}</span>
                 <span className="txf-price" style={{ color: "#1268d3" }}>{formatWon(r.deal_amount)}</span>
                 <span className="txf-badges">
-                  {recordHigh.has(r) && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>신고가</span>}
+                  {complexHigh.has(r) && <span className="txf-b" style={{ background: "#d23b3b", color: "#fff", fontWeight: 700 }}>단지 신고가</span>}
+                  {typeHigh.has(r) && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>타입 신고가</span>}
                   {r.silv_kind && <span className="txf-b" style={{ background: "#f0e9ff", color: "#6b39c9" }}>{r.silv_kind}</span>}
                   {r.dealing_gbn === "직거래" && <span className="txf-b" style={{ background: "#fff7ea", color: "#c4791a" }}>직거래</span>}
                   {!r.silv_kind && r.registered && <span className="txf-b" style={{ background: "#eefaf2", color: "#1f9d63" }}>등기</span>}

@@ -1,8 +1,12 @@
 import { useEffect, useState, useRef, ReactNode } from "react";
 import { Loading } from "../components/Loading";
 import ShareBar from "../components/ShareBar";
-import { Trophy, TrendingUp, Home, BadgePercent, ChevronRight, Flame, Layers, MapPin } from "lucide-react";
+import SubwayModal from "../components/SubwayModal";
+import SchoolModal from "../components/SchoolModal";
+import { Trophy, TrendingUp, Home, BadgePercent, ChevronRight, Flame, Layers, MapPin , TrainFront, School } from "lucide-react";
 import { RentHistModal, SaleHistModal, fmtDot, type RentLike, type SaleLike } from "../lib/txhist";
+import ListingAnalysis from "./../components/ListingAnalysis";
+import { BarChart3 } from "lucide-react";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -12,7 +16,7 @@ type Tx = { date: string; price: number; area: number | null; floor: number | nu
 type RA = { kind: "sale" | "jeonse" | "wolse"; date: string; price: number; rent: number;
   area: number | null; floor: number | null; dong: string | null; silv_kind: string | null;
   direct: boolean; registered: boolean; renew: boolean; rr: boolean;
-  pre_deposit: number | null; pre_rent: number | null; record_high: boolean };
+  pre_deposit: number | null; pre_rent: number | null; record_high: boolean; complex_record_high?: boolean };
 type TxData = { sale: SaleLike[]; jeonse: RentLike[]; wolse: RentLike[] };
 const RA_META: Record<RA["kind"], { label: string; c: string; bg: string }> = {
   sale:   { label: "매매", c: "#1268d3", bg: "#e8f1fd" },
@@ -24,12 +28,17 @@ type TypeRow = { area_name: string; sale_count: number; sale_min: number | null;
   supply_area: number | null; exclusive_area: number | null; type_households: number | null };
 type Summary = {
   complex_no: string; complex_name: string; region: string; households: number | null;
+  subway: { station: string; lines: string; distance_m: number; walk_min: number } | null;
+  school: { name: string; names_all: string; n: number; distance_m: number; walk_min: number; src: string } | null;
   use_approve_ymd: string | null; builder: string | null; asset_type: string | null;
   building_count: number | null; parking_per_household: number | null;
   latitude: number | null; longitude: number | null;
   record_high: RecordHigh | null; recent_tx: Tx[]; recent_high: number | null;
   recent_all?: RA[];
-  listing_counts: { A1: number; B1: number; B2: number; total: number }; by_type: TypeRow[];
+  listing_counts: { A1: number; B1: number; B2: number; total: number };
+  // 실매물(같은 집 중복 광고를 1건으로 합침)
+  listing_units?: { A1: number; B1: number; B2: number; total: number };
+  by_type: TypeRow[];
 };
 // /complex/{no}/quick-deals: price(원), discount(음수), avg_real(실거래평균), naver_url
 type Deal = { area_name?: string; price?: number; discount?: number; floor_info?: string;
@@ -52,11 +61,13 @@ function builtYM(s: string | null | undefined): string {
 }
 
 export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
-  complexNo: string; onGo: (s: "tx" | "trend" | "realtor") => void; children?: ReactNode;
+  complexNo: string; onGo: (s: "tx" | "trend" | "realtor" | "listing") => void; children?: ReactNode;
   tx?: TxData | null;
 }) {
   const [hist, setHist] = useState<RA | null>(null);
   const [s, setS] = useState<Summary | null>(null);
+  const [subwayOpen, setSubwayOpen] = useState(false);
+  const [schoolOpen, setSchoolOpen] = useState(false);
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const shareRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -87,14 +98,28 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
 
   return (
     <div className="cdash share-target" ref={shareRef}>
+      {subwayOpen && complexNo && <SubwayModal complexNo={complexNo} onClose={() => setSubwayOpen(false)} />}
+      {schoolOpen && complexNo && <SchoolModal complexNo={complexNo} onClose={() => setSchoolOpen(false)} />}
       <div className="cdash-share">
         <ShareBar targetRef={shareRef} title={`${s.complex_name} 단지 종합`} fileName={`콕집_${s.complex_name}`} />
       </div>
       {/* 단지 정보 */}
       <div className="cdash-info">
-        {s.region && (
+        {(s.region || s.subway) && (
           <div className="cdash-info-loc">
-            <span><MapPin size={13} strokeWidth={2.3} aria-hidden /> {s.region}</span>
+            {s.region && <span><MapPin size={13} strokeWidth={2.3} aria-hidden /> {s.region}</span>}
+            {s.subway && (
+              <button type="button" className="cdash-subway-btn" title="주변 지하철역 지도 보기" onClick={() => setSubwayOpen(true)}>
+                <TrainFront size={13} strokeWidth={2.3} aria-hidden /> {s.subway.station} 도보 {s.subway.walk_min}분
+                <em className="cdash-sub-lines"> {s.subway.lines.split("·")[0]}{s.subway.lines.includes("·") ? " 외" : ""} · 주변역</em>
+              </button>
+            )}
+            {s.school && (
+              <button type="button" className="cdash-subway-btn" title="학구도·배정 초등학교 지도 보기" onClick={() => setSchoolOpen(true)}>
+                <School size={13} strokeWidth={2.3} aria-hidden /> {s.school.src === "near" ? "인근 " : ""}{s.school.name.replace("등학교", "")}{s.school.n > 1 ? ` 외 ${s.school.n - 1}` : ""} 도보 {s.school.walk_min}분
+                <em className="cdash-sub-lines"> {s.school.src === "zone" ? "배정 · 학구도" : ""}</em>
+              </button>
+            )}
           </div>
         )}
         {info.length > 0 && (
@@ -113,10 +138,17 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
         <Stat accent="red" icon={<TrendingUp size={17} />} label="최근 실거래가"
           value={won(latest?.price)} sub={latest ? `${ymd(latest.date)} 거래${latest.is_silv ? " · 분양권" : ""}` : "거래 없음"} onClick={() => onGo("tx")} />
         <Stat accent="blue" icon={<Home size={17} />} label="현재 매물"
-          value={c.total.toLocaleString()} unit="건" sub={`매매 ${c.A1} · 전세 ${c.B1} · 월세 ${c.B2}`} onClick={() => onGo("realtor")} />
+          value={c.total.toLocaleString()} unit="건"
+          sub={`매매 ${c.A1} · 전세 ${c.B1} · 월세 ${c.B2}${s.listing_units?.total ? ` · 실매물 ${s.listing_units.total}(중복 합침)` : ""}`}
+          onClick={() => onGo("realtor")} />
         <Stat accent="pink" icon={<BadgePercent size={17} />} label="급매"
           value={deals ? `${deals.length}` : "-"} unit="건" sub="실거래 평균보다 싼 매물" />
       </div>
+
+      {/* 단지매물분석 — 일자별 매물수·실매물·호가 1달 추이(요약판, 탭에 전체판) */}
+      <div className="cdash-h"><h3><BarChart3 size={15} strokeWidth={2.3} /> 단지 매물 분석 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>일자별 매물수·실매물·호가 · 1달</span></h3>
+        <button className="cdash-more" onClick={() => onGo("listing")}>매물분석 <ChevronRight size={13} /></button></div>
+      <ListingAnalysis complexNo={complexNo} compact onMore={() => onGo("listing")} />
 
       {/* 최근 거래 — 매매·전세·월세 통합 피드(2026-07-04). 클릭=히스토리 팝업 */}
       <div className="cdash-h"><h3><TrendingUp size={15} strokeWidth={2.3} /> 최근 거래 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>매매·전세·월세 · 누르면 이력</span></h3>
@@ -150,7 +182,8 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
                     {won(t.price)}{t.kind === "wolse" && ` / ${Math.round(t.rent / 10000)}만`}
                   </span>
                   <span className="txf-badges">
-                    {t.record_high && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>신고가</span>}
+                    {t.complex_record_high && <span className="txf-b" style={{ background: "#d23b3b", color: "#fff", fontWeight: 700 }}>단지 신고가</span>}
+                    {t.record_high && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>타입 신고가</span>}
                     {t.silv_kind && <span className="txf-b" style={{ background: "#f0e9ff", color: "#6b39c9" }}>{t.silv_kind}</span>}
                     {t.direct && <span className="txf-b" style={{ background: "#fff7ea", color: "#c4791a" }}>직거래</span>}
                     {t.registered && <span className="txf-b" style={{ background: "#eefaf2", color: "#1f9d63" }}>등기</span>}
