@@ -72,14 +72,14 @@ BODY = [
      "제공한다."),
 ]
 
-QUOTE = ("황인찬 콕집 대표는 “정비사업 발표가 시장에 어떤 파장을 만드는지는 지금까지 체감과 소문으로만 "
+QUOTE = ("조용호 콕집 공동창업자는 “정비사업 발표가 시장에 어떤 파장을 만드는지는 지금까지 체감과 소문으로만 "
          "이야기돼 왔다. 일자별 매물 데이터는 그 반응을 숫자로 보여준다. 소비자가 기대감에 휩쓸리기 전에 "
          "매물과 가격의 실제 움직임을 확인하고 판단하도록 돕겠다”고 말했다.")
 
 COMPANY = [
     ("서비스", "콕집 — 부동산 매물·실거래·중개사 분석 플랫폼 (koczip.com)"),
     ("운영사", "런투온라인 (대표 황인찬)"),
-    ("문의", "runtoonline@gmail.com · 010-5942-8014"),
+    ("문의", "조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946"),
 ]
 
 METHOD = (
@@ -171,7 +171,7 @@ def make_docx(out: Path):
     p = d.add_paragraph(); r = p.add_run("보도자료")
     r.font.size = Pt(11); r.font.bold = True; r.font.color.rgb = RGBColor(0x12, 0x68, 0xD3)
     p2 = d.add_paragraph()
-    r = p2.add_run("배포일: 2026년 7월 · 즉시 보도 가능    문의: runtoonline@gmail.com · 010-5942-8014")
+    r = p2.add_run("배포일: 2026년 7월 · 즉시 보도 가능    문의: 조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946")
     r.font.size = Pt(9); r.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
 
     t = d.add_paragraph(); t.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -273,7 +273,7 @@ def make_pdf(out: Path):
 
     story = [
         Paragraph("보도자료", ss["tag"]),
-        Paragraph("배포일: 2026년 7월 · 즉시 보도 가능 &nbsp;&nbsp; 문의: runtoonline@gmail.com · 010-5942-8014", ss["meta"]),
+        Paragraph("배포일: 2026년 7월 · 즉시 보도 가능 &nbsp;&nbsp; 문의: 조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946", ss["meta"]),
         Paragraph(TITLE, ss["title"]),
         Paragraph(SUBTITLE, ss["sub"]),
         Paragraph(LEAD, ss["body"]),
