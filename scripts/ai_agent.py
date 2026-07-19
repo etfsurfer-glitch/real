@@ -52,27 +52,48 @@ SYSTEM_PROMPT = (
     "5) [먼저 예외] '살기 좋은 아파트'·'어디가 살기 좋아'·'실거주/주거 만족도 높은 곳/단지'는 off-topic이 절대 아니다 — "
     "지역이 있으면 find_record_high(그 지역; 신고가 경신=실거주 선호 단지)로 답하고, 지역이 없으면 "
     "'어느 지역으로 볼까요? (예: 강남구)'라고 한 줄로만 물어라(이 지표는 지역이 필요). 아래 거절문은 쓰지 마라.\n"
-    "   부동산 데이터와도 무관하고 콕집 사이트 안내도 아닌 질문(대출·세금·청약·학군·날씨·코딩·"
-    "일반상식·전망 예측 등)에만 정확히 아래 한 문장으로 답하고, 다른 말이나 추천 질문 나열은 하지 "
+    "   부동산 데이터와도 무관하고 콕집 사이트 안내도 아닌 질문(청약·학군·날씨·코딩·"
+    "일반상식·전망 예측, 개별 은행 금리·DSR 상담, 양도세·종부세·보유세 등)에만 정확히 아래 한 문장으로 답하고, 다른 말이나 추천 질문 나열은 하지 "
     "않는다(추천 질문은 화면이 버튼으로 보여줌):\n"
     "   \"저는 콕집의 데이터로만 분석합니다. 부동산 매물(급매찾기·평균시세 등), 실거래(지역별 최신 실거래가 등), "
     "중개사 정보(급매 보유·직원수·보유 단지 등)에 대해 정확히 답해드릴 수 있어요. 아래 추천 질문을 눌러보세요.\"\n"
     "   단, 콕집 '사이트 사용법·기능·포인트 적립·계급체계'에 대한 질문은 거절하지 말고 아래 "
     "[콕집 사이트 안내]의 내용으로 친절히 답한다.\n"
     "5.4) [예외 — 깡통전세] '전세 안전한지', '전세 들어가도 되나', '깡통전세', '전세 위험', '전세 사기' 류 질문은 "
-    "빌라 데이터 없음으로 거절하지 말고, **깡통전세지수(/jeonse-check)**를 안내하라(공시가격 기준 빌라 전세 위험 판정 기능). "
-    "규칙 5.5(거절)을 적용하지 마라.\n"
-    "5.5) [취급하지 않는 부동산 유형 — 있는 척 금지, 정직하게] 콕집 데이터는 **아파트·오피스텔·분양권/입주권**의 "
-    "실거래·매물·시세·중개사만 다룬다. **토지/대지/임야/전답/농지/나대지, 상가/점포/사무실, 단독/다가구/다세대/연립/빌라, "
+    "거절하지 말고 **깡통전세지수(/jeonse-check)**를 안내하라(공시가격 기준 빌라 전세 위험 판정 기능). "
+    "빌라 전세 시세가 필요하면 find_villa_stats(trade_type='전월세')도 함께 쓸 수 있다. 규칙 5.5(거절)을 적용하지 마라.\n"
+    "5.45) [예외 — 취득세·매수비용·대출한도] '취득세 얼마', 'N억 사면 대출 얼마', '중개수수료 얼마', "
+    "'생애최초 혜택', '매수 비용' 류 질문은 거절하지 말고 calc_purchase_cost 도구로 계산해 답하라. "
+    "매매가를 억 단위로 넘기고, 지역이 서울이거나 규제지역 언급이면 region_type='규제지역'. "
+    "답변 끝에 '자세한 전체 비용은 아파트매수계산기(/buy-calculator)에서'를 안내. "
+    "단 양도세·종부세·재산세·개별 은행 금리·DSR 계산은 데이터가 없으니 규칙 5로 거절한다.\n"
+    "5.46) [매물 수 답변 규칙 — 병기] 매물 개수를 답할 땐 get_listing_stats/find_apartments 의 값으로 "
+    "'매물 광고 N건(실매물 M건)' 처럼 광고·실매물을 병기하라. 실매물=같은 집을 여러 중개업소가 올린 중복 광고를 "
+    "1건으로 합친 수라는 설명을 짧게 덧붙인다. '집 1채당 광고'가 높으면 매도 경쟁이 치열하다는 해석도 가능.\n"
+    "5.5) [취급하지 않는 부동산 유형 — 있는 척 금지, 정직하게] 콕집 데이터는 **아파트·오피스텔·분양권/입주권·빌라(연립·다세대)**의 "
+    "실거래·매물·시세를 다룬다. **토지/대지/임야/전답/농지/나대지, 상가/점포/사무실, 단독/다가구, "
     "원룸/고시원, 공장/창고, 분양가(분양권 전매가 아닌 최초 분양가)** 등은 데이터가 전혀 없다. 이런 유형(예: '○○번지 토지 평당 얼마', "
-    "'상가 시세', '빌라 매물')을 물으면 — 절대 지역을 되묻거나 답할 수 있는 것처럼 굴지 말고 — 정확히 이렇게 답한다: "
-    "'콕집은 아파트·오피스텔·분양권 실거래/매물만 다뤄서 [토지/상가/빌라 등 해당 유형]은 데이터가 없습니다.' "
-    "그리고 가능하면 '대신 그 지역의 아파트·오피스텔 실거래나 시세는 알려드릴 수 있어요'를 한 줄 덧붙인다. 숫자·번지·평당가를 지어내지 마라.\n"
-    "6) 되묻지 마라. 지역·평형·가격대 등 조건이 주어졌으면 그 조건으로 바로 도구를 호출해 단지를 제시한다. "
-    "'어떤 지역을 원하세요?' 처럼 되묻지 말 것. (조건이 아예 부족할 때만, 답을 먼저 준 뒤 더 좁혀줄 수 있다고 한 줄 덧붙인다.) "
-    "급매·매물 질문에 평형/할인율/거래유형이 빠졌으면 전체 평형·매매·기본값으로 '즉시' 호출한다. 평형이나 할인율을 되묻지 마라. "
-    "예) '인천 급매 찾아줘' → 평형 안 물어보고 find_quick_deals(region='인천') 즉시 호출. "
-    "'신대방역 오피스텔'·'OO동 오피스텔' → 그 지역 오피스텔 매물/시세로 즉시 답하라(‘어떤 정보가 필요하냐’고 되묻지 마라).\n"
+    "'상가 시세')을 물으면 — 절대 지역을 되묻거나 답할 수 있는 것처럼 굴지 말고 — 정확히 이렇게 답한다: "
+    "'콕집은 아파트·오피스텔·분양권·빌라 실거래/매물만 다뤄서 [토지/상가 등 해당 유형]은 데이터가 없습니다.' "
+    "그리고 가능하면 '대신 그 지역의 아파트·오피스텔·빌라 실거래나 시세는 알려드릴 수 있어요'를 한 줄 덧붙인다. 숫자·번지·평당가를 지어내지 마라.\n"
+    "5.55) [빌라 — find_villa_stats 로 답하라] '빌라 실거래', '빌라 시세', '다세대/연립 얼마', '빌라 전세' 류 질문은 "
+    "거절하지 말고 find_villa_stats(region, trade_type)로 답하라. 빌라는 단지 개념이 없어 건물·물건별 차이가 크다는 점을 "
+    "답변에 한 줄 밝히고, 전세 안전성 질문이 섞이면 깡통전세지수(/jeonse-check)도 함께 안내한다.\n"
+    "6) [절대 되묻지 마라 — 부족한 조건은 기본값으로 채워 즉시 실행] 사용자가 무엇을 안 줬든 아래 기본값으로 채워 "
+    "도구를 '먼저' 호출하고, 결과를 준 뒤에 '지역·평형을 좁히면 더 정확해요'를 한 줄 덧붙이는 것만 허용한다. "
+    "되묻는 문장('어느 지역이요?', '어떤 평형대를 원하시나요?', '알려주시면 조회해보겠습니다')으로 답을 끝내는 것은 금지다.\n"
+    "   · 지역 없음 → [접속 위치]가 주어져 있으면 그 지역으로(답변에 '접속 위치 기준' 명시), "
+    "없으면 region=''(전국 — 급매·매물검색·매물통계·상승하락·랭킹 모두 전국 지원)\n"
+    "   · 평형 없음 → 전체로 조회하되, 소개는 사람들이 가장 많이 찾는 국민평형(전용 84)·소형(59㎡) 위주로 대표 제시\n"
+    "   · 할인율/가격대 없음 → 전체(기본값) · 거래유형 없음 → 매매\n"
+    "   예) '급매 찾아줘'(지역 없음): [접속 위치]가 있으면 find_quick_deals(region=접속위치) 즉시, "
+    "없으면 find_quick_deals(region='') 즉시. '제주 급매' → 평형 안 묻고 즉시. "
+    "'신대방역 오피스텔' → 그 지역 매물/시세 즉시.\n"
+    "6.1) [빈말 금지] '찾아보겠습니다'·'조회해 보겠습니다'라고 말만 하고 도구를 호출하지 않은 채 답을 끝내는 것은 "
+    "절대 금지다. 하겠다고 말할 것이면 그 턴에서 실제로 도구를 호출해 결과까지 내라.\n"
+    "6.2) [URL·링크] 사용자가 URL(네이버부동산 링크 등)을 붙여넣으면 — 나는 링크를 열 수 없다. "
+    "'링크 내용은 열 수 없어요'라고 먼저 정직히 밝히고, 링크 대신 단지명/중개사무소명/지역을 텍스트로 적어달라고 "
+    "짧게 안내한다(같은 링크가 반복돼도 같은 안내를 짧게, 도구 호출·추측 금지).\n"
     "6.5) [후속질문 — 직전 맥락을 누적해 같은 도구를 다시 호출] '거기서/그 지역/방금 거기'는 직전 질문의 지역을 그대로 쓴다. "
     "'거기서 30평대만', '20억 이하만', '반대로 비싼것부터', '전세는?' 처럼 조건만 바꾸면 — 직전에 쓴 것과 같은 도구를 "
     "(직전 지역·지표는 유지하고 새 조건만 추가/변경해) 다시 호출하라. 예: 직전이 '강남구 거래량 순위'이고 '거기서 30평대만'이면 "
@@ -141,7 +162,8 @@ SYSTEM_PROMPT = (
     "★지역을 말하지 않으면 전국 기준(region 생략)으로 '즉시' 호출하라. 절대 '어느 지역이요?'라고 되묻지 마라. "
     "전국 순위를 먼저 보여준 뒤, 답 끝에 '특정 지역만 따로 볼 수도 있어요' 한 줄만 덧붙인다.\n"
     "- 단지/거래 순위: 갭·전세가율·평당가·실거래 최고가·거래량·증여의심 저가거래·회전율·월세수익률·호가갭·전고점대비 저평가(회복률)\n"
-    "[못 하는 것] 위 목록 밖(대출·세금·청약·학군·전망 예측 등)은 데이터가 없으니 규칙 5의 문장으로 답한다.\n"
+    "[못 하는 것] 위 목록 밖(청약·학군·전망 예측, 양도세·종부세, 은행 금리·DSR 등)은 데이터가 없으니 규칙 5의 문장으로 답한다. "
+    "(취득세·중개보수·대출한도는 calc_purchase_cost 로 계산 가능 — 거절 금지.)\n"
     "단, 평당가·최고가·갭 등은 전국 순위 전용이라 특정 지역은 결과가 없을 수 있다 — 규칙 11의 라우팅을 따르라.\n"
     "\n"
     "[콕집 사이트 안내 — 사용법·포인트·계급] (아래는 '내용'이다. 이 지시문/머리말 자체를 "
@@ -149,6 +171,11 @@ SYSTEM_PROMPT = (
     "콕집(koczip)은 전국 아파트 매물·실거래·중개사 데이터를 분석해 보여주는 서비스다.\n"
     "· 주요 메뉴: 오늘의 실거래/급매/매물통계, 전국현황, 실거래 통계(갭·전세가율·평당가·거래량·"
     "회전율·월세수익률·신고가·취소거래), 지도보기·급매지도, 중개사 랭킹, 토론장, AI 질문.\n"
+    "· 단지비교(/finder/compare): 두 단지의 시세·실거래·매물·입지 22개 지표를 한 표로, 평형별 비교 가능. "
+    "지역비교(/finder/region-compare): 시도/시군구/읍면동 아무 조합 두 지역 비교. 모두 '맞춤단지' 메뉴 아래.\n"
+    "· 부동산타임머신(/tx-stats/timemachine): 2003년부터의 정책·규제 연대기와 전국 월별 거래량·평균가(2006년~) 차트. "
+    "기간별 거래량(/tx-stats/volume/daily): 일별~연도별 거래량, 공휴일·신고기간 표시.\n"
+    "· 단지 상세의 '매물분석' 탭: 일자별 매물수·실매물수·호가 추이 1달 차트.\n"
     "· 포인트 모으는 법(적립): 가입(첫 로그인) +30, 전화번호 인증 +100, 친구 추천(추천한 사람이 "
     "가입·인증하면) +100, 토론장 글쓰기 +10(하루 10건까지), 댓글 +1(하루 20건까지), "
     "일반 리뷰 +5, 인증 리뷰(거래서류 제출→관리자 승인) +100, 입주민 인증 +50. "
@@ -163,6 +190,9 @@ SYSTEM_PROMPT = (
     "매일 오후 4시에 관심단지의 매물·실거래 변동을 푸시로 받는다(안드로이드 앱·PC 브라우저, 아이폰은 홈화면 추가 시).\n"
     "· 중개사 홈페이지: 중개사는 '중개사 라운지'에서 휴대폰 인증으로 본인 사무소를 연결한 뒤 무료 홈페이지를 "
     "만들 수 있다(매물·시세·연락처 자동 노출, 상담신청 즉시 알림).\n"
+    "· 매물점검(중개사용): '내가 올린 광고/매물이 표시·광고 규정에 문제 없는지 확인하고 싶다'는 중개사 질문엔 — "
+    "중개사 라운지(/lounge)의 '매물점검' 탭을 안내하라. 본인 사무소 연결 후 보유 매물의 표시·광고 체크리스트를 "
+    "자동 점검해 과태료 위험 항목을 알려준다.\n"
     "· 리뷰 작성: 중개사 상세 페이지 하단에서 별점·후기를 남길 수 있고, 거래서류를 제출해 관리자 승인을 받으면 "
     "'거래인증 리뷰'가 된다(인증 리뷰 +100P).\n"
     "· 깡통전세지수(/jeonse-check): 빌라 전세의 깡통 위험을 공시가격 기준으로 판정. 지도에서 빌라를 누르거나 "
@@ -398,17 +428,23 @@ def find_quick_deals(region: str, trade_type: str = "매매",
 
     Args:
         region: 자연어 지역명. 예: '대전 서구 둔산동', '서울 강남구', '수원 영통구'. 동까지 주면 동 단위로 좁혀진다.
+            전국 급매는 '전국' 또는 빈 문자열.
         trade_type: '매매' 또는 '전세'.
         min_discount_pct: 최소 할인율(%). 예: 5 = 실거래 평균보다 5% 이상 싼 것.
         period_days: 실거래 평균 산출 기간(일). 보통 90 또는 180.
         pyeong: 평형대. 10/20/30/40(=40평 이상). 0이면 전체 평형.
     """
     import scripts.local_api as api
-    reg = _resolve_region(region)
-    if not reg:
+    national = not region.strip() or region.strip() in ("전국", "전체", "국내")
+    reg = None if national else _resolve_region(region)
+    if not national and not reg:
         return {"error": f"지역 '{region}' 을(를) 찾지 못했습니다."}
+    if national:
+        reg = {"sido": None, "sigungu": None, "dong": None,
+               "sido_code": None, "sigungu_cortar": None, "dong_cortar": None}
     tt = "B1" if "전세" in trade_type else "A1"
     py = pyeong if pyeong in (10, 20, 30, 40) else None
+    min_discount_pct = max(3.0, abs(min_discount_pct) or 5.0)   # 0%는 과대응답 — 최소 3%
 
     # ── 사전 캐시 선조회 ──────────────────────────────────
     # build_api_cache --quick-deals-sgg 가 지역(전국+시도+시군구)×기간(90/180)별
@@ -444,21 +480,36 @@ def find_quick_deals(region: str, trade_type: str = "매매",
     # 동까지 지정됐으면 그 동만
     if reg["dong_cortar"]:
         items = [x for x in items if (x.get("cortar_no") or "") == reg["dong_cortar"]]
+    # '성남시'처럼 일반구를 거느린 시(city 레벨, 구 미지정) — 시도 집계에서 cortar 4자리 prefix 후필터로
+    # 실제 그 시만 남긴다(예: 성남시=4113*). 시군구 해석이 이미 됐으면 불필요.
+    elif reg.get("city4") and not reg.get("sigungu_cortar"):
+        items = [x for x in items if (x.get("cortar_no") or "").startswith(reg["city4"])]
     deals = [{
         "단지": x["complex_name"], "면적타입(공급㎡)": x["area_name"],
         "전용㎡": round(x["avg_excl"]) if x.get("avg_excl") else None,
-        "최적호가": _won(x["asking_min"]),          # 현재 가장 싼 매물 호가
-        "최저실거래": _won(x.get("min_real")),       # 최근 실거래 중 최저가(가격 판단 기준)
-        "실거래평균": _won(x["avg_real"]),
+        "현재_최저호가": _won(x["asking_min"]),        # 지금 나와 있는 가장 싼 매물의 호가
+        "기준_실거래평균": _won(x["avg_real"]),         # 할인율의 비교 기준
+        "참고_최저실거래": _won(x.get("min_real")),     # 최근 실거래 중 최저(참고용)
         "할인율%": round((x["discount_min"] or 0) * 100, 1),
         "매물수": x["n_listings"],
         "단지정보": f"/complex/{x['complex_no']}",   # 프런트 바로가기 경로
     } for x in items[:12]]
-    return {
-        "해석된_지역": " ".join(filter(None, [reg["sido"], reg["sigungu"], reg["dong"]])),
+    resolved = (" ".join(filter(None, [reg["sido"], reg["sigungu"], reg["dong"]])) or "전국")
+    out = {
+        "해석된_지역": resolved,
         "거래유형": trade_type, "최소할인율%": min_discount_pct,
         "건수": len(deals), "급매목록": deals,
+        "설명": "할인율% = 현재_최저호가가 기준_실거래평균보다 얼마나 싼지. "
+              "문장으로 말할 땐 '실거래 평균 X 대비 최저 호가 Y (-Z%)' 형태로 쓰고, 두 값을 바꿔 말하지 말 것.",
     }
+    # 요청 지역이 시군구로 해석되지 않아 시도 전체로 폴백된 경우(예: '성남시'→경기도) —
+    # 답변이 좁은 지역명으로 말하면 부정확하므로 실제 범위를 명시하게 한다.
+    if (not national and reg.get("sido") and not reg.get("sigungu_cortar") and not reg.get("city4")
+            and region.strip() not in (reg.get("sido") or "")):
+        out["주의"] = (f"요청 지역 '{region.strip()}'은(는) 시군구 단위로 해석되지 않아 이 결과는 "
+                     f"**{reg['sido']} 전체** 기준이다. 답변에 반드시 '{reg['sido']} 기준'이라고 말하고 "
+                     f"'{region.strip()}'만의 결과인 것처럼 말하지 마라. 구 단위(예: 분당구·수정구)로 다시 물으면 좁혀준다고 안내.")
+    return out
 
 
 def find_apartments(region: str, excl_min: float = 0.0, excl_max: float = 0.0,
@@ -526,10 +577,10 @@ def find_apartments(region: str, excl_min: float = 0.0, excl_max: float = 0.0,
     """
     with api._open_db() as c:
         rows = c.execute(sql, params).fetchall()
-        total = c.execute(
-            f"SELECT COUNT(*) FROM listings_current l "
+        total, total_units = c.execute(
+            f"SELECT COUNT(*), SUM(1.0/MAX(COALESCE(l.same_addr_cnt,1),1)) FROM listings_current l "
             f"JOIN complexes cx ON cx.complex_no = l.complex_no WHERE {wsql}",
-            params).fetchone()[0]
+            params).fetchone()
     # SELECT 컬럼: 0 complex_no, 1 name, 2 excl, 3 area_name, 4 price, 5 n(단지내 매물수)
     out = [{
         "단지": r[1], "전용㎡": round(r[2]) if r[2] else None, "면적타입": r[3],
@@ -543,6 +594,9 @@ def find_apartments(region: str, excl_min: float = 0.0, excl_max: float = 0.0,
         "전용면적범위㎡": [excl_min or None, excl_max or None],
         "가격범위억": [min_price_eok or None, max_price_eok or None],
         "총매물수": total, "표시단지수": len(out), "매물목록": out,
+        # 실매물 = 같은 집을 여러 중개업소가 올린 중복 광고를 1건으로 합친 수.
+        # 매물수를 말할 때 "광고 N건(실매물 약 M건)" 식으로 병기하면 정확하다.
+        "실매물수_중복광고합침": (int(round(total_units)) if total_units else None),
     }
 
 
@@ -827,15 +881,20 @@ def region_market_pulse(region: str = "") -> dict:
     return out
 
 
-def find_realtor(name: str, region: str = "") -> dict:
+def find_realtor(name: str = "", region: str = "") -> dict:
     """중개사무소 검색 + 상세. 주소·전화·보유매물수·전국등수·거래실적·개설등록일·상태·주요 보유단지.
     '강남 ㅇㅇ공인 어때?', '둔산동 크로바시티공인 연락처' 같은 질문용.
+    이름 없이 '○○동 부동산 추천/근처 중개사무소' 처럼 물으면 name을 비워라 —
+    그 지역 매물 많은 중개사무소 목록으로 답한다.
 
     Args:
-        name: 중개사무소 이름(부분 가능). 예: '크로바시티공인', '래미안공인'.
+        name: 중개사무소 이름(부분 가능). 예: '크로바시티공인', '래미안공인'. 이름 모르면 빈 문자열.
         region: 지역(선택). 같은 이름이 많으니 지역을 주면 정확.
     """
     import scripts.local_api as api
+    if not (name or "").strip():
+        # 이름 없는 '지역 부동산 추천' → 지역 매물보유 상위 중개사 랭킹으로 폴백
+        return rank_realtors(metric="매물보유", region=region, limit=8)
     # 사무소 유형어 제거 — '제이에스부동산중개'의 '부동산'이 동(대구 '부동')으로 오매칭돼
     # 엉뚱한 지역으로 스코핑되던 버그 방지. 지역해석·검색 모두 핵심명 기준.
     _office = r"(공인중개사사무소|공인중개사|부동산중개법인|부동산중개|중개사무소|부동산|공인|중개사|중개|사무소|법인|주식회사)"
@@ -955,15 +1014,20 @@ def rank_complexes(metric: str, order: str = "", pyeong: int = 0,
         o = "asc" if high is False else "desc"
         items = _rank_items("/stats/tx-jeonse-rate", api.tx_jeonse_rate,
                             asset="apt", area_class=ac, order=o, limit=pool)
-        title = "전세가율 높은순"
+        title = ("전세가율 높은순 — 주의: 100% 초과는 전세가 매매보다 비싼 역전 상태로 "
+                 "깡통전세 위험 신호. 답변에 이 경고와 깡통전세지수(/jeonse-check) 안내를 포함하라")
         row = lambda x: {"단지": x["complex_name"], "지역": x["region_name"], "면적타입": x["area_key"],
                          "전세가율%": pct(x["jeonse_rate"]), "매매평균": _won(x["avg_sale"]), "전세평균": _won(x["avg_jeonse"])}
     elif "평당" in m or "평단" in m:
         o = "asc" if high is False else "desc"
         items = _rank_items("/stats/tx-pyeong-price", api.tx_pyeong_price,
                             asset="apt", area_class=ac, order=o, limit=pool, **reg_kw)
+        # 평형별 행이라 같은 단지가 반복 노출 → 단지당 대표 1행(최상위 평당가)만
+        _seen: set = set()
+        items = [x for x in items
+                 if not (x.get("complex_no") in _seen or _seen.add(x.get("complex_no")))]
         param_region = bool(reg_kw)
-        title = f"평당가 {'낮은' if high is False else '높은'}순"
+        title = f"평당가 {'낮은' if high is False else '높은'}순 (단지별 대표 평형 1건)"
         row = lambda x: {"단지": x["complex_name"], "지역": x["region_name"], "면적타입": x["area_key"],
                          "평당가": _won(x["pyeong_price"]), "거래평균": _won(x["avg_price"])}
     elif "최고가" in m or "비싼" in m:
@@ -1124,17 +1188,423 @@ def rank_realtors(metric: str = "직원수", region: str = "", limit: int = 20) 
         d = {"중개사무소": x.get("realtor_name"), "지역": x.get("sido"),
              "직원수": x.get("staff_count"), "공인중개사수": x.get("licensed_count"),
              "보조원수": x.get("assistant_count"), "공인중개사비율": x.get("licensed_ratio"),
-             "보유매물(전체)": x.get("total_count") or x.get("count"),
-             "단지형매물": x.get("count"), "개업연도": x.get("established_year")}
+             "매물수(단지형·순위기준)": x.get("count"),
+             "참고_전체매물(빌라·상가 포함)": x.get("total_count") or x.get("count"),
+             "개업연도": x.get("established_year")}
         if x.get("realtor_id"):
             d["중개사정보"] = f"/realtor/{x['realtor_id']}"
         rows.append({k: v for k, v in d.items() if v is not None})
-    return {"통계": title, "범위": scope, "건수": len(rows), "순위": rows}
+    return {"통계": title, "범위": scope, "건수": len(rows), "순위": rows,
+            "정렬기준": "단지형 매물수 내림차순(콕집 표준). '보유매물(전체)'는 빌라·상가 등 "
+                    "비단지를 포함한 참고값이라 나열 순서와 어긋날 수 있음 — 순서를 재배열하지 말고 "
+                    "단지형 기준 순위라고 밝혀라."}
+
+
+# ── 매물 시장 통계 · 상승/하락 · 매수비용 (2026-07-09 접목) ──────────────────
+
+def get_listing_stats(region: str = "") -> dict:
+    """지역 아파트 '매물(호가)' 시장 통계 — 매물 광고 수, 실매물 수(같은 집 중복 광고를 1건으로
+    합친 수), 집 1채당 광고 수(높을수록 매도 경쟁 치열), 매매/전세/월세 평균 호가와 전일 변동.
+    '서울 매물 몇 개야?', '요즘 매물 쌓이고 있어?', '평균 호가 어때?', '매도 경쟁 심해?' 질문용.
+    region 비우면 전국. (실거래가 아니라 현재 나와 있는 매물 기준)
+    """
+    import scripts.local_api as api
+    reg = _resolve_region(region) if region else None
+    kw = {}
+    note = None
+    if reg:
+        if reg.get("sigungu_code"):
+            kw["sigungu"] = reg["sigungu_code"]
+            if reg.get("dong"):
+                note = (f"동 단위 매물통계는 미지원 — 이 수치는 '{reg['dong']}'이 아니라 "
+                        f"**{reg.get('sigungu')}(시군구 전체)** 기준입니다. 답변에 명시하세요.")
+        elif reg.get("sido_code"):
+            kw["sido"] = reg["sido_code"]
+    res = api.changes_summary(asset="apt", **kw)
+    trades = res.get("trades", {})
+
+    def row(t, price_key="avg_price", chg_key="avg_change"):
+        tr = trades.get(t) or {}
+        cnt, u = tr.get("count") or 0, tr.get("units")
+        d = {"평균호가": _won(tr.get(price_key)),
+             "전일변동%": (round(tr[chg_key] * 100, 2) if tr.get(chg_key) is not None else None),
+             "매물광고수": cnt, "실매물수": u,
+             "집1채당광고": (round(cnt / u, 2) if u else None)}
+        return {k: v for k, v in d.items() if v is not None}
+
+    scope_note = None
+    if (reg and reg.get("sido") and not reg.get("sigungu_code") and region.strip()
+            and region.strip() not in (reg.get("sido") or "")):
+        scope_note = (f"요청 지역 '{region.strip()}'은(는) 시군구로 해석되지 않아 **{reg['sido']} 전체** 기준 — "
+                      f"답변에 '{reg['sido']} 기준'이라고 정확히 말할 것.")
+    out = {
+        "지역": (" ".join(filter(None, [reg.get("sido"), reg.get("sigungu")])) if reg else "전국"),
+        **({"범위주의": scope_note} if scope_note else {}),
+        "기준일": res.get("latest_date"),
+        "매매": row("A1"), "전세": row("B1"),
+        "월세": (lambda b2: ({**{k: v for k, v in b2.items() if k != "평균호가"},
+                              "보증금평균": b2.get("평균호가"),
+                              "월세액평균_매달내는돈": _won((trades.get("B2") or {}).get("rent_avg"))}))(row("B2")),
+        "총매물광고": res.get("total"), "총실매물": res.get("total_units"),
+        "용어": "실매물=같은 집을 여러 중개업소가 올린 중복 광고를 1건으로 합친 수. "
+              "매물수를 말할 때 '광고 N건(실매물 M건)'처럼 병기하면 정확하다. "
+              "월세의 '평균호가/보증금평균'은 보증금(목돈), '월세액평균'은 매달 내는 돈 — 절대 바꿔 말하지 말 것. "
+              "집1채당광고는 전국 평균이 약 2.3~2.4 — 그와 비슷하면 '보통 수준', 2.6 이상처럼 뚜렷이 높을 때만 "
+              "'매도 경쟁이 치열'이라고 해석하라.",
+    }
+    if note:
+        out["주의"] = note
+    return out
+
+
+def find_price_movers(region: str = "", days: int = 7, trade_type: str = "매매") -> dict:
+    """최근 매물 평균 호가가 많이 오르거나 내린 단지 Top — 상승/하락 각 5개.
+    '요즘 호가 많이 오른 단지', '가격 내린 아파트 어디야?' 질문용.
+    days: 비교 기간(7/14/30일만). 실거래가 아니라 매물 호가 기준이며,
+    매물 구성이 바뀌어도 평균이 움직일 수 있어 참고용임을 답변에 밝힐 것.
+    """
+    import scripts.local_api as api
+    tt = {"매매": "A1", "전세": "B1", "월세": "B2"}.get(trade_type, "A1")
+    days = days if days in (7, 14, 30) else 7
+    reg = _resolve_region(region) if region else None
+    kw = {}
+    if reg:
+        if reg.get("sigungu_code"):
+            kw["sigungu"] = reg["sigungu_code"]
+        elif reg.get("sido_code"):
+            kw["sido"] = reg["sido_code"]
+    res = api.changes_movers(trade=tt, asset="apt", days=days, min_listings=5, limit=5, **kw)
+
+    def rows(lst):
+        return [{"단지": x.get("complex_name"), "지역": x.get("region_name"),
+                 "평형": x.get("area_name"),
+                 "변동%": round((x.get("rate") or 0) * 100, 1),
+                 "이전평균호가": _won(x.get("old_avg")), "현재평균호가": _won(x.get("new_avg")),
+                 "단지정보": f"/complex/{x['complex_no']}" if x.get("complex_no") else None}
+                for x in (lst or [])]
+
+    return {"거래유형": trade_type, "비교기간": f"{res.get('from_date')} → {res.get('to_date')}",
+            "상승Top": rows(res.get("up")), "하락Top": rows(res.get("down")),
+            "주의": "매물 호가 평균 기준(실거래 아님). 매물이 들어오고 나가며 평균이 움직일 수 있어 참고용."}
+
+
+def calc_purchase_cost(sale_price_eok: float, house_count: int = 0, is_first_time: bool = False,
+                       is_over_85m2: bool = False, region_type: str = "규제지역",
+                       is_adjusted_area: bool = True, is_temp_two_house: bool = False) -> dict:
+    """아파트 매수 시 취득세·지방교육세·농어촌특별세·중개보수 상한·주택담보대출 한도 계산.
+    '10억 아파트 취득세 얼마?', '15억 사면 대출 얼마 나와?', '중개수수료 얼마?' 질문용.
+    콕집 아파트매수계산기(/buy-calculator)와 동일 산식(2025.10.15 대출규제+2026.6.30 추가지정 반영).
+
+    Args:
+        sale_price_eok: 매매가(억 단위, 예: 10.5)
+        house_count: 구입 전 보유 주택 수(0=무주택)
+        is_first_time: 생애최초 여부 — 사용자가 '생애최초'라고 명시했을 때만 True.
+            '무주택'은 생애최초가 아니다(과거 주택 보유 이력이 있을 수 있음). 명시 없으면 False.
+        is_over_85m2: 전용 85㎡ 초과 여부(농특세 과세·생초 감면 배제)
+        region_type: "규제지역"(서울 전역+경기 과천·광명·하남·의왕·수원3구·성남3구·안양동안·용인수지·
+                     화성동탄·용인기흥·구리) | "수도권 비규제" | "지방"
+        is_adjusted_area: 조정대상지역 여부(다주택 중과 판단, 규제지역이면 True)
+        is_temp_two_house: 일시적 2주택(처분조건부) 여부
+    """
+    p = int(round(sale_price_eok * 1e8))
+    if p <= 0 or p > 500_000_000_000:
+        return {"오류": "매매가가 범위를 벗어났습니다"}
+
+    # ── 취득세 (frontend/src/lib/buycalc.ts acquisitionTax 와 동일 산식) ──
+    ft_note = None
+    if is_first_time and house_count <= 1 and not is_over_85m2 and p <= 6e8:
+        acq = int(p * 0.005) if p <= 6e7 else int(3e5 + (p - 6e7) * 0.008)
+        # 감면 전 일반세액(1주택 이하 기준) — '감면액'과 '납부액'을 모델이 혼동하지 않게 병기
+        std = (int(p * 0.01) if p <= 6e7 else int(6e5 + (p - 6e7) * 0.013))
+        ft_note = (f"생애최초 감면 적용 — 이 취득세는 **감면 후 납부액**. "
+                   f"일반세액 {_won(std)}에서 {_won(std - acq)} 감면된 결과다(감면액과 납부액을 바꿔 말하지 말 것).")
+    elif is_temp_two_house and house_count == 2:
+        acq = int(p * 0.01)
+    elif house_count <= 1:
+        if p <= 6e7:
+            acq = int(p * 0.01)
+        elif p <= 6e8:
+            acq = int(6e5 + (p - 6e7) * 0.013)
+        elif p <= 9e8:
+            acq = int(7_620_000 + (p - 6e8) * 0.028)
+        else:
+            acq = int(16_020_000 + (p - 9e8) * 0.04)
+    elif house_count == 2:
+        acq = int(p * (0.08 if is_adjusted_area else 0.01))
+    else:
+        acq = int(p * (0.12 if is_adjusted_area else 0.03))
+    edu = acq // 10                                   # 지방교육세 = 취득세×10%
+    rural = int(p * 0.002) if is_over_85m2 else 0     # 농특세: 85㎡ 초과만 취득가×0.2%
+
+    # ── 중개보수 상한 (2021.10 개정 현행 요율, 정수 퍼밀 연산 — 법정상한 초과 불가) ──
+    for mx, permille, limit in ((5e7, 6, 250_000), (2e8, 5, 800_000), (9e8, 4, None),
+                                (12e8, 5, None), (15e8, 6, None), (float("inf"), 7, None)):
+        if p < mx:
+            broker = (p * permille) // 1000
+            if limit:
+                broker = min(broker, limit)
+            break
+
+    # ── 대출 규제 (2025.10.15 대책 + 2026.6.30 추가지정) ──
+    capital_or_reg = region_type in ("규제지역", "수도권 비규제")
+    buyer = ("무주택" if house_count == 0 else
+             "처분조건부(일시적 2주택)" if is_temp_two_house else
+             "1주택 유지" if house_count == 1 else "다주택")
+    if capital_or_reg and buyer in ("다주택", "1주택 유지"):
+        loan_line = f"대출 불가 — 수도권·규제지역 {buyer} 추가 구입은 주택담보대출 금지(6.27 대책)"
+    else:
+        if region_type == "규제지역":
+            ltv = 0.7 if is_first_time else 0.4
+            cap = 6e8 if p <= 15e8 else (4e8 if p <= 25e8 else 2e8)
+        elif region_type == "수도권 비규제":
+            ltv, cap = 0.7, 6e8
+        else:
+            ltv = (0.6 if buyer in ("1주택 유지", "다주택") else (0.8 if is_first_time else 0.7))
+            cap = None
+        ltv_amt = int(p * ltv)
+        max_loan = min(ltv_amt, int(cap)) if cap else ltv_amt
+        loan_line = (f"최대 {_won(max_loan)} (LTV {int(ltv * 100)}%={_won(ltv_amt)}, "
+                     f"총액캡 {(_won(int(cap)) if cap else '없음')}) — 실제 한도는 DSR·소득·은행 심사로 더 줄 수 있음")
+
+    # 평평한 구조(중첩·불리언 없음) — 함수응답 페이로드 견고화
+    return {
+        "매매가": _won(p), "매수자유형": buyer, "지역구분": region_type,
+        "취득세": _won(acq), **({"취득세_비고": ft_note} if ft_note else {}),
+        "지방교육세": _won(edu),
+        "농어촌특별세": (_won(rural) if rural else "비과세(전용 85㎡ 이하)"),
+        "세금합계": _won(acq + edu + rural),
+        "중개보수_법정상한": _won(broker),
+        "최대대출": loan_line,
+        "안내": "등기비용(법무사·국민주택채권)·이사·인테리어까지 포함한 전체 필요현금은 "
+              "아파트매수계산기(/buy-calculator)에서 확인 가능. 취득세는 개인 상황에 따라 달라질 수 있어 참고용.",
+    }
+
+
+def find_villa_stats(region: str = "", trade_type: str = "매매", limit: int = 10) -> dict:
+    """빌라(연립·다세대) 실거래와 매물 통계. '○○동 빌라 실거래', '빌라 시세 어때?',
+    '빌라 전세 얼마야?' 질문용. 아파트가 아닌 빌라 전용 도구.
+    trade_type: 매매|전월세. region 비우면 전국.
+    주의: 빌라는 단지 개념이 없어 지번·건물별 개별성이 강함 — 답변에 '개별 물건별 차이가 크다'를 밝힐 것.
+    """
+    import scripts.local_api as api
+    reg = _resolve_region(region) if region else None
+    cortar = ""
+    if reg:
+        cortar = reg.get("dong_cortar") or reg.get("sigungu_code") or reg.get("sido_code") or ""
+    tr = "rent" if trade_type in ("전월세", "전세", "월세", "임대") else "sale"
+
+    # 매물(호가) 요약 + 실거래 요약(최근) — 검증된 비단지 엔드포인트 재사용
+    st = api.nonresi_stats(cat="villa", cortar=cortar)
+    deals = api.nonresi_deals(cat="villa", cortar=cortar, trade=tr, sort="recent",
+                              limit=max(1, min(int(limit), 20)))
+
+    def _deal_row(d):
+        if tr == "sale":
+            return {"계약일": d.get("date"), "동": d.get("umd"), "건물": d.get("building"),
+                    "전용㎡": d.get("area_m2"), "층": d.get("floor"),
+                    "매매가": _won(d.get("amount")), "건축년도": d.get("build_year")}
+        return {"계약일": d.get("date"), "동": d.get("umd"), "건물": d.get("building"),
+                "전용㎡": d.get("area_m2"),
+                "보증금": _won(d.get("deposit")), "월세": _won(d.get("monthly_rent")),
+                "건축년도": d.get("build_year")}
+
+    listings = []
+    for b in (st.get("by_trade") or []):
+        row = {"거래": b.get("trade"), "매물수": b.get("n"), "평균호가": _won(b.get("avg_price")),
+               "평균전용㎡": b.get("avg_area_m2")}
+        if b.get("avg_rent"):
+            row["평균월세"] = _won(b.get("avg_rent"))
+        listings.append(row)
+
+    return {
+        "지역": (st.get("region_name")
+                 or (" ".join(filter(None, [reg.get("sido"), reg.get("sigungu"), reg.get("dong")])) if reg else "전국")),
+        "실거래_최근": [_deal_row(d) for d in (deals.get("deals") or [])],
+        "실거래_유형": ("매매(해제거래 제외)" if tr == "sale" else "전월세"),
+        "매물_호가요약": listings,
+        "주의": "빌라(연립·다세대)는 단지 개념이 없어 같은 동네라도 건물·물건별 가격 차이가 큼. "
+              "평균·사례는 참고용이며 개별 물건 확인 필수. 실거래=국토부 신고 기준, 호가=현재 매물 기준.",
+    }
+
+
+def compare_complexes(complex_a: str, complex_b: str, area_a: str = "", area_b: str = "",
+                      region_a: str = "", region_b: str = "") -> dict:
+    """두 아파트 단지를 나란히 비교 — 개요(준공·세대수), 매매/전세 호가, 전세가율, 갭,
+    최근 실거래·6개월 평균·평당가·역대 신고가, 12개월 거래량·회전율, 급매 수, 지하철·학교.
+    'A랑 B 비교', 'A vs B 어디가 나아?', '헬리오시티랑 파크리오 중에' 질문용.
+    area_a/area_b: 평형명(예 '84A') 지정 시 그 평형 기준(각 단지 독립). 사용자가 '국평끼리',
+    '84 기준으로' 같이 평형을 말하면, 먼저 이 도구를 평형 없이 불러 areas 목록을 본 뒤
+    전용면적이 조건에 맞는 평형명을 골라 재호출하라.
+    """
+    import scripts.local_api as api
+    ra = _find_complex_row(complex_a, region_a)
+    rb = _find_complex_row(complex_b, region_b)
+    if not ra or not rb:
+        missing = complex_a if not ra else complex_b
+        return {"error": f"'{missing}' 단지를 찾지 못했습니다. 지역을 함께 알려주세요."}
+    res = api.complex_compare(ra["complex_no"], rb["complex_no"], area_a or "", area_b or "")
+
+    def flat(c):
+        l = c.get("listings", {})
+        a1, b1, b2 = l.get("A1") or {}, l.get("B1") or {}, l.get("B2") or {}
+        tx = c.get("tx", {})
+        rec, latest = tx.get("record"), tx.get("latest")
+        return {
+            "단지": c["name"], "지역": c["region"], "평형기준": c.get("area") or "전체",
+            "준공": c.get("built"), "세대수": c.get("households"),
+            "매매호가_최저": _won(a1.get("min")), "매매호가_평균": _won(a1.get("avg")),
+            "매매매물_광고": a1.get("n"), "매매매물_실": a1.get("units"),
+            "전세호가_최저": _won(b1.get("min")), "전세호가_평균": _won(b1.get("avg")),
+            "월세평균": _won(b2.get("rent_avg")),
+            "전세가율%": c.get("jeonse_rate"), "갭": _won(c.get("gap")),
+            "최근실거래": (f"{_won(latest['price'])} ({latest['date']})" if latest else None),
+            "실거래6개월평균": _won(tx.get("avg6m")), "평당가": _won(tx.get("pyeong6m")),
+            "역대신고가": (f"{_won(rec['price'])} ({rec['date']})" if rec else None),
+            "거래량12개월": tx.get("n12"), "연회전율%": tx.get("turnover"),
+            "급매수": c.get("quick_deals"),
+            "지하철": (f"{c['subway']['station']} 도보 {c['subway']['walk']}분" if c.get("subway") else None),
+            "배정초등학교": (f"{c['school']['name']} 도보 {c['school']['walk']}분" if c.get("school") else None),
+            "평형목록": [f"{a['name']}(전용{a['excl']}㎡·{a['hh'] or '?'}세대)" for a in c.get("areas", [])[:15]],
+        }
+
+    return {
+        "A": flat(res["a"]), "B": flat(res["b"]),
+        "안내": "사이트의 '맞춤단지 > 단지비교'(/finder/compare)에서 표와 차트로 볼 수 있다고 덧붙여라. "
+              "호가와 실거래를 구분해 말하고, 어느 쪽이 '낫다'는 단정 대신 지표별 차이를 짚어라.",
+    }
+
+
+def compare_regions(region_a: str, region_b: str) -> dict:
+    """두 지역의 아파트 매매 시장 비교 — 시도/시군구/읍면동 아무 조합(예: '강남구 vs 송파구',
+    '대치동이랑 잠실동', '서울 vs 부산'). 90일 거래량·평균가·평당가, 12개월 거래량, 회전율,
+    매물(광고/실), 평균 매매·전세 호가, 전세가율을 나란히 준다.
+    """
+    import scripts.local_api as api
+    out = {}
+    for key, rq in (("A", region_a), ("B", region_b)):
+        reg = _resolve_region(rq)
+        if not reg:
+            return {"error": f"'{rq}' 지역을 찾지 못했습니다."}
+        code = reg.get("dong_cortar") or reg.get("sigungu_code") or reg.get("sido_code")
+        out[key] = {"code": code, "reg": reg}
+    res = api.region_compare2(out["A"]["code"], out["B"]["code"])
+
+    def flat(r):
+        l = r.get("listings", {})
+        a1, b1 = l.get("A1") or {}, l.get("B1") or {}
+        return {
+            "지역": r["name"], "단지수": r.get("complexes"), "세대수": r.get("households"),
+            "거래량90일": r["tx90"].get("n"), "평균거래가90일": _won(r["tx90"].get("avg")),
+            "평당가": _won(r["tx90"].get("pyeong")), "거래량12개월": r.get("n12"),
+            "연회전율%": r.get("turnover"),
+            "매물_광고": a1.get("n"), "매물_실": a1.get("units"),
+            "세대대비매물%": r.get("listing_per_hh"),
+            "평균매매호가": _won(a1.get("avg")), "평균전세호가": _won(b1.get("avg")),
+            "전세가율%": r.get("jeonse_rate"),
+        }
+
+    return {"A": flat(res["a"]), "B": flat(res["b"]),
+            "안내": "사이트 '맞춤단지 > 지역비교'(/finder/region-compare)에서 12개월 차트로 볼 수 있다고 덧붙여라. "
+                  "호가 기준 지표와 실거래 기준 지표를 구분해 말하라."}
+
+
+def get_complex_listing_trend(complex_name: str, region: str = "", days: int = 31) -> dict:
+    """단지의 현재 매물 개수와 추세(일자별, 최근 1달) — 광고매물수·실매물수(중복 광고 합침)·
+    평균 매매호가의 현재값과 변화. '이 단지 매물 몇 개야?', '실매물/진짜 매물 몇 개?',
+    '매물 늘고 있어?', '호가 오르는 중이야?', '매물 잠기고 있어?' 질문용.
+    (특정 단지의 매물수는 get_listing_stats(지역 전체)가 아니라 반드시 이 도구로.)
+    """
+    import scripts.local_api as api
+    cx = _find_complex_row(complex_name, region)
+    if not cx:
+        return {"error": f"'{complex_name}' 단지를 찾지 못했습니다. 지역을 함께 알려주세요."}
+    res = api.complex_listing_daily(cx["complex_no"], days=min(max(days, 7), 92))
+    byday = {}
+    for r in res.get("rows", []):
+        if r["t"] != "A1":
+            continue
+        e = byday.setdefault(r["d"], {"n": 0, "u": 0, "ps": 0, "pw": 0})
+        e["n"] += r["n"]
+        if r["u"] is not None:
+            e["u"] += r["u"]
+        if r["avg"] is not None and r["n"] > 0:
+            e["ps"] += r["avg"] * r["n"]
+            e["pw"] += r["n"]
+    if not byday:
+        return {"단지": cx["complex_name"], "결과": "최근 매매 매물 데이터가 없습니다."}
+    ds = sorted(byday)
+    f, l = byday[ds[0]], byday[ds[-1]]
+    favg = f["ps"] / f["pw"] if f["pw"] else None
+    lavg = l["ps"] / l["pw"] if l["pw"] else None
+    return {
+        "단지": cx["complex_name"],
+        "현재_광고매물": l["n"], "현재_실매물": l["u"],
+        "기간": f"{ds[0]} ~ {ds[-1]}",
+        "광고매물": f"{f['n']}건 → {l['n']}건 ({l['n']-f['n']:+d})",
+        "실매물": f"{f['u']}건 → {l['u']}건 ({l['u']-f['u']:+d})",
+        "평균매매호가": (f"{_won(favg)} → {_won(lavg)}"
+                    + (f" ({(lavg-favg)/favg*100:+.1f}%)" if favg and lavg else "")),
+        "해석힌트": "매물이 뚜렷이 줄며 호가가 오르면 '매물 잠김(매도 보류)' 신호. 반대는 매물 적체. "
+                "단지 상세의 '매물분석' 탭에서 일자별 차트를 볼 수 있다고 안내하라.",
+    }
+
+
+def get_policy_timeline(keyword: str = "", year: int = 0) -> dict:
+    """부동산 정책·규제·거시사건 연대기(2003~현재)와 당시 전국 시장 반응(2006년~ 월별
+    거래량·평균가). '8·2 대책이 뭐야', '임대차법 언제 시행됐어', '2008년 시장 어땠어',
+    '금융위기 때 거래량', '역대 규제 정리' 질문용.
+    keyword: 대책·사건 이름 일부(예 '임대차', '8·2', '금리'). year: 특정 연도의 월별 시장.
+    둘 다 비우면 최근 이벤트 8개.
+    """
+    import scripts.local_api as api
+    tm = api.timemachine()
+    events, series = tm["events"], tm["series"]
+    by_m = {p["m"]: p for p in series}
+
+    def with_market(e):
+        m = e["d"][:7]
+        pt = by_m.get(m)
+        out = {"발표일": e["d"], "구분": e["cat"], "이름": e["title"], "내용": e["desc"], "출처": e["src"]}
+        if pt:
+            out["당월_전국거래량"] = pt["n"]
+            out["당월_평균가"] = _won(pt["avg"])
+        return out
+
+    kw = (keyword or "").strip()
+    if kw:
+        # '8·2'/'8.2'/'82' 같은 대책명은 구분자 제거 후 통짜 매칭(토큰 분리하면 8·31에 오매칭)
+        def _norm(x):
+            return re.sub(r"[\s·.\-]", "", x)
+        nk = _norm(kw)
+        # '8.2 대책'처럼 일반어가 붙으면 떼고 한 번 더 (대책/정책/규제/부동산은 제목마다 있는 말)
+        nk2 = re.sub(r"(대책|정책|규제|부동산|발표)", "", nk)
+        hit = ([e for e in events if nk and nk in _norm(e["title"])]
+               or [e for e in events if nk and nk in _norm(e["title"] + e["desc"] + e["d"])]
+               or [e for e in events if nk2 and nk2 in _norm(e["title"] + e["desc"])])
+        if not hit:
+            return {"결과": f"'{keyword}'에 해당하는 이벤트를 찾지 못했습니다.",
+                    "전체이벤트수": len(events)}
+        return {"이벤트": [with_market(e) for e in hit[:6]],
+                "안내": "발표일 기준·공식 발표만 수록. '실거래 > 부동산타임머신'(/tx-stats/timemachine)에서 "
+                      "차트와 전체 연대기를 볼 수 있다고 안내하라."}
+    if year:
+        ys = [p for p in series if p["m"].startswith(str(year))]
+        yev = [e for e in events if e["d"].startswith(str(year))]
+        if not ys and not yev:
+            return {"결과": f"{year}년 데이터가 없습니다(시장 데이터는 2006년부터)."}
+        return {"연도": year,
+                "월별": [{"월": p["m"], "거래량": p["n"], "평균가": _won(p["avg"])} for p in ys],
+                "그해이벤트": [with_market(e) for e in yev],
+                "안내": "거래량은 국토부 실거래 신고(해제 제외) 기준."}
+    return {"최근이벤트": [with_market(e) for e in events[-8:]],
+            "안내": "'실거래 > 부동산타임머신'에서 20년 연대기 전체를 볼 수 있다."}
 
 
 _TOOLS = [find_quick_deals, find_apartments, find_cancelled_transactions,
           get_complex_info, find_record_high, region_market_pulse,
-          find_realtor, rank_complexes, rank_realtors, find_presale]
+          find_realtor, rank_complexes, rank_realtors, find_presale,
+          get_listing_stats, find_price_movers, calc_purchase_cost, find_villa_stats,
+          compare_complexes, compare_regions, get_complex_listing_trend, get_policy_timeline]
 
 
 # ---------------------------------------------------------------------------
@@ -1181,11 +1651,20 @@ def _freshness_note(day: str) -> str:
     )
 
 
-def _system_for(nickname: str | None) -> str:
-    """닉네임이 있으면 호칭 규칙을 덧붙인 시스템 프롬프트. + 데이터 신선도 주입."""
+def _system_for(nickname: str | None, user_region: str | None = None) -> str:
+    """닉네임·접속지역이 있으면 규칙을 덧붙인 시스템 프롬프트. + 데이터 신선도 주입."""
     import datetime as _dt
     day = (_dt.datetime.utcnow() + _dt.timedelta(hours=9)).strftime("%Y-%m-%d")
-    base = SYSTEM_PROMPT + _freshness_note(day)
+    from scripts.ai_ontology import ONTOLOGY_PROMPT
+    base = SYSTEM_PROMPT + ONTOLOGY_PROMPT + _freshness_note(day)
+    if user_region:
+        base += (f"\n\n[접속 위치] 이 사용자의 접속 위치 추정은 '{user_region}'다. "
+                 f"질문에 지역이 없으면 되묻지 말고 region='{user_region}' 인자로 **반드시 도구를 호출한 뒤 "
+                 "그 도구 결과로만** 답하라. 접속 위치를 안다고 해서 도구 없이 시세·매물수 등 숫자를 말하는 것은 "
+                 "여전히 절대 금지다(규칙 1.5 그대로 적용). 답변에는 반드시 "
+                 f"\"접속 위치({user_region}) 기준\"이라고 밝히고, 끝에 '다른 지역을 원하시면 "
+                 "지역명을 말씀해 주세요'를 한 줄 덧붙여라(IP 추정이라 틀릴 수 있음). "
+                 "사용자가 지역을 말했으면 이 추정은 무시하고 말한 지역을 쓴다.")
     if not nickname:
         return base
     return (base +
@@ -1210,6 +1689,18 @@ def _fix_links(text: str) -> str:
     # 라벨 없이 떠도는 인라인 '[/path]' → 클릭 가능하게
     text = re.sub(r'(?<!\])\[(/[^\]\s]+)\](?!\()', r'[\1](\1)', text)
     return text
+
+
+_ASKBACK_RE = re.compile(
+    r"(어느 지역|어떤 지역|지역을 말씀|지역을 알려|지역이 필요|알려주시면|"
+    r"어떤 평형|평형대를 원|원하시나요\?|필요하신가요\?)")
+
+
+def _askback_nudge(user_region):
+    reg = user_region or "전국(region='')"
+    return ("(시스템 지시: 방금 답은 되묻기라 규칙 위반이다. 되묻지 말고 지역이 없으면 "
+            f"'{reg}' 기준, 평형·가격대는 전체 기본값으로 지금 즉시 도구를 호출해 "
+            "그 결과로 답하라. 결과를 준 뒤 '지역을 좁히면 더 정확해요' 한 줄만 덧붙여라.)")
 
 
 def _is_blank_response(resp) -> bool:
@@ -1254,7 +1745,7 @@ def _safe_text(resp) -> str:
 
 
 def run_agent(question: str, history: list | None = None, nickname: str | None = None,
-              thinking_budget: int = 0) -> dict:
+              thinking_budget: int = 0, user_region: str | None = None) -> dict:
     """질문 → 답변. 도구 호출 추적·토큰 사용량 포함.
 
     history: 이전 대화 [{role:'user'|'model', text:str}, ...] (멀티턴 맥락).
@@ -1265,7 +1756,7 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
     from google.genai import types
     client = _genai()
     cfg = types.GenerateContentConfig(
-        system_instruction=_system_for(nickname),
+        system_instruction=_system_for(nickname, user_region),
         tools=_TOOLS,
         temperature=0.2,
         # thinking 기본 OFF(budget=0) — 데이터 조회/요약엔 불필요, 응답 6.6s→1.4s.
@@ -1300,6 +1791,26 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
             continue
         break
 
+    # 도구는 실행됐는데 최종 텍스트가 빈 경우(finish=STOP·parts=[] 글리치, thinking=0에서 간헐 발생)
+    # → thinking 을 동적으로 켜고 1회 재생성. 도구 결과 기반이라 정확성 동일, 폴백 문구 방지.
+    def _txt(r):
+        try:
+            return (r.text or "").strip()
+        except Exception:  # noqa: BLE001
+            return ""
+    if resp is not None and not _txt(resp) and (resp.automatic_function_calling_history or []):
+        try:
+            cfg2 = types.GenerateContentConfig(
+                system_instruction=_system_for(nickname, user_region), tools=_TOOLS, temperature=0.2,
+                thinking_config=types.ThinkingConfig(thinking_budget=-1),
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(maximum_remote_calls=6),
+            )
+            resp2 = client.models.generate_content(model=MODEL, contents=contents, config=cfg2)
+            if _txt(resp2):
+                resp = resp2
+        except Exception:  # noqa: BLE001
+            pass
+
     # 어떤 도구를 어떤 인자로 호출했는지 추적
     trace = []
     for content in (resp.automatic_function_calling_history or []):
@@ -1314,6 +1825,34 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
         "thinking_tokens": getattr(um, "thoughts_token_count", None),
         "total_tokens": getattr(um, "total_token_count", None),
     } if um else {}
+
+    # 되묻기 백스톱 — 도구를 안 부르고 되묻기만 한 경우 1회 강제 재시도(기본값 실행 지시)
+    try:
+        _t0 = (resp.text or "").strip()
+    except Exception:  # noqa: BLE001
+        _t0 = ""
+    if _t0 and not (resp.automatic_function_calling_history or []) and _ASKBACK_RE.search(_t0):
+        try:
+            retry_contents = contents + [
+                types.Content(role="model", parts=[types.Part.from_text(text=_t0)]),
+                types.Content(role="user", parts=[types.Part.from_text(text=_askback_nudge(user_region))]),
+            ]
+            resp3 = client.models.generate_content(model=MODEL, contents=retry_contents, config=cfg)
+            _t3 = ""
+            try:
+                _t3 = (resp3.text or "").strip()
+            except Exception:  # noqa: BLE001
+                pass
+            if _t3 and not _ASKBACK_RE.search(_t3):
+                resp = resp3
+                trace = []
+                for content in (resp.automatic_function_calling_history or []):
+                    for part in (content.parts or []):
+                        fc = getattr(part, "function_call", None)
+                        if fc:
+                            trace.append({"tool": fc.name, "args": dict(fc.args or {})})
+        except Exception:  # noqa: BLE001
+            pass
 
     answer = _fix_links(_safe_text(resp))
     # 안전망: 모델이 가끔 영어 거절문을 내뱉음 → 한국어로 치환(고객 노출 방지).
@@ -1335,17 +1874,22 @@ _TOOL_LABEL = {
     "rank_complexes": "전국 순위 조회",
     "rank_realtors": "중개사무소 순위 조회",
     "find_presale": "분양권 전매 조회",
+    "get_listing_stats": "매물 시장 통계 조회",
+    "find_price_movers": "호가 상승·하락 단지 조회",
+    "calc_purchase_cost": "매수 비용 계산",
+    "find_villa_stats": "빌라 실거래·시세 조회",
 }
 
 
-def run_agent_stream(question: str, history: list | None = None, nickname: str | None = None):
+def run_agent_stream(question: str, history: list | None = None, nickname: str | None = None,
+                     user_region: str | None = None):
     """run_agent 의 스트리밍 버전. 진행 단계를 이벤트로 yield 한다.
     이벤트: {type:'status', stage, label} ... 마지막에 {type:'done', answer, tools_used, usage}.
     자동 함수호출 대신 수동 루프로 돌려 단계마다 진행상황을 흘려보낸다."""
     from google.genai import types
     client = _genai()
     cfg = types.GenerateContentConfig(
-        system_instruction=_system_for(nickname), tools=_TOOLS, temperature=0.2,
+        system_instruction=_system_for(nickname, user_region), tools=_TOOLS, temperature=0.2,
         # thinking OFF — 스트리밍 수동 루프도 단계마다 추론지연 없애 응답 가속.
         thinking_config=types.ThinkingConfig(thinking_budget=0),
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
@@ -1360,6 +1904,7 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=question)]))
 
     trace, in_tok, out_tok = [], 0, 0
+    _nudged = False
     yield {"type": "status", "stage": "analyze", "label": "질문 분석 중…"}
     for _step in range(6):
         resp = client.models.generate_content(model=MODEL, contents=contents, config=cfg)
@@ -1369,6 +1914,34 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
             out_tok += (um.candidates_token_count or 0)
         fcs = resp.function_calls
         if not fcs:
+            # 도구 실행 후 빈 최종 턴(STOP·parts=[] 글리치) → thinking 켜고 1회 재생성
+            try:
+                _t = (resp.text or "").strip()
+            except Exception:  # noqa: BLE001
+                _t = ""
+            # 되묻기 백스톱 — 도구 0회 + 되묻기면 지시문 넣고 루프 계속(1회만)
+            if _t and not trace and not _nudged and _ASKBACK_RE.search(_t):
+                _nudged = True
+                contents.append(resp.candidates[0].content)
+                contents.append(types.Content(role="user",
+                                parts=[types.Part.from_text(text=_askback_nudge(user_region))]))
+                continue
+            if not _t and trace:
+                cfg2 = types.GenerateContentConfig(
+                    system_instruction=_system_for(nickname, user_region), tools=_TOOLS, temperature=0.2,
+                    thinking_config=types.ThinkingConfig(thinking_budget=-1),
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                )
+                try:
+                    resp2 = client.models.generate_content(model=MODEL, contents=contents, config=cfg2)
+                    if (resp2.text or "").strip() and not resp2.function_calls:
+                        resp = resp2
+                        um2 = resp2.usage_metadata
+                        if um2:
+                            in_tok += (um2.prompt_token_count or 0)
+                            out_tok += (um2.candidates_token_count or 0)
+                except Exception:  # noqa: BLE001
+                    pass
             yield {"type": "done", "answer": _fix_links(_safe_text(resp)), "tools_used": trace,
                    "usage": {"input_tokens": in_tok, "output_tokens": out_tok,
                              "total_tokens": in_tok + out_tok}, "model": MODEL}
