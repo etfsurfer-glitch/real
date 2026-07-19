@@ -16,10 +16,17 @@ from scripts.tg_notify import tg_send  # noqa: E402
 
 
 def active_users() -> int:
+    # 봇·자동화 제외(접속통계와 동일 _HUMAN_SQL 재사용) — 크롤러가 카운트를 부풀려 오알림 내던 것 방지.
+    # 로그인 사용자(user_id 있음)는 무조건 사람으로 인정.
+    try:
+        from scripts.local_api import _HUMAN_SQL
+        human = f"((user_id IS NOT NULL AND user_id<>'') OR ({_HUMAN_SQL}))"
+    except Exception:
+        human = "1=1"
     with sqlite3.connect(f"file:{ROOT}/data/logs.sqlite?mode=ro", uri=True) as c:
         return c.execute(
             "SELECT COUNT(DISTINCT COALESCE(NULLIF(user_id,''), ip)) FROM event_log "
-            "WHERE ts >= datetime('now', '-5 minutes') AND ip != '127.0.0.1'"
+            f"WHERE ts >= datetime('now', '-5 minutes') AND ip != '127.0.0.1' AND {human}"
         ).fetchone()[0]
 
 
