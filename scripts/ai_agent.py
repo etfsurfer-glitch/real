@@ -708,6 +708,30 @@ def _find_complex_row(name: str, region: str = ""):
     finally:
         con.close()
     if not rows:
+        # 최후 폴백: 사이트 검색과 동일한 퍼지 매칭(2분할·지역결합) — '광교자연앤힐스테이트'
+        # 처럼 지역 접두가 이름에 붙어 오는 케이스를 받아준다.
+        try:
+            import scripts.local_api as api
+            hits = api.complexes_search(q=name, limit=3).get("items") or []
+            # '광교자연앤힐스테이트'처럼 지명 접두가 붙은 경우 — 접두 2~3자 떼고 재시도
+            if not hits and len(name) >= 6:
+                for cut in (2, 3):
+                    hits = api.complexes_search(q=name[cut:], limit=3).get("items") or []
+                    if hits:
+                        break
+            if hits:
+                con2 = sqlite3.connect(DB_PATH)
+                con2.row_factory = sqlite3.Row
+                try:
+                    row = con2.execute(
+                        "SELECT complex_no, complex_name, cortar_no, total_household_count, "
+                        "total_building_count, use_approve_ymd, road_address, detail_address, dong_name "
+                        "FROM complexes WHERE complex_no=?", (hits[0]["complex_no"],)).fetchone()
+                    return dict(row) if row else None
+                finally:
+                    con2.close()
+        except Exception:
+            pass
         return None
 
     # 지역이 지정됐으면 그 지역 단지를 우선(있을 때만). 타지역 동명 단지가 정확명 보너스로
