@@ -13713,7 +13713,7 @@ def admin_resolve_verification(vid: int, body: dict, _admin: dict = Depends(admi
     action = (body.get("action") or "").strip()   # approve | reject
     note = body.get("admin_note") or None
     with _reviews_db() as c:
-        r = c.execute("SELECT user_id, realtor_id, status, role, claimed_name "
+        r = c.execute("SELECT user_id, realtor_id, status, role, claimed_name, doc_path "
                       "FROM realtor_verifications WHERE id=?", (vid,)).fetchone()
         if not r:
             raise HTTPException(404, "없음")
@@ -13730,13 +13730,18 @@ def admin_resolve_verification(vid: int, body: dict, _admin: dict = Depends(admi
                 "updated_at=datetime('now')",
                 (uid, rid, vrole, (r[4] if vrole != "owner" else None)))
             c.execute("UPDATE realtor_verifications SET status='approved', realtor_id=?, "
-                      "admin_note=?, reviewed_at=datetime('now') WHERE id=?", (rid, note, vid))
+                      "admin_note=?, reviewed_at=datetime('now'), doc_path=NULL WHERE id=?", (rid, note, vid))
         elif action == "reject":
             c.execute("UPDATE realtor_verifications SET status='rejected', admin_note=?, "
-                      "reviewed_at=datetime('now') WHERE id=?", (note, vid))
+                      "reviewed_at=datetime('now'), doc_path=NULL WHERE id=?", (note, vid))
         else:
             raise HTTPException(400, "action must be approve|reject")
         c.commit()
+    # 인증 서류 원본은 확인 즉시 파기(입주민·리뷰 인증과 동일 원칙) — DB 경로 제거 후 물리 삭제
+    _docp = r[5]
+    if _docp and Path(_docp).exists():
+        try: Path(_docp).unlink()
+        except OSError: pass
     if action == "approve" and rid and str(rid).startswith("vw"):
         _provision_vworld_office(str(rid))
         _threading.Thread(target=_auto_attribute_hidden_listings, args=(str(rid),), daemon=True).start()
