@@ -4,7 +4,7 @@ import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from "rea
 import { SubNav } from "./components/SubNav";
 import {
   Sparkles, LayoutDashboard, BadgePercent,
-  TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck,
+  TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
   ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -37,6 +37,7 @@ import AdminRealtorRequests from "./pages/AdminRealtorRequests";
 import AdminDataSources from "./pages/AdminDataSources";
 import AdminPush from "./pages/AdminPush";
 import AdminTodayStats from "./pages/AdminTodayStats";
+import AdminBotStats from "./pages/AdminBotStats";
 import AdminOps from "./pages/AdminOps";
 import AdminKpi from "./pages/AdminKpi";
 import NonResi from "./pages/NonResi";
@@ -386,6 +387,7 @@ function AppShell() {
         <Route path="/buy-calculator" element={<BuyWizard />} />
         <Route path="/admin/buywizard" element={<Navigate to="/buy-calculator" replace />} />
         <Route path="/admin/today" element={<RequireAdmin><AdminTodayStats /></RequireAdmin>} />
+        <Route path="/admin/bots" element={<RequireAdmin><AdminBotStats /></RequireAdmin>} />
         <Route path="/admin/ops" element={<RequireAdmin><AdminOps /></RequireAdmin>} />
         <Route path="/admin/kpi" element={<RequireAdmin><AdminKpi /></RequireAdmin>} />
         <Route path="/nonresi/:cat" element={<NonResi />} />
@@ -447,6 +449,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/users", label: "사용자", icon: Users },
   { to: "/admin/logs", label: "활동 로그", icon: ScrollText },
   { to: "/admin/today", label: "오늘의 접속통계", icon: Activity },
+  { to: "/admin/bots", label: "봇 차단 현황", icon: ShieldX },
   { to: "/admin/ops", label: "업무관리", icon: ClipboardList },
   { to: "/admin/kpi", label: "KPI 목표", icon: Target },
   { to: "/admin/data-sources", label: "수집 현황", icon: Database },

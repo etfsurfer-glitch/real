@@ -1,0 +1,18 @@
+/*
+  X-Robots-Tag: noai, noimageai, noarchive
+  X-Content-Usage: ai-train=no, ai-input=no
+  Link: <https://koczip.com/terms>; rel="license"
+
+# CF Pages 응답 헤더. sw.js가 엣지/브라우저에 4시간(max-age=14400) 캐시되면
+# 배포 후 사용자 업데이트가 그만큼 늦어진다 — SW 스크립트와 진입 HTML은 항상 재검증.
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/manifest.webmanifest
+  Cache-Control: public, max-age=0, must-revalidate
+
+/biz.webmanifest
+  Cache-Control: public, max-age=0, must-revalidate

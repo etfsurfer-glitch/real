@@ -317,16 +317,227 @@ async def _activity_log_middleware(request, call_next):
         if cls:
             kind, ref = cls
             uid, email = _jwt_user(request.headers.get("authorization"))
+            _bc = getattr(request.state, "bot_class", None)
             _log_event(
                 kind, user_id=uid, email=email,
                 path=request.url.path, method=request.method,
                 query=(request.url.query or None), ref=ref,
                 status=response.status_code,
                 duration_ms=int((_time.perf_counter() - t0) * 1000),
-                ip=_client_ip(request), user_agent=request.headers.get("user-agent"))
+                ip=_client_ip(request), user_agent=request.headers.get("user-agent"),
+                detail=({"bot": _bc} if _bc and _bc not in ("client", "self") else None))
     except Exception:  # noqa: BLE001
         pass
     return response
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 봇 가드 — 정상 검색봇 우대 / 사칭·스크레이퍼 차단 (앱 계층, CF Free 보완).
+# 설계: 사람 트래픽엔 지연 0(문자열 판정만). rDNS는 봇 사칭 UA에만·캐시·스레드풀.
+# 실패는 항상 통과(fail-open) — 사이트를 절대 막지 않는다. BOT_GUARD=off 로 즉시 무력화.
+# ─────────────────────────────────────────────────────────────────────────
+import re as _re_bot
+import socket as _socket
+from collections import deque as _deque
+
+_BOT_GUARD_ON = os.getenv("BOT_GUARD", "on").lower() != "off"
+
+# 무단 크롤링·복제·AI학습에 대한 권리 유보 및 법적 경고(차단 응답·헤더·라우트 공용).
+# 기계가 읽는 명시적 고지 = 고의 침해 입증에 유리(민형사 조치의 근거를 강화).
+_LEGAL_NOTICE = (
+    "KOCZIP — RESERVATION OF RIGHTS / 무단 이용 금지\n"
+    "\n"
+    "이 서비스(koczip.com)의 콘텐츠·데이터·소스코드에 대한 무단 크롤링, 스크래핑, 복제, 저장, "
+    "재배포, 그리고 AI 모델의 학습·입력(TDM) 이용을 금지합니다.\n"
+    "Unauthorized crawling, scraping, reproduction, storage, redistribution, or use for AI "
+    "training/input of this service's content, data, or source code is prohibited.\n"
+    "\n"
+    "법적 근거 / Legal basis: 저작권법 제93조(데이터베이스제작자의 권리), 부정경쟁방지 및 영업비밀보호에 "
+    "관한 법률 제2조(데이터 부정취득·사용), 정보통신망 이용촉진 및 정보보호 등에 관한 법률 제48조"
+    "(정보통신망 무단 침입), 서비스 이용약관(koczip.com/terms). "
+    "EU DSM Directive 2019/790 Art.4 TDM reservation (Content-Signal: ai-train=no, ai-input=no).\n"
+    "\n"
+    "허가받지 않은 접근·수집은 민사상 손해배상 청구 및 형사 고발을 포함한 강력한 법적 조치의 대상이며, "
+    "접근 기록(IP·시각·요청)은 증거로 보전됩니다. Unauthorized access will be met with civil and "
+    "criminal action; access logs are preserved as evidence.\n"
+    "\n"
+    "접속을 계속하는 것은 위 조건에 동의하고 권리 유보를 인지한 것으로 간주됩니다. "
+    "Continued access constitutes acceptance of these terms.\n"
+    "\n"
+    "데이터 이용 허가·라이선스 문의 / Licensing inquiries: runtoonline@gmail.com\n"
+)
+
+def _deny(status: int, reason: str, ip=None, ua=None, path=None, method="GET"):
+    """차단 응답 — 본문에 법적 경고를 담아 접속 주체·AI가 인지하게 한다."""
+    _log_event("bot_block", path=path, method=method, status=status,
+               ip=ip, user_agent=(ua or "")[:200], query=reason)
+    headers = {"X-Robots-Tag": "noindex, noai, noimageai",
+               "Link": "<https://koczip.com/terms>; rel=\"license\"",
+               "X-Content-Usage": "ai-train=no, ai-input=no, search=no"}
+    if status == 429:
+        headers["Retry-After"] = "60"
+    return Response(_LEGAL_NOTICE, status_code=status, media_type="text/plain; charset=utf-8",
+                   headers=headers)
+
+def _mark_usage(response):
+    """데이터 응답에 권리유보/AI-사용금지 헤더 부착(크롤러·AI가 읽는 신호)."""
+    try:
+        response.headers["X-Robots-Tag"] = "noai, noimageai, noarchive"
+        response.headers["X-Content-Usage"] = "ai-train=no, ai-input=no"
+        response.headers["Link"] = "<https://koczip.com/terms>; rel=\"license\""
+    except Exception:  # noqa: BLE001
+        pass
+    return response
+
+# AI 크롤러 UA — 규약을 지키는 대형 AI봇은 이 차단·robots를 존중해 수집을 중단한다.
+_AI_CRAWLER_UA = _re_bot.compile(
+    r"(gptbot|oai-searchbot|chatgpt-user|ccbot|claudebot|claude-web|anthropic-ai|"
+    r"google-extended|googleother|bard|gemini|perplexitybot|perplexity-user|youbot|"
+    r"bytespider|amazonbot|applebot-extended|meta-externalagent|meta-externalfetcher|"
+    r"facebookbot|diffbot|omgili(?:bot)?|imagesiftbot|timpibot|cohere-ai|"
+    r"ai2bot|webzio|dataforseobot|semrushbot-ocob|petalbot-extended)", _re_bot.I)
+
+# 검증 대상 검색봇(UA) — rDNS로 진위 확인 가능한 것만 하드블록 후보
+_GOODBOT_UA = _re_bot.compile(
+    r"(googlebot|google-inspectiontool|storebot-google|bingbot|adidxbot|applebot|"
+    r"yandex(?:bot|images|mobilebot)|baiduspider|duckduckbot|petalbot|yeti|"
+    r"naver(?:bot)?|daum(?:oa)?)", _re_bot.I)
+# 봇키 → 정상 rDNS 접미사(정방향 재확인까지 통과해야 진짜)
+_GOODBOT_RDNS = {
+    "googlebot": (".googlebot.com", ".google.com"),
+    "google-inspectiontool": (".googlebot.com", ".google.com"),
+    "storebot-google": (".googlebot.com", ".google.com"),
+    "bingbot": (".search.msn.com",), "adidxbot": (".search.msn.com",),
+    "applebot": (".applebot.apple.com",),
+    "yandex": (".yandex.ru", ".yandex.net", ".yandex.com"),
+    "baiduspider": (".baidu.com", ".baidu.jp"),
+    "duckduckbot": (".duckduckgo.com",),
+    "petalbot": (".petalsearch.com", ".aspiegel.com"),
+    "yeti": (".naver.com", ".navercorp.com"), "naver": (".naver.com", ".navercorp.com"),
+    "daum": (".daum.net", ".kakao.com", ".daumkakao.com"),
+}
+# 링크 미리보기 등 rDNS가 불명확한 정상 봇 — 차단하지 않고 통과만(태깅)
+_SOFTBOT_UA = _re_bot.compile(
+    r"(facebookexternalhit|facebot|twitterbot|slackbot|telegrambot|kakaotalk-scrap|"
+    r"discordbot|whatsapp|linkedinbot|redditbot|pinterest|slurp)", _re_bot.I)
+# 스크레이퍼/자동화 도구 UA — 데이터 API는 자체 프론트 전용이라 이들은 정당한 접근이 아님
+_SCRAPER_UA = _re_bot.compile(
+    r"(python-requests|python-urllib|urllib|aiohttp|httpx|go-http-client|okhttp|"
+    r"java/|jakarta|apache-httpclient|guzzle|axios|node-fetch|got \(|libwww|libredtail|"
+    r"scrapy|mechanize|phantomjs|headlesschrome|puppeteer|playwright|selenium|"
+    r"curl/|wget/|winhttp|zgrab|masscan|nmap|semrush|ahrefs|mj12bot|dotbot|dataforseo)",
+    _re_bot.I)
+
+_bot_cache: dict = {}            # ip -> (is_verified_good: bool, expiry_monotonic)
+_ip_hits: dict = {}             # ip -> deque[monotonic]  (데이터 경로 접근만)
+_VELOCITY_WINDOW = 60.0
+_VELOCITY_MAX = 900            # 분당 900건(=15/s 지속). CGNAT 공유IP 오차단 방지 상향.
+
+def _goodbot_key(ua: str):
+    m = _GOODBOT_UA.search(ua)
+    if not m:
+        return None
+    t = m.group(1).lower()
+    for k in _GOODBOT_RDNS:
+        if t.startswith(k):
+            return k
+    if t.startswith("yandex"):
+        return "yandex"
+    return None
+
+def _verify_goodbot(ip: str, key: str) -> bool:
+    """rDNS 정·역방향 확인. 블로킹 소켓이라 호출부에서 스레드풀로 감싼다."""
+    try:
+        host = _socket.gethostbyaddr(ip)[0].lower()
+    except Exception:
+        return False
+    if not any(host.endswith(sfx) for sfx in _GOODBOT_RDNS.get(key, ())):
+        return False
+    try:
+        _, _, addrs = _socket.gethostbyname_ex(host)
+        return ip in addrs
+    except Exception:
+        return False
+
+def _is_internal_ip(ip) -> bool:
+    if not ip:
+        return True   # localhost 직행(warm_api·testclient) — client 없음
+    return (ip in ("127.0.0.1", "::1") or ip.startswith(("10.", "192.168.", "127."))
+            or ip.startswith(("172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31.")))
+
+def _is_data_path(path: str) -> bool:
+    return path.startswith(("/stats/", "/complex/", "/complexes/", "/nonresi/",
+                            "/realtors/", "/map", "/q/", "/ai/")) or path in ("/q",)
+
+def _velocity_exceeded(ip: str, now: float) -> bool:
+    dq = _ip_hits.get(ip)
+    if dq is None:
+        dq = _ip_hits[ip] = _deque()
+    cutoff = now - _VELOCITY_WINDOW
+    while dq and dq[0] < cutoff:
+        dq.popleft()
+    dq.append(now)
+    if len(_ip_hits) > 20000:      # 메모리 상한 — 오래된 IP 정리
+        for k in [k for k, v in list(_ip_hits.items()) if not v or v[-1] < cutoff]:
+            _ip_hits.pop(k, None)
+    return len(dq) > _VELOCITY_MAX
+
+@app.middleware("http")
+async def _bot_guard_middleware(request, call_next):
+    if not _BOT_GUARD_ON or request.method not in ("GET", "HEAD"):
+        return await call_next(request)
+    path = request.url.path
+    if path in ("/health",) or not _is_data_path(path):
+        return await call_next(request)   # 데이터 경로만 심사(HTML·정적·기타 무영향)
+    try:
+        ip = _client_ip(request)
+        if _is_internal_ip(ip):
+            request.state.bot_class = "self"
+            return await call_next(request)  # 내부(warm) — 헤더 불필요
+        ua = (request.headers.get("user-agent") or "").strip()
+
+        # ⓪ AI 학습·검색 크롤러 → 권리 유보 경고와 함께 차단(규약 준수 봇은 수집 중단)
+        if _AI_CRAWLER_UA.search(ua):
+            return _deny(403, "ai_crawler", ip, ua, path, request.method)
+
+        # ① 빈 UA로 데이터 API 접근 = 비브라우저 자동화 → 차단
+        if not ua:
+            return _deny(403, "empty_ua", ip, "", path, request.method)
+
+        # ② 검색봇 사칭 검증
+        key = _goodbot_key(ua)
+        if key:
+            hit = _bot_cache.get(ip)
+            now = _time.monotonic()
+            if hit and hit[1] > now:
+                verified = hit[0]
+            else:
+                import asyncio as _aio
+                verified = await _aio.get_event_loop().run_in_executor(None, _verify_goodbot, ip, key)
+                _bot_cache[ip] = (verified, now + (21600 if verified else 3600))
+                if len(_bot_cache) > 50000:
+                    _bot_cache.clear()
+            if not verified:
+                return _deny(403, f"fake_{key}", ip, ua, path, request.method)
+            request.state.bot_class = f"goodbot:{key}"
+            return _mark_usage(await call_next(request))   # 검증된 정상봇 — 스로틀 면제
+
+        if _SOFTBOT_UA.search(ua):
+            request.state.bot_class = "softbot"
+            return _mark_usage(await call_next(request))   # 링크 미리보기 등 — 통과(태깅만)
+
+        # ③ 스크레이퍼/자동화 도구 UA — 데이터 경로 접근 차단(UA기반=CGNAT 무관 고정밀)
+        if _SCRAPER_UA.search(ua):
+            return _deny(403, "scraper_ua", ip, ua, path, request.method)
+
+        # ④ 속도 백스톱 — 브라우저 UA 사칭 스크레이퍼용. 로그인 사용자는 면제(CGNAT 보호).
+        authed = bool(request.headers.get("authorization"))
+        if not authed and _velocity_exceeded(ip, _time.monotonic()):
+            return _deny(429, "velocity", ip, ua, path, request.method)
+        request.state.bot_class = "client"
+    except Exception:      # noqa: BLE001 — 가드 오류는 절대 사이트를 막지 않는다
+        return await call_next(request)
+    return _mark_usage(await call_next(request))
 
 
 class Filter(BaseModel):
@@ -6431,6 +6642,28 @@ def changes_events(trade: str = "A1", limit: int = 40):
     }
 
 
+@app.get("/robots.txt")
+def robots_txt():
+    # api.koczip.com 은 데이터 API — 크롤링/AI수집 전면 차단 + 권리 유보 명시.
+    body = (
+        "# 무단 크롤링·복제·AI학습 금지. 위반 시 강력한 법적 조치. 문의 runtoonline@gmail.com\n"
+        "# No unauthorized crawling/scraping/AI use. Rights reserved. See /notice\n"
+        "# Content-Signal: search=no, ai-train=no, ai-input=no\n"
+        "User-agent: *\n"
+        "Disallow: /\n")
+    return Response(body, media_type="text/plain; charset=utf-8",
+                    headers={"X-Robots-Tag": "noindex, noai, noimageai"})
+
+
+@app.get("/notice")
+@app.get("/.well-known/usage-policy")
+def usage_notice():
+    """무단 이용 금지·권리 유보 고지(기계·사람 판독). 크롤러/AI가 인지하도록 명시."""
+    return Response(_LEGAL_NOTICE, media_type="text/plain; charset=utf-8",
+                    headers={"Link": "<https://koczip.com/terms>; rel=\"license\"",
+                             "X-Content-Usage": "ai-train=no, ai-input=no, search=no"})
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "db": str(DB_PATH), "tables": sorted(ALLOWED_TABLES)}
@@ -8369,6 +8602,59 @@ def admin_top_pages(_admin: dict = Depends(admin_user), days: int = 7, limit: in
             agg[lbl]["visitors"] += v or 0
     out = sorted(agg.values(), key=lambda x: -x["views"])[:limit]
     return {"days": days, "pages": out}
+
+
+@app.get("/admin/bot-stats")
+def admin_bot_stats(_admin: dict = Depends(admin_user), days: int = 7):
+    """봇 차단 현황 — 차단 사유별·일별 추이, 정상봇 유입, 상위 차단 IP/UA. bot_block 로그 집계."""
+    days = min(max(int(days), 1), 90)
+    win = f"-{days} days"
+    with _logs_db() as c:
+        # 사유별 차단 건수(+고유 IP)
+        reasons = [{"reason": r[0] or "?", "count": r[1], "ips": r[2]} for r in c.execute(
+            "SELECT query, COUNT(*), COUNT(DISTINCT ip) FROM event_log "
+            "WHERE kind='bot_block' AND date(ts,'+9 hours') >= date('now','+9 hours', ?) "
+            "GROUP BY query ORDER BY 2 DESC", (win,))]
+        total = sum(r["count"] for r in reasons)
+        # 일별 차단 추이
+        daily = [{"date": r[0], "blocks": r[1]} for r in c.execute(
+            "SELECT date(ts,'+9 hours') d, COUNT(*) FROM event_log "
+            "WHERE kind='bot_block' AND date(ts,'+9 hours') >= date('now','+9 hours', ?) "
+            "GROUP BY d ORDER BY d", (win,))]
+        # 상위 차단 IP
+        top_ips = [{"ip": r[0], "count": r[1], "reasons": r[2]} for r in c.execute(
+            "SELECT ip, COUNT(*), COUNT(DISTINCT query) FROM event_log "
+            "WHERE kind='bot_block' AND ip IS NOT NULL "
+            "AND date(ts,'+9 hours') >= date('now','+9 hours', ?) "
+            "GROUP BY ip ORDER BY 2 DESC LIMIT 15", (win,))]
+        # 상위 차단 UA(빈 UA 제외 — 별도 사유로 집계됨)
+        top_uas = [{"ua": (r[0] or "")[:80], "count": r[1]} for r in c.execute(
+            "SELECT user_agent, COUNT(*) FROM event_log "
+            "WHERE kind='bot_block' AND user_agent!='' AND user_agent IS NOT NULL "
+            "AND date(ts,'+9 hours') >= date('now','+9 hours', ?) "
+            "GROUP BY user_agent ORDER BY 2 DESC LIMIT 15", (win,))]
+        # 최근 차단 50건
+        recent = [{"ts": r[0], "reason": r[1], "status": r[2], "ip": r[3], "ua": (r[4] or "")[:80], "path": r[5]}
+                  for r in c.execute(
+            "SELECT ts, query, status, ip, user_agent, path FROM event_log "
+            "WHERE kind='bot_block' ORDER BY ts DESC LIMIT 50")]
+        # 정상봇 유입(검증 통과) — detail.bot 태그(goodbot:*/softbot)
+        goodbots = [{"bot": r[0], "count": r[1]} for r in c.execute(
+            "SELECT json_extract(detail,'$.bot'), COUNT(*) FROM event_log "
+            "WHERE json_extract(detail,'$.bot') IS NOT NULL "
+            "AND date(ts,'+9 hours') >= date('now','+9 hours', ?) "
+            "GROUP BY 1 ORDER BY 2 DESC LIMIT 15", (win,))]
+    _REASON_KR = {
+        "ai_crawler": "AI 크롤러", "empty_ua": "빈 User-Agent", "scraper_ua": "스크레이퍼 도구",
+        "velocity": "속도 초과", "fake_googlebot": "가짜 Googlebot", "fake_bingbot": "가짜 Bingbot",
+        "fake_yandex": "가짜 Yandex", "fake_baiduspider": "가짜 Baidu", "fake_applebot": "가짜 Applebot",
+        "fake_yeti": "가짜 네이버봇", "fake_naver": "가짜 네이버봇", "fake_daum": "가짜 다음봇",
+        "fake_duckduckbot": "가짜 DuckDuckGo", "fake_petalbot": "가짜 PetalBot",
+    }
+    for r in reasons:
+        r["label"] = _REASON_KR.get(r["reason"], r["reason"])
+    return {"days": days, "total": total, "reasons": reasons, "daily": daily,
+            "top_ips": top_ips, "top_uas": top_uas, "recent": recent, "goodbots": goodbots}
 
 
 @app.get("/admin/today-stats")
