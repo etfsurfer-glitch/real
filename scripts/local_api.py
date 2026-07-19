@@ -9609,7 +9609,10 @@ def log_login(request: Request, user: dict = Depends(current_user)) -> dict:
     if awarded:   # 신규 가입(첫 로그인) — 텔레그램 보고
         try:
             from scripts.tg_notify import tg_send_async
-            tg_send_async(f"👤 신규 가입 #{total} — {user.get('name') or '이름없음'} "
+            # 텔레그램은 국외 서버 — 실명 등 개인정보를 싣지 않는다(첫 글자만 마스킹)
+            _nm = (user.get("name") or "").strip()
+            _masked = (_nm[0] + "*" * (len(_nm) - 1)) if _nm else "이름없음"
+            tg_send_async(f"👤 신규 가입 #{total} — {_masked} "
                           f"({_provider_kr(user.get('provider'))})")
         except Exception:
             pass
@@ -12415,9 +12418,11 @@ async def lounge_verify_doc(realtor_id: str = Form(""), claimed_name: str = Form
     # 관리자 텔레그램 알림 — 승인요청 접수(서류 확인 필요)
     try:
         from scripts.tg_notify import tg_send_async
+        _cn = (claimed_name or "").strip()
+        _cn_masked = (_cn[0] + "*" * (min(len(_cn) - 1, 5))) if _cn else "(미기재)"
         tg_send_async(f"📋 중개사 인증 승인요청 접수\n"
                       f"· 유형: {_STAFF_ROLE_KR.get(role, role)}\n"
-                      f"· 이름/사무소: {claimed_name or '(미기재)'}\n"
+                      f"· 이름/사무소: {_cn_masked}\n"
                       f"→ koczip.com/admin/realtor-requests 에서 확인")
     except Exception:
         pass
