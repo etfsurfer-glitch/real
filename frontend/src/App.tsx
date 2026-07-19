@@ -80,6 +80,8 @@ import {
 import { TxRegionPulse } from "./pages/TxRegionPulse";
 import TxVolumePeriod from "./pages/TxVolumePeriod";
 import TxTimeMachine from "./pages/TxTimeMachine";
+import ComplexCompare from "./pages/ComplexCompare";
+import RegionCompare from "./pages/RegionCompare";
 
 // 하위메뉴(드롭다운 자식)는 아이콘 없는 게 표준 — icon 필드를 두지 않아 구조적으로 통일.
 // heading=true 는 링크가 아닌 그룹 소제목(실거래처럼 하위가 많은 메뉴의 스캔용).
@@ -107,7 +109,11 @@ const NAV_ITEMS: NavItem[] = [
     { to: "/today/old/stats", label: "오늘 매물 통계" },
   ] },
   { to: "/quick-deals", label: "급매찾기", icon: BadgePercent },
-  { to: "/finder", label: "맞춤단지", icon: SlidersHorizontal },
+  { to: "/finder", label: "맞춤단지", icon: SlidersHorizontal, children: [
+    { to: "/finder", label: "맞춤단지" },
+    { to: "/finder/compare", label: "단지비교" },
+    { to: "/finder/region-compare", label: "지역비교" },
+  ] },
   { to: "/changes", label: "매물호가", icon: TrendingUp, children: CHANGES_TABS },
   { to: "/tx-stats", label: "실거래", icon: BarChart3, children: TX_CHILDREN },
   { to: "/realtors", label: "중개사무소랭킹", icon: Award, children: [
@@ -363,6 +369,8 @@ function AppShell() {
         <Route path="/my/favorites" element={<RequireAdmin><MyFavorites /></RequireAdmin>} />
         <Route path="/similar" element={<RequireAdmin><SimilarComplexes /></RequireAdmin>} />
         <Route path="/finder" element={<ComplexFinder />} />
+        <Route path="/finder/compare" element={<ComplexCompare />} />
+        <Route path="/finder/region-compare" element={<RegionCompare />} />
         <Route path="/admin/suspicious" element={<RequireAdmin><SuspiciousRealtors /></RequireAdmin>} />
         <Route path="/suspicious" element={<Navigate to="/admin/suspicious" replace />} />
         <Route path="/admin/reviews" element={<RequireAdmin><AdminReviews /></RequireAdmin>} />

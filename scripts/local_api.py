@@ -781,6 +781,196 @@ _TIMEMACHINE_EVENTS = [
 ]
 
 
+def _cx_compare_one(d, complex_no: str) -> dict:
+    """단지비교용 단일 단지 지표 묶음 — 전부 complex_no 인덱스 쿼리라 빠름."""
+    cx = d.execute(
+        "SELECT complex_name, total_household_count, use_approve_ymd, construction_company, "
+        "  total_building_count, parking_per_household, real_estate_type_name, cortar_no "
+        "FROM complexes WHERE complex_no=?", (complex_no,)).fetchone()
+    if not cx:
+        raise HTTPException(404, f"complex not found: {complex_no}")
+    reg = d.execute(
+        "SELECT rsi.cortar_name, rsg.cortar_name, rdo.cortar_name FROM complexes cx "
+        "LEFT JOIN regions rsi ON rsi.cortar_no=substr(cx.cortar_no,1,2)||'00000000' "
+        "LEFT JOIN regions rsg ON rsg.cortar_no=substr(cx.cortar_no,1,5)||'00000' "
+        "LEFT JOIN regions rdo ON rdo.cortar_no=cx.cortar_no WHERE cx.complex_no=?",
+        (complex_no,)).fetchone()
+    region = " ".join(x for x in [
+        (_SIDO_SHORT.get(reg[0], reg[0]) if reg else None),
+        (reg[1] if reg else None), (reg[2] if reg else None)] if x)
+
+    snap = d.execute("SELECT MAX(snapshot_date) FROM complex_daily_agg WHERE complex_no=?",
+                     (complex_no,)).fetchone()[0]
+    listings = {}
+    if snap:
+        for t, n, u, pmin, pavg, ravg in d.execute(
+            "SELECT trade_type, SUM(listing_count), CAST(SUM(unit_count) AS INT), MIN(price_min), "
+            "  CAST(SUM(price_avg*listing_count)/SUM(listing_count) AS INT), "
+            "  CAST(SUM(COALESCE(rent_avg,0)*listing_count)/SUM(listing_count) AS INT) "
+            "FROM complex_daily_agg WHERE complex_no=? AND snapshot_date=? GROUP BY trade_type",
+            (complex_no, snap)):
+            listings[t] = {"n": n, "units": u, "min": pmin, "avg": pavg,
+                           "rent_avg": (ravg if t == "B2" else None)}
+    a1 = listings.get("A1", {}).get("avg")
+    b1 = listings.get("B1", {}).get("avg")
+    jeonse_rate = round(b1 / a1 * 100, 1) if a1 and b1 else None
+    gap = (a1 - b1) if a1 and b1 else None
+
+    tx = d.execute(
+        "SELECT COUNT(*), CAST(AVG(CASE WHEN deal_ymd>=date('now','-6 months') THEN deal_amount END) AS INT), "
+        "  CAST(AVG(CASE WHEN deal_ymd>=date('now','-6 months') AND excl_use_ar>0 "
+        "      THEN deal_amount/excl_use_ar*3.3 END) AS INT) "
+        "FROM transactions WHERE matched_complex_no=? AND is_cancelled=0 "
+        "  AND deal_ymd>=date('now','-12 months')", (complex_no,)).fetchone()
+    latest = d.execute(
+        "SELECT deal_ymd, deal_amount, excl_use_ar, floor FROM transactions "
+        "WHERE matched_complex_no=? AND is_cancelled=0 ORDER BY deal_ymd DESC LIMIT 1",
+        (complex_no,)).fetchone()
+    rec = d.execute(
+        "SELECT record_price, record_date, area_key FROM tx_record_rollup "
+        "WHERE complex_no=? AND kind IN ('sale','silv','offi_sale') "
+        "ORDER BY record_price DESC LIMIT 1", (complex_no,)).fetchone()
+    hh = cx[1] or 0
+    n12 = tx[0] or 0
+
+    sub = d.execute("SELECT station_name, lines, walk_min FROM complex_subway WHERE complex_no=?",
+                    (complex_no,)).fetchone()
+    sch = d.execute("SELECT school_name, walk_min FROM complex_school WHERE complex_no=?",
+                    (complex_no,)).fetchone()
+    n_realtor = d.execute(
+        "SELECT COUNT(DISTINCT realtor_id) FROM listings_current WHERE complex_no=? AND realtor_id!=''",
+        (complex_no,)).fetchone()[0]
+
+    series = [
+        {"d": r[0], "n": r[1], "u": (int(r[2]) if r[2] is not None else None), "avg": r[3]}
+        for r in d.execute(
+            "SELECT snapshot_date, SUM(listing_count), SUM(unit_count), "
+            "  CAST(SUM(price_avg*listing_count)/SUM(listing_count) AS INT) "
+            "FROM complex_daily_agg WHERE complex_no=? AND trade_type='A1' "
+            "  AND snapshot_date>=date('now','-31 days') GROUP BY snapshot_date ORDER BY 1",
+            (complex_no,))]
+
+    return {
+        "complex_no": complex_no, "name": cx[0], "region": region,
+        "built": (cx[2] or "")[:4] or None, "households": cx[1], "buildings": cx[4],
+        "parking": cx[5], "builder": cx[3], "type": cx[6],
+        "listings": listings, "jeonse_rate": jeonse_rate, "gap": gap,
+        "tx": {"n12": n12, "avg6m": tx[1], "pyeong6m": tx[2],
+               "latest": ({"date": latest[0], "price": latest[1], "area": latest[2],
+                           "floor": latest[3]} if latest else None),
+               "record": ({"price": rec[0], "date": rec[1], "area": rec[2]} if rec else None),
+               "turnover": (round(n12 / hh * 100, 1) if hh else None)},
+        "subway": ({"station": sub[0], "lines": sub[1], "walk": sub[2]} if sub else None),
+        "school": ({"name": sch[0], "walk": sch[1]} if sch else None),
+        "n_realtors": n_realtor,
+        "series": series,
+    }
+
+
+@app.get("/stats/complex-compare")
+def complex_compare(a: str, b: str):
+    """단지비교: 두 단지의 개요·호가·실거래·유동성·입지 지표를 동일 스키마로."""
+    _ck = f"cxcompare:{a}:{b}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
+    with _open_db() as d:
+        out = {"a": _cx_compare_one(d, a), "b": _cx_compare_one(d, b)}
+    # 급매 수는 기존 엔드포인트 재사용(동일 산식 유지)
+    for k, no in (("a", a), ("b", b)):
+        try:
+            out[k]["quick_deals"] = len(complex_quick_deals(no)["items"])
+        except Exception:
+            out[k]["quick_deals"] = None
+    _cache_put(_ck, out)
+    return out
+
+
+def _region_meta(code: str) -> tuple[str, str]:
+    """지역 코드 → (수준, 라벨). sido=2자리 프리픽스, sigungu=5자리, dong=cortar 10자리."""
+    code = (code or "").strip()
+    if len(code) == 10 and code.endswith("00000000"):
+        return "sido", code[:2]
+    if len(code) == 10 and code.endswith("00000"):
+        return "sigungu", code[:5]
+    if len(code) in (2,):
+        return "sido", code
+    if len(code) == 5:
+        return "sigungu", code
+    return "dong", code
+
+
+def _region_compare_one(d, code: str) -> dict:
+    level, key = _region_meta(code)
+    if level == "dong":
+        name_row = d.execute(
+            "SELECT rsg.cortar_name || ' ' || rdo.cortar_name FROM regions rdo "
+            "LEFT JOIN regions rsg ON rsg.cortar_no=substr(rdo.cortar_no,1,5)||'00000' "
+            "WHERE rdo.cortar_no=?", (key,)).fetchone()
+        cx_where, cx_args = "cortar_no=?", [key]
+        tx_where = ("matched_complex_no IN (SELECT complex_no FROM complexes WHERE cortar_no=?)")
+        tx_args = [key]
+    else:
+        name_row = d.execute("SELECT cortar_name FROM regions WHERE cortar_no=?",
+                             (key + "0" * (10 - len(key)),)).fetchone()
+        cx_where, cx_args = "cortar_no LIKE ?", [key + "%"]
+        tx_where, tx_args = "sgg_cd LIKE ?", [key + "%"]
+    name = (name_row[0] if name_row else code)
+    if level == "sido":
+        name = _SIDO_SHORT.get(name, name)
+
+    hh = d.execute(f"SELECT COALESCE(SUM(total_household_count),0), COUNT(*) FROM complexes WHERE {cx_where}",
+                   cx_args).fetchone()
+    t90 = d.execute(
+        f"SELECT COUNT(*), CAST(AVG(deal_amount) AS INT), "
+        f"  CAST(AVG(CASE WHEN excl_use_ar>0 THEN deal_amount/excl_use_ar*3.3 END) AS INT) "
+        f"FROM transactions WHERE {tx_where} AND is_cancelled=0 "
+        f"  AND deal_ymd>=date('now','-90 days')", tx_args).fetchone()
+    n12 = d.execute(
+        f"SELECT COUNT(*) FROM transactions WHERE {tx_where} AND is_cancelled=0 "
+        f"  AND deal_ymd>=date('now','-12 months')", tx_args).fetchone()[0]
+    monthly = [
+        {"m": r[0], "n": r[1], "avg": r[2]} for r in d.execute(
+            f"SELECT substr(deal_ymd,1,7), COUNT(*), CAST(AVG(deal_amount) AS INT) "
+            f"FROM transactions WHERE {tx_where} AND is_cancelled=0 "
+            f"  AND deal_ymd>=date('now','-12 months') GROUP BY 1 ORDER BY 1", tx_args)]
+
+    snap = d.execute("SELECT MAX(snapshot_date) FROM complex_daily_agg").fetchone()[0]
+    lst = d.execute(
+        f"SELECT a.trade_type, SUM(a.listing_count), CAST(SUM(a.unit_count) AS INT), "
+        f"  CAST(SUM(a.price_avg*a.listing_count)/SUM(a.listing_count) AS INT) "
+        f"FROM complex_daily_agg a JOIN complexes c ON c.complex_no=a.complex_no "
+        f"WHERE a.snapshot_date=? AND c.{cx_where} GROUP BY a.trade_type",
+        [snap] + cx_args).fetchall()
+    listings = {r[0]: {"n": r[1], "units": r[2], "avg": r[3]} for r in lst}
+    a1 = listings.get("A1", {}).get("avg")
+    b1 = listings.get("B1", {}).get("avg")
+    return {
+        "code": code, "level": level, "name": name,
+        "households": hh[0], "complexes": hh[1],
+        "tx90": {"n": t90[0], "avg": t90[1], "pyeong": t90[2]},
+        "n12": n12,
+        "turnover": (round(n12 / hh[0] * 100, 1) if hh[0] else None),
+        "listings": listings,
+        "listing_per_hh": (round((listings.get("A1", {}).get("n") or 0) / hh[0] * 100, 1) if hh[0] else None),
+        "jeonse_rate": (round(b1 / a1 * 100, 1) if a1 and b1 else None),
+        "monthly": monthly,
+    }
+
+
+@app.get("/stats/region-compare2")
+def region_compare2(a: str, b: str):
+    """지역비교: 시도/시군구/동 임의 조합 2곳의 거래·매물·가격 지표(아파트 매매)."""
+    _ck = f"regioncompare2:{a}:{b}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
+    with _open_db() as d:
+        out = {"a": _region_compare_one(d, a), "b": _region_compare_one(d, b)}
+    _cache_put(_ck, out)
+    return out
+
+
 @app.get("/stats/timemachine")
 def timemachine():
     """부동산타임머신: 정책·규제 연대기 + 전국 아파트 월별 거래량·평균가(콕집 DB 구간)."""
