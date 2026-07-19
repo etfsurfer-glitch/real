@@ -781,8 +781,10 @@ _TIMEMACHINE_EVENTS = [
 ]
 
 
-def _cx_compare_one(d, complex_no: str) -> dict:
-    """단지비교용 단일 단지 지표 묶음 — 전부 complex_no 인덱스 쿼리라 빠름."""
+def _cx_compare_one(d, complex_no: str, area: str | None = None) -> dict:
+    """단지비교용 단일 단지 지표 묶음 — 전부 complex_no 인덱스 쿼리라 빠름.
+    area=평형명(complex_areas.pyeong_name) 지정 시 호가·실거래·시리즈를 그 평형으로 한정
+    (실거래는 해당 평형 전용면적 ±1.5㎡ 매칭 — 전역 관례)."""
     cx = d.execute(
         "SELECT complex_name, total_household_count, use_approve_ymd, construction_company, "
         "  total_building_count, parking_per_household, real_estate_type_name, cortar_no "
@@ -799,6 +801,18 @@ def _cx_compare_one(d, complex_no: str) -> dict:
         (_SIDO_SHORT.get(reg[0], reg[0]) if reg else None),
         (reg[1] if reg else None), (reg[2] if reg else None)] if x)
 
+    areas = d.execute(
+        "SELECT pyeong_name, supply_area, exclusive_area, household_count "
+        "FROM complex_areas WHERE complex_no=? ORDER BY supply_area", (complex_no,)).fetchall()
+    area_row = next((r for r in areas if r[0] == area), None) if area else None
+    excl = area_row[2] if area_row else None
+    # 평형 선택 시 세대수·회전율 분모도 그 평형 기준으로
+    hh_eff = (area_row[3] if area_row and area_row[3] else None) or (cx[1] or 0)
+    la = " AND area_name=?" if area else ""
+    la_args = [area] if area else []
+    tx_area = " AND excl_use_ar BETWEEN ? AND ?" if excl is not None else ""
+    tx_area_args = [excl - 1.5, excl + 1.5] if excl is not None else []
+
     snap = d.execute("SELECT MAX(snapshot_date) FROM complex_daily_agg WHERE complex_no=?",
                      (complex_no,)).fetchone()[0]
     listings = {}
@@ -807,8 +821,8 @@ def _cx_compare_one(d, complex_no: str) -> dict:
             "SELECT trade_type, SUM(listing_count), CAST(SUM(unit_count) AS INT), MIN(price_min), "
             "  CAST(SUM(price_avg*listing_count)/SUM(listing_count) AS INT), "
             "  CAST(SUM(COALESCE(rent_avg,0)*listing_count)/SUM(listing_count) AS INT) "
-            "FROM complex_daily_agg WHERE complex_no=? AND snapshot_date=? GROUP BY trade_type",
-            (complex_no, snap)):
+            f"FROM complex_daily_agg WHERE complex_no=? AND snapshot_date=?{la} GROUP BY trade_type",
+            [complex_no, snap] + la_args):
             listings[t] = {"n": n, "units": u, "min": pmin, "avg": pavg,
                            "rent_avg": (ravg if t == "B2" else None)}
     a1 = listings.get("A1", {}).get("avg")
@@ -821,16 +835,19 @@ def _cx_compare_one(d, complex_no: str) -> dict:
         "  CAST(AVG(CASE WHEN deal_ymd>=date('now','-6 months') AND excl_use_ar>0 "
         "      THEN deal_amount/excl_use_ar*3.3 END) AS INT) "
         "FROM transactions WHERE matched_complex_no=? AND is_cancelled=0 "
-        "  AND deal_ymd>=date('now','-12 months')", (complex_no,)).fetchone()
+        f"  AND deal_ymd>=date('now','-12 months'){tx_area}",
+        [complex_no] + tx_area_args).fetchone()
     latest = d.execute(
         "SELECT deal_ymd, deal_amount, excl_use_ar, floor FROM transactions "
-        "WHERE matched_complex_no=? AND is_cancelled=0 ORDER BY deal_ymd DESC LIMIT 1",
-        (complex_no,)).fetchone()
+        f"WHERE matched_complex_no=? AND is_cancelled=0{tx_area} ORDER BY deal_ymd DESC LIMIT 1",
+        [complex_no] + tx_area_args).fetchone()
     rec = d.execute(
         "SELECT record_price, record_date, area_key FROM tx_record_rollup "
         "WHERE complex_no=? AND kind IN ('sale','silv','offi_sale') "
-        "ORDER BY record_price DESC LIMIT 1", (complex_no,)).fetchone()
-    hh = cx[1] or 0
+        + ("  AND CAST(area_key AS REAL) BETWEEN ? AND ? " if excl is not None else "")
+        + "ORDER BY record_price DESC LIMIT 1",
+        [complex_no] + tx_area_args).fetchone()
+    hh = hh_eff
     n12 = tx[0] or 0
 
     sub = d.execute("SELECT station_name, lines, walk_min FROM complex_subway WHERE complex_no=?",
@@ -847,12 +864,14 @@ def _cx_compare_one(d, complex_no: str) -> dict:
             "SELECT snapshot_date, SUM(listing_count), SUM(unit_count), "
             "  CAST(SUM(price_avg*listing_count)/SUM(listing_count) AS INT) "
             "FROM complex_daily_agg WHERE complex_no=? AND trade_type='A1' "
-            "  AND snapshot_date>=date('now','-31 days') GROUP BY snapshot_date ORDER BY 1",
-            (complex_no,))]
+            f"  AND snapshot_date>=date('now','-31 days'){la} GROUP BY snapshot_date ORDER BY 1",
+            [complex_no] + la_args)]
 
     return {
         "complex_no": complex_no, "name": cx[0], "region": region,
-        "built": (cx[2] or "")[:4] or None, "households": cx[1], "buildings": cx[4],
+        "area": area, "areas": [
+            {"name": r[0], "supply": r[1], "excl": r[2], "hh": r[3]} for r in areas],
+        "built": (cx[2] or "")[:4] or None, "households": hh_eff, "buildings": cx[4],
         "parking": cx[5], "builder": cx[3], "type": cx[6],
         "listings": listings, "jeonse_rate": jeonse_rate, "gap": gap,
         "tx": {"n12": n12, "avg6m": tx[1], "pyeong6m": tx[2],
@@ -868,18 +887,21 @@ def _cx_compare_one(d, complex_no: str) -> dict:
 
 
 @app.get("/stats/complex-compare")
-def complex_compare(a: str, b: str):
-    """단지비교: 두 단지의 개요·호가·실거래·유동성·입지 지표를 동일 스키마로."""
-    _ck = f"cxcompare:{a}:{b}"
+def complex_compare(a: str, b: str, a_area: str = "", b_area: str = ""):
+    """단지비교: 두 단지의 개요·호가·실거래·유동성·입지 지표를 동일 스키마로.
+    a_area/b_area=평형명 지정 시 그 평형 기준(각 단지 독립)."""
+    _ck = f"cxcompare:{a}:{b}:{a_area}:{b_area}"
     _hit = _cache_get(_ck)
     if _hit is not None:
         return _hit
     with _open_db() as d:
-        out = {"a": _cx_compare_one(d, a), "b": _cx_compare_one(d, b)}
-    # 급매 수는 기존 엔드포인트 재사용(동일 산식 유지)
-    for k, no in (("a", a), ("b", b)):
+        out = {"a": _cx_compare_one(d, a, a_area or None),
+               "b": _cx_compare_one(d, b, b_area or None)}
+    # 급매 수는 기존 엔드포인트 재사용(동일 산식 유지) — 평형 선택 시 그 평형만
+    for k, no, ar in (("a", a, a_area), ("b", b, b_area)):
         try:
-            out[k]["quick_deals"] = len(complex_quick_deals(no)["items"])
+            items = complex_quick_deals(no)["items"]
+            out[k]["quick_deals"] = len([i for i in items if not ar or i.get("area_name") == ar])
         except Exception:
             out[k]["quick_deals"] = None
     _cache_put(_ck, out)

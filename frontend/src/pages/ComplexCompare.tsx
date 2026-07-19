@@ -10,6 +10,7 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // 단지비교 — 두 단지의 개요·호가·실거래·유동성·입지를 한 표로. 데이터는 /stats/complex-compare.
 type Cx = {
   complex_no: string; name: string; region: string; built: string | null;
+  area: string | null; areas: { name: string; supply: number | null; excl: number | null; hh: number | null }[];
   households: number | null; buildings: number | null; parking: number | null;
   builder: string | null; type: string | null;
   listings: Record<string, { n: number; units: number | null; min: number | null; avg: number | null; rent_avg: number | null }>;
@@ -74,8 +75,13 @@ function SearchBox({ label, color, sel, onSel }: {
 }
 
 export default function ComplexCompare() {
-  const [selA, setSelA] = useState<any>(null);
-  const [selB, setSelB] = useState<any>(null);
+  const [selA, setSelARaw] = useState<any>(null);
+  const [selB, setSelBRaw] = useState<any>(null);
+  const [areaA, setAreaA] = useState("");
+  const [areaB, setAreaB] = useState("");
+  // 단지를 바꾸면 그 쪽 평형 선택은 초기화
+  const setSelA = (c: any) => { setSelARaw(c); setAreaA(""); };
+  const setSelB = (c: any) => { setSelBRaw(c); setAreaB(""); };
   const [data, setData] = useState<{ a: Cx; b: Cx } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -83,11 +89,12 @@ export default function ComplexCompare() {
   useEffect(() => {
     if (!selA || !selB) { setData(null); return; }
     setLoading(true); setError(false);
-    fetch(`${API_BASE}/stats/complex-compare?a=${selA.complex_no}&b=${selB.complex_no}`)
+    fetch(`${API_BASE}/stats/complex-compare?a=${selA.complex_no}&b=${selB.complex_no}`
+      + `&a_area=${encodeURIComponent(areaA)}&b_area=${encodeURIComponent(areaB)}`)
       .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then(setData).catch(() => { setData(null); setError(true); })
       .finally(() => setLoading(false));
-  }, [selA, selB]);
+  }, [selA, selB, areaA, areaB]);
 
   const chart = useMemo(() => {
     if (!data) return [];
@@ -102,7 +109,7 @@ export default function ComplexCompare() {
 
   const rows: [string, (c: Cx) => string][] = [
     ["준공", (c) => c.built ?? "-"],
-    ["세대수", (c) => c.households?.toLocaleString() ?? "-"],
+    ["세대수", (c) => `${c.households?.toLocaleString() ?? "-"}${c.area ? " (평형)" : ""}`],
     ["동 수", (c) => c.buildings != null ? `${c.buildings}동` : "-"],
     ["세대당 주차", (c) => c.parking != null ? `${c.parking}대` : "-"],
     ["시공사", (c) => (c.builder ?? "-").split(",")[0]],
@@ -136,6 +143,25 @@ export default function ComplexCompare() {
         <SearchBox label="단지 B" color={B_COLOR} sel={selB} onSel={setSelB} />
       </div>
 
+      {data && (
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+          {([["A", data.a, areaA, setAreaA], ["B", data.b, areaB, setAreaB]] as const).map(([lbl, c, val, set]) => (
+            <label key={lbl} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700,
+              color: lbl === "A" ? A_COLOR : B_COLOR }}>
+              {c.name} 평형
+              <select value={val} onChange={(e) => set(e.target.value)} style={{ fontSize: 12.5 }}>
+                <option value="">전체 평형</option>
+                {c.areas.map((ar) => (
+                  <option key={ar.name} value={ar.name}>
+                    {ar.name}{ar.excl != null ? ` · 전용 ${ar.excl}㎡` : ""}{ar.hh ? ` · ${ar.hh}세대` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      )}
+
       {!selA || !selB ? (
         <div className="muted">비교할 두 단지를 검색해 선택하세요.</div>
       ) : error ? <div className="muted">비교 데이터를 불러오지 못했습니다 — 잠시 후 다시 선택해 주세요.</div>
@@ -145,8 +171,8 @@ export default function ComplexCompare() {
             <thead>
               <tr>
                 <th style={{ width: "34%" }}>지표</th>
-                <th style={{ color: A_COLOR }}>{data.a.name}</th>
-                <th style={{ color: B_COLOR }}>{data.b.name}</th>
+                <th style={{ color: A_COLOR }}>{data.a.name}{data.a.area ? ` · ${data.a.area}` : ""}</th>
+                <th style={{ color: B_COLOR }}>{data.b.name}{data.b.area ? ` · ${data.b.area}` : ""}</th>
               </tr>
             </thead>
             <tbody>
@@ -187,7 +213,7 @@ export default function ComplexCompare() {
           )}
           <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
             호가는 현재 등록 매물 기준(실매물=중복 광고 합침), 실거래는 국토부 신고(해제 제외).
-            전세가율·갭은 단지 전체 호가 가중평균이라 면적 구성에 따라 달라질 수 있습니다.
+            전세가율·갭은 선택 범위(전체/평형) 호가 가중평균. 평형 선택 시 실거래·신고가·회전율은 해당 평형 전용면적 ±1.5㎡ 기준.
           </div>
         </>
       )}
