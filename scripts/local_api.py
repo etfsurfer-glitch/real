@@ -8604,6 +8604,31 @@ def admin_top_pages(_admin: dict = Depends(admin_user), days: int = 7, limit: in
     return {"days": days, "pages": out}
 
 
+# 실사람 방문자 필터 — 봇/자동화/내부도구 제외(접속자 통계용).
+# ① 우리 봇가드가 태그한 봇(detail.bot=goodbot:*/softbot) ② UA 패턴(검색봇·스크립트·헤드리스)
+# ③ 빈 UA·내부도구(curl warm·testclient). 브라우저 UA 사칭 분산봇은 UA로는 못 거름(behavior 별도).
+_HUMAN_SQL = (
+    "json_extract(detail,'$.bot') IS NULL "
+    "AND user_agent IS NOT NULL AND user_agent<>'' AND user_agent<>'testclient' "
+    "AND user_agent NOT LIKE '%bot%' AND user_agent NOT LIKE '%Bot%' "
+    "AND user_agent NOT LIKE '%spider%' AND user_agent NOT LIKE '%Spider%' "
+    "AND user_agent NOT LIKE '%crawl%' AND user_agent NOT LIKE '%Crawl%' "
+    "AND user_agent NOT LIKE '%slurp%' AND user_agent NOT LIKE '%Yeti%' "
+    "AND user_agent NOT LIKE 'curl/%' AND user_agent NOT LIKE 'Wget%' "
+    "AND user_agent NOT LIKE '%python-requests%' AND user_agent NOT LIKE '%python-urllib%' "
+    "AND user_agent NOT LIKE '%Go-http%' AND user_agent NOT LIKE '%okhttp%' "
+    "AND user_agent NOT LIKE '%Java/%' AND user_agent NOT LIKE '%libwww%' "
+    "AND user_agent NOT LIKE '%libredtail%' AND user_agent NOT LIKE '%scrapy%' "
+    "AND user_agent NOT LIKE '%HeadlessChrome%' AND user_agent NOT LIKE '%PhantomJS%' "
+    "AND user_agent NOT LIKE '%Playwright%' AND user_agent NOT LIKE '%Puppeteer%' "
+    "AND user_agent NOT LIKE '%axios%' AND user_agent NOT LIKE '%node-fetch%' "
+    "AND user_agent NOT LIKE '%httpx%' AND user_agent NOT LIKE '%aiohttp%' "
+    "AND user_agent NOT LIKE '%facebookexternalhit%' AND user_agent NOT LIKE '%masscan%' "
+    "AND user_agent NOT LIKE '%zgrab%' AND user_agent NOT LIKE '%semrush%' "
+    "AND user_agent NOT LIKE '%ahrefs%' AND user_agent NOT LIKE '%bytespider%'"
+)
+
+
 @app.get("/admin/bot-stats")
 def admin_bot_stats(_admin: dict = Depends(admin_user), days: int = 7):
     """봇 차단 현황 — 차단 사유별·일별 추이, 정상봇 유입, 상위 차단 IP/UA. bot_block 로그 집계."""
@@ -8661,22 +8686,29 @@ def admin_bot_stats(_admin: dict = Depends(admin_user), days: int = 7):
 def admin_today_stats(_admin: dict = Depends(admin_user)):
     """오늘(KST) 접속통계 — 방문자·로그인사용자·최대 동시작업자·신규가입·시간대별. ts는 UTC라 +9h 보정."""
     T = "date(ts,'+9 hours')=date('now','+9 hours')"   # KST 오늘
+    TH = f"{T} AND {_HUMAN_SQL}"                        # 실사람만(봇·자동화·내부 제외)
     with _logs_db() as c:
         date_kst = c.execute("SELECT date('now','+9 hours')").fetchone()[0]
-        ev, lu, vi = c.execute(
-            f"SELECT COUNT(*), COUNT(DISTINCT user_id), COUNT(DISTINCT ip) FROM event_log WHERE {T}").fetchone()
+        # 방문자·페이지뷰·시간대는 실사람(TH) 기준. 총 이벤트(ev)만 전체.
+        ev = c.execute(f"SELECT COUNT(*) FROM event_log WHERE {T}").fetchone()[0]
+        lu, vi = c.execute(
+            f"SELECT COUNT(DISTINCT user_id), COUNT(DISTINCT ip) FROM event_log WHERE {TH}").fetchone()
+        # 봇으로 제외된 방문자 수(고유 IP) — 투명성 표기용
+        bots_excluded = c.execute(
+            f"SELECT COUNT(DISTINCT ip) FROM event_log WHERE {T} AND ip IS NOT NULL AND ip<>'' "
+            f"AND ip NOT IN (SELECT ip FROM event_log WHERE {TH} AND ip IS NOT NULL AND ip<>'')").fetchone()[0]
         logins = c.execute(f"SELECT COUNT(*) FROM event_log WHERE {T} AND kind='login'").fetchone()[0]
         pageviews = c.execute(
-            f"SELECT COUNT(*) FROM event_log WHERE {T} AND kind IN ('view','view_complex','view_realtor')").fetchone()[0]
+            f"SELECT COUNT(*) FROM event_log WHERE {TH} AND kind IN ('view','view_complex','view_realtor')").fetchone()[0]
         ai = c.execute(f"SELECT COUNT(*) FROM event_log WHERE {T} AND kind LIKE 'ai%'").fetchone()[0]
-        complex_views = c.execute(f"SELECT COUNT(*) FROM event_log WHERE {T} AND kind='view_complex'").fetchone()[0]
+        complex_views = c.execute(f"SELECT COUNT(*) FROM event_log WHERE {TH} AND kind='view_complex'").fetchone()[0]
         hourly = [{"hour": int(h), "visitors": v, "events": e} for h, v, e in c.execute(
             f"SELECT strftime('%H', ts,'+9 hours'), COUNT(DISTINCT ip), COUNT(*) "
-            f"FROM event_log WHERE {T} GROUP BY 1 ORDER BY 1")]
-        # 최대 동시작업자 — 10분 버킷 distinct IP 최댓값(피크 동시 접속 근사)
+            f"FROM event_log WHERE {TH} GROUP BY 1 ORDER BY 1")]
+        # 최대 동시작업자 — 10분 버킷 distinct IP 최댓값(실사람 기준)
         pk = c.execute(
             f"SELECT MAX(c), bk FROM (SELECT strftime('%H:',ts,'+9 hours')||(CAST(strftime('%M',ts,'+9 hours') AS INT)/10*10) bk, "
-            f"COUNT(DISTINCT ip) c FROM event_log WHERE {T} GROUP BY bk)").fetchone()
+            f"COUNT(DISTINCT ip) c FROM event_log WHERE {TH} GROUP BY bk)").fetchone()
         peak_concurrent, peak_window = (pk[0] or 0), (pk[1] or "")
         top_paths = [{"path": p, "label": _page_label(p), "n": n} for p, n in c.execute(
             f"SELECT path, COUNT(*) FROM event_log WHERE {T} AND path IS NOT NULL AND path<>'' "
@@ -8687,7 +8719,7 @@ def admin_today_stats(_admin: dict = Depends(admin_user)):
         ti, ri = c.execute(
             f"SELECT COUNT(DISTINCT ip), COUNT(DISTINCT CASE WHEN ip IN "
             f"(SELECT ip FROM event_log WHERE ts>={_lb} AND ts<{_tod} AND ip IS NOT NULL AND ip<>'') "
-            f"THEN ip END) FROM event_log WHERE ts>={_tod} AND ip IS NOT NULL AND ip<>''").fetchone()
+            f"THEN ip END) FROM event_log WHERE ts>={_tod} AND {_HUMAN_SQL} AND ip IS NOT NULL AND ip<>''").fetchone()
         tu, ru = c.execute(
             f"SELECT COUNT(DISTINCT user_id), COUNT(DISTINCT CASE WHEN user_id IN "
             f"(SELECT user_id FROM event_log WHERE ts>={_lb} AND ts<{_tod} AND user_id IS NOT NULL AND user_id<>'') "
@@ -8697,10 +8729,10 @@ def admin_today_stats(_admin: dict = Depends(admin_user)):
         dev = c.execute(
             f"SELECT COUNT(DISTINCT CASE WHEN {_MOB} THEN ip END), "
             f"       COUNT(DISTINCT CASE WHEN NOT {_MOB} THEN ip END) "
-            f"FROM event_log WHERE {T} AND ip IS NOT NULL AND ip<>''").fetchone()
+            f"FROM event_log WHERE {TH} AND ip IS NOT NULL AND ip<>''").fetchone()
         # 비로그인 방문자(고유 IP 중 로그인 이벤트 없는 IP)
         guest = c.execute(
-            f"SELECT COUNT(DISTINCT ip) FROM event_log WHERE {T} AND ip IS NOT NULL AND ip<>'' "
+            f"SELECT COUNT(DISTINCT ip) FROM event_log WHERE {TH} AND ip IS NOT NULL AND ip<>'' "
             f"AND ip NOT IN (SELECT ip FROM event_log WHERE {T} AND user_id IS NOT NULL AND user_id<>'')").fetchone()[0]
         # 활동 유형별 이벤트 수(오늘)
         by_kind = [{"kind": k, "n": n} for k, n in c.execute(
@@ -8731,7 +8763,7 @@ def admin_today_stats(_admin: dict = Depends(admin_user)):
             "AND date(agreed_terms_at,'+9 hours')=date('now','+9 hours')").fetchone()[0]
         total_users = rc.execute("SELECT COUNT(*) FROM user_profiles").fetchone()[0]
     return {
-        "date_kst": date_kst, "visitors": vi, "logged_users": lu, "events": ev,
+        "date_kst": date_kst, "visitors": vi, "bots_excluded": bots_excluded, "logged_users": lu, "events": ev,
         "logins": logins, "pageviews": pageviews, "ai_questions": ai, "complex_views": complex_views,
         "peak_concurrent": peak_concurrent, "peak_window": peak_window,
         "new_signups": new_signups, "total_users": total_users,

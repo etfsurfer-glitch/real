@@ -1,16 +1,27 @@
 import { useEffect, useState, useCallback } from "react";
-import { Users, UserPlus, Activity, Eye, LogIn, Bot, Building2, RefreshCw, Repeat } from "lucide-react";
+import { Users, UserPlus, Activity, Eye, LogIn, Bot, Building2, RefreshCw, Repeat, Smartphone, Monitor, UserX } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { useAuth } from "../auth";
 
 const API = import.meta.env.VITE_API_BASE;
 
+const KIND_LABEL: Record<string, string> = {
+  login: "로그인", view: "페이지 조회", view_complex: "단지 조회", view_realtor: "중개사 조회",
+  ai_ask: "AI 질문", account: "계정", admin: "관리자", api: "API 호출", forum: "토론장",
+};
+const PROV_LABEL: Record<string, string> = { kakao: "카카오", google: "구글", phone: "전화", 기타: "기타" };
+
 type Stats = {
-  date_kst: string; visitors: number; logged_users: number; events: number;
+  date_kst: string; visitors: number; bots_excluded?: number; logged_users: number; events: number;
   logins: number; pageviews: number; ai_questions: number; complex_views: number;
   peak_concurrent: number; peak_window: string; new_signups: number; total_users: number;
   hourly: { hour: number; visitors: number; events: number }[];
   top_paths: { path: string; label?: string; n: number }[];
+  devices?: { mobile: number; pc: number };
+  guest_visitors?: number;
+  by_kind?: { kind: string; n: number }[];
+  by_provider?: { provider: string; n: number }[];
+  top_complex_today?: { ref: string; n: number; name?: string }[];
   returning?: {
     ip_today: number; ip_returning: number; ip_rate: number;
     user_today: number; user_returning: number; user_rate: number;
@@ -55,7 +66,7 @@ export default function AdminTodayStats() {
       </div>
 
       <div className="ats-cards">
-        <div className="ats-card hl"><span className="ats-ic"><Users size={18} /></span><span className="ats-v">{d.visitors.toLocaleString()}</span><span className="ats-l">방문자(고유 IP)</span></div>
+        <div className="ats-card hl"><span className="ats-ic"><Users size={18} /></span><span className="ats-v">{d.visitors.toLocaleString()}</span><span className="ats-l">방문자(실사람·고유 IP){d.bots_excluded ? ` · 봇 ${d.bots_excluded.toLocaleString()} 제외` : ""}</span></div>
         <div className="ats-card"><span className="ats-ic"><Activity size={18} /></span><span className="ats-v">{d.peak_concurrent.toLocaleString()}</span><span className="ats-l">최대 동시작업자</span></div>
         <div className="ats-card"><span className="ats-ic"><LogIn size={18} /></span><span className="ats-v">{d.logged_users.toLocaleString()}</span><span className="ats-l">로그인 사용자</span></div>
         <div className="ats-card hl2"><span className="ats-ic"><UserPlus size={18} /></span><span className="ats-v">{d.new_signups.toLocaleString()}</span><span className="ats-l">신규 가입</span></div>
@@ -83,6 +94,40 @@ export default function AdminTodayStats() {
               <span className="ats-v">{Math.round(d.returning.user_rate * 100)}%</span>
               <span className="ats-l">동일 로그인ID 재접속<br /><b>{d.returning.user_returning.toLocaleString()}</b> / {d.returning.user_today.toLocaleString()}명</span>
             </div>
+          </div>
+        </>
+      )}
+
+      {(d.devices || d.guest_visitors != null) && (
+        <>
+          <div className="ats-section">디바이스·접속 유형 <span style={{ fontWeight: 400, color: "#9aa7b8", fontSize: 11 }}>오늘 고유 IP 기준</span></div>
+          <div className="ats-cards">
+            <div className="ats-card"><span className="ats-ic"><Smartphone size={18} /></span><span className="ats-v">{(d.devices?.mobile ?? 0).toLocaleString()}</span><span className="ats-l">모바일</span></div>
+            <div className="ats-card"><span className="ats-ic"><Monitor size={18} /></span><span className="ats-v">{(d.devices?.pc ?? 0).toLocaleString()}</span><span className="ats-l">PC</span></div>
+            <div className="ats-card"><span className="ats-ic"><LogIn size={18} /></span><span className="ats-v">{d.logged_users.toLocaleString()}</span><span className="ats-l">로그인 방문</span></div>
+            <div className="ats-card"><span className="ats-ic"><UserX size={18} /></span><span className="ats-v">{(d.guest_visitors ?? 0).toLocaleString()}</span><span className="ats-l">비로그인 방문</span></div>
+          </div>
+        </>
+      )}
+
+      {!!(d.by_kind && d.by_kind.length) && (
+        <>
+          <div className="ats-section">활동 유형별 <span style={{ fontWeight: 400, color: "#9aa7b8", fontSize: 11 }}>오늘 이벤트</span></div>
+          <div className="ats-breakdown">
+            {d.by_kind.filter((k) => k.kind !== "api").map((k) => (
+              <div key={k.kind} className="ats-bd-item"><span className="ats-bd-l">{KIND_LABEL[k.kind] ?? k.kind}</span><span className="ats-bd-n">{k.n.toLocaleString()}</span></div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!!(d.by_provider && d.by_provider.length) && (
+        <>
+          <div className="ats-section">로그인 경로 <span style={{ fontWeight: 400, color: "#9aa7b8", fontSize: 11 }}>오늘 로그인</span></div>
+          <div className="ats-breakdown">
+            {d.by_provider.map((p) => (
+              <div key={p.provider} className="ats-bd-item"><span className="ats-bd-l">{PROV_LABEL[p.provider] ?? p.provider}</span><span className="ats-bd-n">{p.n.toLocaleString()}</span></div>
+            ))}
           </div>
         </>
       )}
@@ -124,7 +169,17 @@ export default function AdminTodayStats() {
           <div key={i} className="ats-path"><span className="ats-path-r">{i + 1}</span><span className="ats-path-p">{p.label}</span><span className="ats-path-n">{p.n.toLocaleString()}</span></div>
         ))}
       </div>
-      <p className="muted" style={{ fontSize: 11.5, marginTop: 12 }}>순방문자=고유 IP · 가입자=약관동의 기준 · 인기 페이지=사용자 화면 조회수(API·봇 제외).</p>
+      {!!(d.top_complex_today && d.top_complex_today.length) && (
+        <>
+          <div className="ats-section">오늘 인기 단지 <span style={{ fontWeight: 400, color: "#9aa7b8", fontSize: 11 }}>단지 상세 조회수</span></div>
+          <div className="ats-paths">
+            {d.top_complex_today.map((p, i) => (
+              <div key={p.ref} className="ats-path"><span className="ats-path-r">{i + 1}</span><span className="ats-path-p">{p.name ?? p.ref}</span><span className="ats-path-n">{p.n.toLocaleString()}</span></div>
+            ))}
+          </div>
+        </>
+      )}
+      <p className="muted" style={{ fontSize: 11.5, marginTop: 12 }}>순방문자=고유 IP · 가입자=약관동의 기준 · 인기 페이지=사용자 화면 조회수(API·봇 제외) · 디바이스는 user-agent 기반 근사(둘 다 접속 IP는 중복 집계).</p>
     </div>
   );
 }
