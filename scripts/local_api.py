@@ -8321,7 +8321,15 @@ def admin_trends(_admin: dict = Depends(admin_user), days: int = 30):
             "SUM(CASE WHEN kind IN ('view','view_complex','view_realtor') THEN 1 ELSE 0 END) pv "
             "FROM event_log WHERE date(ts,'+9 hours') >= date('now','+9 hours', ?) GROUP BY d",
             (win,)).fetchall()
-    daily = {r[0]: {"date": r[0], "visitors": r[1], "pageviews": r[2] or 0, "signups": 0} for r in rows}
+        # 90일 지난 행은 IP가 비식별화(NULL)돼 라이브 DISTINCT가 0이 됨 — 굳힌 일별 집계로 보충.
+        # (log_anonymize.py가 비식별화 전에 daily_stats에 적재. 미비식별 날짜는 라이브=집계라 max로 안전)
+        try:
+            agg_vis = dict(c.execute(
+                "SELECT d, visitors FROM daily_stats WHERE d >= date('now','+9 hours', ?)", (win,)))
+        except sqlite3.OperationalError:
+            agg_vis = {}
+    daily = {r[0]: {"date": r[0], "visitors": max(r[1] or 0, agg_vis.get(r[0], 0)),
+                    "pageviews": r[2] or 0, "signups": 0} for r in rows}
     with _reviews_db() as rc:
         for d, n in rc.execute(
             "SELECT date(agreed_terms_at,'+9 hours') d, COUNT(*) FROM user_profiles "
@@ -8341,6 +8349,14 @@ def admin_top_pages(_admin: dict = Depends(admin_user), days: int = 7, limit: in
             "WHERE kind IN ('view','view_complex','view_realtor') AND path LIKE '/%' "
             "AND date(ts,'+9 hours') >= date('now','+9 hours', ?) GROUP BY path",
             (f"-{days} days",)).fetchall()
+        # 비식별화 구간(90일 초과 날짜)의 방문자는 굳힌 집계에서 보충 — 라이브는 그 구간 v=0이라 중복 없음
+        try:
+            agg_pages = c.execute(
+                "SELECT label, SUM(visitors) FROM daily_page_stats "
+                "WHERE d >= date('now','+9 hours', ?) AND d < date('now','+9 hours','-90 days') "
+                "GROUP BY label", (f"-{days} days",)).fetchall()
+        except sqlite3.OperationalError:
+            agg_pages = []
     agg: dict = {}
     for p, n, v in rows:
         lbl = _page_label(p)
@@ -8348,6 +8364,9 @@ def admin_top_pages(_admin: dict = Depends(admin_user), days: int = 7, limit: in
             continue
         a = agg.setdefault(lbl, {"label": lbl, "views": 0, "visitors": 0})
         a["views"] += n; a["visitors"] += v
+    for lbl, v in agg_pages:
+        if lbl in agg:
+            agg[lbl]["visitors"] += v or 0
     out = sorted(agg.values(), key=lambda x: -x["views"])[:limit]
     return {"days": days, "pages": out}
 
