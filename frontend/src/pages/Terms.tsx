@@ -139,6 +139,8 @@ export default function Terms() {
         <li>대표자: 황인찬</li>
         <li>사업자등록번호: 628-11-03169</li>
         <li>통신판매업신고: 2026-진건퇴계원-114</li>
+        <li>사업장 소재지: 경기도 남양주시 진건읍 사릉로157번길 3, 1층 103호 A172</li>
+        <li>전화: 070-7954-4114</li>
         <li>문의: runtoonline@gmail.com, etfsurfer@gmail.com</li>
       </ul>
 

@@ -537,6 +537,10 @@ function Footer() {
         <span className="sep">·</span>
         <span>통신판매업신고 2026-진건퇴계원-114</span>
         <span className="sep">·</span>
+        <span>경기도 남양주시 진건읍 사릉로157번길 3, 1층 103호 A172</span>
+        <span className="sep">·</span>
+        <span>전화 070-7954-4114</span>
+        <span className="sep">·</span>
         <span>문의 runtoonline@gmail.com</span>
       </div>
       <div className="footer-links">
