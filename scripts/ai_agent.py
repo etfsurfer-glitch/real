@@ -700,7 +700,10 @@ def _find_complex_row(name: str, region: str = ""):
     toks = [t for t in name.split() if not _resolve_region(t)]  # 지역어 토큰 제거
     needle = toks[-1] if toks else name
     # '은마아파트'→'은마'처럼 접미사를 붙여 부르는 경우가 많아, 정확 검색이 비면 접미사 제거 재시도.
-    needles = [needle]
+    # 공백 제거 전체명('ph 129'→'ph129')을 최우선 — 'PH129'를 직접 매칭(마지막 토큰 '129'만 잡아
+    # '신라(1292)' 같은 이름 속 숫자에 오매칭되던 버그 방지). 2글자 이상일 때만.
+    nospace = "".join(toks).replace(" ", "")
+    needles = ([nospace] if nospace and len(nospace) >= 2 and nospace != needle else []) + [needle]
     for suf in ("아파트단지", "아파트", "단지", "마을"):
         if needle.endswith(suf) and len(needle) > len(suf) + 1:
             needles.append(needle[:-len(suf)])
