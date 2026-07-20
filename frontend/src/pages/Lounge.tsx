@@ -1488,6 +1488,7 @@ type MLItem = {
   approve_ymd: string | number | null; builder: string | null; mgmt_tel: string | null;
   // 비공개매물(콕집 직접등록) 전용 — 네이버 매물엔 없다
   is_private?: boolean; private_id?: number; visibility?: string; created_by?: string;
+  source_article_no?: string; source_saved_at?: string;
   photos?: string[]; extra?: Record<string, any>;
 };
 type Manager = { name: string; position: string; role: string };
@@ -1688,7 +1689,9 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           ))}
         </div>
       )}
-      {detail && <ListingDetail l={detail} owner={detailOwner} onClose={() => { setDetail(null); setDetailOwner(""); }} />}
+      {detail && <ListingDetail l={detail} owner={detailOwner} authH={authH}
+        onSavedPrivate={() => { setPriv(true); load(); }}
+        onClose={() => { setDetail(null); setDetailOwner(""); }} />}
       {plOpen && <PrivateListingForm authH={authH} init={editPL} managers={managers}
         onClose={() => setPlOpen(false)} onSaved={() => { setPlOpen(false); setPriv(true); load(); }} />}
     </div>
@@ -1985,7 +1988,32 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
   );
 }
 
-function ListingDetail({ l, owner = "", onClose }: { l: MLItem; owner?: string; onClose: () => void }) {
+function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose }: {
+  l: MLItem; owner?: string; authH?: () => Record<string, string>;
+  onSavedPrivate?: () => void; onClose: () => void;
+}) {
+  // 네이버 연동매물 → 비공개매물장 보관. 네이버에서 내려가도 사무소가 계속 관리할 수 있게
+  // 현재 값을 그대로 떠서 저장한다(복사). 내 사무소 매물에만 노출.
+  const [savePick, setSavePick] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+  const canSave = !!authH && !l.is_private && !owner && !!l.article_no;
+  const toPrivate = async (visibility: "office" | "me") => {
+    if (!authH) return;
+    setSaving(true); setSaveMsg("");
+    try {
+      const r = await fetch(`${API_BASE}/lounge/private-listings/from-naver`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ article_no: l.article_no, visibility }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.detail || "저장 실패");
+      setSaveMsg(d.duplicated ? "이미 비공개매물장에 있어요." : "비공개매물장에 저장했어요.");
+      setSavePick(false);
+      onSavedPrivate?.();
+    } catch (e: any) { setSaveMsg(e.message || "저장 실패"); }
+    finally { setSaving(false); }
+  };
   const kakao = l.lat && l.lng ? `https://map.kakao.com/link/map/${encodeURIComponent(l.complex_name || l.building_name || "매물")},${l.lat},${l.lng}` : "";
   const route = l.lat && l.lng ? `https://map.kakao.com/link/to/${encodeURIComponent(l.complex_name || l.building_name || "매물")},${l.lat},${l.lng}` : "";
   const Row = ({ k, v }: { k: string; v: string | null }) => v ? <div className="mld-row"><span className="mld-k">{k}</span><span className="mld-v">{v}</span></div> : null;
@@ -2029,7 +2057,25 @@ function ListingDetail({ l, owner = "", onClose }: { l: MLItem; owner?: string; 
           {kakao && <a className="mlj-naver" href={kakao} target="_blank" rel="noreferrer"><MapIcon size={14} /> 지도</a>}
           {route && <a className="mlj-naver" href={route} target="_blank" rel="noreferrer"><MapPin size={14} /> 길찾기</a>}
           {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> 네이버 매물</a>}
+          {canSave && <button className="mlj-topriv" onClick={() => setSavePick((v) => !v)}>
+            <Lock size={14} /> 비공개매물장에 보관</button>}
         </div>
+        {savePick && (
+          <div className="mld-topriv-pick">
+            <div className="mld-topriv-t">누구에게 보이게 할까요?</div>
+            <div className="pl-vis">
+              <button disabled={saving} onClick={() => toPrivate("office")}>
+                <b>사무실 전체</b><span>같은 사무소 회원 모두가 봅니다</span></button>
+              <button disabled={saving} onClick={() => toPrivate("me")}>
+                <b>나만 보기</b><span>작성자 본인만 보고 수정할 수 있어요</span></button>
+            </div>
+            <div className="mld-topriv-n">네이버에서 내려가도 비공개매물장에 남아 계속 관리할 수 있어요.</div>
+          </div>
+        )}
+        {saveMsg && <div className="pl-msg" style={{ marginTop: 8 }}>{saveMsg}</div>}
+        {l.is_private && l.source_article_no && (
+          <div className="mld-srcnote">네이버 매물 {l.source_article_no} 에서 보관됨</div>
+        )}
       </div>
     </div>
   );

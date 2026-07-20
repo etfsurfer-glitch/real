@@ -11827,11 +11827,38 @@ def _ensure_private_listings(c) -> None:
       visibility TEXT NOT NULL DEFAULT 'office',   -- me | office
       status TEXT NOT NULL DEFAULT 'active',       -- active | closed
       photos TEXT,                                 -- JSON [filename,...] (모자이크 완료본만)
+      source_article_no TEXT,                      -- 네이버에서 옮겨온 경우 원 매물번호
+      source_saved_at TEXT,
       {cols},
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')));
     CREATE INDEX IF NOT EXISTS pl_rid ON private_listings(realtor_id, status);
     """)
+    # 기존 테이블 마이그레이션 — 인덱스보다 **먼저** 컬럼을 채워야 한다.
+    # (CREATE TABLE IF NOT EXISTS 는 기존 테이블에 no-op 이라, 새 컬럼을 참조하는 인덱스를
+    #  같은 스크립트에 두면 'no such column' 으로 터진다.)
+    have = {r[1] for r in c.execute("PRAGMA table_info(private_listings)")}
+    for col in ("source_article_no", "source_saved_at"):
+        if col not in have:
+            c.execute(f"ALTER TABLE private_listings ADD COLUMN {col} TEXT")
+    c.execute("CREATE INDEX IF NOT EXISTS pl_src ON private_listings(realtor_id, source_article_no)")
+
+
+def _parse_price_man(txt) -> str | None:
+    """'1억 2,000' · '3,000' · '5억' → 만원 단위 문자열. 네이버 매물의 가격 텍스트용."""
+    if txt in (None, ""):
+        return None
+    s = str(txt).replace(",", "").replace(" ", "")
+    try:
+        if "억" in s:
+            head, _, tail = s.partition("억")
+            man = int(float(head or 0)) * 10000
+            digits = "".join(ch for ch in tail if ch.isdigit())
+            return str(man + (int(digits) if digits else 0))
+        digits = "".join(ch for ch in s if ch.isdigit())
+        return digits or None
+    except (TypeError, ValueError):
+        return None
 
 
 def _pl_visible_sql(uid: str) -> tuple:
@@ -11857,6 +11884,7 @@ def _pl_row_to_item(r) -> dict:
     price = num("price") or 0
     return {
         "article_no": f"P{r['id']}", "private_id": r["id"], "is_private": True,
+        "source_article_no": g("source_article_no"), "source_saved_at": g("source_saved_at"),
         "visibility": g("visibility"), "created_by": g("created_by"),
         "complex_no": g("complex_no"), "complex_name": g("complex_name"),
         "trade_type": g("trade_type") or "", "type": g("type") or "",
@@ -11944,6 +11972,59 @@ def lounge_private_save(body: dict, user: dict = Depends(current_user)):
             pid = cur.lastrowid
         c.commit()
     return {"ok": True, "id": pid}
+
+
+@app.post("/lounge/private-listings/from-naver")
+def lounge_private_from_naver(body: dict, user: dict = Depends(current_user)):
+    """네이버 연동매물 → 비공개매물장으로 복사(스냅샷).
+
+    네이버에서 매물이 내려가도 사무소가 계속 관리할 수 있게 현재 값을 그대로 떠서 저장한다.
+    네이버 원본을 지울 수는 없으므로 '이동'이 아니라 복사이며, source_article_no 로 출처를
+    남겨 같은 매물을 두 번 담지 않도록 한다. **내 사무소 매물만** 담을 수 있다.
+    """
+    an = "".join(ch for ch in str(body.get("article_no") or "") if ch.isdigit())
+    vis = "me" if (body.get("visibility") == "me") else "office"
+    if not an:
+        raise HTTPException(400, "매물번호가 필요합니다")
+    with _reviews_db() as c:
+        c.row_factory = sqlite3.Row
+        rid = _require_member(c, user["id"])
+        _ensure_private_listings(c)
+        dup = c.execute("SELECT id FROM private_listings WHERE realtor_id=? AND source_article_no=? "
+                        "AND status='active'", (rid, an)).fetchone()
+        if dup:
+            return {"ok": True, "id": dup["id"], "duplicated": True}
+        src = next((x for x in _collect_realtor_listings(rid, None, "") if x["article_no"] == an), None)
+        if not src:
+            raise HTTPException(404, "우리 사무소 매물에서 찾을 수 없습니다")
+        # 네이버 항목 → 비공개 항목 매핑. 숫자로 못 얻는 값(월세 등)은 표시 텍스트에서 환산.
+        vals = {f: None for f in _PL_FIELDS}
+        vals.update({
+            "trade_type": src.get("trade_type"), "type": src.get("type"),
+            "complex_no": src.get("complex_no"), "complex_name": src.get("complex_name"),
+            "building_name": src.get("building_name"), "dong": src.get("dong"),
+            "address": src.get("address"), "area_name": src.get("area_name"),
+            "area1_m2": str(src["area1_m2"]) if src.get("area1_m2") else None,
+            "area2_m2": str(src["area2_m2"]) if src.get("area2_m2") else None,
+            "floor_info": src.get("floor_info"), "direction": src.get("direction"),
+            "price": str(src["price"]) if src.get("price") else _parse_price_man(src.get("price_text")),
+            "rent_price": _parse_price_man(src.get("rent_price_text")),
+            "approve_ymd": str(src["approve_ymd"]) if src.get("approve_ymd") else None,
+            "parking": str(src["parking_per"]) if src.get("parking_per") else None,
+            "feature_desc": src.get("feature_desc"), "confirm_ymd": src.get("confirm_ymd"),
+            "memo": src.get("memo"), "contact": src.get("contact"), "manager": src.get("manager"),
+            "tags": _json.dumps(src.get("tags") or [], ensure_ascii=False),
+        })
+        cols = ", ".join(_PL_FIELDS)
+        ph = ", ".join("?" * len(_PL_FIELDS))
+        cur = c.execute(
+            f"INSERT INTO private_listings(realtor_id, created_by, visibility, "
+            f"source_article_no, source_saved_at, {cols}) "
+            f"VALUES(?,?,?,?,datetime('now'),{ph})",
+            [rid, user["id"], vis, an] + [vals[f] for f in _PL_FIELDS])
+        pid = cur.lastrowid
+        c.commit()
+    return {"ok": True, "id": pid, "duplicated": False}
 
 
 @app.delete("/lounge/private-listings/{pid}")
