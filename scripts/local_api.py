@@ -11755,19 +11755,26 @@ def realtor_listings_public(realtor_id: str, cat: str = "", trade: str = "",
 
 @app.get("/lounge/listings")
 def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str = "",
-                    cat: str = "", manager: str = "", sort: str = "confirm", limit: int = 1500):
-    """매물장 — 내 중개사무소(realtor_id)의 매물 통합. trade=매매/전세/월세, cat=유형, manager=담당자."""
+                    cat: str = "", manager: str = "", sort: str = "confirm", limit: int = 1500,
+                    private: int = 0):
+    """매물장 — 내 중개사무소(realtor_id)의 매물 통합. trade=매매/전세/월세, cat=유형, manager=담당자.
+    private=1 이면 콕집에 직접 등록한 비공개매물도 함께(공개범위 규칙 적용)."""
     with _reviews_db() as rc:
         rid = _require_member(rc, user["id"])
         _ensure_lounge_notes(rc)
         notes = {r[0]: (r[1], r[2], r[3]) for r in rc.execute(
             "SELECT article_no, memo, contact, manager FROM lounge_notes WHERE realtor_id=?", (rid,)).fetchall()}
+        priv = []
+        if private:
+            rc.row_factory = sqlite3.Row
+            priv = _collect_private_listings(rc, rid, user["id"], _TRADE_CODE.get(trade), cat)
     items = _collect_realtor_listings(rid, _TRADE_CODE.get(trade), cat)
 
     # 메모/연락처/담당자 결합 → 검색·담당자 필터 → 정렬 → 컷
     for it in items:
         m, ct, mg = notes.get(it["article_no"], ("", "", ""))
         it["memo"], it["contact"], it["manager"] = m or "", ct or "", mg or ""
+    items += priv          # 비공개매물은 자체 memo/contact/manager 를 이미 갖고 있다
     if q.strip():
         ql = q.strip()
         # 네이버 매물번호도 검색 대상(중개사가 번호로 바로 자기 물건을 찾는 흐름)
@@ -11786,6 +11793,213 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
         items.sort(key=lambda x: x["confirm_ymd"] or "", reverse=True)
     items = items[:min(max(int(limit), 1), 3000)]
     return {"realtor_id": rid, "count": len(items), "listings": items}
+
+
+# ── 비공개매물 ──────────────────────────────────────────────────────────────
+# 네이버 연동이 아니라 대표·직원이 콕집에 직접 등록하는 매물. 공개범위(me=작성자만 /
+# office=사무실 전체)를 등록자가 고른다. 항목은 네이버 매물 수준으로 넓게 두되 **전부 선택**
+# (필수 없음) — 현장에서 아는 만큼만 적고 나중에 채우는 실제 업무 흐름에 맞춘다.
+PRIVATE_IMG_DIR: Path = DB_PATH.parent / "private_listing_photos"
+PRIVATE_IMG_DIR.mkdir(parents=True, exist_ok=True)
+
+# 저장 컬럼 = 네이버 매물 항목 + 비공개 전용(공개범위·작성자). 새 항목은 여기만 추가하면 된다.
+_PL_FIELDS = [
+    "trade_type", "type", "complex_no", "complex_name", "building_name", "dong", "ho",
+    "address", "address_detail", "area_name", "area1_m2", "area2_m2", "area_py",
+    "floor_info", "floor", "total_floor", "direction", "room_cnt", "bath_cnt",
+    "price", "rent_price", "deposit", "maintenance_fee", "loan_amount",
+    "move_in", "approve_ymd", "parking", "elevator", "pets", "heating",
+    "options", "feature_desc", "memo", "contact", "owner_name", "owner_tel",
+    "manager", "tags", "confirm_ymd",
+]
+_PL_NUM = {"area1_m2", "area2_m2", "area_py", "price", "rent_price", "deposit",
+           "maintenance_fee", "loan_amount", "floor", "total_floor", "room_cnt",
+           "bath_cnt", "parking"}
+
+
+def _ensure_private_listings(c) -> None:
+    cols = ", ".join(f"{f} TEXT" for f in _PL_FIELDS)
+    c.executescript(f"""
+    CREATE TABLE IF NOT EXISTS private_listings(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      realtor_id TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      visibility TEXT NOT NULL DEFAULT 'office',   -- me | office
+      status TEXT NOT NULL DEFAULT 'active',       -- active | closed
+      photos TEXT,                                 -- JSON [filename,...] (모자이크 완료본만)
+      {cols},
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')));
+    CREATE INDEX IF NOT EXISTS pl_rid ON private_listings(realtor_id, status);
+    """)
+
+
+def _pl_visible_sql(uid: str) -> tuple:
+    """공개범위 필터 — office 는 사무실 전원, me 는 작성자 본인만."""
+    return ("(visibility='office' OR created_by=?)", [uid])
+
+
+def _pl_row_to_item(r) -> dict:
+    """비공개매물 행 → 매물장 카드가 쓰는 공통 형태(네이버 매물과 같은 키)."""
+    g = lambda k: r[k] if k in r.keys() else None          # noqa: E731
+    def num(k):
+        v = g(k)
+        try: return float(v) if v not in (None, "") else None
+        except (TypeError, ValueError): return None
+    try:
+        tags = _json.loads(g("tags") or "[]")
+    except Exception:
+        tags = []
+    try:
+        photos = _json.loads(g("photos") or "[]")
+    except Exception:
+        photos = []
+    price = num("price") or 0
+    return {
+        "article_no": f"P{r['id']}", "private_id": r["id"], "is_private": True,
+        "visibility": g("visibility"), "created_by": g("created_by"),
+        "complex_no": g("complex_no"), "complex_name": g("complex_name"),
+        "trade_type": g("trade_type") or "", "type": g("type") or "",
+        "area_name": g("area_name") or "", "area1_m2": num("area1_m2"), "area2_m2": num("area2_m2"),
+        "floor_info": g("floor_info") or "", "direction": g("direction") or "",
+        "price_text": _ml_price_text(price), "rent_price_text": _ml_price_text(num("rent_price") or 0),
+        "price": price, "confirm_ymd": g("confirm_ymd") or (g("created_at") or "")[:10].replace("-", ""),
+        "building_name": g("building_name") or "", "tags": tags,
+        "same_addr_cnt": 0, "same_addr_min": 0, "same_addr_max": 0,
+        "feature_desc": g("feature_desc") or "",
+        "naver_url": "", "cp_name": "", "verification_type": "",
+        "lat": None, "lng": None, "dong": g("dong") or "",
+        "address": " ".join(x for x in [g("address") or "", g("address_detail") or ""] if x).strip(),
+        "parking_total": None, "parking_per": None, "households": None,
+        "approve_ymd": g("approve_ymd"), "builder": None, "mgmt_tel": None,
+        "memo": g("memo") or "", "contact": g("contact") or "", "manager": g("manager") or "",
+        "photos": photos,
+        # 비공개 전용 부가정보(상세에서 노출)
+        "extra": {k: g(k) for k in ("ho", "room_cnt", "bath_cnt", "deposit", "maintenance_fee",
+                                    "loan_amount", "move_in", "elevator", "pets", "heating",
+                                    "options", "owner_name", "owner_tel", "total_floor", "area_py")},
+    }
+
+
+def _collect_private_listings(c, rid: str, uid: str, code: str | None, cat: str) -> list:
+    _ensure_private_listings(c)
+    where, params = _pl_visible_sql(uid)
+    sql = f"SELECT * FROM private_listings WHERE realtor_id=? AND status='active' AND {where}"
+    rows = c.execute(sql, [rid] + params).fetchall()
+    out = [_pl_row_to_item(r) for r in rows]
+    if code:
+        want = _TRADE_KOR.get(code, "")
+        out = [x for x in out if x["trade_type"] == want]
+    if cat:
+        out = [x for x in out if x["type"] == cat]
+    return out
+
+
+@app.get("/lounge/private-listings")
+def lounge_private_list(user: dict = Depends(current_user)):
+    with _reviews_db() as c:
+        c.row_factory = sqlite3.Row
+        rid = _require_member(c, user["id"])
+        items = _collect_private_listings(c, rid, user["id"], None, "")
+    items.sort(key=lambda x: x["confirm_ymd"] or "", reverse=True)
+    return {"count": len(items), "listings": items}
+
+
+@app.post("/lounge/private-listings")
+def lounge_private_save(body: dict, user: dict = Depends(current_user)):
+    """등록/수정. 필수 항목 없음 — 빈 값은 그대로 저장(나중에 채울 수 있게)."""
+    pid = body.get("id")
+    vis = "me" if (body.get("visibility") == "me") else "office"
+    vals = {}
+    for f in _PL_FIELDS:
+        v = body.get(f)
+        if isinstance(v, (list, dict)):
+            v = _json.dumps(v, ensure_ascii=False)
+        if f in _PL_NUM and v not in (None, ""):
+            try: v = str(float(v))
+            except (TypeError, ValueError): v = None
+        vals[f] = None if v in ("",) else v
+    with _reviews_db() as c:
+        c.row_factory = sqlite3.Row
+        rid = _require_member(c, user["id"])
+        _ensure_private_listings(c)
+        if pid:
+            own = c.execute("SELECT created_by, visibility FROM private_listings "
+                            "WHERE id=? AND realtor_id=?", (pid, rid)).fetchone()
+            if not own:
+                raise HTTPException(404, "매물을 찾을 수 없습니다")
+            # 작성자 본인만 공개(me)로 둔 건은 본인만 수정
+            if own["visibility"] == "me" and own["created_by"] != user["id"]:
+                raise HTTPException(403, "작성자만 수정할 수 있습니다")
+            sets = ", ".join(f"{f}=?" for f in _PL_FIELDS)
+            c.execute(f"UPDATE private_listings SET {sets}, visibility=?, "
+                      f"updated_at=datetime('now') WHERE id=? AND realtor_id=?",
+                      [vals[f] for f in _PL_FIELDS] + [vis, pid, rid])
+        else:
+            cols = ", ".join(_PL_FIELDS)
+            ph = ", ".join("?" * len(_PL_FIELDS))
+            cur = c.execute(f"INSERT INTO private_listings(realtor_id, created_by, visibility, {cols}) "
+                            f"VALUES(?,?,?,{ph})",
+                            [rid, user["id"], vis] + [vals[f] for f in _PL_FIELDS])
+            pid = cur.lastrowid
+        c.commit()
+    return {"ok": True, "id": pid}
+
+
+@app.delete("/lounge/private-listings/{pid}")
+def lounge_private_delete(pid: int, user: dict = Depends(current_user)):
+    with _reviews_db() as c:
+        c.row_factory = sqlite3.Row
+        rid = _require_member(c, user["id"])
+        _ensure_private_listings(c)
+        row = c.execute("SELECT created_by, visibility, photos FROM private_listings "
+                        "WHERE id=? AND realtor_id=?", (pid, rid)).fetchone()
+        if not row:
+            raise HTTPException(404, "매물을 찾을 수 없습니다")
+        if row["visibility"] == "me" and row["created_by"] != user["id"]:
+            raise HTTPException(403, "작성자만 삭제할 수 있습니다")
+        c.execute("UPDATE private_listings SET status='closed', updated_at=datetime('now') WHERE id=?", (pid,))
+        c.commit()
+    return {"ok": True}
+
+
+@app.post("/lounge/private-listings/photo")
+async def lounge_private_photo(document: UploadFile = File(...),
+                               user: dict = Depends(current_user)):
+    """사진 업로드 — 서버에서 즉시 얼굴·글자 모자이크 후 **마스킹본만** 저장한다.
+    원본은 디스크에 쓰지 않는다(메모리에서 처리 후 폐기)."""
+    data = await document.read()
+    if len(data) > 12_000_000:
+        raise HTTPException(400, "사진이 너무 큽니다(최대 12MB)")
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from scripts.photo_mask import mask_image, MaskError
+        masked, stat = mask_image(data)
+    except MaskError as e:
+        raise HTTPException(400, f"사진 처리 실패: {e}")
+    except Exception as e:  # 검출기 이상 시 원본을 저장하지 않는다 — 조용한 유출 방지
+        _log_event("private_photo_mask_error", query=str(e)[:200])
+        raise HTTPException(500, "사진 자동 모자이크에 실패해 저장하지 않았습니다. 다시 시도해 주세요.")
+    name = f"{rid}_{user['id'][:8]}_{_hashlib.sha1(masked[:4096]).hexdigest()[:16]}.jpg"
+    (PRIVATE_IMG_DIR / name).write_bytes(masked)
+    return {"ok": True, "photo": name, "masked": stat}
+
+
+@app.get("/lounge/private-listings/photo/{name}")
+def lounge_private_photo_get(name: str, user: dict = Depends(current_user)):
+    """사진 서빙 — 같은 사무소 회원에게만. 파일명에 realtor_id 접두가 있어 소속을 확인한다."""
+    from fastapi.responses import FileResponse
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+    if "/" in name or ".." in name or not name.startswith(f"{rid}_"):
+        raise HTTPException(403, "권한이 없습니다")
+    p = PRIVATE_IMG_DIR / name
+    if not p.exists():
+        raise HTTPException(404, "사진이 없습니다")
+    return FileResponse(str(p), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=600"})
 
 
 @app.get("/lounge/listings/lookup")

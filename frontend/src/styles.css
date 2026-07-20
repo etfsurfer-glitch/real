@@ -2824,6 +2824,41 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mlj-search svg{color:var(--c-muted);flex:none}
 .mlj-search input{border:0;outline:0;flex:1;font-size:14px;min-width:60px}
 .mlj-search button{border:0;background:var(--c-primary);color:#fff;border-radius:var(--r-pill);padding:6px 14px;font-weight:700;font-size:13px;cursor:pointer}
+/* 비공개매물 — 포함검색 체크박스 · 등록버튼 · 배지 */
+.mlj-priv-chk{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;color:var(--c-text);cursor:pointer;white-space:nowrap}
+.mlj-priv-chk input{accent-color:var(--c-primary);width:15px;height:15px;cursor:pointer}
+.mlj-priv-add{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-primary);background:#fff;color:var(--c-primary);border-radius:var(--r-pill);padding:5px 11px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.mlj-priv-add:hover{background:var(--c-primary);color:#fff}
+.mlj-priv-badge{display:inline-flex;align-items:center;gap:3px;background:#eef2ff;color:#4338ca;border-radius:var(--r-sm);padding:2px 6px;font-size:10.5px;font-weight:800;flex:none}
+/* 등록 모달 */
+.pl-modal{max-width:640px}
+.pl-hint{font-size:12.5px;color:var(--c-muted);margin:-4px 0 12px}
+.pl-sec{font-size:12.5px;font-weight:800;color:var(--c-text);margin:16px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--c-border)}
+.pl-sec-note{font-weight:600;color:var(--c-muted);font-size:11.5px;margin-left:6px}
+.pl-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}
+.pl-f{display:flex;flex-direction:column;gap:3px}
+.pl-f>span{font-size:11.5px;color:var(--c-muted);font-weight:700}
+.pl-f .ai-input{font-size:13.5px;padding:7px 9px}
+.pl-vis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pl-vis button{display:flex;flex-direction:column;gap:2px;align-items:flex-start;border:1px solid var(--c-border);background:#fff;border-radius:var(--r-sm);padding:9px 11px;cursor:pointer;text-align:left}
+.pl-vis button.on{border-color:var(--c-primary);background:#f5f8ff;box-shadow:inset 0 0 0 1px var(--c-primary)}
+.pl-vis b{font-size:13px;color:var(--c-text)}
+.pl-vis span{font-size:11px;color:var(--c-muted);line-height:1.35}
+.pl-photos{display:flex;flex-wrap:wrap;gap:8px}
+.pl-ph{position:relative;width:84px;height:84px;border-radius:var(--r-sm);overflow:hidden;border:1px solid var(--c-border)}
+.pl-ph img{width:100%;height:100%;object-fit:cover}
+.pl-ph button{position:absolute;top:3px;right:3px;border:0;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:20px;height:20px;display:grid;place-items:center;cursor:pointer}
+.pl-upl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.pl-upbtn{display:inline-flex;align-items:center;gap:5px;border:1px dashed var(--c-border);border-radius:var(--r-pill);padding:7px 13px;font-size:12.5px;font-weight:700;color:var(--c-muted);cursor:pointer}
+.pl-upbtn:hover{border-color:var(--c-primary);color:var(--c-primary)}
+.pl-up-busy{font-size:12px;color:var(--c-primary);font-weight:700}
+.pl-msg{margin-top:8px;font-size:12.5px;color:#1a7f37;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--r-sm);padding:7px 10px}
+.pl-warn{margin-top:8px;font-size:11.5px;color:#8a6316;background:#fff6e6;border:1px solid #f0d9a8;border-radius:var(--r-sm);padding:7px 10px;line-height:1.45}
+.pl-actions{display:flex;gap:8px;margin-top:18px}
+.pl-save{flex:1;border:0;background:var(--c-primary);color:#fff;border-radius:var(--r-pill);padding:11px;font-size:14px;font-weight:800;cursor:pointer}
+.pl-save:disabled{opacity:.55;cursor:not-allowed}
+.pl-cancel{border:1px solid var(--c-border);background:#fff;color:var(--c-muted);border-radius:var(--r-pill);padding:11px 20px;font-size:14px;font-weight:700;cursor:pointer}
+@media(max-width:520px){.pl-grid,.pl-vis{grid-template-columns:1fr}}
 .mlj-search-hint{flex:1 0 100%;order:99;font-size:11.5px;color:var(--c-muted);padding-left:12px;margin-top:-2px}
 .mlj-search-hint::before{content:"🔎 ";filter:grayscale(1)}
 /* 매물번호가 타 사무소 물건일 때 확인 블록 */
