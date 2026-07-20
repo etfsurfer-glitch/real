@@ -11509,6 +11509,49 @@ def _region_addr_map(conn, cortars) -> dict:
     return out
 
 
+def _short_addr_text(addr: str) -> str:
+    """'서울특별시 강남구 역삼동 813-14' → '서울 강남구 역삼동 813-14'(시도만 축약)."""
+    a = (addr or "").strip()
+    if not a:
+        return ""
+    head, _, rest = a.partition(" ")
+    s = _short_sido(head)
+    return f"{s} {rest}".strip() if rest else s
+
+
+def _coord_addr_map(coords) -> dict:
+    """(lat,lng) 반올림키 → 지번주소. build_coord_addr.py가 채운 VWorld 역지오코딩 캐시.
+    비단지는 네이버 원본에 지번이 없어 좌표로만 지번을 얻는다([[naverreal-nonresi-addr]])."""
+    keys = {k for k in coords if k}
+    if not keys:
+        return {}
+    p = DB_PATH.parent / "coord_addr.sqlite"
+    if not p.exists():
+        return {}
+    out = {}
+    try:
+        with sqlite3.connect(f"file:{p}?mode=ro", uri=True) as cc:
+            cc.execute("PRAGMA busy_timeout=8000")
+            ks = list(keys)
+            for i in range(0, len(ks), 900):        # SQLite 변수 한도 회피
+                chunk = ks[i:i + 900]
+                ph = ",".join("?" * len(chunk))
+                for k, addr in cc.execute(
+                        f"SELECT ckey, addr FROM coord_addr WHERE status='ok' AND addr IS NOT NULL "
+                        f"AND ckey IN ({ph})", chunk):
+                    out[k] = _short_addr_text(addr)
+    except sqlite3.Error:
+        return {}
+    return out
+
+
+def _ckey(lat, lng) -> str:
+    try:
+        return f"{round(float(lat), 5)},{round(float(lng), 5)}"
+    except (TypeError, ValueError):
+        return ""
+
+
 def _find_listing_owner(article_no: str):
     """네이버 매물번호 → (realtor_id, realtor_name). 단지형·비단지 전 DB 탐색. 못 찾으면 None."""
     with _open_db() as dc:
@@ -11648,6 +11691,8 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                     f"SELECT cortar_no, cortar_name FROM regions WHERE cortar_no IN ({ph})", list(cortars)).fetchall()}
                 # 비단지는 원본에 지번이 없어(detailAddress 공백) '시도 시군구 동'까지 구성
                 addrmap = _region_addr_map(dc, cortars)
+        # 좌표 역지오코딩 캐시가 있으면 지번까지(없으면 위 지역주소로 폴백)
+        coordmap = _coord_addr_map({_ckey(r[11], r[12]) for r in rrows})
         for r in rrows:
             feat, tags, sa_cnt, sa_min, sa_max, vtype = "", [], 0, 0, 0, ""
             try:
@@ -11661,7 +11706,8 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
             except Exception:
                 pass
             dong = dongmap.get(r[13], "") or ""
-            full_addr = addrmap.get(r[13], "") or dong   # 건물명은 카드에서 따로 노출(주소에 섞지 않음)
+            # 지번주소(좌표 캐시) 우선, 없으면 '시도 시군구 동'. 건물명은 카드에서 따로 노출.
+            full_addr = coordmap.get(_ckey(r[11], r[12]), "") or addrmap.get(r[13], "") or dong
             items.append({
                 "article_no": r[0], "complex_no": None, "complex_name": None,
                 "trade_type": _TRADE_KOR.get(r[2], r[2]), "type": ckor,
