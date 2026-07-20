@@ -78,6 +78,10 @@ step "step 8-pre-a: hidden 신규 검증(등록번호, 일 300그룹)" $PY -u sc
 step "step 8-pre: hidden_realtor_map(숨김ID 귀속)" $PY -u scripts/apply_hidden_realtor_map.py
 
 step "step 9: match_clean (realtor)"       $PY -u scripts/match_clean.py; match_exit=$?
+# 9a: 미매칭 지역중개사 등록번호 매칭(매물상세 establishRegistrationNo→vworld). 자체번호 우선·전매물 일관·
+#     대표 이중검증·오귀속0. 등록번호를 naver_realtors에 기록 → 이후 match_clean이 매일 자동 재도출(지속).
+#     신규 미매칭만 점증 커버(30일 캐시), API 예산 위해 --limit.
+step "step 9a: link_region_regno (미매칭 등록번호)" $PY -u scripts/link_region_realtors_regno.py --limit 200 --workers 6 --samples 5; linkregno_exit=$?
 step "step 9b: build_realtor_dong (우리동네)" $PY -u scripts/build_realtor_dong.py; rdong_exit=$?
 step "step 10: rematch_all_realprice"      $PY -u scripts/rematch_all_realprice.py --tables apt rent offi offi_rent --concurrency 4; rematch_exit=$?
 
