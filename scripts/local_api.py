@@ -470,6 +470,11 @@ def _is_internal_ip(ip) -> bool:
             or ip.startswith(("172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31.")))
 
 def _is_data_path(path: str) -> bool:
+    # /seo 는 검색봇 동적 렌더링 전용(공개 기본정보만) — 크롤러에게 주려고 만든 엔드포인트라
+    # 봇가드 대상에서 뺀다. CF Workers fetch 가 UA 를 안 붙여 empty_ua 로 자기차단되며
+    # SEO/OG 프리렌더가 통째로 무력화됐던 원인(2026-07-20 실측 하루 2,136건).
+    if path.endswith("/seo"):
+        return False
     return path.startswith(("/stats/", "/complex/", "/complexes/", "/nonresi/",
                             "/realtors/", "/map", "/q/", "/ai/")) or path in ("/q",)
 
