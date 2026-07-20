@@ -398,10 +398,14 @@ _AI_CRAWLER_UA = _re_bot.compile(
     r"ai2bot|webzio|dataforseobot|semrushbot-ocob|petalbot-extended)", _re_bot.I)
 
 # 검증 대상 검색봇(UA) — rDNS로 진위 확인 가능한 것만 하드블록 후보
+# 주의: 맨 'naver'·'daum'을 넣으면 안 된다. 네이버 앱 인앱브라우저 UA가
+# '... Safari/605.1 NAVER(inapp; search; 2100; 12.22.0; 15)' 라서 **실제 고객**이 봇 사칭으로
+# 잡힌다(2026-07-20 실측: 하루 92건 403 — 네이버 유입 고객이 법적경고 페이지를 봤다).
+# 네이버 검색로봇은 'Yeti', 다음은 'Daumoa' 로 별도 식별된다.
 _GOODBOT_UA = _re_bot.compile(
     r"(googlebot|google-inspectiontool|storebot-google|bingbot|adidxbot|applebot|"
     r"yandex(?:bot|images|mobilebot)|baiduspider|duckduckbot|petalbot|yeti|"
-    r"naver(?:bot)?|daum(?:oa)?)", _re_bot.I)
+    r"naverbot|daumoa)", _re_bot.I)
 # 봇키 → 정상 rDNS 접미사(정방향 재확인까지 통과해야 진짜)
 _GOODBOT_RDNS = {
     "googlebot": (".googlebot.com", ".google.com"),
@@ -413,8 +417,8 @@ _GOODBOT_RDNS = {
     "baiduspider": (".baidu.com", ".baidu.jp"),
     "duckduckbot": (".duckduckgo.com",),
     "petalbot": (".petalsearch.com", ".aspiegel.com"),
-    "yeti": (".naver.com", ".navercorp.com"), "naver": (".naver.com", ".navercorp.com"),
-    "daum": (".daum.net", ".kakao.com", ".daumkakao.com"),
+    "yeti": (".naver.com", ".navercorp.com"), "naverbot": (".naver.com", ".navercorp.com"),
+    "daumoa": (".daum.net", ".kakao.com", ".daumkakao.com"),
 }
 # 링크 미리보기 등 rDNS가 불명확한 정상 봇 — 차단하지 않고 통과만(태깅)
 _SOFTBOT_UA = _re_bot.compile(
