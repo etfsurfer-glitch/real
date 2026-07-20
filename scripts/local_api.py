@@ -3893,13 +3893,15 @@ def realtor_detail(realtor_id: str):
     while len(vals) < 10:   # 구버전 테이블(oneroom_n 없음) 호환
         vals.append(0)
     _v, _h, _s, _o, _l, _f, _b, _k, _r, _or = vals[:10]
-    # CP 제휴 등 realtor_id 없는 비단지 매물을 등록번호로 귀속한 수(office_region_counts)를 합산
+    # CP 제휴 등 비단지 매물의 등록번호 귀속 수(office_region_counts)와 realtor_region_counts를 합치되
+    # **카테고리별 max**로 중복 제거 — 귀속배치가 realtor_id를 세팅하면 같은 매물이 양쪽에 잡혀
+    # 이중집계(예: 틸트 6건→12)되던 버그 수정. 둘은 같은 등록번호 귀속의 두 표현이라 max가 정확.
     _rcat = _office_region_cats(realtor_id)
     if _rcat:
-        _v += _rcat.get("villa", 0); _h += _rcat.get("house", 0); _s += _rcat.get("sangga", 0)
-        _o += _rcat.get("office", 0); _l += _rcat.get("land", 0); _f += _rcat.get("factory", 0)
-        _b += _rcat.get("building", 0); _k += _rcat.get("knowledge", 0); _r += _rcat.get("redev", 0)
-        _or += _rcat.get("oneroom", 0)
+        _v = max(_v, _rcat.get("villa", 0)); _h = max(_h, _rcat.get("house", 0)); _s = max(_s, _rcat.get("sangga", 0))
+        _o = max(_o, _rcat.get("office", 0)); _l = max(_l, _rcat.get("land", 0)); _f = max(_f, _rcat.get("factory", 0))
+        _b = max(_b, _rcat.get("building", 0)); _k = max(_k, _rcat.get("knowledge", 0)); _r = max(_r, _rcat.get("redev", 0))
+        _or = max(_or, _rcat.get("oneroom", 0))
     listing_breakdown = {
         "complex": total_count, "villa": _v, "house": _h, "sangga": _s, "office": _o,
         "land": _l, "factory": _f, "building": _b, "knowledge": _k, "redev": _r, "oneroom": _or,
@@ -8552,16 +8554,17 @@ def admin_trends(_admin: dict = Depends(admin_user), days: int = 30):
         rows = c.execute(
             "SELECT date(ts,'+9 hours') d, COUNT(DISTINCT ip) vis, "
             "SUM(CASE WHEN kind IN ('view','view_complex','view_realtor') THEN 1 ELSE 0 END) pv "
-            "FROM event_log WHERE date(ts,'+9 hours') >= date('now','+9 hours', ?) GROUP BY d",
+            f"FROM event_log WHERE date(ts,'+9 hours') >= date('now','+9 hours', ?) AND {_HUMAN_SQL} GROUP BY d",
             (win,)).fetchall()
-        # 90일 지난 행은 IP가 비식별화(NULL)돼 라이브 DISTINCT가 0이 됨 — 굳힌 일별 집계로 보충.
-        # (log_anonymize.py가 비식별화 전에 daily_stats에 적재. 미비식별 날짜는 라이브=집계라 max로 안전)
+        # 90일 지난 행은 IP가 비식별화(NULL)돼 라이브 DISTINCT가 0이 됨 — 굳힌 실사람 집계로 보충.
+        # (log_anonymize.py가 비식별화 전에 daily_stats.human_visitors에 적재. 미비식별 날짜는 라이브=집계라 max로 안전)
         try:
             agg_vis = dict(c.execute(
-                "SELECT d, visitors FROM daily_stats WHERE d >= date('now','+9 hours', ?)", (win,)))
+                "SELECT d, COALESCE(human_visitors, visitors) FROM daily_stats "
+                "WHERE d >= date('now','+9 hours', ?)", (win,)))
         except sqlite3.OperationalError:
             agg_vis = {}
-    daily = {r[0]: {"date": r[0], "visitors": max(r[1] or 0, agg_vis.get(r[0], 0)),
+    daily = {r[0]: {"date": r[0], "visitors": (r[1] if r[1] else agg_vis.get(r[0], 0)),
                     "pageviews": r[2] or 0, "signups": 0} for r in rows}
     with _reviews_db() as rc:
         for d, n in rc.execute(
@@ -11540,29 +11543,30 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
         path = DB_PATH.parent / _NONRESI_DB[dbkey]
         if not path.exists():
             continue
-        if region_by_sgg:   # vw 사무소: (빈 realtor_id + 사무소 sgg)로 조회 후 이름 정규화 필터
-            _sggs = list(region_by_sgg.keys())
-            w = ["(realtor_id IS NULL OR realtor_id='')",
-                 f"substr(cortar_no,1,5) IN ({','.join('?' * len(_sggs))})",
-                 "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"]
-            p = list(_sggs)
-        else:
-            w = ["realtor_id=?", "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"]; p = [rid]
-        if code:
-            w.append("trade_type=?"); p.append(code)
+        _sel_nr = ("SELECT article_no,real_estate_type_name,trade_type,deal_or_warrant_price,rent_price,"
+                   "area1_m2,area2_m2,floor_info,direction,building_name,article_confirm_ymd,latitude,longitude,"
+                   "cortar_no,raw,realtor_name FROM listings ")
+        _snap = "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"
+        _tc = " AND trade_type=?" if code else ""
         try:
             rconn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-            rrows = rconn.execute(
-                "SELECT article_no,real_estate_type_name,trade_type,deal_or_warrant_price,rent_price,"
-                "area1_m2,area2_m2,floor_info,direction,building_name,article_confirm_ymd,latitude,longitude,"
-                "cortar_no,raw,realtor_name FROM listings "
-                f"WHERE {' AND '.join(w)}", p).fetchall()
+            # ① 직접 귀속(realtor_id=rid) — 항상. vw 사무소도 귀속배치가 realtor_id를 세팅하므로 필수.
+            rrows = list(rconn.execute(
+                _sel_nr + f"WHERE realtor_id=? AND {_snap}{_tc}",
+                [rid] + ([code] if code else [])).fetchall())
+            # ② vw 사무소면 숨김(빈 realtor_id) 매물도 사무소 sgg+이름정규화로 추가
+            if region_by_sgg:
+                _sggs = list(region_by_sgg.keys())
+                _w = ["(realtor_id IS NULL OR realtor_id='')",
+                      f"substr(cortar_no,1,5) IN ({','.join('?' * len(_sggs))})", _snap]
+                _p = list(_sggs) + ([code] if code else [])
+                hidden = rconn.execute(
+                    _sel_nr + "WHERE " + " AND ".join(_w) + _tc, _p).fetchall()
+                rrows += [r for r in hidden
+                          if r[15] and _norm_office(r[15]) in region_by_sgg.get((r[13] or "")[:5], set())]
             rconn.close()
         except Exception:
             rrows = []
-        if region_by_sgg:   # 정규화 이름이 이 사무소와 일치하는 매물만
-            rrows = [r for r in rrows
-                     if r[15] and _norm_office(r[15]) in region_by_sgg.get((r[13] or "")[:5], set())]
         cortars = {r[13] for r in rrows if r[13]}
         dongmap: dict = {}
         if cortars:
@@ -12521,10 +12525,17 @@ def _audit_breakdown_for(realtor_id: str) -> dict:
             continue
         try:
             with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
-                if vwattr:   # vw 사무소: 빈 realtor_id + 사무소 sgg 조회 후 이름정규화 필터
+                agg: dict = {}
+                # ① 직접 귀속(realtor_id=vw..) — 항상. 이미 귀속된 매물이 vw분기에서 누락되던 버그 수정.
+                for tr, n in rc.execute(
+                        "SELECT trade_type, COUNT(*) FROM listings WHERE realtor_id=? "
+                        "AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings) "  # 최신분만(내려간 매물 제외)
+                        "GROUP BY trade_type", (realtor_id,)):
+                    agg[tr] = agg.get(tr, 0) + n
+                # ② vw 사무소면 숨김(빈 realtor_id) 매물도 사무소 sgg+이름정규화로 추가
+                if vwattr:
                     region_by_sgg, norm = vwattr
                     sggs = list(region_by_sgg.keys())
-                    agg: dict = {}
                     for tr, rn, sgg in rc.execute(
                             "SELECT trade_type, realtor_name, substr(cortar_no,1,5) FROM listings "
                             "WHERE (realtor_id IS NULL OR realtor_id='') "
@@ -12532,18 +12543,10 @@ def _audit_breakdown_for(realtor_id: str) -> dict:
                             "AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings)", sggs):
                         if rn and norm(rn) in region_by_sgg.get(sgg or "", set()):
                             agg[tr] = agg.get(tr, 0) + 1
-                    for tr, n in agg.items():
-                        groups.append({"kind": cat, "kind_label": _NONRESI_LABEL.get(cat, cat),
-                                       "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
-                                       "count": n, "group": "비단지"})
-                else:
-                    for tr, n in rc.execute(
-                            "SELECT trade_type, COUNT(*) FROM listings WHERE realtor_id=? "
-                            "AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings) "  # 최신분만(내려간 매물 제외)
-                            "GROUP BY trade_type", (realtor_id,)):
-                        groups.append({"kind": cat, "kind_label": _NONRESI_LABEL.get(cat, cat),
-                                       "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
-                                       "count": n, "group": "비단지"})
+                for tr, n in agg.items():
+                    groups.append({"kind": cat, "kind_label": _NONRESI_LABEL.get(cat, cat),
+                                   "trade": tr, "trade_label": _TRADE_LABEL_AUDIT.get(tr, tr),
+                                   "count": n, "group": "비단지"})
         except sqlite3.Error:
             pass
     groups.sort(key=lambda g: -g["count"])
@@ -12640,30 +12643,27 @@ def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) 
             vwattr = _vw_region_attr(realtor_id)
             with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
                 rc.row_factory = sqlite3.Row
-                if vwattr:   # vw 사무소: 빈 realtor_id + 사무소 sgg 조회 → 이름정규화 필터 → 파이썬 offset/limit
+                # ① 직접 귀속(realtor_id=vw..) — 항상 포함(이미 귀속된 매물 누락 버그 수정)
+                dparams = [realtor_id] + ([trade] if trade else [])
+                allrows = [dict(x) for x in rc.execute(
+                    sel + " WHERE realtor_id=?" + trade_cl + snap_cl + " ORDER BY article_no",
+                    dparams).fetchall()]
+                # ② vw 사무소면 숨김(빈 realtor_id) 매물도 이름매칭으로 추가(realtor_id 서로 배타 → 중복 없음)
+                if vwattr:
                     region_by_sgg, norm = vwattr
                     sggs = list(region_by_sgg.keys())
                     w = ["(realtor_id IS NULL OR realtor_id='')",
                          f"substr(cortar_no,1,5) IN ({','.join('?' * len(sggs))})",
                          "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"]
-                    p = list(sggs) + ([trade] if trade else [])
+                    hp = list(sggs) + ([trade] if trade else [])
                     if trade:
                         w.append("trade_type=?")
-                    allrows = [dict(x) for x in rc.execute(
-                        sel + " WHERE " + " AND ".join(w) + " ORDER BY article_no", p).fetchall()]
-                    allrows = [r for r in allrows if r.get("realtor_name")
-                               and norm(r["realtor_name"]) in region_by_sgg.get((r.get("cortar_no") or "")[:5], set())]
-                    total = len(allrows)
-                    nrows = allrows[offset:offset + limit]
-                else:
-                    params = [realtor_id] + ([trade] if trade else [])
-                    total = rc.execute(
-                        "SELECT COUNT(*) FROM listings WHERE realtor_id=?" + trade_cl + snap_cl,
-                        params).fetchone()[0]
-                    nrows = [dict(x) for x in rc.execute(
-                        sel + " WHERE realtor_id=?" + trade_cl + snap_cl
-                        + " ORDER BY article_no LIMIT ? OFFSET ?",
-                        params + [limit, offset]).fetchall()]
+                    hidden = [dict(x) for x in rc.execute(
+                        sel + " WHERE " + " AND ".join(w) + " ORDER BY article_no", hp).fetchall()]
+                    allrows += [r for r in hidden if r.get("realtor_name")
+                                and norm(r["realtor_name"]) in region_by_sgg.get((r.get("cortar_no") or "")[:5], set())]
+                total = len(allrows)
+                nrows = allrows[offset:offset + limit]
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=4) as ex:
                 results = list(ex.map(lambda r: _audit_nonresi_one(r, kind, creds, vw, dks), nrows))
