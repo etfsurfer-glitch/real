@@ -221,45 +221,80 @@ def main() -> int:
     def month_complete(ym: str) -> bool:
         return all((ym, sg) in done for sg in regions)
 
+    # 공용 작업 큐 — 키별 지역 고정분할을 쓰지 않는다. 고정분할이면 소진된 키의 파티션이
+    # 통째로 막혀(2026-07-20 실측: 키 추가 후 3/4 파티션이 429로 전멸) 남은 셀을 건강한 키가
+    # 대신 처리하지 못한다. 큐 방식은 quota 남은 키가 남은 일감을 모두 흡수한다.
+    work = [(ym, sgg) for ym in months for sgg in regions if (ym, sgg) not in done]
+    work_lock = threading.Lock()
+    cursor = {"i": 0}
+    requeued: list[tuple[str, str]] = []   # 소진된 워커가 반납한 셀
+
+    def next_cell():
+        with work_lock:
+            if requeued:
+                return requeued.pop()
+            i = cursor["i"]
+            while i < len(work):
+                cell = work[i]
+                i += 1
+                if cell in done:
+                    continue
+                cursor["i"] = i
+                return cell
+            cursor["i"] = i
+            return None
+
+    def give_back(cell) -> None:
+        with work_lock:
+            requeued.append(cell)
+
+    def _is_quota(msg: str) -> bool:
+        u = msg.upper()
+        # 429/Too Many Requests도 일일 쿼터 소진 신호로 취급 — 예전엔 [skip]으로 흘려보내
+        # 소진된 키가 남은 셀 전부를 재시도하며 시간만 태웠다.
+        return any(s in u for s in ("LIMIT", "EXCEED", "429", "TOO MANY REQUESTS"))
+
     def worker(idx: int) -> None:
         _tls.key = keys[idx]
         _tls.calls = 0
         wh = _open_hist()   # 워커별 커넥션(WAL)
         wh.execute("PRAGMA busy_timeout=30000")
-        my_regions = [sg for i, sg in enumerate(regions) if i % len(keys) == idx]
-        for ym in months:
-            for sgg in my_regions:
-                if (ym, sgg) in done:
-                    continue
-                if _tls.calls >= budgets[idx]:
-                    state["budget_hit"] = True
-                    wh.close()
-                    return
-                try:
-                    rows = [_to_row(it, sgg) for it in fetch_all(sgg, ym)]
-                except APIError as e:
-                    msg = str(e)
-                    if "LIMIT" in msg.upper() or "EXCEED" in msg.upper():
-                        state["quota"] = True
-                        wh.close()
-                        return
-                    print(f"[skip] {ym} {sgg}: {msg[:100]}", flush=True)
-                    continue   # progress 미기록 → 다음 실행에서 재시도
-                wh.executemany("INSERT INTO hist VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
-                wh.execute("INSERT OR REPLACE INTO progress VALUES (?,?,?,?,?)",
-                           (ym, sgg, len(rows), len(rows), datetime.now().isoformat(timespec="seconds")))
-                wh.commit()
-                with done_lock:
-                    done.add((ym, sgg))
-                    complete = month_complete(ym)
-                if complete:
-                    with pub_lock:
-                        if ym not in published:
-                            published.add(ym)
-                            try:
-                                _publish_month(wh, ym)
-                            except Exception as pe:  # noqa: BLE001
-                                print(f"[publish-err] {ym}: {pe}", flush=True)
+        while True:
+            cell = next_cell()
+            if cell is None:
+                break
+            ym, sgg = cell
+            if (ym, sgg) in done:
+                continue
+            if _tls.calls >= budgets[idx]:
+                state["budget_hit"] = True
+                give_back(cell)      # 남은 일감은 다른 키가 가져가도록 반납
+                break
+            try:
+                rows = [_to_row(it, sgg) for it in fetch_all(sgg, ym)]
+            except APIError as e:
+                msg = str(e)
+                if _is_quota(msg):
+                    state["quota"] = True
+                    give_back(cell)  # 이 키는 은퇴, 셀은 건강한 키에게
+                    break
+                print(f"[skip] {ym} {sgg}: {msg[:100]}", flush=True)
+                continue   # progress 미기록 → 다음 실행에서 재시도
+            wh.executemany("INSERT INTO hist VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            wh.execute("INSERT OR REPLACE INTO progress VALUES (?,?,?,?,?)",
+                       (ym, sgg, len(rows), len(rows), datetime.now().isoformat(timespec="seconds")))
+            wh.commit()
+            with done_lock:
+                done.add((ym, sgg))
+                complete = month_complete(ym)
+            if complete:
+                with pub_lock:
+                    if ym not in published:
+                        published.add(ym)
+                        try:
+                            _publish_month(wh, ym)
+                        except Exception as pe:  # noqa: BLE001
+                            print(f"[publish-err] {ym}: {pe}", flush=True)
         wh.close()
 
     threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(len(keys))]
