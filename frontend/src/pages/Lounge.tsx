@@ -1704,6 +1704,29 @@ const PL_TYPES = ["아파트", "오피스텔", "빌라", "단독", "상가", "�
 const PL_TRADES = ["매매", "전세", "월세", "단기임대"];
 
 
+
+// 인증이 필요한 이미지 — <img src> 는 Authorization 헤더를 못 보내므로(401 → 높이 0)
+// fetch 로 받아 blob URL 로 바꿔 표시한다. 비공개매물 사진은 소속 회원만 볼 수 있다.
+function AuthImg({ authH, src, alt = "", className, onClick, title }: {
+  authH: () => Record<string, string>; src: string; alt?: string;
+  className?: string; onClick?: () => void; title?: string;
+}) {
+  const [url, setUrl] = useState("");
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    let alive = true; let obj = "";
+    setUrl(""); setErr(false);
+    fetch(src, { headers: authH() })
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.blob(); })
+      .then((b) => { if (!alive) return; obj = URL.createObjectURL(b); setUrl(obj); })
+      .catch(() => { if (alive) setErr(true); });
+    return () => { alive = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [src]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (err) return <div className={`${className || ""} authimg-err`} title="사진을 불러오지 못했어요">!</div>;
+  if (!url) return <div className={`${className || ""} authimg-load`} />;
+  return <img src={url} alt={alt} className={className} onClick={onClick} title={title} draggable={false} />;
+}
+
 // 사진 수동 보정 — 자동 검출이 놓친 곳(작은 글자·측면 얼굴 등)을 손으로 덧칠한다.
 // 좌표는 **상대좌표(0~1)** 로 보내 기기·표시크기와 무관하게 같은 지점을 가리키게 한다.
 function PhotoMaskEditor({ authH, name, onClose, onDone }: {
@@ -1761,7 +1784,8 @@ function PhotoMaskEditor({ authH, name, onClose, onDone }: {
         <p className="pl-hint">가릴 곳을 손가락(또는 마우스)으로 <b>드래그</b>하세요. 자동으로 못 가린 작은 글자·얼굴을 덧칠할 수 있어요.</p>
         <div className="pme-wrap" ref={wrapRef}
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
-          <img src={`${API_BASE}/lounge/private-listings/photo/${name}?v=${ver}`} alt="" draggable={false} />
+          <AuthImg authH={authH} src={`${API_BASE}/lounge/private-listings/photo/${name}?v=${ver}`}
+            className="pme-img" />
           {rects.map((r, i) => (
             <div key={i} className="pme-rect" style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`,
               width: `${r.w * 100}%`, height: `${r.h * 100}%` }} />
@@ -1837,6 +1861,9 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
   );
 
   return (
+    // 보정 모달은 이 오버레이 **밖**(형제)에 둔다 — 안에 중첩하면 부모의 backdrop-filter 가
+    // 컨테이닝 블록이 되어 position:fixed 가 갇히고 화면에 안 보인다(실측).
+    <>
     <div className="mld-ov" onClick={onClose}>
       <div className="mld pl-modal" onClick={(e) => e.stopPropagation()}>
         <button className="mld-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
@@ -1924,7 +1951,7 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
         <div className="pl-photos">
           {photos.map((p) => (
             <div key={p} className="pl-ph">
-              <img src={`${API_BASE}/lounge/private-listings/photo/${p}?v=${phVer}`} alt=""
+              <AuthImg authH={authH} src={`${API_BASE}/lounge/private-listings/photo/${p}?v=${phVer}`}
                 onClick={() => setEditPhoto(p)} title="눌러서 보정" />
               <button onClick={() => setPhotos((x) => x.filter((y) => y !== p))} aria-label="삭제"><Trash2 size={12} /></button>
               <span className="pl-ph-edit" onClick={() => setEditPhoto(p)}>보정</span>
@@ -1951,9 +1978,10 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
           <button className="pl-cancel" onClick={onClose}>취소</button>
         </div>
       </div>
-      {editPhoto && <PhotoMaskEditor authH={authH} name={editPhoto}
-        onClose={() => setEditPhoto(null)} onDone={() => setPhVer((v) => v + 1)} />}
     </div>
+    {editPhoto && <PhotoMaskEditor authH={authH} name={editPhoto}
+      onClose={() => setEditPhoto(null)} onDone={() => setPhVer((v) => v + 1)} />}
+    </>
   );
 }
 
