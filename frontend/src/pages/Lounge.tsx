@@ -5,8 +5,11 @@ import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
-  ShieldCheck, Users } from "lucide-react";
+  ShieldCheck, Users, CalendarDays, FileText } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
+import ContractCalendar from "../components/ContractCalendar";
+import BizCustomers from "../components/BizCustomers";
+import BizContracts from "../components/BizContracts";
 
 const TT: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 type ChgItem = { article_no: string; complex_no: string; complex_name?: string | null;
@@ -40,7 +43,7 @@ export type Status = {
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-export type Tab = "dashboard" | "listings" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff";
+export type Tab = "dashboard" | "listings" | "calendar" | "customers" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff";
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -60,7 +63,7 @@ export type FavOffice = { realtor_id: string; realtor_name: string | null; addre
   representative: string | null; total: TradeCnt; today_change: number; national_rank: number | null };
 
 export default function Lounge() {
-  const { user, token, ready, configured, refreshMe } = useAuth();
+  const { user, token, ready, configured, refreshMe, isAdmin } = useAuth();
   const [st, setSt] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [phoneOpen, setPhoneOpen] = useState(false);
@@ -177,6 +180,9 @@ export default function Lounge() {
             {([
               ["dashboard", "대시보드", LayoutDashboard],
               ["listings", "매물장", ClipboardList],
+              ...((isAdmin ? [["calendar", "계약캘린더", CalendarDays],
+                              ["customers", "고객관리", Users],
+                              ["contracts", "계약관리", FileText]] : []) as [Tab, string, typeof Users][]),
               ["audit", "매물점검", ShieldCheck],
               ["homepage", st.has_homepage ? "홈페이지관리" : "홈페이지생성", Globe],
               ["leads", "상담신청", MessageSquare],
@@ -192,6 +198,9 @@ export default function Lounge() {
           </div>
           {tab === "dashboard" && <DashboardTab authH={authH} office={st.office} onGoTab={setTab} />}
           {tab === "listings" && <ListingsTab authH={authH} office={st.office} />}
+          {tab === "calendar" && isAdmin && <ContractCalendar authH={authH} />}
+          {tab === "customers" && isAdmin && <BizCustomers authH={authH} />}
+          {tab === "contracts" && isAdmin && <BizContracts authH={authH} />}
           {tab === "audit" && <AuditTab authH={authH} />}
           {tab === "office" && <OfficeTab office={st.office} method={st.method} onUnlink={unlink} />}
           {tab === "edit" && <EditTab authH={authH} />}
@@ -1479,12 +1488,16 @@ type MLItem = {
   approve_ymd: string | number | null; builder: string | null; mgmt_tel: string | null;
 };
 type Manager = { name: string; position: string; role: string };
+// 매물번호 조회 결과 — mine=false면 다른 사무소 물건(확인 후 열람)
+type ForeignHit = { mine: boolean; article_no: string; realtor_id: string; realtor_name: string; listing: MLItem | null };
 function fmtYmd(s: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : s; }
 function eok(v: number) {
   if (!v) return "-";
   const e = Math.floor(v / 10000), man = v % 10000;
   return e ? `${e}억${man ? " " + man.toLocaleString() : ""}` : `${v.toLocaleString()}만`;
 }
+// same_addr_min/max_price는 원 단위(네이버 raw) — 만원으로 환산 후 표기
+function eokWon(v: number) { return eok(Math.round((v || 0) / 10000)); }
 
 const ML_CATS = ["", "아파트", "오피스텔", "분양권", "빌라", "상가", "사무실", "단독"];
 
@@ -1499,19 +1512,42 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [detail, setDetail] = useState<MLItem | null>(null);
+  const [detailOwner, setDetailOwner] = useState("");            // 타 사무소 매물일 때 사무소명
+  const [foreign, setForeign] = useState<ForeignHit | null>(null); // 매물번호가 남의 물건일 때
+  const [lookErr, setLookErr] = useState("");
 
   useEffect(() => {
     fetch(`${API_BASE}/lounge/managers`, { headers: authH() })
       .then((r) => r.json()).then((d) => setManagers(d.managers || [])).catch(() => {});
   }, [authH]);
 
+  // 매물번호로 소유 사무소 조회 — 내 물건이면 바로 보여주고, 아니면 확인을 받는다.
+  const lookup = useCallback((an: string) => {
+    fetch(`${API_BASE}/lounge/listings/lookup?article_no=${encodeURIComponent(an)}`, { headers: authH() })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.detail || "매물번호를 조회하지 못했어요");
+        return d as ForeignHit;
+      })
+      .then((d) => { if (d.mine && d.listing) setItems([d.listing]); else setForeign(d); })
+      .catch((e) => setLookErr(e.message || "조회 실패"));
+  }, [authH]);
+
   const load = useCallback(() => {
-    setBusy(true);
+    setBusy(true); setForeign(null); setLookErr("");
     const p = new URLSearchParams({ q, trade, cat, manager, sort });
     fetch(`${API_BASE}/lounge/listings?${p}`, { headers: authH() })
-      .then((r) => r.json()).then((d) => setItems(d.listings || [])).catch(() => setItems([]))
+      .then((r) => r.json())
+      .then((d) => {
+        const list: MLItem[] = d.listings || [];
+        setItems(list);
+        // 내 매물장에 없고 매물번호 형태면 → 남의 물건인지 조회
+        const an = q.trim();
+        if (list.length === 0 && /^\d{6,}$/.test(an)) lookup(an);
+      })
+      .catch(() => setItems([]))
       .finally(() => setBusy(false));
-  }, [authH, q, trade, cat, manager, sort]);
+  }, [authH, q, trade, cat, manager, sort, lookup]);
   useEffect(() => { load(); }, [trade, cat, manager, sort]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patch = (an: string, k: "memo" | "contact" | "manager", v: string) =>
@@ -1538,10 +1574,11 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       <div className="mlj-bar">
         <div className="mlj-search">
           <Search size={15} aria-hidden />
-          <input placeholder="단지·건물·특징·지역 검색" value={q}
+          <input placeholder="단지·건물·지역 또는 네이버 매물번호 검색" value={q} inputMode="text"
             onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
           <button onClick={load}>검색</button>
         </div>
+        <div className="mlj-search-hint">네이버 매물번호 검색 가능</div>
         <div className="mlj-filters">
           {([["", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]] as const).map(([k, l]) => (
             <button key={k} className={trade === k ? "on" : ""} onClick={() => setTrade(k)}>{l}</button>
@@ -1567,6 +1604,24 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
         </select>
         <span className="mlj-mgr-hint">담당자를 고르면 그 사람 매물장만 보여요</span>
       </div>
+      {lookErr && <div className="mlj-foreign mlj-foreign-err">{lookErr}</div>}
+      {foreign && (
+        <div className="mlj-foreign">
+          <div className="mlj-foreign-t">다른 사무실 물건입니다. 조회하시겠습니까?</div>
+          <div className="mlj-foreign-s">
+            매물번호 {foreign.article_no}
+            {foreign.realtor_name ? ` · ${foreign.realtor_name}` : ""}
+          </div>
+          <div className="mlj-foreign-b">
+            <button className="on" disabled={!foreign.listing}
+              onClick={() => { if (foreign.listing) { setDetailOwner(foreign.realtor_name || "다른 중개사무소"); setDetail(foreign.listing); } }}>
+              조회하기
+            </button>
+            <button onClick={() => setForeign(null)}>취소</button>
+          </div>
+          {!foreign.listing && <div className="mlj-foreign-s">※ 해당 매물의 상세를 불러올 수 없습니다(사무소 미귀속 매물).</div>}
+        </div>
+      )}
       <div className="mlj-count">{office.realtor_name ?? "내 사무소"} · {busy
         ? <span style={{ color: "var(--c-primary)", fontWeight: 700 }}>불러오는 중…</span>
         : <>총 <b>{items?.length ?? 0}</b>개</>}</div>
@@ -1578,7 +1633,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
         <div className="mlj-list">
           {items.map((l) => (
             <div key={l.article_no} className="mlj-card">
-              <div className="mlj-head" onClick={() => setDetail(l)} style={{ cursor: "pointer" }}>
+              <div className="mlj-head" onClick={() => { setDetailOwner(""); setDetail(l); }} style={{ cursor: "pointer" }}>
                 <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
                 {l.type && <span className="mlj-type">{l.type}</span>}
                 <b className="mlj-title">{l.complex_name || l.building_name || l.area_name || "매물"} <ChevronRight size={13} style={{ verticalAlign: "-2px", color: "#bbb" }} /></b>
@@ -1598,7 +1653,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               {l.tags?.length > 0 && <div className="mlj-tags">{l.tags.map((t, i) => <span key={i}>{t}</span>)}</div>}
               {l.feature_desc && <div className="mlj-feat">{l.feature_desc}</div>}
               {(l.same_addr_min || l.same_addr_max) ? (
-                <div className="mlj-same">동일주소 {l.same_addr_cnt}건 · {eok(l.same_addr_min)} ~ {eok(l.same_addr_max)}</div>
+                <div className="mlj-same">동일주소 {l.same_addr_cnt}건 · {eokWon(l.same_addr_min)} ~ {eokWon(l.same_addr_max)}</div>
               ) : null}
               <div className="mlj-actions">
                 <select className="mlj-assign" value={l.manager} onChange={(e) => assignManager(l, e.target.value)}>
@@ -1619,13 +1674,13 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           ))}
         </div>
       )}
-      {detail && <ListingDetail l={detail} onClose={() => setDetail(null)} />}
+      {detail && <ListingDetail l={detail} owner={detailOwner} onClose={() => { setDetail(null); setDetailOwner(""); }} />}
     </div>
   );
 }
 
 // 매물 상세 모달 — 주소·가격·면적·층·방향·확인일·검증·태그·특징·동일주소·지도·바로가기 전부
-function ListingDetail({ l, onClose }: { l: MLItem; onClose: () => void }) {
+function ListingDetail({ l, owner = "", onClose }: { l: MLItem; owner?: string; onClose: () => void }) {
   const kakao = l.lat && l.lng ? `https://map.kakao.com/link/map/${encodeURIComponent(l.complex_name || l.building_name || "매물")},${l.lat},${l.lng}` : "";
   const route = l.lat && l.lng ? `https://map.kakao.com/link/to/${encodeURIComponent(l.complex_name || l.building_name || "매물")},${l.lat},${l.lng}` : "";
   const Row = ({ k, v }: { k: string; v: string | null }) => v ? <div className="mld-row"><span className="mld-k">{k}</span><span className="mld-v">{v}</span></div> : null;
@@ -1633,6 +1688,7 @@ function ListingDetail({ l, onClose }: { l: MLItem; onClose: () => void }) {
     <div className="mld-ov" onClick={onClose}>
       <div className="mld" onClick={(e) => e.stopPropagation()}>
         <button className="mld-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
+        {owner && <div className="mld-foreign">다른 중개사무소 매물 · {owner}</div>}
         <div className="mld-top">
           <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
           {l.type && <span className="mlj-type">{l.type}</span>}
@@ -1651,7 +1707,7 @@ function ListingDetail({ l, onClose }: { l: MLItem; onClose: () => void }) {
           <Row k="확인일" v={l.confirm_ymd ? fmtYmd(l.confirm_ymd) : null} />
           <Row k="검증" v={l.verification_type} />
           <Row k="건물명" v={l.building_name} />
-          <Row k="동일주소" v={l.same_addr_cnt ? `${l.same_addr_cnt}건 · ${eok(l.same_addr_min)} ~ ${eok(l.same_addr_max)}` : null} />
+          <Row k="동일주소" v={l.same_addr_cnt ? `${l.same_addr_cnt}건 · ${eokWon(l.same_addr_min)} ~ ${eokWon(l.same_addr_max)}` : null} />
           <Row k="세대수" v={l.households ? `${l.households.toLocaleString()}세대` : null} />
           <Row k="세대당 주차" v={l.parking_per ? `${l.parking_per}대${l.parking_total ? ` (총 ${l.parking_total.toLocaleString()}대)` : ""}` : null} />
           <Row k="준공" v={l.approve_ymd ? `${String(l.approve_ymd).slice(0, 4)}.${String(l.approve_ymd).slice(4, 6)}` : null} />

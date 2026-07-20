@@ -11469,6 +11469,70 @@ def _ml_price_text(v) -> str:
     return (f"{e}억" + (f" {man:,}" if man else "")) if e else f"{man:,}"
 
 
+_SIDO_SHORT = {
+    "서울시": "서울", "부산시": "부산", "대구시": "대구", "인천시": "인천", "광주시": "광주",
+    "대전시": "대전", "울산시": "울산", "세종시": "세종", "경기도": "경기", "강원도": "강원",
+    "충청북도": "충북", "충청남도": "충남", "전라북도": "전북", "전북도": "전북",
+    "전라남도": "전남", "경상북도": "경북", "경상남도": "경남", "제주도": "제주",
+}
+
+
+def _short_sido(name: str) -> str:
+    """'서울특별시'·'서울시' → '서울', '충청남도' → '충남'. 매물장·중개사 매물 주소 표기용."""
+    n = (name or "").strip()
+    if not n:
+        return ""
+    if n in _SIDO_SHORT:
+        return _SIDO_SHORT[n]
+    for suf in ("특별자치시", "특별자치도", "광역시", "특별시", "시", "도"):
+        if n.endswith(suf) and len(n) > len(suf):
+            return _SIDO_SHORT.get(n, n[: -len(suf)])
+    return n
+
+
+def _region_addr_map(conn, cortars) -> dict:
+    """cortar_no(10자리) → '서울 강남구 역삼동'. 시도는 축약, 없는 단계는 건너뜀."""
+    cts = {c for c in cortars if c}
+    if not cts:
+        return {}
+    need = set()
+    for ct in cts:
+        need |= {ct, ct[:5] + "00000", ct[:2] + "00000000"}
+    ph = ",".join("?" * len(need))
+    nm = {r[0]: r[1] for r in conn.execute(
+        f"SELECT cortar_no, cortar_name FROM regions WHERE cortar_no IN ({ph})", list(need)).fetchall()}
+    out = {}
+    for ct in cts:
+        parts = [_short_sido(nm.get(ct[:2] + "00000000", "")),
+                 nm.get(ct[:5] + "00000", ""), nm.get(ct, "")]
+        out[ct] = " ".join(x for x in parts if x)
+    return out
+
+
+def _find_listing_owner(article_no: str):
+    """네이버 매물번호 → (realtor_id, realtor_name). 단지형·비단지 전 DB 탐색. 못 찾으면 None."""
+    with _open_db() as dc:
+        r = dc.execute("SELECT realtor_id, realtor_name FROM listings_current WHERE article_no=? LIMIT 1",
+                       (article_no,)).fetchone()
+    if r and (r[0] or r[1]):
+        return (r[0] or "", r[1] or "")
+    snap = "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"
+    for dbkey in _NONRESI_DB:
+        p = DB_PATH.parent / _NONRESI_DB[dbkey]
+        if not p.exists():
+            continue
+        try:
+            with sqlite3.connect(f"file:{p}?mode=ro", uri=True) as nc:
+                nc.execute("PRAGMA busy_timeout=15000")
+                r = nc.execute(f"SELECT realtor_id, realtor_name FROM listings "
+                               f"WHERE article_no=? AND {snap} LIMIT 1", (article_no,)).fetchone()
+            if r and (r[0] or r[1]):
+                return (r[0] or "", r[1] or "")
+        except sqlite3.Error:
+            continue
+    return None
+
+
 def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
     """중개사(realtor_id)의 매물 통합 — 단지형(listings_current) + 비단지(7종 별도 DB).
     매물장·중개사 세부페이지 공용. code=거래코드(A1/B1/B2) 또는 None, cat=유형 한글 필터."""
@@ -11489,11 +11553,12 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                "l.same_addr_min_price,l.same_addr_max_price,l.article_feature_desc,l.cp_pc_article_url,"
                "l.cp_name,l.verification_type,l.latitude,l.longitude,c.dong_name,c.road_address,c.detail_address,"
                "c.parking_possible_count,c.parking_per_household,c.total_household_count,c.use_approve_ymd,"
-               "c.construction_company,c.management_office_tel "
+               "c.construction_company,c.management_office_tel,c.cortar_no "
                "FROM listings_current l LEFT JOIN complexes c ON c.complex_no=l.complex_no "
                f"WHERE {' AND '.join(w)}")
         with _open_db() as dc:
             rows = dc.execute(sql, p).fetchall()
+            cx_addr = _region_addr_map(dc, {r[34] for r in rows})
         for r in rows:
             tkor = _RET_KOR.get(r[4], "아파트")
             if cat in ("아파트", "오피스텔", "분양권") and cat != tkor:
@@ -11502,9 +11567,15 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                 tags = _json.loads(r[15]) if r[15] else []
             except Exception:
                 tags = []
+            # 주소 = '서울 강남구 역삼동 222'(시도축약+시군구+동+지번). 지번(detail_address) 없으면 도로명.
             dong = r[25] or ""
-            addr = (r[26] or r[27] or "").strip()
-            full_addr = " ".join(x for x in [dong, addr] if x).strip()
+            base = cx_addr.get(r[34], "")
+            if not base:                       # regions 미매칭 시 동만이라도
+                base = dong
+            elif dong and not base.endswith(dong):
+                base = f"{base} {dong}"
+            bunji = (r[27] or "").strip() or (r[26] or "").strip()
+            full_addr = " ".join(x for x in [base, bunji] if x).strip()
             items.append({
                 "article_no": r[0], "complex_no": r[1], "complex_name": r[2],
                 "trade_type": _TRADE_KOR.get(r[3], r[3]), "type": tkor, "area_name": r[5],
@@ -11569,11 +11640,14 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
             rrows = []
         cortars = {r[13] for r in rrows if r[13]}
         dongmap: dict = {}
+        addrmap: dict = {}
         if cortars:
             with _open_db() as dc:
                 ph = ",".join("?" * len(cortars))
                 dongmap = {x[0]: x[1] for x in dc.execute(
                     f"SELECT cortar_no, cortar_name FROM regions WHERE cortar_no IN ({ph})", list(cortars)).fetchall()}
+                # 비단지는 원본에 지번이 없어(detailAddress 공백) '시도 시군구 동'까지 구성
+                addrmap = _region_addr_map(dc, cortars)
         for r in rrows:
             feat, tags, sa_cnt, sa_min, sa_max, vtype = "", [], 0, 0, 0, ""
             try:
@@ -11587,7 +11661,7 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
             except Exception:
                 pass
             dong = dongmap.get(r[13], "") or ""
-            full_addr = " ".join(x for x in [dong, r[9] or ""] if x).strip()
+            full_addr = addrmap.get(r[13], "") or dong   # 건물명은 카드에서 따로 노출(주소에 섞지 않음)
             items.append({
                 "article_no": r[0], "complex_no": None, "complex_name": None,
                 "trade_type": _TRADE_KOR.get(r[2], r[2]), "type": ckor,
@@ -11641,8 +11715,10 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
         it["memo"], it["contact"], it["manager"] = m or "", ct or "", mg or ""
     if q.strip():
         ql = q.strip()
-        items = [it for it in items if ql in ((it["complex_name"] or "") + (it["building_name"] or "")
-                 + (it["area_name"] or "") + (it["feature_desc"] or ""))]
+        # 네이버 매물번호도 검색 대상(중개사가 번호로 바로 자기 물건을 찾는 흐름)
+        items = [it for it in items if ql in ((it["article_no"] or "") + (it["complex_name"] or "")
+                 + (it["building_name"] or "") + (it["area_name"] or "") + (it["address"] or "")
+                 + (it["feature_desc"] or ""))]
     if manager == "미지정":
         items = [it for it in items if not it["manager"]]
     elif manager:
@@ -11655,6 +11731,29 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
         items.sort(key=lambda x: x["confirm_ymd"] or "", reverse=True)
     items = items[:min(max(int(limit), 1), 3000)]
     return {"realtor_id": rid, "count": len(items), "listings": items}
+
+
+@app.get("/lounge/listings/lookup")
+def lounge_listing_lookup(article_no: str, user: dict = Depends(current_user)):
+    """네이버 매물번호 조회 — 내 사무소 물건이면 바로, 아니면 소유 사무소를 알려준다.
+    프런트는 mine=false면 '다른 사무실 물건입니다. 조회하시겠습니까?'를 띄우고 확인 시 listing을 연다."""
+    an = "".join(ch for ch in (article_no or "") if ch.isdigit())
+    if not an:
+        raise HTTPException(400, "매물번호는 숫자입니다")
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+    owner = _find_listing_owner(an)
+    if not owner:
+        raise HTTPException(404, "그 매물번호를 찾을 수 없습니다. 번호를 확인해 주세요.")
+    orid, orname = owner
+    mine = bool(orid) and orid == rid
+    item = None
+    if orid:
+        item = next((x for x in _collect_realtor_listings(orid, None, "") if x["article_no"] == an), None)
+    if mine and not item:      # 귀속은 우리인데 현재 스냅샷에 없음(내려간 매물)
+        raise HTTPException(404, "우리 사무소 매물이지만 현재 노출 중이 아닙니다(내려갔거나 갱신 대기).")
+    return {"mine": mine, "article_no": an, "realtor_id": orid,
+            "realtor_name": orname or ("다른 중개사무소" if not mine else ""), "listing": item}
 
 
 @app.get("/lounge/listings/{article_no}/raw")

@@ -2824,6 +2824,18 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mlj-search svg{color:var(--c-muted);flex:none}
 .mlj-search input{border:0;outline:0;flex:1;font-size:14px;min-width:60px}
 .mlj-search button{border:0;background:var(--c-primary);color:#fff;border-radius:var(--r-pill);padding:6px 14px;font-weight:700;font-size:13px;cursor:pointer}
+.mlj-search-hint{flex:1 0 100%;order:99;font-size:11.5px;color:var(--c-muted);padding-left:12px;margin-top:-2px}
+.mlj-search-hint::before{content:"🔎 ";filter:grayscale(1)}
+/* 매물번호가 타 사무소 물건일 때 확인 블록 */
+.mlj-foreign{border:1px solid var(--c-border);border-left:3px solid var(--c-primary);background:#f7f9fc;border-radius:var(--r-sm);padding:12px 14px;margin-bottom:12px}
+.mlj-foreign-t{font-weight:700;font-size:14px;color:var(--c-text)}
+.mlj-foreign-s{font-size:12.5px;color:var(--c-muted);margin-top:3px}
+.mlj-foreign-b{display:flex;gap:8px;margin-top:10px}
+.mlj-foreign-b button{border:1px solid var(--c-border);background:#fff;border-radius:var(--r-pill);padding:6px 14px;font-size:13px;font-weight:700;color:var(--c-muted);cursor:pointer}
+.mlj-foreign-b button.on{background:var(--c-primary);color:#fff;border-color:var(--c-primary)}
+.mlj-foreign-b button:disabled{opacity:.5;cursor:not-allowed}
+.mlj-foreign-err{border-left-color:#e2574c;background:#fdf5f4;font-size:13px;color:#a33}
+.mld-foreign{background:#fff6e6;border:1px solid #f0d9a8;color:#8a6316;border-radius:var(--r-sm);padding:7px 10px;font-size:12.5px;font-weight:700;margin-bottom:10px}
 .mlj-filters{display:flex;gap:5px;align-items:center}
 .mlj-filters button{border:1px solid var(--c-border);background:#fff;border-radius:var(--r-pill);padding:6px 12px;font-size:13px;font-weight:700;color:var(--c-muted);cursor:pointer}
 .mlj-filters button.on{background:var(--c-text);color:#fff;border-color:var(--c-text)}
