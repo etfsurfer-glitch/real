@@ -11756,19 +11756,19 @@ def realtor_listings_public(realtor_id: str, cat: str = "", trade: str = "",
 @app.get("/lounge/listings")
 def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str = "",
                     cat: str = "", manager: str = "", sort: str = "confirm", limit: int = 1500,
-                    private: int = 0):
+                    private: int = 0, private_only: int = 0):
     """매물장 — 내 중개사무소(realtor_id)의 매물 통합. trade=매매/전세/월세, cat=유형, manager=담당자.
-    private=1 이면 콕집에 직접 등록한 비공개매물도 함께(공개범위 규칙 적용)."""
+    private=1 이면 비공개매물도 함께, private_only=1 이면 비공개매물만(공개범위 규칙 적용)."""
     with _reviews_db() as rc:
         rid = _require_member(rc, user["id"])
         _ensure_lounge_notes(rc)
         notes = {r[0]: (r[1], r[2], r[3]) for r in rc.execute(
             "SELECT article_no, memo, contact, manager FROM lounge_notes WHERE realtor_id=?", (rid,)).fetchall()}
         priv = []
-        if private:
+        if private or private_only:
             rc.row_factory = sqlite3.Row
             priv = _collect_private_listings(rc, rid, user["id"], _TRADE_CODE.get(trade), cat)
-    items = _collect_realtor_listings(rid, _TRADE_CODE.get(trade), cat)
+    items = [] if private_only else _collect_realtor_listings(rid, _TRADE_CODE.get(trade), cat)
 
     # 메모/연락처/담당자 결합 → 검색·담당자 필터 → 정렬 → 컷
     for it in items:
@@ -11810,11 +11810,11 @@ _PL_FIELDS = [
     "price", "rent_price", "deposit", "maintenance_fee", "loan_amount",
     "move_in", "approve_ymd", "parking", "elevator", "pets", "heating",
     "options", "feature_desc", "memo", "contact", "owner_name", "owner_tel",
-    "manager", "tags", "confirm_ymd",
+    "manager", "tags", "confirm_ymd", "lat", "lng",
 ]
 _PL_NUM = {"area1_m2", "area2_m2", "area_py", "price", "rent_price", "deposit",
            "maintenance_fee", "loan_amount", "floor", "total_floor", "room_cnt",
-           "bath_cnt", "parking"}
+           "bath_cnt", "parking", "lat", "lng"}
 
 
 def _ensure_private_listings(c) -> None:
@@ -11838,10 +11838,38 @@ def _ensure_private_listings(c) -> None:
     # (CREATE TABLE IF NOT EXISTS 는 기존 테이블에 no-op 이라, 새 컬럼을 참조하는 인덱스를
     #  같은 스크립트에 두면 'no such column' 으로 터진다.)
     have = {r[1] for r in c.execute("PRAGMA table_info(private_listings)")}
-    for col in ("source_article_no", "source_saved_at"):
+    for col in ("source_article_no", "source_saved_at", "lat", "lng"):
         if col not in have:
             c.execute(f"ALTER TABLE private_listings ADD COLUMN {col} TEXT")
     c.execute("CREATE INDEX IF NOT EXISTS pl_src ON private_listings(realtor_id, source_article_no)")
+
+
+def _geocode_addr(addr: str):
+    """주소 → (lat, lng). 직접 등록한 비공개매물을 지도에 찍기 위해 최선노력으로 좌표를 구한다.
+    실패해도 저장은 계속된다(좌표 없는 매물은 지도에서만 빠짐)."""
+    a = (addr or "").strip()
+    if len(a) < 6:
+        return None
+    key = os.getenv("VWORLD_KEY", "").strip()
+    if not key:
+        return None
+    import urllib.parse as _up, urllib.request as _ur
+    for typ in ("parcel", "road"):
+        try:
+            q = _up.urlencode({"service": "address", "request": "getcoord", "version": "2.0",
+                               "crs": "epsg:4326", "address": a, "format": "json",
+                               "type": typ, "key": key})
+            req = _ur.Request(f"https://api.vworld.kr/req/address?{q}",
+                              headers={"User-Agent": "koczip/1.0"})
+            with _ur.urlopen(req, timeout=6) as r:
+                d = _json.loads(r.read().decode("utf-8"))
+            res = d.get("response", {})
+            if res.get("status") == "OK":
+                pt = res["result"]["point"]
+                return (float(pt["y"]), float(pt["x"]))
+        except Exception:
+            continue
+    return None
 
 
 def _parse_price_man(txt) -> str | None:
@@ -11896,7 +11924,7 @@ def _pl_row_to_item(r) -> dict:
         "same_addr_cnt": 0, "same_addr_min": 0, "same_addr_max": 0,
         "feature_desc": g("feature_desc") or "",
         "naver_url": "", "cp_name": "", "verification_type": "",
-        "lat": None, "lng": None, "dong": g("dong") or "",
+        "lat": num("lat"), "lng": num("lng"), "dong": g("dong") or "",
         "address": " ".join(x for x in [g("address") or "", g("address_detail") or ""] if x).strip(),
         "parking_total": None, "parking_per": None, "households": None,
         "approve_ymd": g("approve_ymd"), "builder": None, "mgmt_tel": None,
@@ -11947,6 +11975,11 @@ def lounge_private_save(body: dict, user: dict = Depends(current_user)):
             try: v = str(float(v))
             except (TypeError, ValueError): v = None
         vals[f] = None if v in ("",) else v
+    # 좌표가 없고 주소가 있으면 지오코딩해 지도에 표시되게 한다(실패해도 저장은 진행)
+    if not vals.get("lat") and vals.get("address"):
+        _pt = _geocode_addr(" ".join(x for x in [vals.get("address"), vals.get("address_detail")] if x))
+        if _pt:
+            vals["lat"], vals["lng"] = str(_pt[0]), str(_pt[1])
     with _reviews_db() as c:
         c.row_factory = sqlite3.Row
         rid = _require_member(c, user["id"])
@@ -12011,6 +12044,8 @@ def lounge_private_from_naver(body: dict, user: dict = Depends(current_user)):
             "rent_price": _parse_price_man(src.get("rent_price_text")),
             "approve_ymd": str(src["approve_ymd"]) if src.get("approve_ymd") else None,
             "parking": str(src["parking_per"]) if src.get("parking_per") else None,
+            "lat": str(src["lat"]) if src.get("lat") else None,
+            "lng": str(src["lng"]) if src.get("lng") else None,
             "feature_desc": src.get("feature_desc"), "confirm_ymd": src.get("confirm_ymd"),
             "memo": src.get("memo"), "contact": src.get("contact"), "manager": src.get("manager"),
             "tags": _json.dumps(src.get("tags") or [], ensure_ascii=False),

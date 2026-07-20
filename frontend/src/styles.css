@@ -3483,3 +3483,37 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mld-topriv-t{font-size:13px;font-weight:800;margin-bottom:8px}
 .mld-topriv-n{margin-top:8px;font-size:11.5px;color:var(--c-muted);line-height:1.45}
 .mld-srcnote{margin-top:10px;font-size:11.5px;color:var(--c-muted);background:var(--c-border-soft);border-radius:var(--r-sm);padding:6px 9px}
+
+/* 비공개만 보기 · 카드에서 바로 보관 */
+.mlj-priv-only{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-border);background:#fff;color:var(--c-muted);border-radius:var(--r-pill);padding:5px 11px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.mlj-priv-only.on{background:#4338ca;color:#fff;border-color:#4338ca}
+.mlj-keep{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-border);background:#fff;color:var(--c-muted);border-radius:var(--r-pill);padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer}
+.mlj-keep:hover{border-color:#4338ca;color:#4338ca}
+.mlj-keep-ok{font-size:12px;font-weight:800;color:#1a7f37}
+.mlj-keep-pick{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px;padding:8px 10px;background:#f7f9fc;border:1px solid var(--c-border);border-left:3px solid #4338ca;border-radius:var(--r-sm)}
+.mlj-keep-pick span{font-size:12px;font-weight:700;color:var(--c-muted)}
+.mlj-keep-pick button{border:1px solid #4338ca;background:#fff;color:#4338ca;border-radius:var(--r-pill);padding:4px 11px;font-size:12px;font-weight:700;cursor:pointer}
+.mlj-keep-pick button:hover{background:#4338ca;color:#fff}
+.mlj-keep-pick button.x{border-color:var(--c-border);color:var(--c-muted)}
+/* 매물장 지도보기 */
+.mlj-mapbtn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c-primary);background:var(--c-primary);color:#fff;border-radius:var(--r-pill);padding:6px 13px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+.om-ov{position:fixed;inset:0;z-index:1200;background:#fff;display:flex;flex-direction:column}
+.om-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--c-border);flex:none}
+.om-head b{display:inline-flex;align-items:center;gap:6px;font-size:15px}
+.om-head button{border:0;background:var(--c-border-soft);border-radius:50%;width:30px;height:30px;display:grid;place-items:center;cursor:pointer;color:var(--c-muted)}
+.om-map{flex:1;min-height:0;width:100%}
+.om-ctl{position:absolute;left:10px;top:60px;z-index:5;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 20px)}
+.om-row{display:flex;gap:5px;background:rgba(255,255,255,.94);border:1px solid var(--c-border);border-radius:var(--r-pill);padding:4px;box-shadow:var(--sh-sm);backdrop-filter:blur(4px)}
+.om-row.om-wrap{flex-wrap:wrap;border-radius:var(--r-sm)}
+.om-row button{display:inline-flex;align-items:center;gap:3px;border:0;background:transparent;color:var(--c-muted);border-radius:var(--r-pill);padding:5px 11px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.om-row button.on{background:var(--c-text);color:#fff}
+.om-stat{position:absolute;right:10px;bottom:14px;z-index:5;background:rgba(255,255,255,.95);border:1px solid var(--c-border);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;box-shadow:var(--sh-sm)}
+.om-noxy{color:var(--c-muted);font-weight:600}
+.om-pin{position:relative;transform:translateX(-50%);background:var(--c-primary);color:#fff;border-radius:var(--r-pill);padding:4px 9px;font-size:11.5px;font-weight:800;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.28);cursor:pointer}
+.om-pin.om-priv{background:#4338ca}
+.om-pin .om-tip{display:none;position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);background:#fff;color:var(--c-text);border:1px solid var(--c-border);border-radius:var(--r-sm);padding:8px 10px;min-width:172px;box-shadow:var(--sh-lg);text-align:left}
+.om-pin:hover .om-tip{display:block}
+.om-tip-t{font-size:12.5px;font-weight:800}
+.om-tip-b{background:#eef2ff;color:#4338ca;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:800}
+.om-tip-s{font-size:11.5px;color:var(--c-muted);margin-top:2px}
+.om-tip-a{font-size:11px;color:var(--c-muted);margin-top:3px}

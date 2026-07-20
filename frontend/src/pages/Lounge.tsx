@@ -7,6 +7,7 @@ import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, Clipboar
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
   ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2 } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
+import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
 import BizCustomers from "../components/BizCustomers";
 import BizContracts from "../components/BizContracts";
@@ -1520,6 +1521,10 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   const [foreign, setForeign] = useState<ForeignHit | null>(null); // 매물번호가 남의 물건일 때
   const [lookErr, setLookErr] = useState("");
   const [priv, setPriv] = useState(false);            // 비공개매물 포함 검색
+  const [privOnly, setPrivOnly] = useState(false);   // 비공개매물만 보기
+  const [privPick, setPrivPick] = useState("");      // 카드에서 보관 중인 매물번호
+  const [mapOpen, setMapOpen] = useState(false);     // 사무소 매물 지도
+  const [privMsg, setPrivMsg] = useState<Record<string, string>>({});
   const [plOpen, setPlOpen] = useState(false);        // 비공개매물 등록 모달
   const [editPL, setEditPL] = useState<MLItem | null>(null);
 
@@ -1542,7 +1547,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
 
   const load = useCallback(() => {
     setBusy(true); setForeign(null); setLookErr("");
-    const p = new URLSearchParams({ q, trade, cat, manager, sort, private: priv ? "1" : "0" });
+    const p = new URLSearchParams({ q, trade, cat, manager, sort,
+      private: priv || privOnly ? "1" : "0", private_only: privOnly ? "1" : "0" });
     fetch(`${API_BASE}/lounge/listings?${p}`, { headers: authH() })
       .then((r) => r.json())
       .then((d) => {
@@ -1554,8 +1560,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       })
       .catch(() => setItems([]))
       .finally(() => setBusy(false));
-  }, [authH, q, trade, cat, manager, sort, priv, lookup]);
-  useEffect(() => { load(); }, [trade, cat, manager, sort, priv]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authH, q, trade, cat, manager, sort, priv, privOnly, lookup]);
+  useEffect(() => { load(); }, [trade, cat, manager, sort, priv, privOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patch = (an: string, k: "memo" | "contact" | "manager", v: string) =>
     setItems((its) => its ? its.map((x) => x.article_no === an ? { ...x, [k]: v } : x) : its);
@@ -1567,6 +1573,22 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     setSaved((s) => ({ ...s, [l.article_no]: true }));
     setTimeout(() => setSaved((s) => ({ ...s, [l.article_no]: false })), 1500);
   };
+  // 네이버 매물 → 비공개매물장 보관(목록에서 바로)
+  const toPrivate = async (l: MLItem, visibility: "office" | "me") => {
+    setPrivPick("");
+    try {
+      const r = await fetch(`${API_BASE}/lounge/private-listings/from-naver`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ article_no: l.article_no, visibility }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.detail || "보관 실패");
+      setPrivMsg((m) => ({ ...m, [l.article_no]: d.duplicated ? "이미 보관됨" : "보관 완료" }));
+      setTimeout(() => setPrivMsg((m) => ({ ...m, [l.article_no]: "" })), 2500);
+      if (priv || privOnly) load();
+    } catch (e: any) { alert(e.message || "보관 실패"); }
+  };
+
   // 담당자 즉시 배정(저장까지)
   const assignManager = async (l: MLItem, v: string) => {
     patch(l.article_no, "manager", v);
@@ -1585,6 +1607,9 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
             onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
           <button onClick={load}>검색</button>
         </div>
+        <button className="mlj-mapbtn" onClick={() => setMapOpen(true)}>
+          <MapIcon size={14} /> 지도보기
+        </button>
         <div className="mlj-search-hint">네이버 매물번호 검색 가능</div>
         <div className="mlj-filters">
           {([["", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]] as const).map(([k, l]) => (
@@ -1613,6 +1638,10 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} />
           비공개매물 포함
         </label>
+        <button className={`mlj-priv-only${privOnly ? " on" : ""}`}
+          onClick={() => setPrivOnly((v) => !v)} title="비공개매물만 보기">
+          <Lock size={11} /> 비공개만
+        </button>
         <button className="mlj-priv-add" onClick={() => { setEditPL(null); setPlOpen(true); }}>
           <Plus size={13} aria-hidden /> 비공개매물 등록
         </button>
@@ -1679,7 +1708,19 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                   onChange={(e) => patch(l.article_no, "contact", e.target.value)} />
                 {l.contact && <a className="mlj-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}><Phone size={13} /> 전화</a>}
                 {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={13} /> 네이버</a>}
+                {!l.is_private && (privMsg[l.article_no]
+                  ? <span className="mlj-keep-ok">{privMsg[l.article_no]}</span>
+                  : <button className="mlj-keep" onClick={() => setPrivPick(privPick === l.article_no ? "" : l.article_no)}>
+                      <Lock size={12} /> 보관</button>)}
               </div>
+              {privPick === l.article_no && (
+                <div className="mlj-keep-pick">
+                  <span>어디에 보이게 할까요?</span>
+                  <button onClick={() => toPrivate(l, "office")}>사무실 전체</button>
+                  <button onClick={() => toPrivate(l, "me")}>나만 보기</button>
+                  <button className="x" onClick={() => setPrivPick("")}>취소</button>
+                </div>
+              )}
               <div className="mlj-memo">
                 <textarea placeholder="메모 (사무소 공유)" value={l.memo} rows={1}
                   onChange={(e) => patch(l.article_no, "memo", e.target.value)} />
@@ -1692,6 +1733,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       {detail && <ListingDetail l={detail} owner={detailOwner} authH={authH}
         onSavedPrivate={() => { setPriv(true); load(); }}
         onClose={() => { setDetail(null); setDetailOwner(""); }} />}
+      {mapOpen && <OfficeMap authH={authH} officeName={office.realtor_name} onClose={() => setMapOpen(false)} />}
       {plOpen && <PrivateListingForm authH={authH} init={editPL} managers={managers}
         onClose={() => setPlOpen(false)} onSaved={() => { setPlOpen(false); setPriv(true); load(); }} />}
     </div>
