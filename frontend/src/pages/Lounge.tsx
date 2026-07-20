@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth";
 import { PhoneModal } from "../components/PhoneVerify";
@@ -1703,6 +1703,89 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
 const PL_TYPES = ["아파트", "오피스텔", "빌라", "단독", "상가", "사무실", "토지", "공장", "건물", "지식산업센터", "재개발", "원룸", "분양권"];
 const PL_TRADES = ["매매", "전세", "월세", "단기임대"];
 
+
+// 사진 수동 보정 — 자동 검출이 놓친 곳(작은 글자·측면 얼굴 등)을 손으로 덧칠한다.
+// 좌표는 **상대좌표(0~1)** 로 보내 기기·표시크기와 무관하게 같은 지점을 가리키게 한다.
+function PhotoMaskEditor({ authH, name, onClose, onDone }: {
+  authH: () => Record<string, string>; name: string; onClose: () => void; onDone: () => void;
+}) {
+  const [rects, setRects] = useState<{ x: number; y: number; w: number; h: number }[]>([]);
+  const [draw, setDraw] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [ver, setVer] = useState(0);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const rel = (e: React.PointerEvent) => {
+    const b = wrapRef.current!.getBoundingClientRect();
+    return { x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)),
+             y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)) };
+  };
+  const down = (e: React.PointerEvent) => {
+    e.preventDefault(); (e.target as Element).setPointerCapture?.(e.pointerId);
+    const p = rel(e); setDraw({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+  };
+  const move = (e: React.PointerEvent) => { if (!draw) return; const p = rel(e); setDraw({ ...draw, x1: p.x, y1: p.y }); };
+  const up = () => {
+    if (!draw) return;
+    const x = Math.min(draw.x0, draw.x1), y = Math.min(draw.y0, draw.y1);
+    const w = Math.abs(draw.x1 - draw.x0), h = Math.abs(draw.y1 - draw.y0);
+    if (w > 0.015 && h > 0.015) setRects((r) => [...r, { x, y, w, h }]);
+    setDraw(null);
+  };
+
+  const apply = async () => {
+    if (!rects.length) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}/lounge/private-listings/photo/${name}/mask`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ rects }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.detail || "보정 실패");
+      setRects([]); setVer((v) => v + 1); onDone();
+    } catch (e: any) { alert(e.message || "보정 실패"); }
+    finally { setBusy(false); }
+  };
+
+  const box = draw ? {
+    left: `${Math.min(draw.x0, draw.x1) * 100}%`, top: `${Math.min(draw.y0, draw.y1) * 100}%`,
+    width: `${Math.abs(draw.x1 - draw.x0) * 100}%`, height: `${Math.abs(draw.y1 - draw.y0) * 100}%`,
+  } : null;
+
+  return (
+    <div className="mld-ov" onClick={onClose}>
+      <div className="mld pme" onClick={(e) => e.stopPropagation()}>
+        <button className="mld-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
+        <h3 className="mld-title">사진 보정</h3>
+        <p className="pl-hint">가릴 곳을 손가락(또는 마우스)으로 <b>드래그</b>하세요. 자동으로 못 가린 작은 글자·얼굴을 덧칠할 수 있어요.</p>
+        <div className="pme-wrap" ref={wrapRef}
+          onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+          <img src={`${API_BASE}/lounge/private-listings/photo/${name}?v=${ver}`} alt="" draggable={false} />
+          {rects.map((r, i) => (
+            <div key={i} className="pme-rect" style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`,
+              width: `${r.w * 100}%`, height: `${r.h * 100}%` }} />
+          ))}
+          {box && <div className="pme-rect pme-live" style={box} />}
+        </div>
+        <div className="pme-bar">
+          <span>{rects.length ? `${rects.length}곳 지정됨` : "지정된 영역 없음"}</span>
+          <button className="pme-undo" disabled={!rects.length} onClick={() => setRects((r) => r.slice(0, -1))}>
+            <RefreshCw size={12} /> 마지막 취소
+          </button>
+        </div>
+        <div className="pl-warn">적용하면 사진에 확정 반영되어 <b>되돌릴 수 없습니다</b>.</div>
+        <div className="pl-actions">
+          <button className="pl-save" disabled={busy || !rects.length} onClick={apply}>
+            {busy ? "적용 중…" : "모자이크 적용"}
+          </button>
+          <button className="pl-cancel" onClick={onClose}>닫기</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
   authH: () => Record<string, string>; init: MLItem | null; managers: Manager[];
   onClose: () => void; onSaved: () => void;
@@ -1715,6 +1798,8 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
   const [busy, setBusy] = useState(false);
   const [upBusy, setUpBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [editPhoto, setEditPhoto] = useState<string | null>(null);   // 수동 보정 대상
+  const [phVer, setPhVer] = useState(0);                             // 보정 후 캐시 무효화
   const set = (k: string) => (e: any) => setF((s) => ({ ...s, [k]: e.target.value }));
 
   const upload = async (file: File) => {
@@ -1839,8 +1924,10 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
         <div className="pl-photos">
           {photos.map((p) => (
             <div key={p} className="pl-ph">
-              <img src={`${API_BASE}/lounge/private-listings/photo/${p}`} alt="" />
+              <img src={`${API_BASE}/lounge/private-listings/photo/${p}?v=${phVer}`} alt=""
+                onClick={() => setEditPhoto(p)} title="눌러서 보정" />
               <button onClick={() => setPhotos((x) => x.filter((y) => y !== p))} aria-label="삭제"><Trash2 size={12} /></button>
+              <span className="pl-ph-edit" onClick={() => setEditPhoto(p)}>보정</span>
             </div>
           ))}
         </div>
@@ -1864,6 +1951,8 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
           <button className="pl-cancel" onClick={onClose}>취소</button>
         </div>
       </div>
+      {editPhoto && <PhotoMaskEditor authH={authH} name={editPhoto}
+        onClose={() => setEditPhoto(null)} onDone={() => setPhVer((v) => v + 1)} />}
     </div>
   );
 }

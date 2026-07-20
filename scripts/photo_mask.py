@@ -142,6 +142,36 @@ def mask_image(data: bytes, do_face=True, do_text=True) -> tuple[bytes, dict]:
                            "w": int(img.shape[1]), "h": int(img.shape[0])}
 
 
+def mask_rects(data: bytes, rects: list) -> tuple[bytes, int]:
+    """사용자가 직접 지정한 영역을 추가로 모자이크(수동 보정).
+
+    rects 는 **상대좌표(0~1)** [{x,y,w,h}, ...] — 화면 표시 크기·기기 해상도와 무관하게
+    같은 지점을 가리키게 한다. 자동 검출이 놓친 작은 글자·측면 얼굴을 사람이 덧칠하는 용도.
+    이미 마스킹된 파일 위에 덧입히므로 결과는 되돌릴 수 없다(원본은 애초에 없다).
+    """
+    import cv2
+    arr = np.frombuffer(data, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise MaskError("이미지를 해석할 수 없습니다")
+    h, w = img.shape[:2]
+    n = 0
+    for r in rects or []:
+        try:
+            x, y = float(r.get("x", 0)), float(r.get("y", 0))
+            rw, rh = float(r.get("w", 0)), float(r.get("h", 0))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if rw <= 0 or rh <= 0:
+            continue
+        _pixelate(img, x * w, y * h, (x + rw) * w, (y + rh) * h)
+        n += 1
+    ok, enc = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    if not ok:
+        raise MaskError("인코딩 실패")
+    return enc.tobytes(), n
+
+
 if __name__ == "__main__":
     import sys
     src = sys.argv[1]

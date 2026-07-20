@@ -2848,6 +2848,17 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .pl-ph{position:relative;width:84px;height:84px;border-radius:var(--r-sm);overflow:hidden;border:1px solid var(--c-border)}
 .pl-ph img{width:100%;height:100%;object-fit:cover}
 .pl-ph button{position:absolute;top:3px;right:3px;border:0;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:20px;height:20px;display:grid;place-items:center;cursor:pointer}
+.pl-ph img{cursor:pointer}
+.pl-ph-edit{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.62);color:#fff;font-size:10.5px;font-weight:800;text-align:center;padding:3px 0;cursor:pointer}
+/* 사진 수동 보정 */
+.pme{max-width:560px}
+.pme-wrap{position:relative;margin-top:8px;border-radius:var(--r-sm);overflow:hidden;background:#111;touch-action:none;user-select:none;cursor:crosshair}
+.pme-wrap img{display:block;width:100%;height:auto;pointer-events:none}
+.pme-rect{position:absolute;background:rgba(18,104,211,.42);border:2px solid var(--c-primary);pointer-events:none}
+.pme-live{background:rgba(226,87,76,.35);border-color:#e2574c}
+.pme-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-size:12.5px;color:var(--c-muted);font-weight:700}
+.pme-undo{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-border);background:#fff;border-radius:var(--r-pill);padding:5px 11px;font-size:12px;font-weight:700;color:var(--c-muted);cursor:pointer}
+.pme-undo:disabled{opacity:.45;cursor:not-allowed}
 .pl-upl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
 .pl-upbtn{display:inline-flex;align-items:center;gap:5px;border:1px dashed var(--c-border);border-radius:var(--r-pill);padding:7px 13px;font-size:12.5px;font-weight:700;color:var(--c-muted);cursor:pointer}
 .pl-upbtn:hover{border-color:var(--c-primary);color:var(--c-primary)}

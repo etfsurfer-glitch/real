@@ -11987,6 +11987,34 @@ async def lounge_private_photo(document: UploadFile = File(...),
     return {"ok": True, "photo": name, "masked": stat}
 
 
+@app.post("/lounge/private-listings/photo/{name}/mask")
+def lounge_private_photo_mask(name: str, body: dict, user: dict = Depends(current_user)):
+    """수동 보정 — 자동 검출이 놓친 영역을 사용자가 지정해 추가 모자이크.
+    좌표만 받는다(상대좌표 0~1). 저장본에 덧입히므로 되돌릴 수 없다."""
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+    if "/" in name or ".." in name or not name.startswith(f"{rid}_"):
+        raise HTTPException(403, "권한이 없습니다")
+    p = PRIVATE_IMG_DIR / name
+    if not p.exists():
+        raise HTTPException(404, "사진이 없습니다")
+    rects = body.get("rects") or []
+    if not isinstance(rects, list) or not rects:
+        raise HTTPException(400, "가릴 영역이 없습니다")
+    if len(rects) > 60:
+        raise HTTPException(400, "영역이 너무 많습니다(최대 60)")
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from scripts.photo_mask import mask_rects, MaskError
+        out, n = mask_rects(p.read_bytes(), rects)
+    except MaskError as e:
+        raise HTTPException(400, f"보정 실패: {e}")
+    except Exception:
+        raise HTTPException(500, "보정 처리에 실패했습니다")
+    p.write_bytes(out)
+    return {"ok": True, "applied": n}
+
+
 @app.get("/lounge/private-listings/photo/{name}")
 def lounge_private_photo_get(name: str, user: dict = Depends(current_user)):
     """사진 서빙 — 같은 사무소 회원에게만. 파일명에 realtor_id 접두가 있어 소속을 확인한다."""
