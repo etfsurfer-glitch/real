@@ -38,9 +38,12 @@ CACHE_DB = os.path.join(DATA, "coord_addr.sqlite")
 NONRESI = ["sangga", "office", "villa", "house", "land", "factory",
            "building", "knowledge", "redev", "oneroom"]
 PREC = 5          # 좌표 반올림 자리(≈1.1m) — 건물 구분엔 충분하고 중복은 최대로 접힌다
-_rl_lock = threading.Lock()
-_last = [0.0]
-MIN_GAP = 0.02    # 초당 최대 ~50콜(빌라 배치 실측 6/s보다 여유), 서버 예의
+BATCH = 2000      # 한 번에 제출할 future 수 — 51.5만을 통째로 제출하면 메모리 1GB+로 뜬다
+# 호출 간격: 빌라 배치에서 검증된 값(0.16s≈6/s). 더 조이면(0.02s≈50/s) VWorld가 스로틀링해
+# error 가 쌓인다(2026-07-20 실측: 50/s로 돌렸더니 1,888 ok 대비 error 211).
+_RL_LOCK = threading.Lock()
+_RL_NEXT = [0.0]
+MIN_GAP = 0.16
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS coord_addr(
@@ -102,11 +105,13 @@ def scan(conn) -> None:
 
 
 def _ratelimit() -> None:
-    with _rl_lock:
-        wait = MIN_GAP - (time.time() - _last[0])
-        if wait > 0:
-            time.sleep(wait)
-        _last[0] = time.time()
+    """슬롯 예약식 — 락 안에서는 시각만 잡고 sleep은 밖에서(락 쥔 채 자면 전 스레드가 직렬화된다)."""
+    with _RL_LOCK:
+        slot = max(time.time(), _RL_NEXT[0])
+        _RL_NEXT[0] = slot + MIN_GAP
+    wait = slot - time.time()
+    if wait > 0:
+        time.sleep(wait)
 
 
 def revgeo(lat, lng, key, retries: int = 4):
@@ -169,24 +174,27 @@ def run_geocode(conn, key: str, concurrency: int, limit: int) -> bool:
         _, text, sido, sgg, dong = r
         return (k, text, sido, sgg, dong, "ok")
 
+    # BATCH 단위로 나눠 제출 — 전량 제출하면 future 수십만 개가 메모리를 잡아먹는다
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
-        futs = [ex.submit(work, r) for r in rows]
-        for fut in as_completed(futs):
-            k, text, sido, sgg, dong, st = fut.result()
-            if st == "quota":
-                hit_quota = True
-                ex.shutdown(wait=False, cancel_futures=True)
+        for start in range(0, total, BATCH):
+            if hit_quota:
                 break
-            buf.append((text, sido, sgg, dong, st, k))
-            with lock:
-                done[0] += 1
-                if len(buf) >= 200:
-                    conn.executemany("UPDATE coord_addr SET addr=?,sido=?,sgg=?,dong=?,status=?,"
-                                     "geocoded_at=datetime('now') WHERE ckey=?", buf)
-                    conn.commit(); buf = []
-                if done[0] % 5000 == 0:
-                    rate = done[0] / max(time.time() - t0, 0.001)
-                    print(f"  [{done[0]:,}/{total:,}] {rate:.0f}/s  ETA {(total-done[0])/max(rate,.001)/60:.0f}분", flush=True)
+            chunk = rows[start:start + BATCH]
+            for fut in as_completed([ex.submit(work, r) for r in chunk]):
+                k, text, sido, sgg, dong, st = fut.result()
+                if st == "quota":
+                    hit_quota = True
+                    break
+                buf.append((text, sido, sgg, dong, st, k))
+                with lock:
+                    done[0] += 1
+                    if len(buf) >= 200:
+                        conn.executemany("UPDATE coord_addr SET addr=?,sido=?,sgg=?,dong=?,status=?,"
+                                         "geocoded_at=datetime('now') WHERE ckey=?", buf)
+                        conn.commit(); buf = []
+                    if done[0] % 5000 == 0:
+                        rate = done[0] / max(time.time() - t0, 0.001)
+                        print(f"  [{done[0]:,}/{total:,}] {rate:.1f}/s  ETA {(total-done[0])/max(rate,.001)/3600:.1f}시간", flush=True)
     if buf:
         conn.executemany("UPDATE coord_addr SET addr=?,sido=?,sgg=?,dong=?,status=?,"
                          "geocoded_at=datetime('now') WHERE ckey=?", buf)
