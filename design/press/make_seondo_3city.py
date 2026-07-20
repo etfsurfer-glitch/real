@@ -65,8 +65,7 @@ BODY = [
      "예측하지 않는다. 분당은 수도권 1기 신도시, 부산·대전은 지방권으로 시장 규모와 성격이 다르고, "
      "세 지역의 관찰 기간에 적용된 금융·세제 환경도 동일하지 않다. 실제로 분당과 부산도 6개월 시점 "
      "거래 회복 정도가 -8.8%와 -22.4%로 크게 갈렸다. 거래 건수가 적은 구간은 평균가 변동 폭이 커질 "
-     "수 있다는 점, 매물 데이터는 콕집 수집이 2026년 5월 시작돼 분당·부산의 선정 직후 매물은 비교할 "
-     "수 없다는 점도 함께 고려해야 한다."),
+     "수 있다는 점도 함께 고려해야 한다."),
     ("일자별 매물·호가, 누구나 단지 단위로 확인 가능",
      "콕집은 전국 아파트·오피스텔 6만 4천여 단지의 매물과 실거래를 매일 수집해 교차 분석하는 "
      "플랫폼으로, 이번 분석에 쓰인 일자별 매물수·실매물수·평균 호가 추이는 콕집 단지 상세의 "
@@ -74,15 +73,15 @@ BODY = [
      "급매 탐지, 단지별 신고가 등 분석 기능도 함께 제공한다."),
 ]
 
-QUOTE = ("조용호 콕집 공동창업자는 “선정 시점이 다른 지역을 그냥 나란히 놓으면 엉뚱한 결론이 나온다”며 "
-         "“각 지역의 선정 시점을 0으로 맞춰 같은 자리끼리 비교했더니, 거래는 먼저 멈추고 가격은 곧바로 "
-         "오르는 공통된 초기 국면이 확인됐다. 다만 6개월 뒤 회복 정도는 지역마다 달랐던 만큼 예측이 "
-         "아니라 참고 자료로 봐야 한다”고 말했다.")
+QUOTE = ("황인찬 런투온라인 대표는 “선도지구로 지정되면 곧바로 값이 뛴다고들 하지만, 앞서 지정된 "
+         "두 지역에서 먼저 나타난 것은 거래가 멈추는 현상이었다”며 “분당은 지정 두 달 만에 거래가 "
+         "3분의 1 수준까지 줄었고, 부산도 넉 달째 20%대 감소가 이어졌다. 그 사이 가격은 두 지역 모두 "
+         "곧바로 올라 유지됐다. 지금 대전에서 매물이 잠기는 것도 같은 초기 국면으로 보인다”고 말했다.")
 
 COMPANY = [
     ("서비스", "콕집 — 부동산 매물·실거래·중개사 분석 플랫폼 (koczip.com)"),
     ("운영사", "런투온라인 (대표 황인찬)"),
-    ("문의", "조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946"),
+    ("문의", "황인찬 대표 · runtoonline@gmail.com · 010-5942-8014"),
 ]
 
 METHOD = (
@@ -119,14 +118,13 @@ TABLE = [   # 선정 후 같은 경과 시점끼리 비교
     ("+1개월 가격", "+15.9%", "+11.4%", "신고 전"),
     ("+3개월 가격", "+18.2%", "+10.3%", "신고 전"),
     ("+6개월 가격", "+14.8%", "+9.0%", "신고 전"),
-    ("현재 매물 상황", "비교 불가 (수집 전)", "비교 불가 (수집 전)", "발표 엿새 -22.5%"),
 ]
 
 
 def make_chart():
     """선정 시점을 0으로 맞춰 **같은 경과 개월끼리** 비교한다.
     경과 시간이 다른 상태(분당 20개월 vs 부산 6개월)를 나란히 놓으면 비교 기준이 없다.
-    대전은 아직 +6일이라 실거래가 없으므로 '현재 위치'만 표시하고 수치는 넣지 않는다.
+    자료가 있는 분당·부산만 그린다.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -154,11 +152,7 @@ def make_chart():
             v = rows[-1][idx]
             ax.annotate(f"{v:+.1f}%", (6, v), textcoords="offset points", xytext=(-6, dy),
                         fontsize=9.5, fontweight="bold", color=col, ha="right")
-        # 대전 현재 위치
-        ax.axvspan(0.0, 0.25, color="#2b8a3e", alpha=.14)
-        ax.text(0.30, ylim[0] + (ylim[1]-ylim[0])*0.06, "대전\n현재", fontsize=8.5,
-                fontweight="bold", color="#2b8a3e", va="bottom")
-        ax.set_xlim(0, 6.6)
+        ax.set_xlim(0.6, 6.5)
         ax.set_xticks([1, 2, 3, 4, 5, 6])
         ax.set_xticklabels(["+1", "+2", "+3", "+4", "+5", "+6"], fontsize=9)
         ax.set_xlabel("선정 후 경과 개월", fontsize=9)
@@ -171,10 +165,9 @@ def make_chart():
         ax.set_title(title, fontsize=10.5, fontweight="bold", pad=8, loc="left")
         ax.legend(fontsize=8.5, frameon=False, loc="lower right")
 
-    fig.suptitle("선도지구 선정 후 같은 시점끼리 비교 — 대전이 앞으로 지날 구간 (콕집 DB)",
+    fig.suptitle("선도지구 선정 후 같은 시점끼리 비교 — 분당·부산 (콕집 DB)",
                  fontsize=11.5, fontweight="bold", y=0.99)
-    fig.text(0.5, 0.005, "각 도시의 '선정 전 12개월'을 자기 기준(0%)으로 삼아 선정 후 누적 월평균과 비교. "
-             "대전은 발표 엿새째로 실거래 신고(기한 30일)가 아직 없다.",
+    fig.text(0.5, 0.005, "각 도시의 '선정 전 12개월'을 자기 기준(0%)으로 삼아 선정 후 누적 월평균과 비교.",
              ha="center", fontsize=8, color="#64748b")
     fig.tight_layout(rect=[0, 0.035, 1, 0.955])
     fig.savefig(CHART, facecolor="white")
@@ -196,7 +189,7 @@ def make_docx(out: Path):
     p = d.add_paragraph(); r = p.add_run("보도자료")
     r.font.size = Pt(11); r.font.bold = True; r.font.color.rgb = RGBColor(0x12, 0x68, 0xD3)
     p2 = d.add_paragraph()
-    r = p2.add_run("배포일: 2026년 7월 · 즉시 보도 가능    문의: 조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946")
+    r = p2.add_run("배포일: 2026년 7월 · 즉시 보도 가능    문의: 황인찬 대표 · runtoonline@gmail.com · 010-5942-8014")
     r.font.size = Pt(9); r.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
 
     t = d.add_paragraph(); t.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -294,7 +287,7 @@ def make_pdf(out: Path):
 
     story = [
         Paragraph("보도자료", ss["tag"]),
-        Paragraph("배포일: 2026년 7월 · 즉시 보도 가능 &nbsp;&nbsp; 문의: 조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946", ss["meta"]),
+        Paragraph("배포일: 2026년 7월 · 즉시 보도 가능 &nbsp;&nbsp; 문의: 황인찬 대표 · runtoonline@gmail.com · 010-5942-8014", ss["meta"]),
         Paragraph(TITLE, ss["title"]),
         Paragraph(SUBTITLE, ss["sub"]),
         Paragraph(LEAD, ss["body"]),
