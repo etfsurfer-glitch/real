@@ -74,7 +74,7 @@ BODY = [
      "급매 탐지, 단지별 신고가 등 분석 기능도 함께 제공한다."),
 ]
 
-QUOTE = ("황인찬 런투온라인 대표는 “선도지구로 지정되면 곧바로 값이 뛴다고들 하지만, 앞서 지정된 "
+QUOTE = ("조용호 콕집 공동창업자는 “선도지구로 지정되면 곧바로 값이 뛴다고들 하지만, 앞서 지정된 "
          "두 지역에서 먼저 나타난 것은 거래가 멈추는 현상이었다”며 “분당은 지정 두 달 만에 거래가 "
          "선정 전의 3분의 1 수준까지 줄었고, 부산도 석 달째 감소가 이어졌다. 그 사이 가격은 두 지역 "
          "모두 곧바로 올라 유지됐다. 지금 대전에서 매물이 잠기는 것도 같은 초기 국면으로 보인다”고 "
@@ -83,7 +83,7 @@ QUOTE = ("황인찬 런투온라인 대표는 “선도지구로 지정되면 �
 COMPANY = [
     ("서비스", "콕집 — 부동산 매물·실거래·중개사 분석 플랫폼 (koczip.com)"),
     ("운영사", "런투온라인 (대표 황인찬)"),
-    ("문의", "황인찬 대표 · runtoonline@gmail.com · 010-5942-8014"),
+    ("문의", "조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946"),
 ]
 
 METHOD = (
@@ -196,7 +196,7 @@ def make_docx(out: Path):
     p = d.add_paragraph(); r = p.add_run("보도자료")
     r.font.size = Pt(11); r.font.bold = True; r.font.color.rgb = RGBColor(0x12, 0x68, 0xD3)
     p2 = d.add_paragraph()
-    r = p2.add_run("배포일: 2026년 7월 · 즉시 보도 가능    문의: 황인찬 대표 · runtoonline@gmail.com · 010-5942-8014")
+    r = p2.add_run("배포일: 2026년 7월 · 즉시 보도 가능    문의: 조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946")
     r.font.size = Pt(9); r.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
 
     t = d.add_paragraph(); t.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -294,7 +294,7 @@ def make_pdf(out: Path):
 
     story = [
         Paragraph("보도자료", ss["tag"]),
-        Paragraph("배포일: 2026년 7월 · 즉시 보도 가능 &nbsp;&nbsp; 문의: 황인찬 대표 · runtoonline@gmail.com · 010-5942-8014", ss["meta"]),
+        Paragraph("배포일: 2026년 7월 · 즉시 보도 가능 &nbsp;&nbsp; 문의: 조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946", ss["meta"]),
         Paragraph(TITLE, ss["title"]),
         Paragraph(SUBTITLE, ss["sub"]),
         Paragraph(LEAD, ss["body"]),
