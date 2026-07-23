@@ -126,6 +126,16 @@ SYSTEM_PROMPT = (
     "(sort 기본은 낮은순이라 안 주면 싼 매물만 나와 '제일 비싸다'에 엉뚱한 답이 된다.)\n"
     "9) '못 찾는다'로 끝내지 마라. 요청한 가격대에 없으면 가장 근접한 가격대라도 찾아 "
     "'20억대는 없고 30억대부터 있습니다' 식으로 안내하며 실제 단지를 제시한다. 빈손·되묻기로 끝내는 답변 금지.\n"
+    "9.6) [주인전세·세안고·주인대출] '주인전세', '세안고/세끼고', '갭투자 가능한 매물', "
+    "'집주인이 대출 끼고 파는 물건', '매도인 근저당' 같은 질문은 find_owner_deals 를 써라.\n"
+    "  ★지역·단지를 안 밝혀도 **되묻지 말고 전국(region 생략)으로 바로 호출**하라. "
+    "결과를 먼저 보여준 뒤 '지역을 좁혀 드릴까요?'라고 물어야 한다(규칙 1.2 그대로).\n"
+    "  세 조건은 서로 다르다 — 주인전세=매도인이 전세로 눌러앉음, 세안고=기존 임차인 승계, "
+    "주인대출=매도인이 직접 자금 제공. 질문 표현에 맞는 kind 로 호출하고, 도구가 준 '설명'을 "
+    "한 줄로 곁들여라 — 용어만으로는 구분이 안 돼 매수자가 실익을 오해한다.\n"
+    "  ★도구가 '답변에_그대로_넣을_목록'을 주면 그 줄들을 **그대로 옮겨 적어라**(가공·생략 금지). "
+    "건수만 요약하고 목록을 빠뜨리면 사용자는 어느 단지인지 알 수 없다.\n"
+    "  반드시 '광고 문구 기준이라 실제 조건은 중개사무소 확인 필요'를 밝히고, 끝에 [주인 매물 보기](/special-deals)를 붙여라.\n"
     "9.3) [단지 질문 — 도구가 돌려준 정식 단지명과 링크를 반드시 밝혀라] get_complex_info 로 답할 때는 "
     "도구 결과의 '단지' 값(정식 명칭)을 그대로 쓰고, 첫 문장에 **[단지정보 →](/complex/…)** 링크를 붙여라.\n"
     "  ★사용자가 부른 이름과 도구가 찾은 '단지'가 다르면 반드시 알려라: "
@@ -1677,11 +1687,99 @@ def get_policy_timeline(keyword: str = "", year: int = 0) -> dict:
             "안내": "'실거래 > 부동산타임머신'에서 20년 연대기 전체를 볼 수 있다."}
 
 
+def find_owner_deals(kind: str = "주인전세", region: str = "", complex_name: str = "",
+                     limit: int = 10) -> dict:
+    """중개사가 매물 설명란에 적어 광고하는 '특수조건 매매'를 찾는다.
+
+    '주인전세 매물', '세안고 매물 찾아줘', '집주인이 대출 끼고 파는 물건',
+    '매도인 근저당 매물', '갭투자 가능한 매물' 같은 질문의 정답 도구.
+
+    Args:
+        kind: 주인전세 | 세안고 | 주인대출  (동의어 자동 인식)
+            · 주인전세 = 매도인이 판 뒤 그 집에 전세로 계속 거주(sale-leaseback)
+            · 세안고   = 기존 임차인 보증금을 떠안고 매수(갭투자)
+            · 주인대출 = 매도인이 매수인에게 직접 자금을 대줌(집주인대출·매도인 근저당)
+        region: 지역(선택). '서울 강남구', '분당' 등. 비우면 전국.
+        complex_name: 단지명(선택). 특정 단지에 해당 조건 매물이 있는지 볼 때.
+        limit: 최대 표시 건수(기본 10).
+
+    주의: 광고 문구를 분류한 것이라 실제 조건은 중개사무소 확인이 필요하다 —
+    답변에 이 점을 반드시 한 줄로 밝힐 것.
+    """
+    import scripts.local_api as api
+    k = (kind or "").strip()
+    if any(w in k for w in ("주인전세", "집주인전세", "매도인전세", "전세거주")):
+        key = "owner"
+    elif any(w in k for w in ("세안고", "세끼고", "갭투", "임차인", "전세끼고")):
+        key = "tenant"
+    elif any(w in k for w in ("대출", "근저당", "융자", "담보")):
+        key = "loan"
+    else:
+        key = "owner"
+
+    kw = {"limit": max(1, min(int(limit), 30)), "kind": key, "sort": "price_desc"}
+    if complex_name:
+        row = _find_complex_row(complex_name, region)
+        if not row:
+            return {"error": f"'{complex_name}' 단지를 찾지 못했습니다. 지역을 함께 알려주세요."}
+        kw["complex_no"] = row["complex_no"]
+    elif region:
+        reg = _resolve_region(region)
+        if reg:
+            if reg.get("dong_cortar"):
+                kw["dong"] = reg["dong_cortar"]
+            elif reg.get("sigungu_code"):
+                kw["sigungu"] = reg["sigungu_code"]
+            elif reg.get("sido_code"):
+                kw["sido"] = reg["sido_code"]
+    r = api.special_deals(**kw)
+    st = r.get("stats") or {}
+    label = {"owner": "주인전세", "tenant": "세안고", "loan": "주인대출"}[key]
+    # 모델이 목록을 통째로 생략하고 건수만 요약하는 경우가 잦아, 그대로 붙여 쓸 수 있는
+    # 완성된 markdown 줄을 함께 준다(규칙 9.4·9.6 을 프롬프트만으로는 못 지키게 하던 문제).
+    items, lines = [], []
+    for x in (r.get("items") or []):
+        path = f"/complex/{x.get('complex_no')}"
+        items.append({
+            "단지": x.get("complex_name"), "지역": x.get("region_name"),
+            "전용면적": x.get("area_name"), "호가": _won(x.get("price")),
+            "층": x.get("floor_info"), "광고문구": x.get("desc"),
+            "걸린표현": x.get("matched"), "중개사": x.get("realtor_name"),
+            "단지정보": path,
+        })
+        lines.append(
+            f"- **{x.get('complex_name')}** {x.get('region_name') or ''} "
+            f"전용 {x.get('area_name')}㎡ · {_won(x.get('price'))} "
+            f"[단지정보 →]({path})".replace("  ", " "))
+    return {
+        "조건": label, "설명": {
+            "주인전세": "매도인이 판 뒤 그 집에 전세로 계속 사는 조건. 세입자를 새로 구할 필요가 없다.",
+            "세안고": "기존 임차인을 승계해 매수. 보증금만큼 적은 돈으로 사지만 남은 계약기간엔 실입주 불가.",
+            "주인대출": "매도인이 매수인에게 직접 자금을 대준다고 밝힌 매물. 매수인이 은행 대출을 넘겨받는 '대출승계'와 다르다.",
+        }[label],
+        "해석된_지역": region or "전국",
+        "총건수": r.get("total", 0), "단지수": st.get("complexes"),
+        "평균호가": _won(st.get("avg_price")) if st.get("avg_price") else None,
+        "많은지역": [f"{t['name']} {t['n']}건" for t in (st.get("top_regions") or [])][:5],
+        # ★표시는 이 목록 한 갈래만 준다 — 구조화 목록을 함께 주면 모델이 재가공하다
+        #   [단지정보 →] 링크를 빠뜨린다(실측). 답변에 아래 줄을 그대로 옮겨 적으면 된다.
+        "답변에_그대로_넣을_목록": lines,
+        "광고원문": [
+            {"단지": x.get("complex_name"), "문구": x.get("desc"), "걸린표현": x.get("matched")}
+            for x in (r.get("items") or [])[:5]
+        ],
+        "전국_조건별_건수": r.get("by_kind"),
+        "주의": "광고 문구를 분류한 결과다. 실제 조건은 해당 중개사무소에 확인해야 한다.",
+        "더보기": "/special-deals",
+    }
+
+
 _TOOLS = [find_quick_deals, find_apartments, find_cancelled_transactions,
           get_complex_info, find_record_high, region_market_pulse,
           find_realtor, rank_complexes, rank_realtors, find_presale,
           get_listing_stats, find_price_movers, calc_purchase_cost, find_villa_stats,
-          compare_complexes, compare_regions, get_complex_listing_trend, get_policy_timeline]
+          compare_complexes, compare_regions, get_complex_listing_trend, get_policy_timeline,
+          find_owner_deals]
 
 
 # ---------------------------------------------------------------------------
@@ -1753,7 +1851,7 @@ def _system_for(nickname: str | None, user_region: str | None = None) -> str:
 _OK_PAGES = {
     "/today", "/overview", "/quick-deals", "/jeonse-check", "/deal-map", "/cancelled",
     "/tx-stats", "/map", "/realtors", "/forum", "/finder", "/changes", "/special-deals",
-    "/buy-calculator", "/lounge", "/presale",
+    "/buy-calculator", "/lounge", "/presale", "/special-deals",
 }
 
 
@@ -1827,9 +1925,16 @@ def _fix_links(text: str) -> str:
     return text
 
 
+# 되묻기 탐지 — 도구를 안 쓰고 사용자에게 되묻는 답변을 잡아 한 번 더 밀어붙인다.
+# 기존 패턴이 '어떤 조건인지 알려주시겠어요?'·'어떤 정보가 궁금하신가요?' 류를 통째로 놓쳐
+# (실측 5개 중 4개 미탐) 되묻기가 그대로 나갔다. 어미 중심으로 넓힌다.
 _ASKBACK_RE = re.compile(
     r"(어느 지역|어떤 지역|지역을 말씀|지역을 알려|지역이 필요|알려주시면|"
-    r"어떤 평형|평형대를 원|원하시나요\?|필요하신가요\?)")
+    r"어떤 평형|평형대를 원|"
+    r"어떤 [가-힣]{1,6}(을|를|이|가)?\s*(원하|찾으|궁금|알고)|"
+    r"좀 더 자세히|더 알려주|구체적으로 알려|"
+    r"(하)?시겠어요\?|있으신가요\?|찾으시나요\?|궁금하신가요\?|"
+    r"원하시나요\?|필요하신가요\?|어떠신가요\?)")
 
 
 def _askback_nudge(user_region):
@@ -2016,6 +2121,7 @@ _TOOL_LABEL = {
     "find_presale": "분양권 전매 조회",
     "get_listing_stats": "매물 시장 통계 조회",
     "find_price_movers": "호가 상승·하락 단지 조회",
+    "find_owner_deals": "주인전세·세안고·주인대출 매물 조회",
     "calc_purchase_cost": "매수 비용 계산",
     "find_villa_stats": "빌라 실거래·시세 조회",
 }
