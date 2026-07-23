@@ -257,7 +257,10 @@ def _all_dongs() -> list[str]:
                 "SELECT cortar_no FROM all_cortars WHERE length(cortar_no)=10")}
         except sqlite3.OperationalError:
             pass   # all_cortars 미구축 시 기존 범위로 동작
-        return sorted(dongs)
+        # 광주(29)·전남(46) 표준코드는 네이버 지역 API에서 무효(항상 0건) — 네이버는
+        # 두 지역을 자체 코드 '12*'(전남광주)로 서빙하며 12*는 all_cortars에 포함돼 있다.
+        # 죽은 요청 254동/일 제거 (2026-07-13, 12*→표준 귀속은 villa_region_map).
+        return sorted(d for d in dongs if not d.startswith(("29", "46")))
     finally:
         ro.close()
 
@@ -343,7 +346,7 @@ def main():
         if args.all and not args.limit:
             purged = 0
             for cat, c in conns.items():
-                cur = c.execute("DELETE FROM listings WHERE snapshot_date < date('now','-2 day')")
+                cur = c.execute("DELETE FROM listings WHERE snapshot_date < date('now','+9 hours','-2 day')")
                 purged += cur.rowcount
                 c.commit()
             print(f"delisting 정리: {purged}건 제거(2일+ 미노출)", flush=True)

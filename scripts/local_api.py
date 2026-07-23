@@ -911,28 +911,28 @@ def top_complexes(days: int = 7, limit: int = 5):
 
         sale_u, sale_p = [], []
         if "transactions" in existing:
-            sale_u.append("SELECT matched_complex_no FROM transactions WHERE deal_ymd >= date('now', ?) AND is_cancelled = 0")
+            sale_u.append("SELECT matched_complex_no FROM transactions WHERE deal_ymd >= date('now','+9 hours', ?) AND is_cancelled = 0")
             sale_p.append(cutoff)
         if "offi_transactions" in existing:
-            sale_u.append("SELECT matched_complex_no FROM offi_transactions WHERE deal_ymd >= date('now', ?) AND is_cancelled = 0")
+            sale_u.append("SELECT matched_complex_no FROM offi_transactions WHERE deal_ymd >= date('now','+9 hours', ?) AND is_cancelled = 0")
             sale_p.append(cutoff)
         result["sale"] = _run(sale_u, sale_p)
 
         jeonse_u, jeonse_p = [], []
         if "rentals" in existing:
-            jeonse_u.append("SELECT matched_complex_no FROM rentals WHERE deal_ymd >= date('now', ?) AND +monthly_rent = 0")
+            jeonse_u.append("SELECT matched_complex_no FROM rentals WHERE deal_ymd >= date('now','+9 hours', ?) AND +monthly_rent = 0")
             jeonse_p.append(cutoff)
         if "offi_rentals" in existing:
-            jeonse_u.append("SELECT matched_complex_no FROM offi_rentals WHERE deal_ymd >= date('now', ?) AND +monthly_rent = 0")
+            jeonse_u.append("SELECT matched_complex_no FROM offi_rentals WHERE deal_ymd >= date('now','+9 hours', ?) AND +monthly_rent = 0")
             jeonse_p.append(cutoff)
         result["jeonse"] = _run(jeonse_u, jeonse_p)
 
         wolse_u, wolse_p = [], []
         if "rentals" in existing:
-            wolse_u.append("SELECT matched_complex_no FROM rentals WHERE deal_ymd >= date('now', ?) AND +monthly_rent > 0")
+            wolse_u.append("SELECT matched_complex_no FROM rentals WHERE deal_ymd >= date('now','+9 hours', ?) AND +monthly_rent > 0")
             wolse_p.append(cutoff)
         if "offi_rentals" in existing:
-            wolse_u.append("SELECT matched_complex_no FROM offi_rentals WHERE deal_ymd >= date('now', ?) AND +monthly_rent > 0")
+            wolse_u.append("SELECT matched_complex_no FROM offi_rentals WHERE deal_ymd >= date('now','+9 hours', ?) AND +monthly_rent > 0")
             wolse_p.append(cutoff)
         result["wolse"] = _run(wolse_u, wolse_p)
 
@@ -1051,11 +1051,11 @@ def _cx_compare_one(d, complex_no: str, area: str | None = None) -> dict:
     gap = (a1 - b1) if a1 and b1 else None
 
     tx = d.execute(
-        "SELECT COUNT(*), CAST(AVG(CASE WHEN deal_ymd>=date('now','-6 months') THEN deal_amount END) AS INT), "
-        "  CAST(AVG(CASE WHEN deal_ymd>=date('now','-6 months') AND excl_use_ar>0 "
+        "SELECT COUNT(*), CAST(AVG(CASE WHEN deal_ymd>=date('now','+9 hours','-6 months') THEN deal_amount END) AS INT), "
+        "  CAST(AVG(CASE WHEN deal_ymd>=date('now','+9 hours','-6 months') AND excl_use_ar>0 "
         "      THEN deal_amount/excl_use_ar*3.3 END) AS INT) "
         "FROM transactions WHERE matched_complex_no=? AND is_cancelled=0 "
-        f"  AND deal_ymd>=date('now','-12 months'){tx_area}",
+        f"  AND deal_ymd>=date('now','+9 hours','-12 months'){tx_area}",
         [complex_no] + tx_area_args).fetchone()
     latest = d.execute(
         "SELECT deal_ymd, deal_amount, excl_use_ar, floor FROM transactions "
@@ -1084,7 +1084,7 @@ def _cx_compare_one(d, complex_no: str, area: str | None = None) -> dict:
             "SELECT snapshot_date, SUM(listing_count), SUM(unit_count), "
             "  CAST(SUM(price_avg*listing_count)/SUM(listing_count) AS INT) "
             "FROM complex_daily_agg WHERE complex_no=? AND trade_type='A1' "
-            f"  AND snapshot_date>=date('now','-31 days'){la} GROUP BY snapshot_date ORDER BY 1",
+            f"  AND snapshot_date>=date('now','+9 hours','-31 days'){la} GROUP BY snapshot_date ORDER BY 1",
             [complex_no] + la_args)]
 
     return {
@@ -1142,6 +1142,102 @@ def _region_meta(code: str) -> tuple[str, str]:
     return "dong", code
 
 
+POP_DB_PATH = DB_PATH.parent / "pop_move.sqlite"
+
+# 행정개편으로 코드가 바뀐 시도 — 같은 지역인데 시기별로 다른 코드로 들어온다.
+# (강원도 42 → 강원특별자치도 51 : 2023-06 / 전라북도 45 → 전북특별자치도 52 : 2024-01)
+# 합치지 않으면 최근 1년만 봐도 문제없지만, 장기 추이에서 지역이 두 동강 난다.
+_POP_ALIAS = {
+    "5100000000": ["5100000000", "4200000000"],
+    "5200000000": ["5200000000", "4500000000"],
+    # 군위군: 경북 → 대구 편입(2023-07). 시도가 바뀌어 접두 규칙으로는 안 잡힌다.
+    "2772000000": ["2772000000", "4772000000"],
+}
+# 시군구도 같은 개편을 겪는다 — 강원 42→51, 전북 45→52 는 뒤 8자리가 그대로라
+# 접두만 되돌리면 옛 코드가 나온다(실측 33개 전부 1:1, 이름까지 일치).
+# 합치지 않으면 정선·진안 등에서 2023·2024년 이전 구간이 통째로 비어 장기추이가 끊긴다.
+_POP_SGG_REVERT = {"51": "42", "52": "45"}
+
+
+def _pop_keys(c10: str) -> list[str]:
+    """인구이동 조회에 쓸 코드 목록 — 행정개편 전후를 함께 본다."""
+    if c10 in _POP_ALIAS:
+        return _POP_ALIAS[c10]
+    old = _POP_SGG_REVERT.get(c10[:2])
+    return [c10, old + c10[2:]] if old else [c10]
+
+
+def _pop_metrics(code: str) -> dict | None:
+    """지역 인구이동 지표 — 최근 1년 순유입·청년(20·30대) 순유입·월별 추이.
+
+    행안부 주민등록 인구이동(pop_move.sqlite). 시도(lv1)는 전국 완비,
+    시군구(lv2)는 전국(287곳). 데이터가 없으면 None 을 돌려 화면에서 숨긴다.
+
+    일반구(분당·수지·흥덕 등 35곳)는 통계청이 2024-07부터 구 단위 제공을 끊고
+    시 단위로 합산한다 → 그대로 두면 최근 1년이 통째로 비어 지표가 사라진다.
+    이 경우 상위 시(市) 값으로 대신 보여주고 scope 로 그 사실을 알린다.
+    """
+    if not POP_DB_PATH.exists():
+        return None
+    c10 = (code or "").ljust(10, "0")[:10]
+    r = _pop_query(c10)
+    if r is not None:
+        return r
+    # 일반구 → 상위 시로 폴백 (41135 분당구 → 41130 성남시)
+    if c10.endswith("00000") and c10[4] != "0":
+        parent = c10[:4] + "000000"
+        r = _pop_query(parent)
+        if r is not None:
+            r["scope"] = "parent"        # 화면에서 '시 단위 집계' 표기용
+            return r
+    return None
+
+
+def _pop_query(code: str) -> dict | None:
+    c10 = (code or "").ljust(10, "0")[:10]
+    if c10.endswith("00000000"):
+        lv, keys = "1", _pop_keys(c10)
+    elif c10.endswith("00000"):
+        lv, keys = "2", _pop_keys(c10)
+    else:
+        return None                      # 동 단위는 인구이동 통계 자체가 없다
+    ph = ",".join("?" * len(keys))
+    try:
+        with sqlite3.connect(f"file:{POP_DB_PATH}?mode=ro", uri=True, timeout=5) as p:
+            last = p.execute("SELECT MAX(ym) FROM pop_move WHERE lv=?", (lv,)).fetchone()[0]
+            if not last:
+                return None
+            # 최근 12개월 = 마지막 달 포함 직전 11개월
+            y, m = int(last[:4]), int(last[4:])
+            fr = f"{y - 1}{m + 1:02d}" if m < 12 else f"{y}01"
+            row = p.execute(
+                f"""SELECT
+                  (SELECT COALESCE(SUM(total),0) FROM pop_move
+                     WHERE lv=? AND mvin_cd IN ({ph}) AND ym BETWEEN ? AND ?)
+                  -(SELECT COALESCE(SUM(total),0) FROM pop_move
+                     WHERE lv=? AND mvt_cd IN ({ph}) AND ym BETWEEN ? AND ?),
+                  (SELECT COALESCE(SUM(m20+m30+f20+f30),0) FROM pop_move
+                     WHERE lv=? AND mvin_cd IN ({ph}) AND ym BETWEEN ? AND ?)
+                  -(SELECT COALESCE(SUM(m20+m30+f20+f30),0) FROM pop_move
+                     WHERE lv=? AND mvt_cd IN ({ph}) AND ym BETWEEN ? AND ?)""",
+                ([lv] + keys + [fr, last]) * 4).fetchone()
+            if row is None or (row[0] == 0 and row[1] == 0):
+                return None
+            trend = [
+                {"ym": r[0], "net": r[1]} for r in p.execute(
+                    f"""SELECT ym, SUM(inn)-SUM(outn) FROM (
+                          SELECT ym, total inn, 0 outn FROM pop_move
+                            WHERE lv=? AND mvin_cd IN ({ph}) AND ym BETWEEN ? AND ?
+                          UNION ALL
+                          SELECT ym, 0, total FROM pop_move
+                            WHERE lv=? AND mvt_cd IN ({ph}) AND ym BETWEEN ? AND ?)
+                        GROUP BY ym ORDER BY ym""",
+                    ([lv] + keys + [fr, last]) * 2)]
+    except Exception:
+        return None
+    return {"net": row[0], "net_young": row[1], "period": f"{fr}~{last}", "trend": trend}
+
+
 def _region_compare_one(d, code: str) -> dict:
     level, key = _region_meta(code)
     if level == "dong":
@@ -1167,16 +1263,17 @@ def _region_compare_one(d, code: str) -> dict:
         f"SELECT COUNT(*), CAST(AVG(deal_amount) AS INT), "
         f"  CAST(AVG(CASE WHEN excl_use_ar>0 THEN deal_amount/excl_use_ar*3.3 END) AS INT) "
         f"FROM transactions WHERE {tx_where} AND is_cancelled=0 "
-        f"  AND deal_ymd>=date('now','-90 days')", tx_args).fetchone()
+        f"  AND deal_ymd>=date('now','+9 hours','-90 days')", tx_args).fetchone()
     n12 = d.execute(
         f"SELECT COUNT(*) FROM transactions WHERE {tx_where} AND is_cancelled=0 "
-        f"  AND deal_ymd>=date('now','-12 months')", tx_args).fetchone()[0]
+        f"  AND deal_ymd>=date('now','+9 hours','-12 months')", tx_args).fetchone()[0]
     monthly = [
         {"m": r[0], "n": r[1], "avg": r[2]} for r in d.execute(
             f"SELECT substr(deal_ymd,1,7), COUNT(*), CAST(AVG(deal_amount) AS INT) "
             f"FROM transactions WHERE {tx_where} AND is_cancelled=0 "
-            f"  AND deal_ymd>=date('now','-12 months') GROUP BY 1 ORDER BY 1", tx_args)]
+            f"  AND deal_ymd>=date('now','+9 hours','-12 months') GROUP BY 1 ORDER BY 1", tx_args)]
 
+    pop = _pop_metrics(key if level != "dong" else "")
     snap = d.execute("SELECT MAX(snapshot_date) FROM complex_daily_agg").fetchone()[0]
     lst = d.execute(
         f"SELECT a.trade_type, SUM(a.listing_count), CAST(SUM(a.unit_count) AS INT), "
@@ -1197,13 +1294,20 @@ def _region_compare_one(d, code: str) -> dict:
         "listing_per_hh": (round((listings.get("A1", {}).get("n") or 0) / hh[0] * 100, 1) if hh[0] else None),
         "jeonse_rate": (round(b1 / a1 * 100, 1) if a1 and b1 else None),
         "monthly": monthly,
+        "pop": pop,
+        # 유입압력 = 최근1년 순유입 ÷ 아파트 재고세대. 순유입 절대값은 지역 크기에 좌우돼
+        # 비교가 안 되므로(경기 4만 vs 대전 2,869) 재고로 나눠 같은 자에 올린다.
+        "pop_pressure": (round(pop["net"] / hh[0] * 100, 2)
+                         if pop and hh[0] else None),
     }
 
 
 @app.get("/stats/region-compare2")
 def region_compare2(a: str, b: str):
     """지역비교: 시도/시군구/동 임의 조합 2곳의 거래·매물·가격 지표(아파트 매매)."""
-    _ck = f"regioncompare2:{a}:{b}"
+    # 응답에 pop/pop_pressure/scope 가 추가돼 옛 캐시(pop 없음)가 그대로 서빙되면
+    # 인구 지표가 영영 안 나온다 → 키를 올려 무효화한다.
+    _ck = f"regioncompare2:v3:{a}:{b}"
     _hit = _cache_get(_ck)
     if _hit is not None:
         return _hit
@@ -1273,7 +1377,7 @@ def listing_trend(days: int = 60):
             SELECT snapshot_date, trade_type, SUM(listing_count) AS n,
                    SUM(unit_count) AS u
             FROM complex_daily_agg
-            WHERE snapshot_date >= date('now', ?)
+            WHERE snapshot_date >= date('now','+9 hours', ?)
             GROUP BY snapshot_date, trade_type
             ORDER BY snapshot_date ASC
             """,
@@ -1386,7 +1490,9 @@ def complex_finder(sigungu: str, asset: str = "apt"):
         reg_cl, reg_p = "substr(cortar_no,1,2)=?", code
     else:
         raise HTTPException(400, "sigungu(cortar 앞 2자리=시도 또는 5자리=시군구) 필요")
-    _ck = f"finder5:{code}:{asset or ''}"
+    # sp(주인 조건 플래그) 추가로 행 스키마가 바뀌어 키를 올린다 — 옛 캐시가 서빙되면
+    # sp 가 없어 조건 필터가 항상 0건이 된다.
+    _ck = f"finder6:{code}:{asset or ''}"
     _hit = _cache_get(_ck)
     if _hit is not None:
         return _hit
@@ -1398,7 +1504,9 @@ def complex_finder(sigungu: str, asset: str = "apt"):
             f"{_asset_type_clause(asset)}", (reg_p,)).fetchall()
         ids = [r["complex_no"] for r in cxs]
         if not ids:
-            return {"sigungu": sg5, "asset": asset, "rows": [], "n_complex": 0}
+            # sg5 는 존재한 적 없는 이름 — 해당 지역에 단지가 없으면 500이 났다.
+            # (행정구역 개편으로 사라진 옛 시군구 코드가 들어오면 바로 이 경로를 탄다)
+            return {"sigungu": code, "asset": asset, "rows": [], "n_complex": 0}
         ph = ",".join("?" * len(ids))
         cx_by = {r["complex_no"]: r for r in cxs}
         area_cols = {r[1] for r in c.execute("PRAGMA table_info(complex_areas)")}
@@ -1410,6 +1518,15 @@ def complex_finder(sigungu: str, asset: str = "apt"):
             f"{room_sel} "
             f"FROM complex_areas WHERE complex_no IN ({ph}) AND exclusive_area IS NOT NULL",
             ids).fetchall()
+        # 주인 조건(주인전세·세안고·주인대출) 보유 단지 — 맞춤단지에서 조건 필터로 쓴다.
+        # 단지 단위 플래그만 실어 보내고 걸러내는 건 클라이언트(와이드+클라이언트필터 패턴 유지).
+        sp_by: dict = {}
+        for cno_, kind_ in c.execute(
+            f"SELECT DISTINCT l.complex_no, sd.kind FROM special_deals sd "
+            f"JOIN listings_current l ON l.article_no = sd.article_no "
+            f"WHERE l.complex_no IN ({ph})", ids):
+            sp_by.setdefault(cno_, set()).add(kind_[0])   # owner→o, tenant→t, loan→l
+
         # 현재 호가 — 평형명(area_name=pyeong_name 동일 어휘) 단위 최저가·광고수·실매물
         lst: dict = {}
         for r in c.execute(
@@ -1437,8 +1554,8 @@ def complex_finder(sigungu: str, asset: str = "apt"):
         agg: dict = {}
         for r in c.execute(
             f"SELECT ca.complex_no || '|' || ca.pyeong_name AS aid, "
-            f"SUM(CASE WHEN tx.deal_ymd >= date('now','-12 months') THEN 1 ELSE 0 END) n12, "
-            f"AVG(CASE WHEN tx.deal_ymd >= date('now','-12 months') THEN tx.deal_amount END) a12 "
+            f"SUM(CASE WHEN tx.deal_ymd >= date('now','+9 hours','-12 months') THEN 1 ELSE 0 END) n12, "
+            f"AVG(CASE WHEN tx.deal_ymd >= date('now','+9 hours','-12 months') THEN tx.deal_amount END) a12 "
             f"{a_join} GROUP BY 1", ids):
             agg[r["aid"]] = {"n12": r["n12"], "a12": round(r["a12"]) if r["a12"] else None}
         for r in c.execute(
@@ -1483,6 +1600,7 @@ def complex_finder(sigungu: str, asset: str = "apt"):
         la, pk = g.get("la"), g.get("pk")
         rows.append({
             "c": cno, "n": cxr["complex_name"], "d": cxr["dong_name"],
+            "sp": "".join(sorted(sp_by.get(cno, ()))) or None,   # o=주인전세 t=세안고 l=주인대출
             "y": cxr["use_approve_ymd"], "hh": cxr["total_household_count"],
             "py": py, "sa": a["supply_area"], "ea": a["exclusive_area"],
             "ah": a["household_count"],
@@ -1559,7 +1677,7 @@ def avg_price_trend(days: int = 60, sido: str | None = None, sigungu: str | None
             f"       SUM(a.price_avg*a.listing_count)*1.0/SUM(a.listing_count) AS avg_p, "
             f"       SUM(a.listing_count) AS cnt "
             f"FROM complex_daily_agg a{region_join} "
-            f"WHERE a.snapshot_date >= date('now', ?) "
+            f"WHERE a.snapshot_date >= date('now','+9 hours', ?) "
             f"  AND a.trade_type = ? "
             f"  AND a.price_avg BETWEEN ? AND ?{region_clause} "
             f"GROUP BY a.snapshot_date"
@@ -1575,7 +1693,7 @@ def avg_price_trend(days: int = 60, sido: str | None = None, sigungu: str | None
         f"JOIN complexes cr ON cr.complex_no = a.complex_no "
         f"LEFT JOIN rent_ref_sgg rr ON rr.sgg5 = substr(cr.cortar_no,1,5)"
         f"{region_join} "
-        f"WHERE a.snapshot_date >= date('now', ?) "
+        f"WHERE a.snapshot_date >= date('now','+9 hours', ?) "
         f"  AND a.trade_type = 'B2' "
         f"  AND a.rent_avg BETWEEN ? AND COALESCE(rr.rent_cap, ?)"
         f"{region_clause} "
@@ -1758,7 +1876,7 @@ def complex_transactions(complex_no: str, months: int = 24, limit: int = 500):
                 "SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, build_year, 'apt' AS asset, "
                 "json_extract(raw,'$.aptDong') AS dong, "
                 "(TRIM(COALESCE(json_extract(raw,'$.rgstDate'),''))<>'') AS registered "
-                "FROM transactions WHERE matched_complex_no = ? AND deal_ymd >= date('now', ?) AND is_cancelled = 0"
+                "FROM transactions WHERE matched_complex_no = ? AND deal_ymd >= date('now','+9 hours', ?) AND is_cancelled = 0"
             )
             sale_params.extend([complex_no, cutoff])
         if "offi_transactions" in existing:
@@ -1766,7 +1884,7 @@ def complex_transactions(complex_no: str, months: int = 24, limit: int = 500):
             sale_parts.append(
                 "SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, build_year, 'offi' AS asset, "
                 "NULL AS dong, 0 AS registered "
-                "FROM offi_transactions WHERE matched_complex_no = ? AND deal_ymd >= date('now', ?) AND is_cancelled = 0"
+                "FROM offi_transactions WHERE matched_complex_no = ? AND deal_ymd >= date('now','+9 hours', ?) AND is_cancelled = 0"
             )
             sale_params.extend([complex_no, cutoff])
         if sale_parts:
@@ -1786,14 +1904,14 @@ def complex_transactions(complex_no: str, months: int = 24, limit: int = 500):
             rent_parts.append(
                 "SELECT deal_ymd, deposit, monthly_rent, excl_use_ar, floor, build_year, "
                 "contract_type, contract_term, use_rr_right, pre_deposit, pre_monthly_rent, 'apt' AS asset "
-                "FROM rentals WHERE matched_complex_no = ? AND deal_ymd >= date('now', ?)"
+                "FROM rentals WHERE matched_complex_no = ? AND deal_ymd >= date('now','+9 hours', ?)"
             )
             rent_params.extend([complex_no, cutoff])
         if "offi_rentals" in existing:
             rent_parts.append(
                 "SELECT deal_ymd, deposit, monthly_rent, excl_use_ar, floor, build_year, "
                 "contract_type, contract_term, use_rr_right, pre_deposit, pre_monthly_rent, 'offi' AS asset "
-                "FROM offi_rentals WHERE matched_complex_no = ? AND deal_ymd >= date('now', ?)"
+                "FROM offi_rentals WHERE matched_complex_no = ? AND deal_ymd >= date('now','+9 hours', ?)"
             )
             rent_params.extend([complex_no, cutoff])
         if rent_parts:
@@ -1817,7 +1935,7 @@ def complex_transactions(complex_no: str, months: int = 24, limit: int = 500):
             sql = (
                 "SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, ownership_gbn "
                 "FROM silv_transactions "
-                "WHERE matched_complex_no = ? AND deal_ymd >= date('now', ?) AND is_cancelled = 0 "
+                "WHERE matched_complex_no = ? AND deal_ymd >= date('now','+9 hours', ?) AND is_cancelled = 0 "
                 "ORDER BY deal_ymd DESC LIMIT ?"
             )
             for row in c.execute(sql, [complex_no, cutoff, limit]):
@@ -4521,7 +4639,7 @@ def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int 
             by: dict = {}
             for r in c.execute(
                 f"SELECT matched_complex_no AS cno, deal_ymd, deal_amount, excl_use_ar, floor "
-                f"FROM {tbl} WHERE matched_complex_no IN ({ph}) AND deal_ymd >= date('now', ?)"
+                f"FROM {tbl} WHERE matched_complex_no IN ({ph}) AND deal_ymd >= date('now','+9 hours', ?)"
                 f"{area_cl} AND is_cancelled=0 ORDER BY deal_ymd DESC", params):
                 by.setdefault(r["cno"], []).append(
                     {"deal_ymd": r["deal_ymd"], "deal_amount": r["deal_amount"],
@@ -4582,7 +4700,7 @@ def complex_nearby_transactions(complex_no: str, area: float = 0.0, months: int 
             me_params += [area - 3.5, area + 3.5]
         me_amts = [r["deal_amount"] for r in c.execute(
             f"SELECT deal_amount FROM {tbl} WHERE matched_complex_no=? "
-            f"AND deal_ymd >= date('now', ?){me_area} AND is_cancelled=0", me_params)
+            f"AND deal_ymd >= date('now','+9 hours', ?){me_area} AND is_cancelled=0", me_params)
             if r["deal_amount"]]
         me = {"deal_count": len(me_amts),
               "avg_amount": round(sum(me_amts) / len(me_amts)) if me_amts else None}
@@ -4638,7 +4756,7 @@ def complex_listing_daily(complex_no: str, days: int = 31):
             SELECT snapshot_date, area_name, trade_type,
                    listing_count, unit_count, price_avg, price_min, price_max, rent_avg
             FROM complex_daily_agg
-            WHERE complex_no = ? AND snapshot_date >= date('now', ?)
+            WHERE complex_no = ? AND snapshot_date >= date('now','+9 hours', ?)
             ORDER BY snapshot_date ASC
             """,
             (complex_no, f"-{days} days"),
@@ -4789,7 +4907,7 @@ def complex_quick_deals(
                 AND ca.exclusive_area IS NOT NULL
                 AND ABS(ca.exclusive_area - tx.excl_use_ar) <= {area_tol}
               WHERE tx.matched_complex_no = ?
-                AND tx.deal_ymd >= date('now', ?)
+                AND tx.deal_ymd >= date('now','+9 hours', ?)
                 AND tx.excl_use_ar IS NOT NULL {extra}
                 AND tx.matched_score >= 0.85
             ) WHERE rn = 1 AND pyeong IS NOT NULL
@@ -5075,7 +5193,7 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
                     "SELECT deal_ymd, deal_amount AS price, NULL AS monthly_rent, "
                     "excl_use_ar, floor, build_year, matched_complex_no, dealing_gbn, 'apt' AS asset "
                     "FROM transactions WHERE matched_complex_no IS NOT NULL AND is_cancelled=0" + dg_filter + ac_filter
-                    + (f" AND deal_ymd >= date('now', ?)" if days > 0 else "")
+                    + (f" AND deal_ymd >= date('now','+9 hours', ?)" if days > 0 else "")
                 )
                 params.extend(ac_params)
                 if days > 0: params.append(cutoff)
@@ -5085,7 +5203,7 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
                     "SELECT deal_ymd, deal_amount AS price, NULL AS monthly_rent, "
                     "excl_use_ar, floor, NULL AS build_year, matched_complex_no, dealing_gbn, 'silv' AS asset "
                     "FROM silv_transactions WHERE matched_complex_no IS NOT NULL AND is_cancelled=0" + ac_filter
-                    + (f" AND deal_ymd >= date('now', ?)" if days > 0 else "")
+                    + (f" AND deal_ymd >= date('now','+9 hours', ?)" if days > 0 else "")
                 )
                 params.extend(ac_params)
                 if days > 0: params.append(cutoff)
@@ -5094,7 +5212,7 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
                     "SELECT deal_ymd, deal_amount AS price, NULL AS monthly_rent, "
                     "excl_use_ar, floor, build_year, matched_complex_no, dealing_gbn, 'offi' AS asset "
                     "FROM offi_transactions WHERE matched_complex_no IS NOT NULL AND is_cancelled=0" + dg_filter + ac_filter
-                    + (f" AND deal_ymd >= date('now', ?)" if days > 0 else "")
+                    + (f" AND deal_ymd >= date('now','+9 hours', ?)" if days > 0 else "")
                 )
                 params.extend(ac_params)
                 if days > 0: params.append(cutoff)
@@ -5105,7 +5223,7 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
                     "SELECT deal_ymd, deposit AS price, monthly_rent, "
                     "excl_use_ar, floor, build_year, matched_complex_no, NULL AS dealing_gbn, 'apt' AS asset "
                     "FROM rentals WHERE matched_complex_no IS NOT NULL AND monthly_rent=0" + ac_filter
-                    + (f" AND deal_ymd >= date('now', ?)" if days > 0 else "")
+                    + (f" AND deal_ymd >= date('now','+9 hours', ?)" if days > 0 else "")
                 )
                 params.extend(ac_params)
                 if days > 0: params.append(cutoff)
@@ -5114,7 +5232,7 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
                     "SELECT deal_ymd, deposit AS price, monthly_rent, "
                     "excl_use_ar, floor, build_year, matched_complex_no, NULL AS dealing_gbn, 'offi' AS asset "
                     "FROM offi_rentals WHERE matched_complex_no IS NOT NULL AND monthly_rent=0" + ac_filter
-                    + (f" AND deal_ymd >= date('now', ?)" if days > 0 else "")
+                    + (f" AND deal_ymd >= date('now','+9 hours', ?)" if days > 0 else "")
                 )
                 params.extend(ac_params)
                 if days > 0: params.append(cutoff)
@@ -5125,7 +5243,7 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
                     "SELECT deal_ymd, deposit AS price, monthly_rent, "
                     "excl_use_ar, floor, build_year, matched_complex_no, NULL AS dealing_gbn, 'apt' AS asset "
                     "FROM rentals WHERE matched_complex_no IS NOT NULL AND monthly_rent>0" + ac_filter
-                    + (f" AND deal_ymd >= date('now', ?)" if days > 0 else "")
+                    + (f" AND deal_ymd >= date('now','+9 hours', ?)" if days > 0 else "")
                 )
                 params.extend(ac_params)
                 if days > 0: params.append(cutoff)
@@ -5134,7 +5252,7 @@ def tx_top_price(days: int = 30, trade: str = "A1", asset: str = "all",
                     "SELECT deal_ymd, deposit AS price, monthly_rent, "
                     "excl_use_ar, floor, build_year, matched_complex_no, NULL AS dealing_gbn, 'offi' AS asset "
                     "FROM offi_rentals WHERE matched_complex_no IS NOT NULL AND monthly_rent>0" + ac_filter
-                    + (f" AND deal_ymd >= date('now', ?)" if days > 0 else "")
+                    + (f" AND deal_ymd >= date('now','+9 hours', ?)" if days > 0 else "")
                 )
                 params.extend(ac_params)
                 if days > 0: params.append(cutoff)
@@ -5195,7 +5313,7 @@ def _price_trend_map(complex_nos: list, trade: str | None, months: int = 18) -> 
             f"  substr(deal_ymd,1,7) ym, ROUND(AVG({amt})) avg "
             f"FROM {table} WHERE matched_complex_no IN ({ph}) "
             f"  AND excl_use_ar IS NOT NULL AND matched_score>=0.85 "
-            f"  AND deal_ymd>=date('now', ?){extra} "
+            f"  AND deal_ymd>=date('now','+9 hours', ?){extra} "
             f"GROUP BY 1, 2, ym ORDER BY ym",
             (*nos, f"-{months} months")).fetchall()
     for r in rows:
@@ -5288,7 +5406,7 @@ def tx_record_high(days: int = 90, trade: str = "A1", asset: str = "all",
           LEFT JOIN regions rg ON rg.cortar_no = substr(cx.cortar_no,1,5)||'00000'
           LEFT JOIN regions rd ON rd.cortar_no = cx.cortar_no
           WHERE rr.kind IN ({kph}){ackey_cond}{reg_cond}
-            AND rr.record_date >= date('now', ?)
+            AND rr.record_date >= date('now','+9 hours', ?)
             AND rr.n_prior >= ?
             AND rr.prev_high > 0
             AND rr.record_price > rr.prev_high{gap_cond}
@@ -5360,7 +5478,7 @@ def tx_top_volume(days: int = 30, trade: str = "A1", asset: str = "all",
             cond += ac_cond  # ' AND excl_use_ar * 1.33 >= ?' 형식, 이미 leading AND 포함
             extra_params = list(ac_params)
             if days > 0:
-                cond += " AND deal_ymd >= date('now', ?)"
+                cond += " AND deal_ymd >= date('now','+9 hours', ?)"
                 extra_params.append(cutoff)
             return (
                 f"SELECT matched_complex_no, '{asset_tag}' AS asset FROM {tbl} WHERE {cond}",
@@ -5455,7 +5573,7 @@ def tx_region_volume(level: str = "sido", parent: str = "", days: int = 30,
             if tbl not in existing:
                 continue
             parts.append(f"SELECT {grp} g, COUNT(*) n FROM {tbl} "
-                         f"WHERE {cond} AND deal_ymd>=date('now',?) AND {where} GROUP BY g")
+                         f"WHERE {cond} AND deal_ymd>=date('now','+9 hours',?) AND {where} GROUP BY g")
             params += [f"-{days} days"] + wp
         if not parts:
             return {"items": []}
@@ -5509,17 +5627,17 @@ def tx_low_price(days: int = 180, discount: float = 0.20, min_samples: int = 3,
         if asset in ("apt", "all") and "transactions" in existing:
             unions.append("SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, "
                           "matched_complex_no, 'apt' AS asset FROM transactions "
-                          "WHERE matched_complex_no IS NOT NULL AND is_cancelled=0 AND deal_ymd >= date('now', ?)" + ac_cond + reg_cond)
+                          "WHERE matched_complex_no IS NOT NULL AND is_cancelled=0 AND deal_ymd >= date('now','+9 hours', ?)" + ac_cond + reg_cond)
             params.append(cutoff); params.extend(ac_params); params.extend(reg_params)
         if asset in ("apt", "all") and "silv_transactions" in existing:
             unions.append("SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, "
                           "matched_complex_no, 'silv' AS asset FROM silv_transactions "
-                          "WHERE matched_complex_no IS NOT NULL AND is_cancelled=0 AND deal_ymd >= date('now', ?)" + ac_cond + reg_cond)
+                          "WHERE matched_complex_no IS NOT NULL AND is_cancelled=0 AND deal_ymd >= date('now','+9 hours', ?)" + ac_cond + reg_cond)
             params.append(cutoff); params.extend(ac_params); params.extend(reg_params)
         if asset in ("offi", "all") and "offi_transactions" in existing:
             unions.append("SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, "
                           "matched_complex_no, 'offi' AS asset FROM offi_transactions "
-                          "WHERE matched_complex_no IS NOT NULL AND is_cancelled=0 AND deal_ymd >= date('now', ?)" + ac_cond + reg_cond)
+                          "WHERE matched_complex_no IS NOT NULL AND is_cancelled=0 AND deal_ymd >= date('now','+9 hours', ?)" + ac_cond + reg_cond)
             params.append(cutoff); params.extend(ac_params); params.extend(reg_params)
         if not unions:
             return {"items": []}
@@ -5670,14 +5788,14 @@ def tx_gap_rank(days: int = 365, asset: str = "apt", min_samples: int = 3,
               SELECT complex_no AS cno, area_key,
                      SUM(sum_amt)*1.0/SUM(n) AS avg_sale, SUM(n) AS n_sale
               FROM tx_area_rollup
-              WHERE kind=? AND deal_ymd >= date('now', ?){cte_filter}
+              WHERE kind=? AND deal_ymd >= date('now','+9 hours', ?){cte_filter}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             ),
             jeonse AS (
               SELECT complex_no AS cno, area_key,
                      SUM(sum_amt)*1.0/SUM(n) AS avg_jeonse, SUM(n) AS n_jeonse
               FROM tx_area_rollup
-              WHERE kind=? AND deal_ymd >= date('now', ?){cte_filter}
+              WHERE kind=? AND deal_ymd >= date('now','+9 hours', ?){cte_filter}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             )
             SELECT s.cno, s.area_key, s.avg_sale, j.avg_jeonse,
@@ -5733,14 +5851,14 @@ def tx_jeonse_rate(days: int = 365, asset: str = "apt", min_samples: int = 3,
               SELECT complex_no AS cno, area_key,
                      SUM(sum_amt)*1.0/SUM(n) AS avg_sale, SUM(n) AS n_sale
               FROM tx_area_rollup
-              WHERE kind=? AND deal_ymd >= date('now', ?){cte}
+              WHERE kind=? AND deal_ymd >= date('now','+9 hours', ?){cte}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             ),
             jeonse AS (
               SELECT complex_no AS cno, area_key,
                      SUM(sum_amt)*1.0/SUM(n) AS avg_jeonse, SUM(n) AS n_jeonse
               FROM tx_area_rollup
-              WHERE kind=? AND deal_ymd >= date('now', ?){cte}
+              WHERE kind=? AND deal_ymd >= date('now','+9 hours', ?){cte}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             )
             SELECT s.cno, s.area_key, s.avg_sale, j.avg_jeonse,
@@ -5799,14 +5917,14 @@ def tx_price_change(window_days: int = 90, asset: str = "apt", min_samples: int 
               SELECT complex_no AS cno, area_key,
                      SUM(sum_amt)*1.0/SUM(n) AS recent_avg, SUM(n) AS n_recent
               FROM tx_area_rollup
-              WHERE kind IN ({kph}) AND deal_ymd >= date('now', ?){cte}
+              WHERE kind IN ({kph}) AND deal_ymd >= date('now','+9 hours', ?){cte}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             ),
             prev AS (
               SELECT complex_no AS cno, area_key,
                      SUM(sum_amt)*1.0/SUM(n) AS prev_avg, SUM(n) AS n_prev
               FROM tx_area_rollup
-              WHERE kind IN ({kph}) AND deal_ymd >= date('now', ?) AND deal_ymd < date('now', ?){cte}
+              WHERE kind IN ({kph}) AND deal_ymd >= date('now','+9 hours', ?) AND deal_ymd < date('now','+9 hours', ?){cte}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             )
             SELECT r.cno, r.area_key, r.recent_avg, p.prev_avg,
@@ -5864,7 +5982,7 @@ def tx_asking_vs_real(days: int = 90, min_samples: int = 3, area_class: str = "a
                      AVG(deal_amount) AS avg_real, COUNT(*) AS n_real
               FROM transactions
               WHERE matched_complex_no IS NOT NULL AND is_cancelled = 0
-                AND deal_ymd >= date('now', ?) AND excl_use_ar IS NOT NULL{ac_real}
+                AND deal_ymd >= date('now','+9 hours', ?) AND excl_use_ar IS NOT NULL{ac_real}
               GROUP BY cno, area_key HAVING COUNT(*) >= ?
             )
             SELECT a.complex_no, a.area_key, a.avg_asking, t.avg_real,
@@ -5928,7 +6046,7 @@ def tx_pyeong_price(days: int = 365, asset: str = "apt", min_samples: int = 3,
                      SUM(sum_amt) * 3.3058 / SUM(sum_excl) AS pyeong_price,
                      SUM(n) AS n
               FROM tx_area_rollup
-              WHERE kind IN ({kph}) AND deal_ymd >= date('now', ?){cte_filter}
+              WHERE kind IN ({kph}) AND deal_ymd >= date('now','+9 hours', ?){cte_filter}
               GROUP BY complex_no, area_key HAVING SUM(n) >= ?
             ) t
             LEFT JOIN complexes cx ON cx.complex_no = t.cno{_REGION_JOINS}
@@ -5972,7 +6090,7 @@ def tx_turnover(days: int = 365, trade: str = "A1", asset: str = "apt",
     ac_cond, ac_params = _area_cond_key(area_class)
     reg_cond, reg_params = _roll_region_clause(sido, sigungu, dong)
     src = (f"SELECT complex_no AS cno, SUM(n) AS n FROM tx_area_rollup "
-           f"WHERE kind IN ({kph}) AND deal_ymd >= date('now', ?){reg_cond}{ac_cond} GROUP BY complex_no")
+           f"WHERE kind IN ({kph}) AND deal_ymd >= date('now','+9 hours', ?){reg_cond}{ac_cond} GROUP BY complex_no")
     with _open_db() as c:
         rows = c.execute(
             f"""
@@ -6025,7 +6143,7 @@ def tx_yield(days: int = 365, asset: str = "apt", area_class: str = "all",
               SELECT complex_no AS cno, area_key,
                      SUM(sum_amt)*1.0/SUM(n) AS avg_sale, SUM(n) AS n_sale
               FROM tx_area_rollup
-              WHERE kind=? AND deal_ymd >= date('now', ?){cte_filter}
+              WHERE kind=? AND deal_ymd >= date('now','+9 hours', ?){cte_filter}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             ),
             wolse AS (
@@ -6034,7 +6152,7 @@ def tx_yield(days: int = 365, asset: str = "apt", area_class: str = "all",
                      SUM(sum_amt)*1.0/SUM(n) AS avg_monthly,
                      SUM(n) AS n_wolse
               FROM tx_area_rollup
-              WHERE kind=? AND deal_ymd >= date('now', ?){cte_filter}
+              WHERE kind=? AND deal_ymd >= date('now','+9 hours', ?){cte_filter}
               GROUP BY cno, area_key HAVING SUM(n) >= ?
             )
             SELECT s.cno, s.area_key, s.avg_sale, w.avg_deposit, w.avg_monthly,
@@ -6700,32 +6818,32 @@ def recent_tx(days: int = 7):
         }
         if "transactions" in existing:
             out["sale"] += c.execute(
-                "SELECT COUNT(*) FROM transactions WHERE deal_ymd >= date('now', ?) AND is_cancelled = 0",
+                "SELECT COUNT(*) FROM transactions WHERE deal_ymd >= date('now','+9 hours', ?) AND is_cancelled = 0",
                 (cutoff,),
             ).fetchone()[0]
         if "offi_transactions" in existing:
             out["sale"] += c.execute(
-                "SELECT COUNT(*) FROM offi_transactions WHERE deal_ymd >= date('now', ?) AND is_cancelled = 0",
+                "SELECT COUNT(*) FROM offi_transactions WHERE deal_ymd >= date('now','+9 hours', ?) AND is_cancelled = 0",
                 (cutoff,),
             ).fetchone()[0]
         # 주의: '+monthly_rent' 는 SQLite 가 monthly_rent 인덱스(비선택적, 풀스캔 128s)를
         # 못 쓰게 막아 deal_ymd 인덱스(7일치 시크, 0.01s)를 쓰게 강제하는 관용구다. 빼지 말 것.
         if "rentals" in existing:
             out["jeonse"] += c.execute(
-                "SELECT COUNT(*) FROM rentals WHERE deal_ymd >= date('now', ?) AND +monthly_rent = 0",
+                "SELECT COUNT(*) FROM rentals WHERE deal_ymd >= date('now','+9 hours', ?) AND +monthly_rent = 0",
                 (cutoff,),
             ).fetchone()[0]
             out["wolse"] += c.execute(
-                "SELECT COUNT(*) FROM rentals WHERE deal_ymd >= date('now', ?) AND +monthly_rent > 0",
+                "SELECT COUNT(*) FROM rentals WHERE deal_ymd >= date('now','+9 hours', ?) AND +monthly_rent > 0",
                 (cutoff,),
             ).fetchone()[0]
         if "offi_rentals" in existing:
             out["jeonse"] += c.execute(
-                "SELECT COUNT(*) FROM offi_rentals WHERE deal_ymd >= date('now', ?) AND +monthly_rent = 0",
+                "SELECT COUNT(*) FROM offi_rentals WHERE deal_ymd >= date('now','+9 hours', ?) AND +monthly_rent = 0",
                 (cutoff,),
             ).fetchone()[0]
             out["wolse"] += c.execute(
-                "SELECT COUNT(*) FROM offi_rentals WHERE deal_ymd >= date('now', ?) AND +monthly_rent > 0",
+                "SELECT COUNT(*) FROM offi_rentals WHERE deal_ymd >= date('now','+9 hours', ?) AND +monthly_rent > 0",
                 (cutoff,),
             ).fetchone()[0]
     return out
@@ -6828,7 +6946,7 @@ def tx_recovery(days: int = 90, min_samples: int = 3, order: str = "asc",
         recent AS (
           SELECT complex_no cno, pyeong, SUM(sum_amt)*1.0/SUM(n) cur, SUM(n) n,
                  MAX(deal_ymd) last_ymd
-          FROM tx_avg_rollup WHERE kind='sale' AND deal_ymd>=date('now', ?){reg_clause}
+          FROM tx_avg_rollup WHERE kind='sale' AND deal_ymd>=date('now','+9 hours', ?){reg_clause}
           GROUP BY complex_no, pyeong HAVING SUM(n) >= ?
         )
         SELECT cx.complex_name, {_REGION_NAME_COL}, r.pyeong,
@@ -6876,7 +6994,7 @@ def region_compare(days: int = 30, trade: str = "A1"):
           ROUND(AVG(CASE WHEN tx.excl_use_ar BETWEEN 83 AND 86 THEN tx.{amt} END)) AS avg84,
           COUNT(CASE WHEN tx.excl_use_ar BETWEEN 83 AND 86 THEN 1 END) AS n84
         FROM {tbl} tx JOIN complexes cx ON cx.complex_no=tx.matched_complex_no
-        WHERE tx.deal_ymd>=date('now', ?) AND tx.matched_complex_no IS NOT NULL{extra}
+        WHERE tx.deal_ymd>=date('now','+9 hours', ?) AND tx.matched_complex_no IS NOT NULL{extra}
         GROUP BY 1 ORDER BY 2 DESC
     """
     # 전국 집계(코드 '00') — 분위기 카드의 전국 big 카드와 병합되도록 동일 평형 밴드.
@@ -6887,7 +7005,7 @@ def region_compare(days: int = 30, trade: str = "A1"):
           ROUND(AVG(CASE WHEN tx.excl_use_ar BETWEEN 83 AND 86 THEN tx.{amt} END)) avg84,
           COUNT(CASE WHEN tx.excl_use_ar BETWEEN 83 AND 86 THEN 1 END) n84
         FROM {tbl} tx
-        WHERE tx.deal_ymd>=date('now', ?) AND tx.matched_complex_no IS NOT NULL{extra}
+        WHERE tx.deal_ymd>=date('now','+9 hours', ?) AND tx.matched_complex_no IS NOT NULL{extra}
     """
     with _open_db() as c:
         rows = c.execute(sql, (f"-{days} days",)).fetchall()
@@ -6935,7 +7053,7 @@ def today_deals(trade: str = "A1", min_discount: float = 0.05, limit: int = 24,
         av AS (
           SELECT complex_no, pyeong, SUM(sum_amt)*1.0/SUM(n) avg_real, SUM(n) n_real
           FROM tx_avg_rollup
-          WHERE kind=? AND deal_ymd>=date('now','-180 days')
+          WHERE kind=? AND deal_ymd>=date('now','+9 hours','-180 days')
             AND complex_no IN (SELECT complex_no FROM today_cx)
           GROUP BY complex_no, pyeong HAVING SUM(n) >= 3
         )
@@ -6965,6 +7083,144 @@ def today_deals(trade: str = "A1", min_discount: float = 0.05, limit: int = 24,
         "naver_url": f"https://new.land.naver.com/complexes/{r[1]}?articleNo={r[0]}",
     } for r in rows]
     return {"trade": trade, "min_discount": md, "count": len(items), "items": items}
+
+
+# 중개사가 설명란에 적어 광고하는 특수조건 매매(주인전세·세안고·대출승계).
+# 분류는 scripts/build_special_deals.py 가 daily_run에서 색인 → 여기선 조인만 한다
+# (설명 LIKE 전수 스캔은 175만행 1.6초라 요청마다 돌릴 수 없다).
+_SPECIAL_KINDS = {"owner", "tenant", "loan"}
+
+
+@app.get("/stats/special-deals")
+def special_deals(kind: str = "owner", sido: str | None = None, sigungu: str | None = None,
+                  dong: str | None = None, complex_no: str | None = None,
+                  asset: str = "all", sort: str = "price_desc",
+                  limit: int = 100, offset: int = 0):
+    """주인전세/세안고/대출승계 매물 검색.
+    owner=매도인이 전세로 거주, tenant=기존 임차인 승계, loan=담보대출 승계."""
+    # 카드뉴스는 소스를 바꾼 직후 이전 소스의 정렬값으로 한 번 더 요청한다(상태 반영 한 박자 차).
+    # 400을 던지면 그 순간 화면이 비므로, 모르는 값은 기본 조건으로 흡수한다.
+    if kind not in _SPECIAL_KINDS:
+        kind = "owner"
+    limit = max(1, min(limit, 200))
+
+    where = ["l.deal_or_warrant_price > 0"]
+    params: list[Any] = [kind]
+    # 단지를 콕 집으면 지역 필터보다 우선 — "이 단지에 이 조건 매물이 있나"를 보는 용도라
+    # 지역이 남아 있으면 단지가 그 지역 밖일 때 빈 결과가 나온다.
+    if complex_no:
+        where.append("l.complex_no = ?"); params.append(complex_no)
+    elif dong:
+        where.append("cx.cortar_no = ?"); params.append(dong)
+    elif sigungu:
+        where.append("substr(cx.cortar_no,1,5) = substr(?,1,5)"); params.append(sigungu)
+    elif sido:
+        where.append("substr(cx.cortar_no,1,2) = substr(?,1,2)"); params.append(sido)
+    ac = _asset_type_clause(asset)
+    if ac:
+        where.append(ac.replace(" AND ", "", 1) if ac.startswith(" AND ") else ac)
+
+    order = {"price_desc": "l.deal_or_warrant_price DESC",
+             "price_asc": "l.deal_or_warrant_price ASC",
+             "recent": "l.article_confirm_ymd DESC"}.get(sort, "l.deal_or_warrant_price DESC")
+
+    sql = f"""
+        SELECT l.article_no, l.complex_no, cx.complex_name, l.area_name, l.area1_m2,
+               l.deal_or_warrant_price, l.floor_info, l.direction, l.realtor_name,
+               l.article_feature_desc, l.article_confirm_ymd, sd.matched,
+               {_REGION_NAME_COL}
+        FROM special_deals sd
+        JOIN listings_current l ON l.article_no = sd.article_no
+        JOIN complexes cx ON cx.complex_no = l.complex_no
+        {_REGION_JOINS}
+        WHERE sd.kind = ? AND {' AND '.join(where)}
+        ORDER BY {order}
+        LIMIT ? OFFSET ?
+    """
+    cnt_sql = f"""
+        SELECT COUNT(*) FROM special_deals sd
+        JOIN listings_current l ON l.article_no = sd.article_no
+        JOIN complexes cx ON cx.complex_no = l.complex_no
+        WHERE sd.kind = ? AND {' AND '.join(where)}
+    """
+    # 상단 요약용 집계 — 목록과 같은 필터를 그대로 태워 화면과 어긋나지 않게 한다
+    agg_sql = f"""
+        SELECT COUNT(*), AVG(l.deal_or_warrant_price), MIN(l.deal_or_warrant_price),
+               MAX(l.deal_or_warrant_price), COUNT(DISTINCT l.complex_no),
+               SUM(l.deal_or_warrant_price >= 2000000000)
+        FROM special_deals sd
+        JOIN listings_current l ON l.article_no = sd.article_no
+        JOIN complexes cx ON cx.complex_no = l.complex_no
+        WHERE sd.kind = ? AND {' AND '.join(where)}
+    """
+    reg_sql = f"""
+        SELECT rg.cortar_name, COUNT(*) n
+        FROM special_deals sd
+        JOIN listings_current l ON l.article_no = sd.article_no
+        JOIN complexes cx ON cx.complex_no = l.complex_no
+        LEFT JOIN regions rg ON rg.cortar_no = substr(cx.cortar_no,1,5)||'00000'
+        WHERE sd.kind = ? AND {' AND '.join(where)}
+        GROUP BY rg.cortar_name ORDER BY n DESC LIMIT 5
+    """
+    with _open_db() as c:
+        total = c.execute(cnt_sql, params).fetchone()[0]
+        rows = c.execute(sql, params + [limit, offset]).fetchall()
+        a = c.execute(agg_sql, params).fetchone()
+        tops = c.execute(reg_sql, params).fetchall()
+        # 조인 없이 세면 이미 내려간 매물(색인 갱신 전)까지 잡혀 탭 숫자가 부풀려진다.
+        # 실측 2,350건이 그렇게 과다 계상됐다. 목록과 같은 조인 기준으로 센다.
+        # 다만 15만 행 조인이라 매 요청 288ms — 값은 수집 회차(하루 3회)에만 바뀌므로 캐시한다.
+        # _cache_* 는 데이터버전이 바뀌면 자동 무효라 재빌드 즉시 반영된다.
+        if complex_no:
+            # 단지를 고른 상태면 탭 숫자도 그 단지 기준이어야 한다 —
+            # "이 단지에 어떤 조건이 있나"가 곧 이 화면의 질문이다. 단지 하나라 조인도 가볍다.
+            kinds = dict(c.execute(
+                "SELECT sd.kind, COUNT(*) FROM special_deals sd "
+                "JOIN listings_current l ON l.article_no = sd.article_no "
+                "WHERE l.complex_no = ? GROUP BY sd.kind", (complex_no,)).fetchall())
+            kinds = {k: kinds.get(k, 0) for k in _SPECIAL_KINDS}   # 0건도 명시(없음을 보여줘야 함)
+        else:
+            kinds = _cache_get("special_kinds")
+        if kinds is None:
+            kinds = dict(c.execute(
+                "SELECT sd.kind, COUNT(*) FROM special_deals sd "
+                "JOIN listings_current l ON l.article_no = sd.article_no "
+                "GROUP BY sd.kind").fetchall())
+            _cache_put("special_kinds", kinds)
+    items = [{
+        "article_no": r[0], "complex_no": r[1], "complex_name": r[2],
+        "area_name": r[3], "area1_m2": r[4], "price": r[5],
+        "floor_info": r[6], "direction": r[7], "realtor_name": r[8],
+        "desc": r[9], "confirm_ymd": r[10], "matched": r[11], "region_name": r[12],
+        "naver_url": f"https://new.land.naver.com/complexes/{r[1]}?articleNo={r[0]}",
+    } for r in rows]
+    stats = {
+        "total": a[0] or 0, "avg_price": a[1], "min_price": a[2], "max_price": a[3],
+        "complexes": a[4] or 0, "over20": a[5] or 0,
+        "top_regions": [{"name": t[0], "n": t[1]} for t in tops if t[0]],
+    }
+    return {"kind": kind, "total": total, "count": len(items),
+            "offset": offset, "items": items, "stats": stats, "by_kind": kinds}
+
+
+@app.get("/stats/special-deals/summary")
+def special_deals_summary():
+    """유형별 총건수 + 시도 분포 — 페이지 상단 요약용."""
+    with _open_db() as c:
+        by_kind = dict(c.execute(
+            "SELECT kind, COUNT(*) FROM special_deals GROUP BY kind").fetchall())
+        by_sido = c.execute(f"""
+            SELECT sd.kind, substr(cx.cortar_no,1,2) sido, rs.cortar_name, COUNT(*) n
+            FROM special_deals sd
+            JOIN listings_current l ON l.article_no = sd.article_no
+            JOIN complexes cx ON cx.complex_no = l.complex_no
+            LEFT JOIN regions rs ON rs.cortar_no = substr(cx.cortar_no,1,2)||'00000000'
+            GROUP BY sd.kind, sido ORDER BY n DESC
+        """).fetchall()
+    out: dict[str, list] = {}
+    for k, sido, nm, n in by_sido:
+        out.setdefault(k, []).append({"sido": sido, "name": nm, "n": n})
+    return {"by_kind": by_kind, "by_sido": out}
 
 
 @app.get("/stats/today-listings-stats")
@@ -7183,7 +7439,7 @@ def quick_deals(
                  SUM(n) AS n_real
           FROM tx_avg_rollup INDEXED BY txr_kind_ymd_idx
           WHERE kind IN ({",".join("?" * len(kinds))})
-            AND deal_ymd >= date('now', ?){roll_region}
+            AND deal_ymd >= date('now','+9 hours', ?){roll_region}
           GROUP BY complex_no, pyeong
           HAVING SUM(n) >= ?
         """
@@ -7219,7 +7475,7 @@ def quick_deals(
              AND ca.exclusive_area IS NOT NULL
              AND ABS(ca.exclusive_area - tx.excl_use_ar) <= {area_tol}
             WHERE tx.matched_complex_no IS NOT NULL
-              AND tx.deal_ymd >= date('now', ?)
+              AND tx.deal_ymd >= date('now','+9 hours', ?)
               AND tx.excl_use_ar IS NOT NULL
               {extra_filter}
               AND tx.matched_score >= 0.85{tx_region_clause}
@@ -7413,7 +7669,7 @@ def quick_deals_map(
                   AND ca.exclusive_area IS NOT NULL
                   AND ABS(ca.exclusive_area - tx.excl_use_ar) <= {area_tol}
                 WHERE tx.matched_complex_no IN ({bbox_sub})
-                  AND tx.deal_ymd >= date('now', ?)
+                  AND tx.deal_ymd >= date('now','+9 hours', ?)
                   AND tx.excl_use_ar IS NOT NULL {extra_filter}
                   AND tx.matched_score >= 0.85
             ) WHERE rn = 1"""
@@ -7532,7 +7788,7 @@ def _silv_where(sido, sigungu, months, kind=None):
     elif sido:
         where.append("substr(sgg_cd,1,2) = substr(?,1,2)"); params.append(sido)
     if months and months > 0:
-        where.append("deal_ymd >= date('now', ?)"); params.append(f"-{months} months")
+        where.append("deal_ymd >= date('now','+9 hours', ?)"); params.append(f"-{months} months")
     if kind == "입주권":
         where.append("ownership_gbn = '입'")
     elif kind == "분양권":
@@ -10210,11 +10466,11 @@ def _fav_dash_item(d, cno: str, cname, rv_count: int, area_name: str = "") -> di
         "ORDER BY deal_ymd DESC LIMIT 1", tx_u_pr).fetchone()
     a90 = d.execute(
         f"SELECT AVG(deal_amount), COUNT(*) FROM ({tx_union}) "
-        "WHERE deal_ymd >= date('now','-90 days')", tx_u_pr).fetchone()
+        "WHERE deal_ymd >= date('now','+9 hours','-90 days')", tx_u_pr).fetchone()
     j90 = d.execute(
         "SELECT AVG(deposit), COUNT(*) FROM rentals "
         f"WHERE matched_complex_no=? AND COALESCE(monthly_rent,0)=0{tx_cl} "
-        "AND deal_ymd >= date('now','-90 days')", (cno, *tx_pr)).fetchone()
+        "AND deal_ymd >= date('now','+9 hours','-90 days')", (cno, *tx_pr)).fetchone()
     jeonse_ratio, jeonse_src = None, None
     if a90 and j90 and (a90[1] or 0) >= 3 and (j90[1] or 0) >= 3 and a90[0]:
         jeonse_ratio = round(j90[0] / a90[0] * 100, 1)
@@ -12664,7 +12920,7 @@ def lounge_complex_search(q: str, user: dict = Depends(current_user)):
     with _open_db() as d:
         rows = d.execute(
             "SELECT cx.complex_no, cx.complex_name, cx.total_household_count, "
-            "       rsi.cortar_name, rsg.cortar_name, rdo.cortar_name "
+            "       rsi.cortar_name, rsg.cortar_name, rdo.cortar_name, cx.real_estate_type "
             "FROM complexes cx "
             "LEFT JOIN regions rsi ON rsi.cortar_no = substr(cx.cortar_no,1,2)||'00000000' "
             "LEFT JOIN regions rsg ON rsg.cortar_no = substr(cx.cortar_no,1,5)||'00000' "
@@ -12715,15 +12971,22 @@ def _csearch_score(kw: str, norm_name: str, norm_region: str) -> int:
 _CSEARCH_IDX: dict = {"built": 0.0, "rows": None}
 
 
+# 단지 유형 라벨 — 검색 결과 배지·형제단지 표기에 공통으로 쓴다(DB 값과 1:1).
+_RE_TYPE_LABEL = {
+    "APT": "아파트", "OPST": "오피스텔", "JGC": "재건축",
+    "ABYG": "아파트분양권", "OBYG": "오피스텔분양권",
+}
+
+
 def _complex_search_index():
-    """(complex_no, name, households, region, norm_name, norm_region) 리스트. 30분 TTL 캐시."""
+    """(complex_no, name, households, region, norm_name, norm_region, type) 리스트. 30분 TTL 캐시."""
     now = _time.time()
     if _CSEARCH_IDX["rows"] is not None and (now - _CSEARCH_IDX["built"]) < 1800:
         return _CSEARCH_IDX["rows"]
     with _open_db() as d:
         raw = d.execute(
             "SELECT cx.complex_no, cx.complex_name, cx.total_household_count, "
-            "       rsi.cortar_name, rsg.cortar_name, rdo.cortar_name "
+            "       rsi.cortar_name, rsg.cortar_name, rdo.cortar_name, cx.real_estate_type "
             "FROM complexes cx "
             "LEFT JOIN regions rsi ON rsi.cortar_no = substr(cx.cortar_no,1,2)||'00000000' "
             "LEFT JOIN regions rsg ON rsg.cortar_no = substr(cx.cortar_no,1,5)||'00000' "
@@ -12732,10 +12995,38 @@ def _complex_search_index():
     rows = []
     for r in raw:
         region = " ".join(x for x in [_SIDO_SHORT.get(r[3], r[3]), r[4], r[5]] if x)
-        rows.append((r[0], r[1], r[2] or 0, region, _norm_search(r[1]), _norm_search(region)))
+        rows.append((r[0], r[1], r[2] or 0, region, _norm_search(r[1]), _norm_search(region), r[6]))
     _CSEARCH_IDX["rows"] = rows
     _CSEARCH_IDX["built"] = now
     return rows
+
+
+@app.get("/complexes/{complex_no}/siblings")
+def complex_siblings(complex_no: str):
+    """같은 건물의 다른 유형 단지 — 주상복합은 아파트/오피스텔이 별도 단지로 갈린다.
+
+    네이버가 용도별로 단지를 나눠 주기 때문에 '대우디오빌플러스'(오피스텔 552세대)와
+    '대우디오빌플러스(주상복합)'(아파트 168세대)이 서로 다른 단지번호를 갖는다.
+    실거래·시세가 실제로 다르므로(같은 전용 40㎡에 1.2억 차이) 합치면 안 되지만,
+    사용자는 한 건물로 인식하므로 서로 오갈 수 있어야 한다.
+    동일 판정: 같은 법정동 + 같은 지번 + 같은 사용승인일(셋 다 일치할 때만).
+    """
+    with _open_db() as d:
+        me = d.execute(
+            "SELECT cortar_no, detail_address, use_approve_ymd, real_estate_type "
+            "FROM complexes WHERE complex_no=?", (complex_no,)).fetchone()
+        if not me or not me[1]:
+            return {"items": []}
+        rows = d.execute(
+            "SELECT complex_no, complex_name, real_estate_type, total_household_count "
+            "FROM complexes WHERE cortar_no=? AND detail_address=? "
+            "  AND COALESCE(use_approve_ymd,'')=COALESCE(?,'') AND complex_no<>? "
+            "ORDER BY total_household_count DESC",
+            (me[0], me[1], me[2], complex_no)).fetchall()
+    return {"items": [{
+        "complex_no": r[0], "complex_name": r[1], "type": r[2],
+        "type_name": _RE_TYPE_LABEL.get(r[2], ""), "households": r[3] or 0,
+    } for r in rows]}
 
 
 @app.get("/complexes/search")
@@ -12747,10 +13038,10 @@ def complexes_search(q: str, limit: int = 20):
         return {"items": []}
     limit = max(1, min(limit, 40))
     scored = []
-    for (cno, name, hh, region, nn, nr) in _complex_search_index():
+    for (cno, name, hh, region, nn, nr, rtype) in _complex_search_index():
         sc = _csearch_score(kw, nn, nr)
         if sc:
-            scored.append((sc, hh, cno, name, region))
+            scored.append((sc, hh, cno, name, region, rtype))
     scored.sort(key=lambda x: (-x[0], -x[1]))   # 점수 → 세대수 순
     top = scored[:limit]
     counts = {}
@@ -12762,8 +13053,11 @@ def complexes_search(q: str, limit: int = 20):
                 f"SELECT complex_no, COUNT(*) FROM listings_current WHERE complex_no IN ({qm}) GROUP BY complex_no",
                 cnos):
                 counts[cno] = n
+    # 같은 건물이 아파트·오피스텔 두 단지로 갈리는 주상복합이 8,023곳이라(86만 세대),
+    # 이름만으로는 어느 쪽인지 알 수 없다 → 유형을 함께 내보내 화면에서 배지로 구분한다.
     items = [{"complex_no": t[2], "complex_name": t[3], "households": t[1],
-              "region": t[4], "listings": counts.get(t[2], 0)} for t in top]
+              "region": t[4], "listings": counts.get(t[2], 0),
+              "type": t[5], "type_name": _RE_TYPE_LABEL.get(t[5], "")} for t in top]
     return {"items": items}
 
 
@@ -14554,7 +14848,7 @@ def buywizard_candidates(p: BuyWizardCandidates):
             tx = d.execute(
                 """SELECT AVG(deal_amount), COUNT(*), MAX(deal_ymd) FROM transactions
                    WHERE matched_complex_no=? AND is_cancelled=0
-                     AND deal_ymd >= date('now','-12 months')
+                     AND deal_ymd >= date('now','+9 hours','-12 months')
                      AND ABS(excl_use_ar - ?) <= 1.5""", (cno, excl or 0)).fetchone()
             items.append({
                 "complex_no": cno, "complex_name": cname, "region": rname,

@@ -251,10 +251,10 @@ def build_rent_ref(c: sqlite3.Connection) -> tuple[int, float]:
         INSERT INTO rent_ref_sgg(sgg5, rent_cap, n)
         WITH u AS (
           SELECT sgg_cd AS sgg, monthly_rent AS r FROM rentals
-            WHERE monthly_rent>0 AND sgg_cd IS NOT NULL AND deal_ymd>=date('now','-3 years')
+            WHERE monthly_rent>0 AND sgg_cd IS NOT NULL AND deal_ymd>=date('now','+9 hours','-3 years')
           UNION ALL
           SELECT sgg_cd AS sgg, monthly_rent AS r FROM offi_rentals
-            WHERE monthly_rent>0 AND sgg_cd IS NOT NULL AND deal_ymd>=date('now','-3 years')
+            WHERE monthly_rent>0 AND sgg_cd IS NOT NULL AND deal_ymd>=date('now','+9 hours','-3 years')
         ),
         d AS (SELECT sgg, r, CUME_DIST() OVER (PARTITION BY sgg ORDER BY r) cd FROM u)
         SELECT sgg,

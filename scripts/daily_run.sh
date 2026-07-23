@@ -88,6 +88,15 @@ step "step 10: rematch_all_realprice"      $PY -u scripts/rematch_all_realprice.
 # 11) 롤업 (매칭 후, 캐시 전)
 step "step 11: build_tx_rollups"           $PY -u scripts/build_tx_rollups.py; rollup_exit=$?
 
+# 11b) 특수조건 매매 색인(주인전세·세안고·대출승계) — 매물 설명 기준이라 수집 직후 재생성.
+#      전량 교체라 내려간 매물이 남지 않는다(4초).
+step "step 11b: build_special_deals"       $PY -u scripts/build_special_deals.py; special_exit=$?
+
+# 11c) KST/UTC 정합 회귀검사 — SQLite date('now')는 UTC라 업무일자(deal_ymd 등)와
+#      비교하면 매일 00~09시에 하루 밀린다(실측: 최근1일 실거래 684 vs 정상 213).
+#      데이터 사이트에서 이런 오차는 조용히 지나가면 안 되므로 매일 확인한다.
+step "step 11c: check_kst_dates"           $PY -u scripts/check_kst_dates.py; kst_exit=$?
+
 # 12) 캐시 (기본화면만 — quick-deals 최적화로 시군구 급매캐시 불필요)
 step "step 12: build_api_cache --default-only" $PY -u scripts/build_api_cache.py --default-only; cache_exit=$?
 

@@ -368,9 +368,9 @@ def recommend(conn, profile: dict, policy: dict, limit: int = 30) -> dict:
         row = conn.execute(
             f"""SELECT AVG(r.deposit * 1.0) / AVG(t.deal_amount) FROM complexes c
                 JOIN rentals r ON r.matched_complex_no = c.complex_no
-                    AND r.monthly_rent = 0 AND r.deal_ymd >= date('now','-6 months')
+                    AND r.monthly_rent = 0 AND r.deal_ymd >= date('now','+9 hours','-6 months')
                 JOIN transactions t ON t.matched_complex_no = c.complex_no
-                    AND t.is_cancelled = 0 AND t.deal_ymd >= date('now','-6 months')
+                    AND t.is_cancelled = 0 AND t.deal_ymd >= date('now','+9 hours','-6 months')
                 WHERE ({conds})""",
             [p + "%" for p in prefixes]).fetchone()
         jeonse_ratio = min(0.9, max(0.3, row[0])) if row and row[0] else 0.6
@@ -415,7 +415,7 @@ def recommend(conn, profile: dict, policy: dict, limit: int = 30) -> dict:
         tx = conn.execute(
             """SELECT AVG(deal_amount), COUNT(*), MAX(deal_ymd) FROM transactions
                WHERE matched_complex_no=? AND is_cancelled=0
-                 AND deal_ymd >= date('now','-12 months')
+                 AND deal_ymd >= date('now','+9 hours','-12 months')
                  AND ABS(excl_use_ar - ?) <= 1.5""",
             (cno, excl or 0)).fetchone()
         tx_avg, tx_n, tx_last = (tx[0], tx[1], tx[2]) if tx else (None, 0, None)
@@ -425,7 +425,7 @@ def recommend(conn, profile: dict, policy: dict, limit: int = 30) -> dict:
             jr = conn.execute(
                 """SELECT AVG(deposit) FROM rentals
                    WHERE matched_complex_no=? AND monthly_rent=0
-                     AND deal_ymd >= date('now','-6 months')
+                     AND deal_ymd >= date('now','+9 hours','-6 months')
                      AND ABS(excl_use_ar - ?) <= 1.5""",
                 (cno, excl or 0)).fetchone()
             jd = jr[0] if jr and jr[0] else (min_ask * (jeonse_ratio or 0.6))
