@@ -736,10 +736,23 @@ def _find_complex_row(name: str, region: str = ""):
         try:
             import scripts.local_api as api
             hits = api.complexes_search(q=name, limit=3).get("items") or []
-            # '광교자연앤힐스테이트'처럼 지명 접두가 붙은 경우 — 접두 2~3자 떼고 재시도
-            if not hits and len(name) >= 6:
+            # 어순이 다른 경우('신나무실주공5단지' vs 실제 '신나무실5단지주공') — 숫자/접미어를
+            # 떼고 앞부분(고유명)만으로 다시 찾는다. 접두를 자르는 것보다 훨씬 안전하다.
+            if not hits and len(name) >= 5:
+                import re as _r
+                stem = _r.sub(r"(주공|단지|아파트|마을|차)?\s*\d+\s*(주공|단지|아파트|차)?$", "", name).strip()
+                stem = _r.sub(r"(주공|단지|아파트|마을)$", "", stem).strip()
+                if len(stem) >= 2 and stem != name:
+                    hits = api.complexes_search(q=stem, limit=3).get("items") or []
+            # 지명 접두가 이름에 붙어 오는 경우('광교자연앤힐스테이트') — 접두 2~3자 제거.
+            # ★남는 글자가 5자 이상일 때만: '신나무실주공5단지'→'실주공5단지'가 '잠실주공5단지'에
+            #   오매칭되던 사고(2026-07-22, 수원 단지 질문에 서울 40억 실거래를 답함) 방지.
+            if not hits and len(name) >= 8:
                 for cut in (2, 3):
-                    hits = api.complexes_search(q=name[cut:], limit=3).get("items") or []
+                    rest = name[cut:]
+                    if len(rest) < 5:
+                        continue
+                    hits = api.complexes_search(q=rest, limit=3).get("items") or []
                     if hits:
                         break
             if hits:
