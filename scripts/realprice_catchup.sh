@@ -21,8 +21,42 @@ exec 9>"$ROOT/data/pipeline.lock"
 flock -n 9 || { log "catchup: pipeline busy → skip"; exit 0; }
 
 cd "$ROOT" || exit 1
-# 오늘 이미 실거래 수집 성공이면 종료
-[ "$(cat "$MARKER" 2>/dev/null)" = "$TODAY" ] && exit 0
+
+# ── 발동 조건 ──────────────────────────────────────────────
+# 예전엔 마커(날짜)와 오늘 날짜만 비교했는데, 자정에 날짜가 넘어가는 순간
+# '오늘 아직 안 받았다'가 되어 **daily_run 이 돌기도 전에** 전량 수집을 시작했다.
+# 실측(2026-07-23): 매일 00:00 에 발동해 1시간 8분간 daily 와 같은 일을 중복 수행.
+#
+# 그래서 두 가지로 판단한다:
+#   ① daily_run 이 끝났어야 할 시각(DAILY_DONE_BY)이 지났는가 — 그 전이면 daily 차례를 기다린다
+#   ② 마지막 성공이 STALE_HOURS 넘게 오래됐는가 — 그래야 '실패'로 본다
+# 이러면 실제 장애(daily 가 API DOWN 으로 못 받은 날)에만 나선다.
+# catchup 은 '오늘 daily 가 실거래를 못 받았다'만 메운다.
+# 낮 시간대의 정기 보충은 realprice_refresh(08·15·18시)가 따로 맡으므로,
+# 여기서 '오래됐다'를 시간 길이로만 재면 정상일 오후에도 오발동한다(9시간 경과 등).
+# → 판정은 '오늘 daily 성공 기록이 있는가'로 하되, 그 시각이 daily 예정 시각 이후여야 한다.
+DAILY_DONE_BY="06:00"   # daily_run 00:30 시작 + 소요 5h15m + 여유
+
+now_s=$(date +%s)
+gate_s=$(date -d "today $DAILY_DONE_BY" +%s)
+if [ "$now_s" -lt "$gate_s" ]; then
+  exit 0                      # 아직 daily 차례 — 나서지 않는다
+fi
+
+# 마커는 ISO 시각(2026-07-23T05:17:03). 옛 형식(날짜만)도 읽어 그날 00:00 으로 본다
+# → 보수적으로 '오래됨' 판정이 나와 한 번 돌고 나면 새 형식으로 자동 교체된다.
+last_raw=$(cat "$MARKER" 2>/dev/null || true)
+last_s=0
+if [ -n "$last_raw" ]; then
+  last_s=$(date -d "$(echo "$last_raw" | tr 'T' ' ')" +%s 2>/dev/null || echo 0)
+fi
+# 오늘(KST) 안에 찍힌 마커면 daily 가 성공한 것 — 나설 일 없다.
+today_start_s=$(date -d "today 00:00" +%s)
+if [ "$last_s" -ge "$today_start_s" ]; then
+  exit 0
+fi
+age_h=$(( (now_s - last_s) / 3600 ))
+log "catchup 발동: 오늘 daily 실거래 성공 기록 없음(마지막 ${age_h}시간 전, 마커=${last_raw:-없음})"
 
 # data.go.kr 헬스 게이트
 if ! $PY scripts/dgk_health.py >>"$LOG" 2>&1; then
@@ -46,8 +80,8 @@ if $PY scripts/dgk_health.py >>"$LOG" 2>&1; then
   $PY -u scripts/build_tx_rollups.py >>"$LOG" 2>&1
   $PY -u scripts/build_api_cache.py --default-only >>"$LOG" 2>&1
   bash "$ROOT/scripts/warm_api.sh" >>"$LOG" 2>&1 || true
-  echo "$TODAY" > "$MARKER"
-  log "=== catchup 완료 (마커=$TODAY) ==="
+  date +%FT%H:%M:%S > "$MARKER"
+  log "=== catchup 완료 (마커=$(cat "$MARKER")) ==="
 else
   log "catchup: 수집 중 data.go.kr 재DOWN → 마커 미기록, 다음 틱 재시도"
 fi

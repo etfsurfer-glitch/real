@@ -62,7 +62,9 @@ step "step 5e: backfill_nonresi comm (상가/사무실 매매)"   $PY -u scripts
 # 실거래 성공 마커 — backfill 후 data.go.kr 이 살아있으면 '오늘 실거래 수집됨' 기록.
 # DOWN(장애)이면 미기록 → catchup(koczip-catchup.timer)이 낮에 회복 시 채운다.
 if $PY scripts/dgk_health.py >>"$LOG" 2>&1; then
-  date +%F > "$ROOT/data/realprice_done.date"
+  # 마커에 시각까지 남긴다 — catchup 이 '날짜가 같은가'가 아니라
+  # '마지막 성공이 몇 시간 전인가'로 판단하도록(자정 오발동 방지).
+  date +%FT%H:%M:%S > "$ROOT/data/realprice_done.date"
   log "실거래 마커 기록(오늘 수집 성공)"
 else
   log "실거래 미수집(data.go.kr DOWN) — 마커 미기록, catchup이 회복 시 채움"
