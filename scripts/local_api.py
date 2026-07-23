@@ -9427,9 +9427,9 @@ def tx_region_pulse(asset: str = "apt"):
     def pivot_sql(table: str) -> str:
         return f"""
         SELECT substr(sgg_cd,1,2) AS sido,
-          SUM(CASE WHEN date(inserted_at)=? THEN 1 ELSE 0 END) AS filed_total,
-          SUM(CASE WHEN date(inserted_at)=? AND deal_year=? AND deal_month=? THEN 1 ELSE 0 END) AS filed_cur,
-          SUM(CASE WHEN date(inserted_at)=? AND deal_year=? AND deal_month=? THEN 1 ELSE 0 END) AS filed_prev,
+          SUM(CASE WHEN date(inserted_at,'+9 hours')=? THEN 1 ELSE 0 END) AS filed_total,
+          SUM(CASE WHEN date(inserted_at,'+9 hours')=? AND deal_year=? AND deal_month=? THEN 1 ELSE 0 END) AS filed_cur,
+          SUM(CASE WHEN date(inserted_at,'+9 hours')=? AND deal_year=? AND deal_month=? THEN 1 ELSE 0 END) AS filed_prev,
           SUM(CASE WHEN deal_year=? AND deal_month=? THEN 1 ELSE 0 END) AS cum_cur,
           SUM(CASE WHEN deal_year=? AND deal_month=? THEN 1 ELSE 0 END) AS cum_prev,
           SUM(CASE WHEN deal_year=? AND deal_month=? THEN 1 ELSE 0 END) AS yoy_cur,
@@ -9449,16 +9449,28 @@ def tx_region_pulse(asset: str = "apt"):
         GROUP BY sido
         """
 
-    # "어제 적재"는 야간수집이 자정 넘어 돌면 그 달력일에 적재가 0이 되어 카드가
-    # 전부 0으로 보인다. 실제 가장 최근 적재일(date(inserted_at) 최댓값)을 기준으로
-    # 삼아 항상 최신 신고분을 보여준다.
+    # '오늘 신고접수'의 기준일 — **KST 달력일**이다.
+    #
+    # 예전엔 MAX(date(inserted_at)) 를 썼는데(자정 넘어 도는 야간수집 대응), 두 가지가 겹쳐
+    # 매일 사용자에게 틀린 숫자를 보여줬다:
+    #   ① date(inserted_at) 는 UTC라 09시(KST)에 날짜가 바뀐다 → 오전엔 어제 것을 '오늘'로 표시
+    #   ② 낮에 부분 재수집이 한 번만 돌아도 MAX가 그쪽으로 튀어, 하루 누적이 그 몇 건으로 붕괴
+    #      (2026-07-23 실측: 경기 재수집 120건이 들어오자 전국 1,536 → 117)
+    # 15시·18시 refresh 가 돌 때마다 ②가 재현되므로 매일 오후에 숫자가 무너지고 있었다.
+    #
+    # KST 달력일로 세고, 오늘 적재가 아직 없으면(자정~새벽 수집 전) 어제로 내린다.
     with _open_db() as _c0:
-        _dates = []
+        _today_kst = _c0.execute("SELECT date('now','+9 hours')").fetchone()[0]
+        _n = 0
         for _t in tables:
-            _r = _c0.execute(f"SELECT MAX(date(inserted_at)) FROM {_t}").fetchone()
-            if _r and _r[0]:
-                _dates.append(_r[0])
-    filed_ref = max(_dates) if _dates else yesterday
+            _n += _c0.execute(
+                f"SELECT COUNT(*) FROM {_t} WHERE date(inserted_at,'+9 hours')=?",
+                (_today_kst,)).fetchone()[0]
+        if _n:
+            filed_ref = _today_kst
+        else:
+            filed_ref = _c0.execute(
+                "SELECT date('now','+9 hours','-1 days')").fetchone()[0]
 
     param_block = (
         filed_ref,                          # filed_total
@@ -9503,7 +9515,7 @@ def tx_region_pulse(asset: str = "apt"):
             for sido, n in c.execute(
                 f"SELECT substr(sgg_cd,1,2) sido, COUNT(*) FROM {table} "
                 f"WHERE sgg_cd IS NOT NULL AND is_cancelled=0 "
-                f"  AND date(inserted_at)=? GROUP BY sido", (filed_ref,)):
+                f"  AND date(inserted_at,'+9 hours')=? GROUP BY sido", (filed_ref,)):
                 if sido:
                     filed_by_sido[sido] = filed_by_sido.get(sido, 0.0) + float(n or 0)
         for sido, n in filed_by_sido.items():
