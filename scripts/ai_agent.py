@@ -126,6 +126,9 @@ SYSTEM_PROMPT = (
     "(sort 기본은 낮은순이라 안 주면 싼 매물만 나와 '제일 비싸다'에 엉뚱한 답이 된다.)\n"
     "9) '못 찾는다'로 끝내지 마라. 요청한 가격대에 없으면 가장 근접한 가격대라도 찾아 "
     "'20억대는 없고 30억대부터 있습니다' 식으로 안내하며 실제 단지를 제시한다. 빈손·되묻기로 끝내는 답변 금지.\n"
+    "9.5) [목록은 최대 10개 — 같은 줄을 반복하지 마라] 도구가 수십·수백 건을 돌려줘도 답변에 나열하는 항목은 **최대 10개**다. 그 이상은 '외 N건'으로 줄여라. "
+    "이미 쓴 줄과 같은 내용을 다시 쓰지 마라 — 단지·면적·가격이 같으면 한 줄로 합치고 옆에 'N건'을 적는다. "
+    "사용자 조건에 **맞지 않는 항목은 아예 싣지 마라**. '(조건 초과)'를 붙여 나열하는 것은 금지다 — 조건에 맞는 게 없으면 '조건에 맞는 매물이 없어요'라고 한 줄로 답하고, 가장 근접한 것 3건만 따로 제시하라.\n"
     "10) [지역 실거래/거래 질문 — 도구 조합 필수] '서울 6월 실거래', 'OO구 거래량/거래현황' 처럼 "
     "지역의 실거래·거래를 묻는 질문에는 절대 '직접 조회할 수 없다'로 끝내지 마라. 다음 도구를 조합해 답한다: "
     "① region_market_pulse(region=지역) — 그 지역 이번달 거래량(전월·전년 대비·예측). "
@@ -1719,6 +1722,36 @@ def _system_for(nickname: str | None, user_region: str | None = None) -> str:
             "한 번 친근하게 부르고 시작해라. 매 문장마다 반복하지는 마라.")
 
 
+def _dedupe_lines(text: str, keep: int = 10) -> str:
+    """반복 폭주 안전망 — 같은 줄이 되풀이되면 접는다.
+
+    실측(2026-07-23): 모델이 목록을 쓰다 같은 줄에 갇혀 187회까지 반복하고
+    출력 상한(65,536토큰)을 4분간 소진한 사례가 있었다. max_output_tokens 로
+    길이는 막았지만 잘린 반복이 그대로 사용자에게 보이므로 여기서 한 번 더 접는다.
+    프롬프트 규칙(9.5)이 지켜지지 않는 경우의 마지막 방어선.
+    """
+    if not text:
+        return text
+    out, seen, folded = [], {}, 0
+    for ln in text.split("\n"):
+        k = ln.strip()
+        if len(k) < 12:                     # 짧은 줄(빈줄·구분선·소제목)은 그대로
+            out.append(ln)
+            continue
+        n = seen.get(k, 0) + 1
+        seen[k] = n
+        if n == 1:
+            out.append(ln)
+        elif n == 2:
+            out.append(ln)                  # 2회까지는 우연일 수 있어 허용
+        else:
+            folded += 1                     # 3회부터 접는다
+    if folded:
+        out.append("")
+        out.append(f"_(같은 항목이 {folded}줄 더 반복돼 접었습니다. 조건을 좁혀 다시 물어보시면 정확히 찾아드릴게요.)_")
+    return "\n".join(out)
+
+
 def _fix_links(text: str) -> str:
     """모델이 가끔 '이름 [/path]' 같은 비표준 형식으로 링크를 내보냄 → 표준 마크다운 [이름](/path)로
     정규화해 프런트에서 클릭되게 한다. 이미 올바른 [텍스트](url)는 건드리지 않는다."""
@@ -1808,6 +1841,10 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
         temperature=0.2,
         # thinking 기본 OFF(budget=0) — 데이터 조회/요약엔 불필요, 응답 6.6s→1.4s.
         thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
+        # 출력 상한 — 없으면 모델이 같은 줄을 반복하기 시작할 때 65,536 토큰까지 4분간
+        # 폭주한다(실측 2026-07-23: '서초월드 …' 187회 반복, 236초). 목록 답변도
+        # 2,000 토큰이면 충분하고, 중앙값은 126 토큰이라 정상 답변엔 영향이 없다.
+        max_output_tokens=2048,
         automatic_function_calling=types.AutomaticFunctionCallingConfig(maximum_remote_calls=6),
     )
     contents = []
@@ -1901,7 +1938,7 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
         except Exception:  # noqa: BLE001
             pass
 
-    answer = _fix_links(_safe_text(resp))
+    answer = _dedupe_lines(_fix_links(_safe_text(resp)))
     # 안전망: 모델이 가끔 영어 거절문을 내뱉음 → 한국어로 치환(고객 노출 방지).
     if answer and ("I'm sorry" in answer or "I cannot" in answer or "I am sorry" in answer
                    or "cannot fulfill" in answer or "unable to" in answer):
@@ -1939,6 +1976,7 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
         system_instruction=_system_for(nickname, user_region), tools=_TOOLS, temperature=0.2,
         # thinking OFF — 스트리밍 수동 루프도 단계마다 추론지연 없애 응답 가속.
         thinking_config=types.ThinkingConfig(thinking_budget=0),
+        max_output_tokens=2048,        # 위와 동일 — 반복 폭주 차단
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
     tmap = {f.__name__: f for f in _TOOLS}
@@ -1989,7 +2027,7 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
                             out_tok += (um2.candidates_token_count or 0)
                 except Exception:  # noqa: BLE001
                     pass
-            yield {"type": "done", "answer": _fix_links(_safe_text(resp)), "tools_used": trace,
+            yield {"type": "done", "answer": _dedupe_lines(_fix_links(_safe_text(resp))), "tools_used": trace,
                    "usage": {"input_tokens": in_tok, "output_tokens": out_tok,
                              "total_tokens": in_tok + out_tok}, "model": MODEL}
             return
