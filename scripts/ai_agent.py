@@ -126,6 +126,12 @@ SYSTEM_PROMPT = (
     "(sort 기본은 낮은순이라 안 주면 싼 매물만 나와 '제일 비싸다'에 엉뚱한 답이 된다.)\n"
     "9) '못 찾는다'로 끝내지 마라. 요청한 가격대에 없으면 가장 근접한 가격대라도 찾아 "
     "'20억대는 없고 30억대부터 있습니다' 식으로 안내하며 실제 단지를 제시한다. 빈손·되묻기로 끝내는 답변 금지.\n"
+    "9.4) [매물 검색 답변 형식 — 고정] find_apartments·find_quick_deals 처럼 매물을 찾는 도구를 쓴 답변은 "
+    "항목마다 **단지명 · 전용면적 · 가격 · 그 단지 매물 건수 · 단지상세 링크**를 모두 넣어라. 하나라도 빼지 마라.\n"
+    "  형식: `- **단지명** 전용 32㎡ · 월세 120만 · 3건 [단지정보 →](/complex/12345)`\n"
+    "  '단지내매물수'와 '단지정보' 값은 도구 결과에 이미 들어 있다 — 그대로 쓰면 된다. 없다고 생략하지 마라. "
+    "건수를 빼면 사용자는 그 단지에 몇 개가 있는지 몰라 다시 물어야 하고, 링크를 빼면 확인하러 갈 곳이 없다.\n"
+    "  끝에 '총 N건 중 상위 M개 단지'처럼 전체 규모를 한 줄로 밝혀라.\n"
     "9.5) [목록은 최대 10개 — 같은 줄을 반복하지 마라] 도구가 수십·수백 건을 돌려줘도 답변에 나열하는 항목은 **최대 10개**다. 그 이상은 '외 N건'으로 줄여라. "
     "이미 쓴 줄과 같은 내용을 다시 쓰지 마라 — 단지·면적·가격이 같으면 한 줄로 합치고 옆에 'N건'을 적는다. "
     "사용자 조건에 **맞지 않는 항목은 아예 싣지 마라**. '(조건 초과)'를 붙여 나열하는 것은 금지다 — 조건에 맞는 게 없으면 '조건에 맞는 매물이 없어요'라고 한 줄로 답하고, 가장 근접한 것 3건만 따로 제시하라.\n"
@@ -1722,6 +1728,35 @@ def _system_for(nickname: str | None, user_region: str | None = None) -> str:
             "한 번 친근하게 부르고 시작해라. 매 문장마다 반복하지는 마라.")
 
 
+# 답변에 넣어도 되는 사이트 경로 — 프롬프트의 '관련 페이지' 목록과 같은 원본.
+_OK_PAGES = {
+    "/today", "/overview", "/quick-deals", "/jeonse-check", "/deal-map", "/cancelled",
+    "/tx-stats", "/map", "/realtors", "/forum", "/finder", "/changes", "/special-deals",
+    "/buy-calculator", "/lounge", "/presale",
+}
+
+
+def _strip_bad_links(text: str) -> str:
+    """존재하지 않는 링크를 텍스트로 되돌린다.
+
+    프롬프트에 '경로를 지어내지 마라'가 있어도 가끔 'https://koczip.com/complex?region=…'
+    같은 없는 주소를 만든다(실측 2026-07-23). 클릭하면 빈 화면이라 사용자는 막다른 길을 만난다.
+    허용 = /complex/<id>, /realtor/<id>, 그리고 실제 존재하는 사이트 페이지뿐.
+    """
+    if not text or "](" not in text:
+        return text
+
+    def repl(m):
+        label, url = m.group(1), m.group(2).strip()
+        path = url.split("#")[0].split("?")[0]
+        if url.startswith("/complex/") or url.startswith("/realtor/"):
+            return m.group(0)
+        if path in _OK_PAGES and url.startswith("/"):
+            return m.group(0)
+        return label                       # 링크를 벗겨 글자만 남긴다
+    return re.sub(r"\[([^\]\n]+)\]\(([^)\n]+)\)", repl, text)
+
+
 def _dedupe_lines(text: str, keep: int = 10) -> str:
     """반복 폭주 안전망 — 같은 줄이 되풀이되면 접는다.
 
@@ -1938,7 +1973,7 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
         except Exception:  # noqa: BLE001
             pass
 
-    answer = _dedupe_lines(_fix_links(_safe_text(resp)))
+    answer = _strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp))))
     # 안전망: 모델이 가끔 영어 거절문을 내뱉음 → 한국어로 치환(고객 노출 방지).
     if answer and ("I'm sorry" in answer or "I cannot" in answer or "I am sorry" in answer
                    or "cannot fulfill" in answer or "unable to" in answer):
@@ -2027,7 +2062,7 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
                             out_tok += (um2.candidates_token_count or 0)
                 except Exception:  # noqa: BLE001
                     pass
-            yield {"type": "done", "answer": _dedupe_lines(_fix_links(_safe_text(resp))), "tools_used": trace,
+            yield {"type": "done", "answer": _strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp)))), "tools_used": trace,
                    "usage": {"input_tokens": in_tok, "output_tokens": out_tok,
                              "total_tokens": in_tok + out_tok}, "model": MODEL}
             return
