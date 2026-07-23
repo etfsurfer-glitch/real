@@ -6853,8 +6853,14 @@ def recent_tx(days: int = 7):
 def freshness():
     """데이터 신선도 — '오늘 공개된 실거래' 배지용 (silgga 벤치마크).
 
-    가장 최근 수집분(inserted_at 최신 날짜)에 새로 들어온 실거래 건수를 매매/전세/
-    월세로 집계. inserted_at 은 UTC 저장이라 date() 비교도 UTC 로 일관되게 한다.
+    **오늘(KST) 새로 들어온** 실거래 건수를 매매/전세/월세로 집계.
+
+    예전엔 '가장 최근 적재일'을 기준으로 삼았는데 두 가지가 겹쳐 매일 틀렸다:
+      ① date(inserted_at) 는 UTC — 09시(KST)에 날짜가 바뀌어 오전엔 어제 것을 오늘로 표시
+      ② 낮에 부분 재수집이 한 번만 돌면 기준일이 그쪽으로 튀어 하루 누적이 그 델타로 붕괴
+         (2026-07-23 실측: 경기 재수집 120건에 전국 집계가 1,536 → 117)
+    15시·18시 refresh 때마다 ②가 재현되므로 KST 달력일로 세고,
+    오늘 적재가 아직 없으면(자정~새벽 수집 전) 어제로 내린다.
     last_updated 는 전체 테이블 중 가장 최근 inserted 시각(UTC ISO).
     """
     out = {"new_sale": 0, "new_jeonse": 0, "new_wolse": 0, "last_updated": None}
@@ -6869,12 +6875,22 @@ def freshness():
             # raw MAX(inserted_at) 는 일부 테이블에 raw 인덱스가 없어 풀스캔(느림).
             return c.execute(f"SELECT MAX(date(inserted_at)) FROM {tbl}").fetchone()[0]
 
+        # 기준일 = 오늘(KST). 오늘 적재가 하나도 없으면 어제로 내린다.
+        _today = c.execute("SELECT date('now','+9 hours')").fetchone()[0]
+        _any = any(
+            c.execute(f"SELECT 1 FROM {t} WHERE date(inserted_at,'+9 hours')=? LIMIT 1",
+                      (_today,)).fetchone()
+            for t in ("transactions", "offi_transactions", "rentals", "offi_rentals")
+            if t in existing)
+        ref_day = _today if _any else c.execute(
+            "SELECT date('now','+9 hours','-1 days')").fetchone()[0]
+
         def new_on_latest(tbl: str, extra: str = "") -> int:
             if tbl not in existing:
                 return 0
             return c.execute(
                 f"SELECT COUNT(*) FROM {tbl} "
-                f"WHERE date(inserted_at)=(SELECT MAX(date(inserted_at)) FROM {tbl}){extra}"
+                f"WHERE date(inserted_at,'+9 hours')=?{extra}", (ref_day,)
             ).fetchone()[0]
 
         # 매매 = 아파트 + 오피스텔 거래
