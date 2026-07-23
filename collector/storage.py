@@ -86,6 +86,10 @@ CREATE INDEX IF NOT EXISTS listings_asking_idx ON listings_current(trade_type, c
 -- 급매찾기(quick-deals)의 listing_groups: trade_type 필터 + (단지,평형) GROUP BY +
 -- 호가/면적 집계를 인덱스전용으로. 없으면 전국 1.79M 풀스캔+정렬 → 16.5s.
 CREATE INDEX IF NOT EXISTS listings_qd_idx ON listings_current(trade_type, complex_no, area_name, deal_or_warrant_price, area1_m2);
+-- AI 매물검색(find_apartments)·지역 시세 집계용 커버링 인덱스.
+-- area_name(문자 '84A')이 아니라 area2_m2(전용㎡ 숫자)로 범위검색해야 인덱스를 탄다.
+-- 없으면 trade_type 만 타고 매매 175만 행을 훑어 38.8초가 걸렸다(2026-07-23 실측 → 0.1초).
+CREATE INDEX IF NOT EXISTS listings_find_idx ON listings_current(trade_type, complex_no, area2_m2, deal_or_warrant_price);
 -- 오늘의매물(today-deals/stats)이 최신 매물 확인일로 필터 — 1.84M 풀스캔(콜드 ~38s) 회피.
 CREATE INDEX IF NOT EXISTS listings_confirm_idx ON listings_current(article_confirm_ymd);
 
@@ -95,6 +99,10 @@ CREATE TABLE IF NOT EXISTS complex_daily_agg (
     area_name TEXT NOT NULL,
     trade_type TEXT NOT NULL,
     listing_count INTEGER NOT NULL,
+    -- 실매물(중복 광고 합침): 같은 집을 여러 중개업소가 올린 광고를 1건으로.
+    -- 셀 단위 Σ(1/same_addr_cnt) — 그룹이 셀 안에 온전히 들어오므로 REAL 합산 후
+    -- 상위 집계에서 반올림하면 정확. NULL=미계산(백필 전 과거분).
+    unit_count REAL,
     price_min INTEGER, price_max INTEGER, price_avg INTEGER,
     rent_min INTEGER, rent_max INTEGER, rent_avg INTEGER,
     PRIMARY KEY (snapshot_date, complex_no, area_name, trade_type)
@@ -247,6 +255,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
         # Migrate older DBs to the B-field layout.
         for col, ddl in _B_FIELDS:
             _add_column_if_missing(conn, "listings_current", col, ddl)
+        # 실매물(중복 광고 합침) 컬럼 — 기존 DB 보강.
+        _add_column_if_missing(conn, "complex_daily_agg", "unit_count", "REAL")
         # Seed articles from listings_current on first run with new schema
         # (one-shot migration; subsequent runs are no-ops because articles
         # already contains the matching rows).
@@ -755,14 +765,23 @@ def compute_complex_daily_agg(conn: sqlite3.Connection, snapshot_date: str) -> i
             """
             INSERT INTO complex_daily_agg(
                 snapshot_date, complex_no, area_name, trade_type,
-                listing_count, price_min, price_max, price_avg,
+                listing_count, unit_count, price_min, price_max, price_avg,
                 rent_min, rent_max, rent_avg
             )
             SELECT
                 lc.snapshot_date, lc.complex_no, COALESCE(lc.area_name, ''), lc.trade_type,
                 COUNT(*),
-                MIN(lc.deal_or_warrant_price), MAX(lc.deal_or_warrant_price),
-                CAST(AVG(lc.deal_or_warrant_price) AS INTEGER),
+                -- 실매물: 같은 집 중복 광고(sameAddressGroup)를 1건으로 (Σ 1/그룹크기)
+                SUM(1.0/MAX(COALESCE(lc.same_addr_cnt,1),1)),
+                -- 가격 통계는 오타 제외 — 같은 단지×평형 중위값의 0.4~2.5배 밖 호가는
+                -- 자릿수 오입력(예: 5.3억→5,300억)으로 보고 min/max/avg 전부에서 제외.
+                -- (실제 층·향 프리미엄 편차는 2.5배 안에 들어옴. 원본 매물은 그대로 보존.)
+                MIN(CASE WHEN md.m IS NULL OR lc.deal_or_warrant_price BETWEEN md.m*0.4 AND md.m*2.5
+                         THEN lc.deal_or_warrant_price END),
+                MAX(CASE WHEN md.m IS NULL OR lc.deal_or_warrant_price BETWEEN md.m*0.4 AND md.m*2.5
+                         THEN lc.deal_or_warrant_price END),
+                CAST(AVG(CASE WHEN md.m IS NULL OR lc.deal_or_warrant_price BETWEEN md.m*0.4 AND md.m*2.5
+                              THEN lc.deal_or_warrant_price END) AS INTEGER),
                 -- 월세료 이상치 제외 — 시군구별 '실거래 월세 상한'(rent_ref_sgg, 깨끗한
                 -- 실거래 p99×1.5)을 넘는 호가는 보증금 오입력·제주 년세 등으로 보고 제외.
                 -- rent_ref 없는 시군구는 3만~1천만원/월 fallback. 지역 적응적이라
@@ -773,10 +792,22 @@ def compute_complex_daily_agg(conn: sqlite3.Connection, snapshot_date: str) -> i
             FROM listings_current lc
             LEFT JOIN complexes cx ON cx.complex_no = lc.complex_no
             LEFT JOIN rent_ref_sgg rr ON rr.sgg5 = substr(cx.cortar_no,1,5)
+            LEFT JOIN (
+                -- 셀(단지×평형×거래)별 호가 중위값
+                SELECT cno, an, tt, AVG(pr) AS m FROM (
+                    SELECT complex_no AS cno, COALESCE(area_name,'') AS an, trade_type AS tt,
+                           deal_or_warrant_price AS pr,
+                           ROW_NUMBER() OVER (PARTITION BY complex_no, COALESCE(area_name,''), trade_type
+                                              ORDER BY deal_or_warrant_price) AS rn,
+                           COUNT(*) OVER (PARTITION BY complex_no, COALESCE(area_name,''), trade_type) AS n
+                    FROM listings_current
+                    WHERE snapshot_date=? AND complex_no IS NOT NULL AND deal_or_warrant_price>0
+                ) WHERE rn IN ((n+1)/2, n/2+1) GROUP BY cno, an, tt
+            ) md ON md.cno=lc.complex_no AND md.an=COALESCE(lc.area_name,'') AND md.tt=lc.trade_type
             WHERE lc.snapshot_date=? AND lc.complex_no IS NOT NULL
             GROUP BY lc.snapshot_date, lc.complex_no, COALESCE(lc.area_name, ''), lc.trade_type
             """,
-            (snapshot_date,),
+            (snapshot_date, snapshot_date),
         )
         cur = conn.execute(
             "SELECT COUNT(*) FROM complex_daily_agg WHERE snapshot_date=?",
