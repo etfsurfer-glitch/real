@@ -9494,6 +9494,24 @@ def tx_region_pulse(asset: str = "apt"):
                 for k, v in zip(cols[1:], row[1:]):
                     rec[k] += float(v or 0)
 
+        # filed_total 은 위 PIVOT 안에서 계산하면 안 된다 — PIVOT 은 deal_year/month IN(...)
+        # 으로 좁혀진 집합이라, 몇 달 전 계약이 뒤늦게 신고된 건이 통째로 빠진다.
+        # 실측(2026-07-23): 경기 적재 469건 중 432건만 잡혀 37건(8%)이 사라졌다.
+        # '오늘 신고접수'는 계약월과 무관하게 그날 접수분 전부여야 하므로 따로 센다.
+        filed_by_sido: dict[str, float] = {}
+        for table in tables:
+            for sido, n in c.execute(
+                f"SELECT substr(sgg_cd,1,2) sido, COUNT(*) FROM {table} "
+                f"WHERE sgg_cd IS NOT NULL AND is_cancelled=0 "
+                f"  AND date(inserted_at)=? GROUP BY sido", (filed_ref,)):
+                if sido:
+                    filed_by_sido[sido] = filed_by_sido.get(sido, 0.0) + float(n or 0)
+        for sido, n in filed_by_sido.items():
+            agg.setdefault(sido, {k: 0.0 for k in cols if k != "sido"})["filed_total"] = n
+        for sido, rec in agg.items():          # 적재 0인 시도는 0으로 덮어야 옛 값이 안 남는다
+            if sido not in filed_by_sido:
+                rec["filed_total"] = 0.0
+
     def _change(now, was):
         if now is None or was is None or was == 0:
             return None
