@@ -114,7 +114,7 @@ need_kb=$(du -sk --exclude=archive "$DATA" 2>/dev/null | cut -f1)
 need_kb=$((need_kb + need_kb / 10))                  # 10% 여유
 free_kb=$(df -Pk "$DEST" | awk 'NR==2{print $4}')
 if [ "$free_kb" -lt "$need_kb" ]; then
-  say "공간 부족(여유 $((free_kb/1048))GB < 필요 $((need_kb/1048))GB) — 과거분 압축"
+  say "공간 부족(여유 $((free_kb/1048576))GB < 필요 $((need_kb/1048576))GB) — 과거분 압축"
   compress_old
   free_kb=$(df -Pk "$DEST" | awk 'NR==2{print $4}')
 fi
@@ -124,7 +124,7 @@ if [ "$free_kb" -lt "$need_kb" ]; then
   free_kb=$(df -Pk "$DEST" | awk 'NR==2{print $4}')
 fi
 if [ "$free_kb" -lt "$need_kb" ]; then
-  alert "백업 공간 부족: 여유 $((free_kb/1048))GB, 필요 $((need_kb/1048))GB — 보관일수(KEEP=$KEEP) 축소나 볼륨 증설 필요"
+  alert "백업 공간 부족: 여유 $((free_kb/1048576))GB, 필요 $((need_kb/1048576))GB — 보관일수(KEEP=$KEEP) 축소나 볼륨 증설 필요"
   exit 1
 fi
 
