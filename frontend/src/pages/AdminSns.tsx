@@ -422,7 +422,8 @@ type EngLog = {
   comment: string; status: string; detail: string; at: string; followed: boolean;
   verified: boolean; url: string;
 };
-type EngSummary = { total: number; liked: number; commented: number; followed: number; verified: number };
+type EngSummary = { total: number; liked: number; commented: number; followed: number;
+                    verified: number; linked: number };
 
 /** 키워드로 최신글을 찾아 좋아요 + AI 댓글. 켜고 끄기와 기록 확인. */
 function EngageTab({ setMsg }: { setMsg: (s: string) => void }) {
@@ -486,7 +487,7 @@ function EngageTab({ setMsg }: { setMsg: (s: string) => void }) {
         {sum && sum.total > 0 && (
           <div className="sns-hint" style={{ marginBottom: 0 }}>
             최근 24시간 — 좋아요 <b>{sum.liked}</b> · 댓글 <b>{sum.commented}</b>
-            (화면 확인 <b>{sum.verified}</b>) · 팔로우 <b>{sum.followed}</b>
+            (화면 확인 <b>{sum.verified}</b>) · 팔로우 <b>{sum.followed}</b> · 콕집 링크 <b>{sum.linked}</b>
             <span className="muted">
               {" "}· 댓글은 게시 후 글을 다시 읽어 실제로 붙었는지 확인한 것만 &lsquo;확인&rsquo;으로 셉니다.
             </span>

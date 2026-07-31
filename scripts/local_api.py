@@ -17097,7 +17097,8 @@ def admin_engage_log(limit: int = 50, _admin: dict = Depends(admin_user)):
         rows = c.execute("SELECT id,keyword,author,substr(post_text,1,90),liked,comment,status,"
                          "substr(detail,1,80),created_at,followed,verified,post_key "
                          "FROM sns_engage_log ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-        d1 = c.execute("SELECT COUNT(*), SUM(liked), SUM(comment<>''), SUM(followed), SUM(verified) "
+        d1 = c.execute("SELECT COUNT(*), SUM(liked), SUM(comment<>''), SUM(followed), SUM(verified), "
+                       "SUM(comment LIKE '%koczip%') "
                        "FROM sns_engage_log WHERE created_at >= datetime('now','-1 day') "
                        "AND status='ok'").fetchone()
     items = []
@@ -17110,7 +17111,7 @@ def admin_engage_log(limit: int = 50, _admin: dict = Depends(admin_user)):
                       "url": ("https://www.threads.com" + pk) if pk.startswith("/") else pk})
     return {"items": items,
             "summary": {"total": d1[0] or 0, "liked": d1[1] or 0, "commented": d1[2] or 0,
-                        "followed": d1[3] or 0, "verified": d1[4] or 0}}
+                        "followed": d1[3] or 0, "verified": d1[4] or 0, "linked": d1[5] or 0}}
 
 
 # ── 워커용 ──
@@ -17198,14 +17199,18 @@ _ENGAGE_PROMPT = """너는 부동산 데이터 서비스 '콕집'의 SNS 담당�
 - 정치·사회 갈등 소재에는 절대 의견을 달지 말 것
 - 사람이 쓴 것처럼 자연스러운 한국어. AI 티(예: "좋은 정보 감사합니다" 같은 상투어) 금지
 - 가볍게 유머러스하면 좋음. 과하지 않게
-- 길이는 20~75자
+- 길이는 20~75자 (콕집 주소를 넣는 경우엔 95자까지 허용)
 - 이모지는 최대 1개까지만
 - 광고처럼 보이지 말 것
 
 [콕집 언급 규칙]
-- 원글이 시세·실거래가·매물·급매·지역 시장을 다뤄서 자연스럽게 이어질 때만
-  콕집을 한 번 언급하고 https://koczip.com 를 덧붙인다.
-- 그렇지 않으면 절대 언급하지 말 것 (억지 홍보 금지)
+- 원글이 집값·시세·실거래가·매물·급매·전월세·분양·중개·지역 부동산 시장을 다루면
+  **반드시** 콕집을 이름으로 언급하고, 한번 보러 오라고 자연스럽게 권한 뒤
+  주소를 `www.koczip.com` 형태 그대로 적는다. (https:// 를 붙이지 말 것)
+  예) "저희 콕집에서 그 단지 실거래가 바로 볼 수 있어요, www.koczip.com 한번 보세요!"
+- 그 외 주제(일상·여행·음식·날씨 등)에는 절대 언급하지 말 것 (억지 홍보 금지)
+- 언급할 때도 광고 문구처럼 딱딱하게 쓰지 말고, 아는 사람이 알려주듯 가볍게 쓸 것
+- 수익·수익률·보장·무료상담 같은 표현은 절대 쓰지 말 것
 
 [응답 형식]
 JSON만 출력: {"comment": "...", "skip": false, "reason": "..."}
@@ -17215,6 +17220,30 @@ JSON만 출력: {"comment": "...", "skip": false, "reason": "..."}
 작성자: {author}
 내용: {text}
 """
+
+
+import re as _re_link                                  # noqa: E402
+
+_LINK_FIX = _re_link.compile(r"(?:https?://)?(?:www\.)?koczip\.com/?", _re_link.I)
+
+
+def _engage_fix_link(cm: str) -> str:
+    """콕집 주소를 www.koczip.com 한 형태로 통일(쓰레드가 이 형태를 자동 링크로 만든다).
+    https:// 가 붙거나 두 번 나오면 링크가 지저분해지므로 하나만 남긴다."""
+    if "koczip" not in cm.lower():
+        return cm
+    cm = _LINK_FIX.sub(" www.koczip.com ", cm)
+    seen = [False]
+
+    def _once(_m):
+        if seen[0]:
+            return " "
+        seen[0] = True
+        return "www.koczip.com"
+
+    cm = _re_link.sub(r"www\.koczip\.com", _once, cm)
+    cm = _re_link.sub(r"\s{2,}", " ", cm).strip()
+    return cm.replace("( ", "(").replace(" )", ")").replace(" ,", ",").replace(" .", ".")
 
 
 @app.post("/sns/engage/comment")
@@ -17244,7 +17273,7 @@ def engage_comment(body: dict):
         return {"skip": True, "reason": f"생성 실패: {str(e)[:80]}"}
     if out.get("skip"):
         return {"skip": True, "reason": str(out.get("reason") or "")[:80]}
-    cm = str(out.get("comment") or "").strip()
+    cm = _engage_fix_link(str(out.get("comment") or "").strip())
     if not (12 <= len(cm) <= 110):
         return {"skip": True, "reason": f"길이 부적합({len(cm)}자)"}
     bad = _engage_bad_comment(cm)
