@@ -17098,7 +17098,7 @@ def admin_engage_log(limit: int = 50, _admin: dict = Depends(admin_user)):
                          "substr(detail,1,80),created_at,followed,verified,post_key "
                          "FROM sns_engage_log ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         d1 = c.execute("SELECT COUNT(*), SUM(liked), SUM(comment<>''), SUM(followed), SUM(verified), "
-                       "SUM(comment LIKE '%koczip%') "
+                       "SUM(comment LIKE '%koczip%'), SUM(comment LIKE '%콕집%') "
                        "FROM sns_engage_log WHERE created_at >= datetime('now','-1 day') "
                        "AND status='ok'").fetchone()
     items = []
@@ -17111,7 +17111,8 @@ def admin_engage_log(limit: int = 50, _admin: dict = Depends(admin_user)):
                       "url": ("https://www.threads.com" + pk) if pk.startswith("/") else pk})
     return {"items": items,
             "summary": {"total": d1[0] or 0, "liked": d1[1] or 0, "commented": d1[2] or 0,
-                        "followed": d1[3] or 0, "verified": d1[4] or 0, "linked": d1[5] or 0}}
+                        "followed": d1[3] or 0, "verified": d1[4] or 0, "linked": d1[5] or 0,
+                        "mentioned": d1[6] or 0}}
 
 
 # ── 워커용 ──
@@ -17204,10 +17205,7 @@ _ENGAGE_PROMPT = """너는 부동산 데이터 서비스 '콕집'의 SNS 담당�
 - 광고처럼 보이지 말 것
 
 [콕집 언급 규칙]
-- 원글이 집값·시세·실거래가·매물·급매·전월세·분양·중개·지역 부동산 시장을 다루면
-  **반드시** 콕집을 이름으로 언급하고, 한번 보러 오라고 자연스럽게 권한 뒤
-  주소를 `www.koczip.com` 형태 그대로 적는다. (https:// 를 붙이지 말 것)
-  예) "저희 콕집에서 그 단지 실거래가 바로 볼 수 있어요, www.koczip.com 한번 보세요!"
+{KOCZIP_RULE}
 - 그 외 주제(일상·여행·음식·날씨 등)에는 절대 언급하지 말 것 (억지 홍보 금지)
 - 언급할 때도 광고 문구처럼 딱딱하게 쓰지 말고, 아는 사람이 알려주듯 가볍게 쓸 것
 - 수익·수익률·보장·무료상담 같은 표현은 절대 쓰지 말 것
@@ -17222,6 +17220,7 @@ JSON만 출력: {"comment": "...", "skip": false, "reason": "..."}
 """
 
 
+import random as _rand_link                            # noqa: E402
 import re as _re_link                                  # noqa: E402
 
 _LINK_FIX = _re_link.compile(r"(?:https?://)?(?:www\.)?koczip\.com/?", _re_link.I)
@@ -17275,11 +17274,36 @@ def _tone_of(t: str) -> str:
     return "중립"
 
 
+# 주소를 매번 달면 광고 도배로 보인다 — 10%만 주소, 나머지는 네이버 검색을 권한다.
+_LINK_CHANCE = 0.10
+_KOCZIP_RULE_LINK = (
+    "- 원글이 집값·시세·실거래가·매물·급매·전월세·분양·중개·지역 부동산 시장을 다루면\n"
+    "  **반드시** 콕집을 이름으로 언급하고, 한번 보러 오라고 권한 뒤\n"
+    "  주소를 `www.koczip.com` 형태 그대로 적는다. (https:// 를 붙이지 말 것)\n"
+    '  예) "저희 콕집에서 그 단지 실거래가 바로 볼 수 있어요, www.koczip.com 한번 보세요!"')
+_KOCZIP_RULE_SEARCH = (
+    "- 원글이 집값·시세·실거래가·매물·급매·전월세·분양·중개·지역 부동산 시장을 다루면\n"
+    "  **반드시** 콕집을 이름으로 언급하고, **네이버에 '콕집'을 검색해 보라고** 권한다.\n"
+    "  **주소(URL)는 절대 쓰지 말 것** — 링크 없이 이름과 검색만 말한다.\n"
+    '  예) "네이버에 콕집 검색하시면 그 단지 실거래가 바로 보여요!"')
+
+
 def _tone_of_comment(cm: str) -> str:
     """댓글 어투 판정 — 끝에 붙은 주소(www.koczip.com)를 문장으로 오인하지 않게 걷어낸다."""
     t = _LINK_FIX.sub(" ", cm)
     t = _re_link.sub(r"[A-Za-z0-9._/:@-]{4,}", " ", t)
     return _tone_of(t)
+
+
+def _strip_link_to_search(cm: str, want: str) -> str:
+    """링크를 붙이지 않는 회차인데 주소가 들어왔으면 지우고 네이버 검색 안내로 바꾼다."""
+    if "koczip.com" not in cm.lower():
+        return cm
+    cm = _re_link.sub(r"\s*\(?\s*www\.koczip\.com\s*\)?\s*", " ", cm)
+    cm = _re_link.sub(r"\s{2,}", " ", cm).strip(" ,·-")
+    if "네이버" not in cm:
+        cm += " 네이버에 콕집 쳐보면 나와!" if want == "반말" else " 네이버에 콕집 검색해보세요!"
+    return _re_link.sub(r"\s{2,}", " ", cm).strip()
 
 
 _TONE_RULE = {
@@ -17304,7 +17328,10 @@ def engage_comment(body: dict):
         return {"skip": True, "reason": blocked}
     tone = _tone_of(text)
     rule, want = _TONE_RULE[tone]
-    base = (_ENGAGE_PROMPT.replace("{author}", author).replace("{text}", text)
+    use_link = _rand_link.random() < _LINK_CHANCE          # 10%만 주소를 붙인다
+    base = (_ENGAGE_PROMPT
+            .replace("{KOCZIP_RULE}", _KOCZIP_RULE_LINK if use_link else _KOCZIP_RULE_SEARCH)
+            .replace("{author}", author).replace("{text}", text)
             + "\n[어투 지시 — 가장 중요]\n" + rule + "\n")
     try:
         from scripts.ai_agent import _genai
@@ -17329,6 +17356,8 @@ def engage_comment(body: dict):
         if out.get("skip"):
             return {"skip": True, "reason": str(out.get("reason") or "")[:80]}
         cm = _engage_fix_link(str(out.get("comment") or "").strip())
+        if not use_link:
+            cm = _strip_link_to_search(cm, want)
         got = _tone_of_comment(cm)
         if got == want or got == "중립":     # 중립(명사형 종결)은 어느 쪽에도 어색하지 않다
             break
