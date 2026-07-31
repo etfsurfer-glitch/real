@@ -17230,6 +17230,7 @@ _LINK_FIX = _re_link.compile(r"(?:https?://)?(?:www\.)?koczip\.com/?", _re_link.
 def _engage_fix_link(cm: str) -> str:
     """콕집 주소를 www.koczip.com 한 형태로 통일(쓰레드가 이 형태를 자동 링크로 만든다).
     https:// 가 붙거나 두 번 나오면 링크가 지저분해지므로 하나만 남긴다."""
+    cm = _re_link.sub(r"\s*\n+\s*", " ", cm).strip()      # 댓글은 한 줄로
     if "koczip" not in cm.lower():
         return cm
     cm = _LINK_FIX.sub(" www.koczip.com ", cm)
@@ -17246,9 +17247,53 @@ def _engage_fix_link(cm: str) -> str:
     return cm.replace("( ", "(").replace(" )", ")").replace(" ,", ",").replace(" .", ".")
 
 
+# 어투 판정 — 프롬프트로만 시키면 자꾸 존댓말로 흘러서, 코드로 정해 지시하고 결과를 검사한다.
+_POLITE_END = _re_link.compile(
+    r"(요|죠|쥬|니다|니까|세요|네요|까요|어요|아요|여요|예요|이에요|십시오|드려요|합쇼)"
+    r"[\s.!?~ㅋㅎ…)\]]*$")
+_PLAIN_MARK = _re_link.compile(
+    r"(야|지|네|어|냐|래|자|군|걸|거든|잖아|는데$|더라|음$|임$|함$|ㅋ|ㅎ|삼$|셈$)"
+    r"[\s.!?~…]*$")
+
+
+def _clauses(t: str) -> list:
+    parts = _re_link.split(r"[\n.!?…·]+", t)
+    return [p.strip() for p in parts if len(p.strip()) >= 2][-12:]      # 뒤쪽 문장이 어투를 보여준다
+
+
+def _tone_of(t: str) -> str:
+    """'존댓말' / '반말' / '중립'(기사체·명사형). 중립이면 존댓말로 응대하는 게 안전하다."""
+    cl = _clauses(t)
+    if not cl:
+        return "중립"
+    polite = sum(1 for c in cl if _POLITE_END.search(c))
+    if polite:
+        return "존댓말"
+    plain = sum(1 for c in cl if _PLAIN_MARK.search(c))
+    if plain or _re_link.search(r"(ㅋㅋ|ㅎㅎ|ㅇㅇ|ㄱㄱ)", t):
+        return "반말"
+    return "중립"
+
+
+def _tone_of_comment(cm: str) -> str:
+    """댓글 어투 판정 — 끝에 붙은 주소(www.koczip.com)를 문장으로 오인하지 않게 걷어낸다."""
+    t = _LINK_FIX.sub(" ", cm)
+    t = _re_link.sub(r"[A-Za-z0-9._/:@-]{4,}", " ", t)
+    return _tone_of(t)
+
+
+_TONE_RULE = {
+    "존댓말": ("원글이 **존댓말**이다. 댓글도 반드시 존댓말(~요 / ~네요 / ~습니다)로 끝내라.",
+             "존댓말"),
+    "반말": ("원글이 **반말**이다. 댓글도 반드시 반말로 써라. '~요' '~습니다'로 끝내지 마라. "
+            "(예: ~네, ~겠다, ~더라, ~야, ~지)", "반말"),
+    "중립": ("원글이 기사체·명사형이라 어투가 분명치 않다. 댓글은 존댓말로 써라.", "존댓말"),
+}
+
+
 @app.post("/sns/engage/comment")
 def engage_comment(body: dict):
-    """원글을 Gemini로 분석해 규칙에 맞는 댓글 문장을 만든다."""
+    """원글을 Gemini로 분석해 규칙에 맞는 댓글 문장을 만든다(어투까지 맞춘다)."""
     _sns_require_worker(str(body.get("key") or ""))
     text = str(body.get("text") or "").strip()[:1200]
     author = str(body.get("author") or "")[:40]
@@ -17257,6 +17302,10 @@ def engage_comment(body: dict):
     blocked = _engage_blocked(text)
     if blocked:
         return {"skip": True, "reason": blocked}
+    tone = _tone_of(text)
+    rule, want = _TONE_RULE[tone]
+    base = (_ENGAGE_PROMPT.replace("{author}", author).replace("{text}", text)
+            + "\n[어투 지시 — 가장 중요]\n" + rule + "\n")
     try:
         from scripts.ai_agent import _genai
         from google.genai import types as _gt
@@ -17264,22 +17313,35 @@ def engage_comment(body: dict):
         cfg = _gt.GenerateContentConfig(
             response_mime_type="application/json", temperature=0.9,
             thinking_config=_gt.ThinkingConfig(thinking_budget=0))
-        prompt = _ENGAGE_PROMPT.replace("{author}", author).replace("{text}", text)
-        resp = client.models.generate_content(
-            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-            contents=[_gt.Part.from_text(text=prompt)], config=cfg)
-        out = _authjson.loads(resp.text)
     except Exception as e:  # noqa: BLE001
         return {"skip": True, "reason": f"생성 실패: {str(e)[:80]}"}
-    if out.get("skip"):
-        return {"skip": True, "reason": str(out.get("reason") or "")[:80]}
-    cm = _engage_fix_link(str(out.get("comment") or "").strip())
+
+    prompt, cm, last, tries = base, "", "", 0
+    for _try in (1, 2, 3):                  # 어투가 어긋나면 다시 시킨다(최대 3회)
+        tries = _try
+        try:
+            resp = client.models.generate_content(
+                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                contents=[_gt.Part.from_text(text=prompt)], config=cfg)
+            out = _authjson.loads(resp.text)
+        except Exception as e:  # noqa: BLE001
+            return {"skip": True, "reason": f"생성 실패: {str(e)[:80]}"}
+        if out.get("skip"):
+            return {"skip": True, "reason": str(out.get("reason") or "")[:80]}
+        cm = _engage_fix_link(str(out.get("comment") or "").strip())
+        got = _tone_of_comment(cm)
+        if got == want or got == "중립":     # 중립(명사형 종결)은 어느 쪽에도 어색하지 않다
+            break
+        last = cm
+        prompt = (base + f"\n방금 쓴 '{cm}' 는 {got} 이라 어울리지 않는다. "
+                  f"같은 내용을 {want}로 다시 써라.\n")
     if not (12 <= len(cm) <= 110):
         return {"skip": True, "reason": f"길이 부적합({len(cm)}자)"}
     bad = _engage_bad_comment(cm)
     if bad:
         return {"skip": True, "reason": bad}
-    return {"skip": False, "comment": cm}
+    return {"skip": False, "comment": cm, "tone": tone,
+            "comment_tone": _tone_of_comment(cm), "tries": tries}
 
 
 @app.post("/sns/engage/report")
