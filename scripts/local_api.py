@@ -17033,10 +17033,11 @@ def _init_engage_db() -> None:
                 c.execute(f"ALTER TABLE sns_engage_cfg ADD COLUMN {_col} {_sql}")
             except Exception:  # noqa: BLE001
                 pass
-        try:
-            c.execute("ALTER TABLE sns_engage_log ADD COLUMN followed INTEGER NOT NULL DEFAULT 0")
-        except Exception:  # noqa: BLE001
-            pass
+        for _col in ("followed", "verified"):
+            try:
+                c.execute(f"ALTER TABLE sns_engage_log ADD COLUMN {_col} INTEGER NOT NULL DEFAULT 0")
+            except Exception:  # noqa: BLE001
+                pass
         c.execute("INSERT OR IGNORE INTO sns_engage_cfg(id,keywords) VALUES(1,?)",
                   (_ENGAGE_DEFAULT_KEYWORDS,))
         c.commit()
@@ -17094,11 +17095,22 @@ def admin_engage_log(limit: int = 50, _admin: dict = Depends(admin_user)):
     limit = min(max(int(limit), 1), 200)
     with _reviews_db() as c:
         rows = c.execute("SELECT id,keyword,author,substr(post_text,1,90),liked,comment,status,"
-                         "substr(detail,1,80),created_at,followed FROM sns_engage_log "
-                         "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-    return {"items": [{"id": r[0], "keyword": r[1], "author": r[2], "post": r[3],
-                       "liked": bool(r[4]), "comment": r[5], "status": r[6],
-                       "detail": r[7], "at": r[8], "followed": bool(r[9])} for r in rows]}
+                         "substr(detail,1,80),created_at,followed,verified,post_key "
+                         "FROM sns_engage_log ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        d1 = c.execute("SELECT COUNT(*), SUM(liked), SUM(comment<>''), SUM(followed), SUM(verified) "
+                       "FROM sns_engage_log WHERE created_at >= datetime('now','-1 day') "
+                       "AND status='ok'").fetchone()
+    items = []
+    for r in rows:
+        pk = r[11] or ""
+        items.append({"id": r[0], "keyword": r[1], "author": r[2], "post": r[3],
+                      "liked": bool(r[4]), "comment": r[5], "status": r[6],
+                      "detail": r[7], "at": r[8], "followed": bool(r[9]),
+                      "verified": bool(r[10]),
+                      "url": ("https://www.threads.com" + pk) if pk.startswith("/") else pk})
+    return {"items": items,
+            "summary": {"total": d1[0] or 0, "liked": d1[1] or 0, "commented": d1[2] or 0,
+                        "followed": d1[3] or 0, "verified": d1[4] or 0}}
 
 
 # ── 워커용 ──
@@ -17247,12 +17259,12 @@ def engage_report(body: dict):
     _sns_require_worker(str(body.get("key") or ""))
     with _reviews_db() as c:
         c.execute("INSERT OR IGNORE INTO sns_engage_log(post_key,keyword,author,post_text,"
-                  "liked,comment,status,detail,followed) VALUES(?,?,?,?,?,?,?,?,?)",
+                  "liked,comment,status,detail,followed,verified) VALUES(?,?,?,?,?,?,?,?,?,?)",
                   (str(body.get("post_key") or "")[:200], str(body.get("keyword") or "")[:40],
                    str(body.get("author") or "")[:60], str(body.get("post_text") or "")[:500],
                    1 if body.get("liked") else 0, str(body.get("comment") or "")[:300],
                    str(body.get("status") or "ok")[:20], str(body.get("detail") or "")[:300],
-                   1 if body.get("followed") else 0))
+                   1 if body.get("followed") else 0, 1 if body.get("verified") else 0))
         c.commit()
     return {"ok": True}
 

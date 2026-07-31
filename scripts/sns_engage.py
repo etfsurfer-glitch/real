@@ -281,6 +281,21 @@ async def reply_on_detail(page, text: str) -> bool:
     return int(str(left) or 0) < 3
 
 
+async def comment_visible(page, text: str) -> bool:
+    """게시한 댓글이 실제로 글에 붙어 보이는지 — '입력창이 비었다'만으로는 믿지 않는다."""
+    head = (text or "").strip()[:14]
+    if len(head) < 6:
+        return False
+    try:
+        raw = await page.evaluate(r"""() => JSON.stringify(
+          Array.from(document.querySelectorAll('div[data-pressable-container=true]'))
+               .map(e => (e.innerText || '').replace(/\n/g, ' ')))""")
+        cards = json.loads(str(raw) or "[]")
+    except Exception:                               # noqa: BLE001
+        return False
+    return any(head in c and ME in c for c in cards)   # 내 계정 이름과 함께 보여야 진짜
+
+
 async def run_cycle(dry: bool = False) -> int:
     conf = api("/sns/engage/config")
     if not conf.get("enabled"):
@@ -339,6 +354,19 @@ async def run_cycle(dry: bool = False) -> int:
         if conf.get("do_comment"):
             posted = await reply_on_detail(page, comment)
 
+        verified = False
+        if posted:
+            await asyncio.sleep(random.uniform(3.0, 5.0))
+            verified = await comment_visible(page, comment)
+            if not verified:                        # 렌더가 늦을 수 있어 새로고침 후 한 번 더
+                try:
+                    await page.goto("https://www.threads.com" + target["post_key"])
+                    await asyncio.sleep(5.0)
+                    verified = await comment_visible(page, comment)
+                except Exception:                   # noqa: BLE001
+                    pass
+            log(f"댓글 화면 확인: {'O' if verified else 'X'}")
+
         followed = False
         if conf.get("do_follow") and conf.get("follow_remaining", 0) > 0:
             await human_pause(2.0, 4.0)
@@ -347,9 +375,10 @@ async def run_cycle(dry: bool = False) -> int:
         api("/sns/engage/report", "POST", post_key=target["post_key"], keyword=kw,
             author=target["author"], post_text=target["text"][:400],
             liked=liked, comment=comment if posted else "", followed=followed,
+            verified=verified,
             status="ok" if (liked or posted or followed) else "fail",
-            detail=f"like={liked} comment={posted} follow={followed}")
-        log(f"결과 — 좋아요 {liked} / 댓글 {posted} / 팔로우 {followed}")
+            detail=f"like={liked} comment={posted}/{verified} follow={followed}")
+        log(f"결과 — 좋아요 {liked} / 댓글 {posted}(확인 {verified}) / 팔로우 {followed}")
         if not (liked or posted):
             await shot(page, str(OUT / f"engage_fail_{int(time.time())}.png"))
         done = 1 if (liked or posted or followed) else 0

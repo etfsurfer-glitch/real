@@ -420,12 +420,15 @@ type EngCfg = {
 type EngLog = {
   id: number; keyword: string; author: string; post: string; liked: boolean;
   comment: string; status: string; detail: string; at: string; followed: boolean;
+  verified: boolean; url: string;
 };
+type EngSummary = { total: number; liked: number; commented: number; followed: number; verified: number };
 
 /** 키워드로 최신글을 찾아 좋아요 + AI 댓글. 켜고 끄기와 기록 확인. */
 function EngageTab({ setMsg }: { setMsg: (s: string) => void }) {
   const [cfg, setCfg] = useState<EngCfg | null>(null);
   const [logs, setLogs] = useState<EngLog[]>([]);
+  const [sum, setSum] = useState<EngSummary | null>(null);
   const [kwText, setKwText] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -433,7 +436,9 @@ function EngageTab({ setMsg }: { setMsg: (s: string) => void }) {
     authFetch("/admin/sns/engage").then((j: EngCfg) => {
       setCfg(j); setKwText((j.keywords || []).join(", "));
     }).catch(() => {});
-    authFetch("/admin/sns/engage/log?limit=40").then((j) => setLogs(j.items || [])).catch(() => {});
+    authFetch("/admin/sns/engage/log?limit=40").then((j) => {
+      setLogs(j.items || []); setSum(j.summary || null);
+    }).catch(() => {});
   }, []);
   useEffect(() => {
     load();
@@ -478,6 +483,15 @@ function EngageTab({ setMsg }: { setMsg: (s: string) => void }) {
             오늘 반응 {cfg.today_count} / {cfg.daily_limit}건 · 팔로우 {cfg.today_follow} / {cfg.follow_limit}명
           </span>
         </div>
+        {sum && sum.total > 0 && (
+          <div className="sns-hint" style={{ marginBottom: 0 }}>
+            최근 24시간 — 좋아요 <b>{sum.liked}</b> · 댓글 <b>{sum.commented}</b>
+            (화면 확인 <b>{sum.verified}</b>) · 팔로우 <b>{sum.followed}</b>
+            <span className="muted">
+              {" "}· 댓글은 게시 후 글을 다시 읽어 실제로 붙었는지 확인한 것만 &lsquo;확인&rsquo;으로 셉니다.
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="sns-card">
@@ -534,15 +548,27 @@ function EngageTab({ setMsg }: { setMsg: (s: string) => void }) {
         <h3>최근 활동 <span className="muted">{logs.length}건</span></h3>
         {logs.length === 0 ? <div className="muted">아직 기록이 없습니다.</div> : (
           <table className="sns-tbl">
-            <thead><tr><th>시각</th><th>키워드</th><th>상대</th><th>원글</th><th>내 댓글</th><th>결과</th></tr></thead>
+            <thead><tr><th>시각</th><th>키워드</th><th>상대</th><th>원글</th><th>내 댓글</th>
+              <th>결과</th><th>링크</th></tr></thead>
             <tbody>
               {logs.map((l) => (
                 <tr key={l.id}>
                   <td className="muted">{(l.at || "").slice(5, 16)}</td>
                   <td>{l.keyword}</td>
-                  <td>@{l.author}</td>
+                  <td>{l.url
+                    ? <a href={l.url} target="_blank" rel="noreferrer">@{l.author}</a>
+                    : `@${l.author}`}</td>
                   <td className="sns-res" title={l.post}>{l.post}</td>
-                  <td className="sns-res" title={l.comment}>{l.comment || "-"}</td>
+                  <td className="sns-res" title={l.comment}>
+                    {l.comment || "-"}
+                    {l.comment && (
+                      <span className={`sns-st sns-st-${l.verified ? "done" : "pending"}`}
+                        style={{ marginLeft: 6 }}
+                        title={l.verified ? "글을 다시 읽어 댓글이 붙은 것을 확인함" : "화면 확인이 안 된 건"}>
+                        {l.verified ? "확인" : "미확인"}
+                      </span>
+                    )}
+                  </td>
                   <td>
                     {l.liked && <span className="sns-on">♥</span>}{" "}
                     {l.followed && <span className="sns-on" title="팔로우함">＋</span>}{" "}
@@ -550,6 +576,8 @@ function EngageTab({ setMsg }: { setMsg: (s: string) => void }) {
                       {l.status === "ok" ? "완료" : l.status === "skip" ? "건너뜀" : l.status}
                     </span>
                   </td>
+                  <td>{l.url ? <a href={l.url} target="_blank" rel="noreferrer">글 열기</a>
+                             : <span className="muted">-</span>}</td>
                 </tr>
               ))}
             </tbody>
