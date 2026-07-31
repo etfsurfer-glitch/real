@@ -9483,7 +9483,7 @@ def _disk_top_cached() -> list:
     data_dir = str(DB_PATH.parent)
     for base in (data_dir, "/mnt/backup"):
         try:
-            out = _sp.run(["du", "-sb"] + sorted(Path(base).glob("*"))[:60],
+            out = _sp.run(["du", "-sb"] + sorted(Path(base).glob("*"))[:300],
                           capture_output=True, text=True, timeout=120).stdout
         except Exception:                              # noqa: BLE001
             continue
