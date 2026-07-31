@@ -9432,6 +9432,95 @@ def admin_logs_stats(_admin: dict = Depends(admin_user), days: int = 7):
             "top_complex": top_complex, "top_realtor": top_realtor}
 
 
+@app.get("/admin/server-disk")
+def admin_server_disk(_admin: dict = Depends(admin_user)):
+    """서버 저장공간 현황 — 본서버 디스크·백업 볼륨, 그리고 아카이브 서버(워커가 보고).
+    디스크가 차면 수집·백업이 통째로 멈추므로 데이터 현황과 같은 화면에서 본다."""
+    import shutil as _sh
+
+    def _disk(path: str, name: str, role: str) -> dict | None:
+        try:
+            t, u, f = _sh.disk_usage(path)
+        except Exception:                              # noqa: BLE001
+            return None
+        return {"name": name, "role": role, "mount": path, "total": t, "used": u,
+                "free": f, "pct": round(u * 100 / t, 1) if t else 0}
+
+    disks = [d for d in (_disk("/", "본서버", "수집·API·DB"),
+                         _disk("/mnt/backup", "백업 볼륨", "일일 백업(본서버에 부착)")) if d]
+
+    # 큰 파일·폴더(30분 캐시) — du 는 느려서 매번 돌리지 않는다
+    top = _disk_top_cached()
+
+    # 아카이브 서버는 원격이라 직접 못 읽는다 → 워커가 주기적으로 보고한 값을 쓴다
+    remote = []
+    try:
+        with _reviews_db() as c:
+            rows = c.execute("SELECT host,mount,total,used,free,note,at FROM host_disk "
+                             "ORDER BY host,mount").fetchall()
+        for r in rows:
+            t, u = r[2] or 0, r[3] or 0
+            remote.append({"name": r[0], "role": r[5] or "", "mount": r[1], "total": t,
+                           "used": u, "free": r[4] or 0,
+                           "pct": round(u * 100 / t, 1) if t else 0, "at": r[6]})
+    except Exception:                                  # noqa: BLE001
+        pass
+
+    import datetime as _dtm
+    return {"checked_at": _dtm.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "disks": disks, "remote": remote, "top": top}
+
+
+_DISK_TOP: dict = {"at": 0.0, "items": []}
+
+
+def _disk_top_cached() -> list:
+    """용량을 많이 쓰는 항목 상위 — 30분 캐시."""
+    if _time.time() - _DISK_TOP["at"] < 1800 and _DISK_TOP["items"]:
+        return _DISK_TOP["items"]
+    import subprocess as _sp
+    items = []
+    data_dir = str(DB_PATH.parent)
+    for base in (data_dir, "/mnt/backup"):
+        try:
+            out = _sp.run(["du", "-sb"] + sorted(Path(base).glob("*"))[:60],
+                          capture_output=True, text=True, timeout=120).stdout
+        except Exception:                              # noqa: BLE001
+            continue
+        for line in out.splitlines():
+            try:
+                sz, path = line.split("\t", 1)
+                items.append({"path": path, "name": Path(path).name,
+                              "where": "본서버 데이터" if base == data_dir else "백업 볼륨",
+                              "size": int(sz)})
+            except Exception:                          # noqa: BLE001
+                continue
+    items.sort(key=lambda x: -x["size"])
+    _DISK_TOP.update({"at": _time.time(), "items": items[:10]})
+    return _DISK_TOP["items"]
+
+
+@app.post("/sns/host-disk")
+def sns_host_disk(body: dict):
+    """다른 박스(아카이브 서버)의 용량 보고 — 워커가 주기적으로 올린다."""
+    _sns_require_worker(str(body.get("key") or ""))
+    host = str(body.get("host") or "")[:40]
+    if not host:
+        return {"ok": False}
+    with _reviews_db() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS host_disk (
+                       host TEXT, mount TEXT, total INTEGER, used INTEGER, free INTEGER,
+                       note TEXT, at TEXT, PRIMARY KEY (host, mount))""")
+        for d in (body.get("disks") or [])[:6]:
+            c.execute("INSERT OR REPLACE INTO host_disk(host,mount,total,used,free,note,at) "
+                      "VALUES(?,?,?,?,?,?,datetime('now','+9 hours'))",
+                      (host, str(d.get("mount") or "/")[:40], int(d.get("total") or 0),
+                       int(d.get("used") or 0), int(d.get("free") or 0),
+                       str(d.get("note") or "")[:60]))
+        c.commit()
+    return {"ok": True}
+
+
 @app.get("/admin/data-sources")
 def admin_data_sources(_admin: dict = Depends(admin_user)):
     """수집 데이터 소스 현황 — 소스별 행수·최신 데이터·마지막 수집·신선도 상태. 관리자 전용.

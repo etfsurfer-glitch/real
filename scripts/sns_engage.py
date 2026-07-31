@@ -296,7 +296,20 @@ async def comment_visible(page, text: str) -> bool:
     return any(head in c and ME in c for c in cards)   # 내 계정 이름과 함께 보여야 진짜
 
 
+def report_disk() -> None:
+    """이 박스(아카이브 서버)의 저장공간을 관리자 화면에 보고. 반복마다 한 번, 실패해도 무시."""
+    import shutil
+    try:
+        t, u, f = shutil.disk_usage("/")
+        api("/sns/host-disk", "POST", host="아카이브 서버(nfind)",
+            disks=[{"mount": "/", "total": t, "used": u, "free": f,
+                    "note": "매물 원본 보관·SNS 자동화"}])
+    except Exception as e:                              # noqa: BLE001
+        log("용량 보고 실패:", e)
+
+
 async def run_cycle(dry: bool = False) -> int:
+    report_disk()
     conf = api("/sns/engage/config")
     if not conf.get("enabled"):
         return -1                                   # 꺼짐
