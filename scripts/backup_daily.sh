@@ -40,7 +40,8 @@ compress_dir() {
     [ -e "$f" ] || continue
     out="$f.zst"
     before=$(stat -c%s "$f")
-    if ! nice -n19 ionice -c3 zstd -3 -T2 -q -o "$out" "$f" 2>>"$LOG"; then
+    # -f: 중단된 이전 시도의 잔여 .zst 를 덮어쓴다(없으면 재실행이 영영 막힌다)
+    if ! nice -n19 ionice -c3 zstd -3 -T2 -q -f -o "$out" "$f" 2>>"$LOG"; then
       say "compress fail(생성): $f"; rm -f "$out"; continue
     fi
     if ! zstd -t "$out" >/dev/null 2>&1; then
@@ -50,6 +51,11 @@ compress_dir() {
     rm -f "$f"
     say "compressed: $(basename "$f") $((before/1048576))MB → $((after/1048576))MB"
   done < <(find "$dir/db" -maxdepth 1 -name '*.sqlite' -printf '%s\t%p\n' | sort -n | cut -f2)
+}
+
+# 전부 압축(최신본까지) — 공간이 부족할 때만. 즉시복구용 원본이 잠시 사라진다.
+compress_all() {
+  ls -1d "$DEST"/20*/ 2>/dev/null | while read -r d; do compress_dir "${d%/}"; done
 }
 
 # 최신 스냅샷 하나만 원본으로 두고 나머지를 압축
@@ -100,6 +106,27 @@ validate_db() {
     sqlite3 "$f" "PRAGMA quick_check" 2>/dev/null | head -1
   fi
 }
+
+# ── 공간 점검: 이번 백업이 들어갈 자리가 있는지 먼저 본다 ──
+#   못 들어가면 (1)과거분 압축 → (2)그래도 모자라면 최신본까지 압축.
+#   DB가 커질수록 '원본 1벌 + 새 백업'이 볼륨을 넘어설 수 있어 이 단계가 필요하다.
+need_kb=$(du -sk --exclude=archive "$DATA" 2>/dev/null | cut -f1)
+need_kb=$((need_kb + need_kb / 10))                  # 10% 여유
+free_kb=$(df -Pk "$DEST" | awk 'NR==2{print $4}')
+if [ "$free_kb" -lt "$need_kb" ]; then
+  say "공간 부족(여유 $((free_kb/1048))GB < 필요 $((need_kb/1048))GB) — 과거분 압축"
+  compress_old
+  free_kb=$(df -Pk "$DEST" | awk 'NR==2{print $4}')
+fi
+if [ "$free_kb" -lt "$need_kb" ]; then
+  say "여전히 부족 — 최신본까지 압축(즉시복구본은 이번 백업 완료 시 재생성)"
+  compress_all
+  free_kb=$(df -Pk "$DEST" | awk 'NR==2{print $4}')
+fi
+if [ "$free_kb" -lt "$need_kb" ]; then
+  alert "백업 공간 부족: 여유 $((free_kb/1048))GB, 필요 $((need_kb/1048))GB — 보관일수(KEEP=$KEEP) 축소나 볼륨 증설 필요"
+  exit 1
+fi
 
 BUILD="$DEST/.building"
 rm -rf "$BUILD"; mkdir -p "$BUILD/db" "$BUILD/files"
