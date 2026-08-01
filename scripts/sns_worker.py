@@ -304,7 +304,9 @@ async def post_threads(b, page, img: str, caption: str) -> str:
 
 
 async def post_instagram(b, page, img: str, caption: str) -> str:
-    ig_img = pad_for_instagram(img, img.replace(".png", "_ig.jpg"))
+    is_video = img.lower().endswith((".mp4", ".mov", ".webm"))
+    # 영상은 그대로 올린다(PIL 로 열 수 없고, 인스타가 알아서 릴스로 처리한다)
+    ig_img = img if is_video else pad_for_instagram(img, img.replace(".png", "_ig.jpg"))
     await page.goto("https://www.instagram.com/")
     await asyncio.sleep(3)
     if not await click_text(page, ["만들기", "Create", "새 게시물"]):
@@ -314,10 +316,22 @@ async def post_instagram(b, page, img: str, caption: str) -> str:
             await el.click()
     await asyncio.sleep(2.5)
     await cdp_upload(page, 'input[type="file"][accept*="image"], input[type="file"]', ig_img)
-    await asyncio.sleep(4)
-    for _ in range(2):                              # 자르기 → 필터 → 문구
+    if is_video:
+        # 업로드·변환에 시간이 걸린다. 미리보기(video)가 붙을 때까지 기다린 뒤 다음 단계로.
+        for _ in range(25):
+            await asyncio.sleep(2)
+            if truthy(await page.evaluate(
+                    "() => !!document.querySelector('div[role=dialog] video, video')")):
+                break
+        await asyncio.sleep(3)
+        # 릴스로 올리겠냐는 확인이 뜨면 그대로 진행
+        await click_text(page, ["확인", "OK", "동영상 게시물", "Reels", "릴스"])
+        await asyncio.sleep(1.5)
+    else:
+        await asyncio.sleep(4)
+    for _ in range(3):                              # 자르기 → 필터/편집 → 문구
         if await click_text(page, ["다음", "Next"]):
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(3.0 if is_video else 2.5)
     el, _ = await first_el(page, [
         'div[aria-label*="문구"][contenteditable="true"]',
         'textarea[aria-label*="문구"]',
@@ -330,7 +344,18 @@ async def post_instagram(b, page, img: str, caption: str) -> str:
     await asyncio.sleep(1)
     if not await click_text(page, ["공유하기", "Share"]):
         raise RuntimeError("공유 버튼 클릭 실패")
-    await asyncio.sleep(8)
+    # 게시 완료 판정 — 작성 모달이 닫혀야 진짜 올라간 것이다(영상은 처리에 더 걸린다)
+    ok = False
+    for _ in range(30 if is_video else 10):
+        await asyncio.sleep(2)
+        gone = truthy(await page.evaluate(
+            "() => !document.querySelector('div[role=dialog] [contenteditable=true],"
+            " div[role=dialog] textarea')"))
+        if gone:
+            ok = True
+            break
+    if not ok:
+        raise RuntimeError("공유를 눌렀으나 작성창이 닫히지 않음(게시 실패)")
     return "instagram posted"
 
 

@@ -17496,6 +17496,11 @@ def _init_brag_db() -> None:
           theme_idx INTEGER NOT NULL DEFAULT 0,
           next_at TEXT,                                 -- UTC. 이 시각 이후에 다음 홍보
           updated_at TEXT NOT NULL DEFAULT (datetime('now')))""")
+        try:   # 발행 채널 — 계정이 막힌 플랫폼을 꺼둘 수 있어야 오류가 쌓이지 않는다
+            c.execute("ALTER TABLE sns_brag_cfg ADD COLUMN platforms TEXT NOT NULL "
+                      "DEFAULT 'threads'")
+        except Exception:  # noqa: BLE001
+            pass
         c.execute("INSERT OR IGNORE INTO sns_brag_cfg(id) VALUES(1)")
         try:      # 영상처럼 워커 박스에 있는 파일을 그대로 올릴 때 쓴다(캡처 대신)
             c.execute("ALTER TABLE sns_queue ADD COLUMN media_path TEXT")
@@ -17510,11 +17515,12 @@ _init_brag_db()
 def _brag_cfg() -> dict:
     with _reviews_db() as c:
         r = c.execute("SELECT enabled,min_gap_sec,max_gap_sec,daily_limit,region_idx,theme_idx,"
-                      "next_at FROM sns_brag_cfg WHERE id=1").fetchone()
-        today = c.execute("SELECT COUNT(*) FROM sns_queue WHERE kind='brag' "
+                      "next_at,platforms FROM sns_brag_cfg WHERE id=1").fetchone()
+        today = c.execute("SELECT COUNT(*) FROM sns_queue WHERE kind='brag' AND platform='threads' "
                           "AND date(created_at,'+9 hours')=date('now','+9 hours')").fetchone()[0]
     return {"enabled": bool(r[0]), "min_gap_sec": r[1], "max_gap_sec": r[2], "daily_limit": r[3],
-            "region_idx": r[4], "theme_idx": r[5], "next_at": r[6], "today_count": today}
+            "region_idx": r[4], "theme_idx": r[5], "next_at": r[6], "today_count": today,
+            "platforms": [p for p in (r[7] or "threads").split(",") if p]}
 
 
 # 생성이 실패해도 발행이 멈추지 않도록 준비해 둔 문장(어투: 반말이지만 예의 있게)
@@ -17596,6 +17602,20 @@ def _brag_text(theme: str, region: str) -> str:
     return t
 
 
+_BRAG_TAGS = {
+    "bigdata": "#부동산 #아파트 #실거래가 #급매 #부동산정보 #콕집",
+    "loan": "#부동산 #아파트 #주인대출 #대출승계 #매물정보 #콕집",
+    "realtor": "#공인중개사 #부동산중개 #중개사무소 #부동산광고 #과태료 #콕집",
+}
+
+
+def _brag_caption(platform: str, text: str, theme: str) -> str:
+    """플랫폼별 문구. 인스타는 본문 링크가 클릭되지 않으므로 주소를 남기되 해시태그를 붙인다."""
+    if platform != "instagram":
+        return text
+    return f"{text}\n\n{_BRAG_TAGS.get(theme, '#부동산 #콕집')}"
+
+
 def _brag_loan_count(sido_code: str) -> int:
     """그 시도의 주인대출 승계 매물 수(0이면 카드뉴스가 빈 채로 나가므로 건너뛴다)."""
     try:
@@ -17656,9 +17676,15 @@ def _brag_maybe_enqueue() -> None:
             render, media = None, _BRAG_VIDEO
             name = "콕집 자랑 · 중개사/광고점검"
         gap = _rnd_brag.randint(cfg["min_gap_sec"], cfg["max_gap_sec"])
-        c.execute("INSERT INTO sns_queue(routine_name,platform,run_at,kind,caption,render_url,"
-                  "link_url,media_path) VALUES(?,?,datetime('now'),'brag',?,?,?,?)",
-                  (name, "threads", text, render, "https://www.koczip.com", media))
+        # 쓰레드 먼저, 인스타는 2~5분 뒤 — 같은 순간에 동시 발행되면 자동화 티가 난다
+        plats = cfg.get("platforms") or ["threads"]
+        for plat, delay in (("threads", 0), ("instagram", _rnd_brag.randint(2, 5))):
+            if plat not in plats:
+                continue
+            c.execute("INSERT INTO sns_queue(routine_name,platform,run_at,kind,caption,render_url,"
+                      "link_url,media_path) VALUES(?,?,datetime('now', ?),'brag',?,?,?,?)",
+                      (name, plat, f"+{delay} minutes", _brag_caption(plat, text, theme),
+                       render, "https://www.koczip.com", media))
         c.execute("UPDATE sns_brag_cfg SET region_idx=?, theme_idx=?, "
                   "next_at=datetime('now', ?), updated_at=datetime('now') WHERE id=1",
                   ((idx_r + 1) % len(_BRAG_REGIONS), (idx_t + 1) % len(_BRAG_THEMES),
@@ -17673,10 +17699,10 @@ def admin_brag_get(_admin: dict = Depends(admin_user)):
     cfg["regions"] = [n for _, n in _BRAG_REGIONS]
     with _reviews_db() as c:
         rows = c.execute("SELECT id,routine_name,status,substr(caption,1,90),result,"
-                         "datetime(created_at,'+9 hours'),media_path,render_url "
-                         "FROM sns_queue WHERE kind='brag' ORDER BY id DESC LIMIT 20").fetchall()
+                         "datetime(created_at,'+9 hours'),media_path,render_url,platform "
+                         "FROM sns_queue WHERE kind='brag' ORDER BY id DESC LIMIT 24").fetchall()
     cfg["recent"] = [{"id": r[0], "name": r[1], "status": r[2], "caption": r[3],
-                      "result": r[4], "at": r[5],
+                      "result": r[4], "at": r[5], "platform": r[8],
                       "media": "영상" if r[6] else ("카드뉴스" if r[7] else "-")} for r in rows]
     return cfg
 
@@ -17687,10 +17713,13 @@ def admin_brag_put(body: dict, _admin: dict = Depends(admin_user)):
     mn = max(300, int(body.get("min_gap_sec", cur["min_gap_sec"])))
     mx = max(mn + 60, int(body.get("max_gap_sec", cur["max_gap_sec"])))
     with _reviews_db() as c:
+        pl = body.get("platforms")
+        pl = ",".join(x for x in pl if x in _SNS_PLATFORMS) if isinstance(pl, list) \
+            else ",".join(cur["platforms"])
         c.execute("UPDATE sns_brag_cfg SET enabled=?, min_gap_sec=?, max_gap_sec=?, daily_limit=?, "
-                  "updated_at=datetime('now') WHERE id=1",
+                  "platforms=?, updated_at=datetime('now') WHERE id=1",
                   (1 if body.get("enabled", cur["enabled"]) else 0, mn, mx,
-                   max(1, int(body.get("daily_limit", cur["daily_limit"])))))
+                   max(1, int(body.get("daily_limit", cur["daily_limit"]))), pl or "threads"))
         c.commit()
     return _brag_cfg()
 

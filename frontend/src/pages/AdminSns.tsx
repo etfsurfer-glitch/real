@@ -593,9 +593,9 @@ function EngageTab({ setMsg }: { setMsg: (s: string) => void }) {
 
 type BragCfg = {
   enabled: boolean; min_gap_sec: number; max_gap_sec: number; daily_limit: number;
-  today_count: number; next_at: string | null; regions: string[];
+  today_count: number; next_at: string | null; regions: string[]; platforms: string[];
   recent: { id: number; name: string; status: string; caption: string; result: string;
-            at: string; media: string }[];
+            at: string; media: string; platform: string }[];
 };
 
 /** 콕집 자랑(홍보) — 정기 발행이 없는 빈 시간대에 15~25분 간격으로 끼워 넣는다. */
@@ -638,7 +638,7 @@ function BragTab({ setMsg }: { setMsg: (s: string) => void }) {
           </span>
         </h3>
         <div className="sns-hint" style={{ marginTop: 0, marginBottom: 12 }}>
-          정기 발행이 없는 <b>빈 시간대에만</b> 스레드에 홍보 글을 올립니다. 두 가지를 번갈아 씁니다 —
+          정기 발행이 없는 <b>빈 시간대에만</b> 스레드와 인스타그램에 홍보 글을 올립니다(인스타는 2~5분 뒤). 두 가지를 번갈아 씁니다 —
           <b> 빅데이터·급매</b>(지역 카드뉴스 첨부)와 <b>중개사·광고 점검</b>(광고 영상 첨부).
           지역은 서울 → {cfg.regions.slice(1).join(" → ")} 순으로 돕니다.
         </div>
@@ -659,6 +659,17 @@ function BragTab({ setMsg }: { setMsg: (s: string) => void }) {
       <div className="sns-card">
         <h3>설정</h3>
         <div className="sns-form">
+          {(["threads", "instagram"] as const).map((p) => (
+            <label key={p} className="sns-plats" style={{ gap: 5 }}>
+              <input type="checkbox" checked={cfg.platforms.includes(p)}
+                onChange={(e) => setCfg({
+                  ...cfg,
+                  platforms: e.target.checked ? [...cfg.platforms, p]
+                    : cfg.platforms.filter((x) => x !== p),
+                })} />
+              {p === "threads" ? "스레드" : "인스타그램"}
+            </label>
+          ))}
           <label className="muted">간격 최소
             <input type="number" min={300} step={60} value={cfg.min_gap_sec}
               onChange={(e) => setCfg({ ...cfg, min_gap_sec: Number(e.target.value) })}
@@ -676,21 +687,26 @@ function BragTab({ setMsg }: { setMsg: (s: string) => void }) {
           </label>
           <button disabled={busy} onClick={() => save({
             min_gap_sec: cfg.min_gap_sec, max_gap_sec: cfg.max_gap_sec, daily_limit: cfg.daily_limit,
+            platforms: cfg.platforms,
           })}>설정 저장</button>
         </div>
-        <div className="sns-hint">기본은 15~25분(900~1500초)입니다.</div>
+        <div className="sns-hint">
+          기본은 15~25분(900~1500초)입니다. 계정이 잠기거나 로그인이 풀린 채널은 꺼두세요 —
+          켜져 있으면 발행이 계속 실패로 쌓입니다.
+        </div>
       </div>
 
       <div className="sns-card">
         <h3>최근 홍보 <span className="muted">{cfg.recent.length}건</span></h3>
         {cfg.recent.length === 0 ? <div className="muted">아직 기록이 없습니다.</div> : (
           <table className="sns-tbl">
-            <thead><tr><th>시각</th><th>주제</th><th>첨부</th><th>글</th><th>상태</th></tr></thead>
+            <thead><tr><th>시각</th><th>주제</th><th>채널</th><th>첨부</th><th>글</th><th>상태</th></tr></thead>
             <tbody>
               {cfg.recent.map((r) => (
                 <tr key={r.id}>
                   <td className="muted">{(r.at || "").slice(5, 16)}</td>
                   <td>{r.name}</td>
+                  <td>{r.platform === "instagram" ? "인스타" : r.platform === "threads" ? "스레드" : r.platform}</td>
                   <td>{r.media}</td>
                   <td className="sns-res" title={r.caption}>{r.caption}</td>
                   <td>
