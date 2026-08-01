@@ -308,13 +308,27 @@ async def post_instagram(b, page, img: str, caption: str) -> str:
     # 영상은 그대로 올린다(PIL 로 열 수 없고, 인스타가 알아서 릴스로 처리한다)
     ig_img = img if is_video else pad_for_instagram(img, img.replace(".png", "_ig.jpg"))
     await page.goto("https://www.instagram.com/")
+    await asyncio.sleep(4)
+    # '만들기'는 아이콘+글자가 겹쳐 있어 글자를 누르면 클릭이 먹지 않는다(실측).
+    # aria-label 로 아이콘을 찾아 '실제 클릭영역(부모 링크/버튼)'을 누른다.
+    create_js = r"""() => {
+      document.querySelectorAll('[data-kc-target]').forEach(e => e.removeAttribute('data-kc-target'));
+      const el = Array.from(document.querySelectorAll('[aria-label]')).find(e =>
+        /^(new post|create|새 게시물|만들기)$/i.test((e.getAttribute('aria-label')||'').trim()));
+      if (!el) return false;
+      const t = el.closest('a[role=link],div[role=button],button,a') || el;
+      t.setAttribute('data-kc-target', '1');
+      return true;
+    }"""
+    if not await click_marked(page, create_js):
+        if not await click_text(page, ["만들기", "Create", "새 게시물"]):
+            raise RuntimeError("'새 게시물' 버튼을 찾지 못함")
     await asyncio.sleep(3)
-    if not await click_text(page, ["만들기", "Create", "새 게시물"]):
-        el, _ = await first_el(page, ['svg[aria-label="새 게시물"]', 'svg[aria-label="New post"]',
-                                      'a[href="#"][role="link"]'], timeout=6)
-        if el:
-            await el.click()
-    await asyncio.sleep(2.5)
+    # 만들기를 누르면 '게시물 / 릴스 / 스토리' 하위 메뉴가 뜨는 계정이 있다 — 게시물을 고른다.
+    _fi, _ = await first_el(page, ['input[type="file"]'], timeout=3)
+    if not _fi:
+        await click_text(page, ["게시물", "Post"], tags=("div", "span", "a"))
+        await asyncio.sleep(2.5)
     await cdp_upload(page, 'input[type="file"][accept*="image"], input[type="file"]', ig_img)
     if is_video:
         # 업로드·변환에 시간이 걸린다. 미리보기(video)가 붙을 때까지 기다린 뒤 다음 단계로.
