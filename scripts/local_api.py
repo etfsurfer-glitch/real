@@ -17480,7 +17480,7 @@ import random as _rnd_brag                             # noqa: E402
 
 _BRAG_REGIONS = [("11", "서울"), ("26", "부산"), ("27", "대구"), ("28", "인천"),
                  ("29", "광주"), ("30", "대전"), ("31", "울산")]
-_BRAG_THEMES = ("bigdata", "realtor")
+_BRAG_THEMES = ("bigdata", "realtor", "loan")
 _BRAG_VIDEO = "/opt/koczip-sns/media/audit_12s_landscape.mp4"   # 워커 박스(nfind) 경로
 
 
@@ -17529,6 +17529,11 @@ _BRAG_FALLBACK = {
         "광고 위반 단속 요즘 진짜 나와. 올린 매물 광고가 규정에 맞는지 콕집에서 미리 확인해봐. www.koczip.com",
         "중개사무소 광고 점검, 사람이 일일이 보기 힘들잖아. 콕집이 자동으로 훑어줘. www.koczip.com",
     ],
+    "loan": [
+        "{region}에 주인대출 승계되는 매물 이만큼 나와 있어. 주인대출·주인근저당 낀 매물만 따로 모아보는 것도 콕집에서 돼. www.koczip.com",
+        "매물 설명에 파묻힌 '집주인대출·근저당' 문구, 일일이 읽기 힘들잖아. 콕집이 {region} 것만 골라서 보여줘. www.koczip.com",
+        "{region} 주인대출 매물 정리해봤어. 주인전세·세안고까지 조건별로 찾는 건 콕집에서 해봐. www.koczip.com",
+    ],
 }
 
 _BRAG_PROMPT = """너는 부동산 데이터 서비스 '콕집'의 SNS 담당자다.
@@ -17556,6 +17561,11 @@ _BRAG_POINTS = {
     "bigdata": ("- 콕집은 부동산 빅데이터 서비스다. 전국 매물과 국토부 실거래를 매일 모아서 분석한다.\n"
                 "- 매물 호가와 실거래가를 비교해서, 시세보다 싸게 나온 '급매'를 찾아준다.\n"
                 "- 이번 글은 {region} 지역 이야기로 쓴다. 카드뉴스 이미지가 같이 올라간다."),
+    "loan": ("- 콕집은 매물 설명을 분석해서 '주인대출(집주인대출·매도인대출) 승계' 매물을 따로 모아 보여준다.\n"
+             "- 주인근저당·주인전세·세안고 같은 조건도 콕집에서 검색할 수 있다.\n"
+             "- 매물 설명을 사람이 일일이 읽지 않아도 되는 게 장점이다.\n"
+             "- 이번 글은 {region} 지역 이야기로 쓴다. 해당 지역 매물 카드뉴스가 같이 올라간다.\n"
+             "- 이 조건이 왜 중요한지(대출 승계로 자금 부담이 달라진다) 한 줄 곁들여도 좋다."),
     "realtor": ("- 콕집은 공인중개사를 위한 서비스이기도 하다.\n"
                 "- 네이버 부동산 광고의 표시·광고 규정 위반을 자동으로 점검해준다.\n"
                 "- 단속에 걸려 과태료를 무는 일을 미리 막을 수 있다.\n"
@@ -17586,6 +17596,15 @@ def _brag_text(theme: str, region: str) -> str:
     return t
 
 
+def _brag_loan_count(sido_code: str) -> int:
+    """그 시도의 주인대출 승계 매물 수(0이면 카드뉴스가 빈 채로 나가므로 건너뛴다)."""
+    try:
+        r = special_deals(kind="loan", sido=sido_code, limit=200)
+        return len(r.get("items") or [])
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _brag_maybe_enqueue() -> None:
     """정기 발행 대기열이 비어 있고 간격이 지났으면 홍보 한 건을 큐에 넣는다."""
     cfg = _brag_cfg()
@@ -17606,13 +17625,33 @@ def _brag_maybe_enqueue() -> None:
             if not due:
                 return
         idx_r, idx_t = cfg["region_idx"], cfg["theme_idx"]
-        code, region = _BRAG_REGIONS[idx_r % len(_BRAG_REGIONS)]
         theme = _BRAG_THEMES[idx_t % len(_BRAG_THEMES)]
+        code, region = _BRAG_REGIONS[idx_r % len(_BRAG_REGIONS)]
+        if theme == "loan":
+            # 주인대출 매물이 없는 도시는 건너뛴다(전 도시가 0이면 이번 회차는 쉰다)
+            picked = None
+            for step in range(len(_BRAG_REGIONS)):
+                cd, rg = _BRAG_REGIONS[(idx_r + step) % len(_BRAG_REGIONS)]
+                if _brag_loan_count(cd) > 0:
+                    picked, idx_r = (cd, rg), (idx_r + step)
+                    break
+            if not picked:
+                c.execute("UPDATE sns_brag_cfg SET theme_idx=? WHERE id=1",
+                          ((idx_t + 1) % len(_BRAG_THEMES),))
+                c.commit()
+                print("[brag] 주인대출 매물이 있는 도시가 없어 이번 회차 건너뜀",
+                      file=_sys.stderr, flush=True)
+                return
+            code, region = picked
         text = _brag_text(theme, region)
         if theme == "bigdata":
             render = f"https://koczip.com/render/brag?sido={code}&py=30&minhh=300"
             media = None
             name = f"콕집 자랑 · 빅데이터/급매 · {region}"
+        elif theme == "loan":
+            render = f"https://koczip.com/render/brag?kind=loan&sido={code}"
+            media = None
+            name = f"콕집 자랑 · 주인대출 · {region}"
         else:
             render, media = None, _BRAG_VIDEO
             name = "콕집 자랑 · 중개사/광고점검"
