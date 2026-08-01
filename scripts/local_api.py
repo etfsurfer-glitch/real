@@ -9432,6 +9432,7 @@ def admin_logs_stats(_admin: dict = Depends(admin_user), days: int = 7):
             "top_complex": top_complex, "top_realtor": top_realtor}
 
 
+
 @app.get("/admin/server-disk")
 def admin_server_disk(_admin: dict = Depends(admin_user)):
     """서버 저장공간 현황 — 본서버 디스크·백업 볼륨, 그리고 아카이브 서버(워커가 보고).
@@ -16978,9 +16979,13 @@ def sns_worker_next(key: str = ""):
     """발행할 작업 1건 + 그 플랫폼 계정. 없으면 job=null."""
     _sns_require_worker(key)
     _sns_materialize_due()
+    try:
+        _brag_maybe_enqueue()      # 정기 발행이 없는 빈 시간대에 홍보 한 건 끼워 넣기
+    except Exception as e:         # noqa: BLE001  (홍보는 부가기능 — 실패해도 본 발행은 계속)
+        print(f"[brag] 큐 생성 오류: {str(e)[:120]}", file=_sys.stderr, flush=True)
     with _reviews_db() as c:
-        r = c.execute("SELECT id,platform,caption,render_url,link_url,routine_name,kind FROM sns_queue "
-                      "WHERE status='pending' AND run_at<=datetime('now') "
+        r = c.execute("SELECT id,platform,caption,render_url,link_url,routine_name,kind,media_path "
+                      "FROM sns_queue WHERE status='pending' AND run_at<=datetime('now') "
                       "ORDER BY (kind='check') DESC, run_at LIMIT 1").fetchone()
         if not r:
             return {"job": None}
@@ -16988,7 +16993,8 @@ def sns_worker_next(key: str = ""):
         c.commit()
     creds = (_sns_creds_load().get(r[1]) or {})
     return {"job": {"id": r[0], "platform": r[1], "caption": r[2], "render_url": r[3],
-                    "link_url": r[4], "routine": r[5], "kind": r[6] or "post", "account": creds}}
+                    "link_url": r[4], "routine": r[5], "kind": r[6] or "post",
+                    "media_path": r[7], "account": creds}}
 
 
 @app.post("/sns/cookie-sync")
@@ -17460,6 +17466,206 @@ def engage_comment(body: dict):
         return {"skip": True, "reason": bad}
     return {"skip": False, "comment": cm, "tone": tone,
             "comment_tone": _tone_of_comment(cm), "tries": tries}
+
+
+# ===========================================================================
+# 콕집 자랑(홍보) 발행 — 정기 발행이 없는 빈 시간대에 15~25분 간격으로 끼워 넣는다.
+# 두 갈래를 번갈아 쓴다.
+#   bigdata : 부동산 빅데이터 + 매물·실거래 분석으로 급매를 짚어준다  → 카드뉴스 이미지
+#   realtor : 공인중개사를 위한 콕집 + 네이버광고 위반 점검으로 과태료 예방 → 광고 영상
+# 지역은 서울과 광역시를 돌아가며 쓴다.
+# ===========================================================================
+
+import random as _rnd_brag                             # noqa: E402
+
+_BRAG_REGIONS = [("11", "서울"), ("26", "부산"), ("27", "대구"), ("28", "인천"),
+                 ("29", "광주"), ("30", "대전"), ("31", "울산")]
+_BRAG_THEMES = ("bigdata", "realtor")
+_BRAG_VIDEO = "/opt/koczip-sns/media/audit_12s_landscape.mp4"   # 워커 박스(nfind) 경로
+
+
+def _init_brag_db() -> None:
+    with _reviews_db() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS sns_brag_cfg (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          enabled INTEGER NOT NULL DEFAULT 0,
+          min_gap_sec INTEGER NOT NULL DEFAULT 900,     -- 15분
+          max_gap_sec INTEGER NOT NULL DEFAULT 1500,    -- 25분
+          daily_limit INTEGER NOT NULL DEFAULT 16,
+          region_idx INTEGER NOT NULL DEFAULT 0,
+          theme_idx INTEGER NOT NULL DEFAULT 0,
+          next_at TEXT,                                 -- UTC. 이 시각 이후에 다음 홍보
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')))""")
+        c.execute("INSERT OR IGNORE INTO sns_brag_cfg(id) VALUES(1)")
+        try:      # 영상처럼 워커 박스에 있는 파일을 그대로 올릴 때 쓴다(캡처 대신)
+            c.execute("ALTER TABLE sns_queue ADD COLUMN media_path TEXT")
+        except Exception:  # noqa: BLE001
+            pass
+        c.commit()
+
+
+_init_brag_db()
+
+
+def _brag_cfg() -> dict:
+    with _reviews_db() as c:
+        r = c.execute("SELECT enabled,min_gap_sec,max_gap_sec,daily_limit,region_idx,theme_idx,"
+                      "next_at FROM sns_brag_cfg WHERE id=1").fetchone()
+        today = c.execute("SELECT COUNT(*) FROM sns_queue WHERE kind='brag' "
+                          "AND date(created_at,'+9 hours')=date('now','+9 hours')").fetchone()[0]
+    return {"enabled": bool(r[0]), "min_gap_sec": r[1], "max_gap_sec": r[2], "daily_limit": r[3],
+            "region_idx": r[4], "theme_idx": r[5], "next_at": r[6], "today_count": today}
+
+
+# 생성이 실패해도 발행이 멈추지 않도록 준비해 둔 문장(어투: 반말이지만 예의 있게)
+_BRAG_FALLBACK = {
+    "bigdata": [
+        "{region} 아파트 매물이랑 실거래를 매일 붙여서 보고 있어. 시세보다 눈에 띄게 싼 급매만 골라서 보여줘. www.koczip.com",
+        "호가만 봐선 싼 건지 모르잖아. 콕집은 실거래랑 비교해서 {region} 급매를 짚어줘. www.koczip.com",
+        "{region} 30평대 급매, 오늘 것만 모아봤어. 부동산 빅데이터로 매일 갱신하고 있어. www.koczip.com",
+    ],
+    "realtor": [
+        "공인중개사님들, 네이버 광고 표시 규정 놓치면 과태료 나와. 콕집이 사무소 광고를 대신 점검해줘. www.koczip.com",
+        "광고 위반 단속 요즘 진짜 나와. 올린 매물 광고가 규정에 맞는지 콕집에서 미리 확인해봐. www.koczip.com",
+        "중개사무소 광고 점검, 사람이 일일이 보기 힘들잖아. 콕집이 자동으로 훑어줘. www.koczip.com",
+    ],
+}
+
+_BRAG_PROMPT = """너는 부동산 데이터 서비스 '콕집'의 SNS 담당자다.
+스레드(Threads)에 올릴 **홍보 글 한 편**을 써라.
+
+[어투 — 가장 중요]
+- 반말인데 예의 있는 말투. 친한 선배가 알려주듯. (예: "~있어", "~해봐", "~더라")
+- 명령조·광고 카피 느낌 금지. 사람이 직접 쓴 것처럼.
+- 이모지는 최대 1개. 해시태그는 쓰지 마라.
+
+[이번에 말할 내용]
+{POINTS}
+
+[반드시]
+- 마지막에 주소를 `www.koczip.com` 형태 그대로 적는다 (https:// 붙이지 말 것)
+- 60~180자
+- 수익·보장·무료상담 같은 표현 금지
+- 과장 금지. 사실만.
+
+[응답 형식]
+JSON만: {"text": "..."}
+"""
+
+_BRAG_POINTS = {
+    "bigdata": ("- 콕집은 부동산 빅데이터 서비스다. 전국 매물과 국토부 실거래를 매일 모아서 분석한다.\n"
+                "- 매물 호가와 실거래가를 비교해서, 시세보다 싸게 나온 '급매'를 찾아준다.\n"
+                "- 이번 글은 {region} 지역 이야기로 쓴다. 카드뉴스 이미지가 같이 올라간다."),
+    "realtor": ("- 콕집은 공인중개사를 위한 서비스이기도 하다.\n"
+                "- 네이버 부동산 광고의 표시·광고 규정 위반을 자동으로 점검해준다.\n"
+                "- 단속에 걸려 과태료를 무는 일을 미리 막을 수 있다.\n"
+                "- 이번 글은 중개사에게 말을 거는 톤으로 쓴다. 광고 영상이 같이 올라간다."),
+}
+
+
+def _brag_text(theme: str, region: str) -> str:
+    """홍보 문구 생성. 실패하면 준비된 문장을 쓴다(발행이 멈추지 않게)."""
+    try:
+        from scripts.ai_agent import _genai
+        from google.genai import types as _gt
+        pts = _BRAG_POINTS[theme].replace("{region}", region)
+        prompt = _BRAG_PROMPT.replace("{POINTS}", pts)
+        client = _genai()
+        cfg = _gt.GenerateContentConfig(response_mime_type="application/json", temperature=1.0,
+                                        thinking_config=_gt.ThinkingConfig(thinking_budget=0))
+        resp = client.models.generate_content(
+            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            contents=[_gt.Part.from_text(text=prompt)], config=cfg)
+        t = str(_authjson.loads(resp.text).get("text") or "").strip()
+        t = _engage_fix_link(t)
+        if 40 <= len(t) <= 240 and "koczip.com" in t and not _engage_bad_comment(t):
+            return t
+    except Exception as e:  # noqa: BLE001
+        print(f"[brag] 문구 생성 실패({theme}): {str(e)[:80]}", file=_sys.stderr, flush=True)
+    t = _rnd_brag.choice(_BRAG_FALLBACK[theme]).replace("{region}", region)
+    return t
+
+
+def _brag_maybe_enqueue() -> None:
+    """정기 발행 대기열이 비어 있고 간격이 지났으면 홍보 한 건을 큐에 넣는다."""
+    cfg = _brag_cfg()
+    if not cfg["enabled"] or cfg["today_count"] >= cfg["daily_limit"]:
+        return
+    with _reviews_db() as c:
+        # 정기 발행이 밀려 있으면 홍보는 쉰다. 단 오래 전에 'sending' 으로 멈춘 잔여 건은
+        # 영원히 홍보를 막으므로 30분이 지난 것은 대기로 치지 않는다.
+        busy = c.execute(
+            "SELECT COUNT(*) FROM sns_queue WHERE kind='post' AND ("
+            "  status='pending'"
+            "  OR (status='sending' AND created_at >= datetime('now','-30 minutes')))"
+        ).fetchone()[0]
+        if busy:
+            return
+        if cfg["next_at"]:
+            due = c.execute("SELECT datetime('now') >= ?", (cfg["next_at"],)).fetchone()[0]
+            if not due:
+                return
+        idx_r, idx_t = cfg["region_idx"], cfg["theme_idx"]
+        code, region = _BRAG_REGIONS[idx_r % len(_BRAG_REGIONS)]
+        theme = _BRAG_THEMES[idx_t % len(_BRAG_THEMES)]
+        text = _brag_text(theme, region)
+        if theme == "bigdata":
+            render = f"https://koczip.com/render/brag?sido={code}&py=30&minhh=300"
+            media = None
+            name = f"콕집 자랑 · 빅데이터/급매 · {region}"
+        else:
+            render, media = None, _BRAG_VIDEO
+            name = "콕집 자랑 · 중개사/광고점검"
+        gap = _rnd_brag.randint(cfg["min_gap_sec"], cfg["max_gap_sec"])
+        c.execute("INSERT INTO sns_queue(routine_name,platform,run_at,kind,caption,render_url,"
+                  "link_url,media_path) VALUES(?,?,datetime('now'),'brag',?,?,?,?)",
+                  (name, "threads", text, render, "https://www.koczip.com", media))
+        c.execute("UPDATE sns_brag_cfg SET region_idx=?, theme_idx=?, "
+                  "next_at=datetime('now', ?), updated_at=datetime('now') WHERE id=1",
+                  ((idx_r + 1) % len(_BRAG_REGIONS), (idx_t + 1) % len(_BRAG_THEMES),
+                   f"+{gap} seconds"))
+        c.commit()
+    print(f"[brag] 큐 추가: {name}", file=_sys.stderr, flush=True)
+
+
+@app.get("/admin/sns/brag")
+def admin_brag_get(_admin: dict = Depends(admin_user)):
+    cfg = _brag_cfg()
+    cfg["regions"] = [n for _, n in _BRAG_REGIONS]
+    with _reviews_db() as c:
+        rows = c.execute("SELECT id,routine_name,status,substr(caption,1,90),result,"
+                         "datetime(created_at,'+9 hours'),media_path,render_url "
+                         "FROM sns_queue WHERE kind='brag' ORDER BY id DESC LIMIT 20").fetchall()
+    cfg["recent"] = [{"id": r[0], "name": r[1], "status": r[2], "caption": r[3],
+                      "result": r[4], "at": r[5],
+                      "media": "영상" if r[6] else ("카드뉴스" if r[7] else "-")} for r in rows]
+    return cfg
+
+
+@app.put("/admin/sns/brag")
+def admin_brag_put(body: dict, _admin: dict = Depends(admin_user)):
+    cur = _brag_cfg()
+    mn = max(300, int(body.get("min_gap_sec", cur["min_gap_sec"])))
+    mx = max(mn + 60, int(body.get("max_gap_sec", cur["max_gap_sec"])))
+    with _reviews_db() as c:
+        c.execute("UPDATE sns_brag_cfg SET enabled=?, min_gap_sec=?, max_gap_sec=?, daily_limit=?, "
+                  "updated_at=datetime('now') WHERE id=1",
+                  (1 if body.get("enabled", cur["enabled"]) else 0, mn, mx,
+                   max(1, int(body.get("daily_limit", cur["daily_limit"])))))
+        c.commit()
+    return _brag_cfg()
+
+
+@app.post("/admin/sns/brag/now")
+def admin_brag_now(_admin: dict = Depends(admin_user)):
+    """지금 한 건 만들어 큐에 넣는다(테스트용) — 간격·대기열 조건을 무시한다."""
+    with _reviews_db() as c:
+        c.execute("UPDATE sns_brag_cfg SET next_at=NULL WHERE id=1")
+        c.commit()
+    before = _brag_cfg()["today_count"]
+    _brag_maybe_enqueue()
+    after = _brag_cfg()["today_count"]
+    return {"ok": after > before, "added": after - before}
 
 
 @app.post("/sns/engage/report")

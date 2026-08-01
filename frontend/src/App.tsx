@@ -12,6 +12,8 @@ import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginKakao, loginGoogle, isInAppBrowser, authClient } from "./auth";
 import { logPageview } from "./lib/pageview";
 import PhoneVerify from "./components/PhoneVerify";
+import CrossAppGate from "./components/CrossAppGate";
+import { isGeneralApp, isRealtorApp } from "./lib/appmode";
 import AccountMenu from "./components/AccountMenu";
 import Overview from "./pages/Overview";
 import ComplexDetail from "./pages/ComplexDetail";
@@ -21,6 +23,7 @@ import BizTerms from "./pages/BizTerms";
 import DeleteAccount from "./pages/DeleteAccount";
 import { ChangesLayout, ChangesTrend, ChangesRegion, ChangesMovers } from "./pages/Changes";
 import QuickDeals from "./pages/QuickDeals";
+import SpecialDeals from "./pages/SpecialDeals";
 import RealtorRanks, { RealtorNational, RealtorBySido, RealtorByTenure, RealtorByStaff, RealtorByDong } from "./pages/RealtorRanks";
 import Realtor from "./pages/Realtor";
 import SuspiciousRealtors from "./pages/SuspiciousRealtors";
@@ -32,6 +35,10 @@ import AdminRealtorMatch from "./pages/AdminRealtorMatch";
 import AdminUsers from "./pages/AdminUsers";
 import AdminLogs from "./pages/AdminLogs";
 import CardNews from "./pages/CardNews";
+import AdminNewsletter from "./pages/AdminNewsletter";
+import RenderNewsletter from "./pages/RenderNewsletter";
+import RenderBrag from "./pages/RenderBrag";
+import AdminSns from "./pages/AdminSns";
 import AdminResident from "./pages/AdminResident";
 import AdminRealtorRequests from "./pages/AdminRealtorRequests";
 import AdminDataSources from "./pages/AdminDataSources";
@@ -42,8 +49,9 @@ import AdminOps from "./pages/AdminOps";
 import AdminKpi from "./pages/AdminKpi";
 import NonResi from "./pages/NonResi";
 import JeonseCheck from "./pages/JeonseCheck";
-import EasterEgg from "./components/EasterEgg";
 import Tutorial from "./components/Tutorial";
+import CompareBar from "./components/CompareBar";
+import ShareFab from "./components/ShareFab";
 import IntroSplash from "./components/IntroSplash";
 import Onboarding from "./components/Onboarding";
 // import UpdateNotice from "./components/UpdateNotice";  // 당분간 숨김(2026-07-14) — 복원 시 함께 해제
@@ -79,6 +87,8 @@ import {
   TxPyeongPrice, TxTurnover, TxYield, TxRecordHigh,
 } from "./pages/TxStatsMore";
 import { TxRegionPulse } from "./pages/TxRegionPulse";
+import TxMap from "./pages/TxMap";
+import TxDigest from "./pages/TxDigest";
 import TxVolumePeriod from "./pages/TxVolumePeriod";
 import TxTimeMachine from "./pages/TxTimeMachine";
 import ComplexCompare from "./pages/ComplexCompare";
@@ -115,7 +125,10 @@ const NAV_ITEMS: NavItem[] = [
     { to: "/finder/compare", label: "단지비교" },
     { to: "/finder/region-compare", label: "지역비교" },
   ] },
-  { to: "/changes", label: "매물호가", icon: TrendingUp, children: CHANGES_TABS },
+  // 주인전세는 ChangesLayout(공용 지역필터) 밖의 독립 페이지라 CHANGES_TABS 자체는 건드리지 않고
+  // 드롭다운에만 덧붙인다 — 레이아웃 안 SubNav의 활성표시가 어긋나지 않게.
+  { to: "/changes", label: "매물호가", icon: TrendingUp,
+    children: [...CHANGES_TABS, { to: "/special-deals", label: "주인(대출·전세·세안고)" }] },
   { to: "/tx-stats", label: "실거래", icon: BarChart3, children: TX_CHILDREN },
   { to: "/realtors", label: "중개사무소랭킹", icon: Award, children: [
     { to: "/realtors/dong", label: "우리동네 중개사" },
@@ -128,7 +141,15 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/buy-calculator", label: "아파트매수계산기", icon: Calculator },
   { to: "/jeonse-check", label: "깡통전세지수", icon: ShieldAlert },
   { to: "/forum", label: "토론장", icon: MessagesSquare },
-  { to: "/lounge", label: "중개사라운지", icon: Building2 },
+  { to: "/lounge", label: "중개사라운지", icon: Building2, children: [
+    { to: "/lounge", label: "내 사무소 대시보드" },
+    { to: "/lounge?tab=listings", label: "내 매물장" },
+    { to: "/lounge?tab=audit", label: "매물점검 (표시·광고 자가점검)" },
+    { to: "/lounge?tab=leads", label: "상담신청" },
+    { to: "/lounge?tab=homepage", label: "사무소 홈페이지" },
+    { to: "/lounge?tab=staff", label: "직원관리" },
+    { to: "/lounge?tab=edit", label: "정보수정요청" },
+  ] },
 ];
 
 function TodayLayout() {
@@ -203,12 +224,25 @@ function AppShell() {
   }
   // /biz — 콕집 중개사 앱(TWA 전용 셸). 소비자용 크롬 없이 독립 렌더.
   if (location.pathname === "/biz" || location.pathname.startsWith("/biz/")) {
+    // 일반앱에서 중개사 셸 접근 → 중개사앱 설치 안내(브라우저·중개사앱은 정상 렌더)
+    if (isGeneralApp()) return <CrossAppGate target="realtor" />;
     return (
       <ErrorBoundary key={location.pathname}>
         <InAppAutoExternal />
         <Routes>
           <Route path="/biz" element={<BizApp />} />
           <Route path="/biz/:screen" element={<BizApp />} />
+        </Routes>
+      </ErrorBoundary>
+    );
+  }
+  // /render/* — SNS 워커(헤드리스 크롬)가 캡처하는 렌더 전용. 네비·푸터 없이 카드만.
+  if (location.pathname.startsWith("/render/")) {
+    return (
+      <ErrorBoundary key={location.pathname}>
+        <Routes>
+          <Route path="/render/newsletter" element={<RenderNewsletter />} />
+          <Route path="/render/brag" element={<RenderBrag />} />
         </Routes>
       </ErrorBoundary>
     );
@@ -221,6 +255,18 @@ function AppShell() {
         <Routes><Route path="/r/:slug" element={<RealtorHomepage />} /></Routes>
       </ErrorBoundary>
     );
+  }
+  // ── 앱 분리 게이트 (브라우저=홈페이지는 게이팅 없음: isGeneralApp/isRealtorApp 은 설치앱에서만 true) ──
+  {
+    const _p = location.pathname;
+    const _shared = _p === "/terms" || _p === "/privacy" || _p === "/biz-terms"
+      || _p === "/delete-account" || _p.startsWith("/r/");
+    // 일반앱이 중개사라운지 접근 → 중개사앱 설치
+    if (isGeneralApp() && _p.startsWith("/lounge")) return <CrossAppGate target="realtor" />;
+    // 중개사앱이 일반 기능(중개사 콘텐츠·공용 제외) 접근 → 일반앱 설치
+    if (isRealtorApp() && !_p.startsWith("/lounge") && !_p.startsWith("/biz") && !_shared) {
+      return <CrossAppGate target="general" />;
+    }
   }
   return (
     <div className="layout">
@@ -237,7 +283,6 @@ function AppShell() {
               <span>콕집</span>
             </Link>
           </h1>
-          <EasterEgg />
         </div>
         <nav>
           {/* 데스크톱 메뉴는 텍스트만(아이콘 제거로 한 줄 폭 확보) — 아이콘은 모바일 드로어에 유지 */}
@@ -323,8 +368,9 @@ function AppShell() {
       <RealtorPromoBanner />
       <ErrorBoundary key={location.pathname}>
       <Routes>
-        <Route path="/" element={<MyHood />} />
-        <Route path="/today" element={<MyHood />} />
+        <Route path="/" element={<MyHood digestSlot={<TxDigest />} />} />
+        <Route path="/test/digest" element={<MyHood digestSlot={<TxDigest />} />} />
+        <Route path="/today" element={<MyHood digestSlot={<TxDigest />} />} />
         <Route path="/today/find" element={<MyComplex />} />
         <Route path="/today/old" element={<TodayLayout />}>
           <Route index element={<Navigate to="deals" replace />} />
@@ -349,6 +395,7 @@ function AppShell() {
           <Route path="movers" element={<ChangesMovers />} />
         </Route>
         <Route path="/quick-deals" element={<QuickDeals />} />
+        <Route path="/special-deals" element={<SpecialDeals />} />
         <Route path="/realtors" element={<RealtorRanks />}>
           <Route index element={<Navigate to="dong" replace />} />
           <Route path="dong" element={<RealtorByDong />} />
@@ -384,6 +431,8 @@ function AppShell() {
         <Route path="/admin/push" element={<RequireAdmin><AdminPush /></RequireAdmin>} />
         <Route path="/admin/audit" element={<RequireAdmin><AuditRealtor /></RequireAdmin>} />
         <Route path="/admin/cardnews" element={<RequireAdmin><CardNews /></RequireAdmin>} />
+        <Route path="/admin/newsletter" element={<RequireAdmin><AdminNewsletter /></RequireAdmin>} />
+        <Route path="/admin/sns" element={<RequireAdmin><AdminSns /></RequireAdmin>} />
         <Route path="/buy-calculator" element={<BuyWizard />} />
         <Route path="/admin/buywizard" element={<Navigate to="/buy-calculator" replace />} />
         <Route path="/admin/today" element={<RequireAdmin><AdminTodayStats /></RequireAdmin>} />
@@ -396,6 +445,7 @@ function AppShell() {
         <Route path="/tx-stats" element={<TxStatsLayout />}>
           <Route index element={<Navigate to="region-pulse" replace />} />
           <Route path="region-pulse" element={<TxRegionPulse />} />
+          <Route path="map" element={<TxMap />} />
           <Route path="volume/:unit" element={<TxVolumePeriod />} />
           <Route path="timemachine" element={<TxTimeMachine />} />
           <Route path="top-price" element={<TxTopPrice />} />
@@ -416,6 +466,8 @@ function AppShell() {
       <PerfBadge />
       <Tutorial />
       <AiFab />
+      <ShareFab />
+      <CompareBar />
     </div>
   );
 }
@@ -461,6 +513,8 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/realtor-requests", label: "중개사 라운지", icon: Building2 },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck },
   { to: "/admin/cardnews", label: "카드뉴스 생성", icon: ImageIcon },
+  { to: "/admin/newsletter", label: "뉴스레터 이미지", icon: ImageIcon },
+  { to: "/admin/sns", label: "SNS 자동포스팅", icon: ImageIcon },
   { to: "/buy-calculator", label: "아파트매수계산기", icon: Calculator },
   { to: "/my/favorites", label: "관심단지 대시보드", icon: HeartIcon },
   { to: "/similar", label: "유사단지", icon: BadgePercent },
@@ -488,14 +542,14 @@ function AuthControl() {
   if (user) return <AccountMenu />;
   return (
     <span className="auth-area">
-      <button className="auth-btn kakao" onClick={() => loginKakao()}>
+      <button className="auth-btn kakao" onClick={() => loginKakao()} aria-label="카카오로 로그인">
         {/* 카카오 말풍선 심볼 (인라인 SVG) */}
         <svg className="kakao-icon" aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 3C6.48 3 2 6.36 2 10.5c0 2.66 1.8 5 4.51 6.32-.15.52-.97 3.36-1 3.59 0 0-.02.17.09.24.11.07.24.02.24.02.32-.05 3.74-2.45 4.33-2.87.59.08 1.2.13 1.83.13 5.52 0 10-3.36 10-7.5S17.52 3 12 3z" />
         </svg>
-        카카오 로그인
+        로그인
       </button>
-      <button className="auth-btn google" onClick={() => loginGoogle()}>
+      <button className="auth-btn google" onClick={() => loginGoogle()} aria-label="구글로 로그인">
         {/* 구글 G 로고 (멀티컬러 SVG) */}
         <svg className="google-icon" aria-hidden width="14" height="14" viewBox="0 0 48 48">
           <path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/>
@@ -503,7 +557,7 @@ function AuthControl() {
           <path fill="#FBBC05" d="M11.69 28.18C11.25 26.86 11 25.45 11 24s.25-2.86.69-4.18v-5.7H4.34A21.99 21.99 0 0 0 2 24c0 3.55.85 6.91 2.34 9.88l7.35-5.7z"/>
           <path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/>
         </svg>
-        구글 로그인
+        로그인
       </button>
     </span>
   );
@@ -542,6 +596,8 @@ function Footer() {
         <span>전화 070-7954-4114</span>
         <span className="sep">·</span>
         <span>문의 runtoonline@gmail.com</span>
+        <span className="sep">·</span>
+        <a className="footer-cs" href="https://pf.kakao.com/_ackPX/chat" target="_blank" rel="noopener noreferrer">고객센터</a>
       </div>
       <div className="footer-links">
         <Link to="/terms">이용약관</Link>

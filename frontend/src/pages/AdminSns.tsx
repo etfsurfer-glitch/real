@@ -43,7 +43,7 @@ async function authFetch(path: string, init?: RequestInit) {
 }
 
 export default function AdminSns() {
-  const [tab, setTab] = useState<"routine" | "account" | "queue" | "engage">("routine");
+  const [tab, setTab] = useState<"routine" | "account" | "queue" | "engage" | "brag">("routine");
   const [accounts, setAccounts] = useState<Record<string, Record<string, string>>>({});
   const [checks, setChecks] = useState<Record<string, { status: string; result: string; checked_at: string | null }>>({});
   const [routines, setRoutines] = useState<Routine[]>([]);
@@ -65,7 +65,7 @@ export default function AdminSns() {
         발행은 별도 워커 서버(브라우저 자동화)가 수행합니다.
       </p>
       <div className="sns-tabs">
-        {([["routine", "발행 루틴"], ["engage", "반응 마케팅"], ["account", "계정"],
+        {([["routine", "발행 루틴"], ["brag", "콕집 홍보"], ["engage", "반응 마케팅"], ["account", "계정"],
            ["queue", "발행 현황"]] as const).map(([k, l]) => (
           <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>
         ))}
@@ -77,6 +77,7 @@ export default function AdminSns() {
       {tab === "account" && <AccountTab accounts={accounts} checks={checks} reload={load} setMsg={setMsg} />}
       {tab === "queue" && <QueueTab queue={queue} reload={load} />}
       {tab === "engage" && <EngageTab setMsg={setMsg} />}
+      {tab === "brag" && <BragTab setMsg={setMsg} />}
     </div>
   );
 }
@@ -579,6 +580,126 @@ function EngageTab({ setMsg }: { setMsg: (s: string) => void }) {
                   </td>
                   <td>{l.url ? <a href={l.url} target="_blank" rel="noreferrer">글 열기</a>
                              : <span className="muted">-</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
+  );
+}
+
+
+type BragCfg = {
+  enabled: boolean; min_gap_sec: number; max_gap_sec: number; daily_limit: number;
+  today_count: number; next_at: string | null; regions: string[];
+  recent: { id: number; name: string; status: string; caption: string; result: string;
+            at: string; media: string }[];
+};
+
+/** 콕집 자랑(홍보) — 정기 발행이 없는 빈 시간대에 15~25분 간격으로 끼워 넣는다. */
+function BragTab({ setMsg }: { setMsg: (s: string) => void }) {
+  const [cfg, setCfg] = useState<BragCfg | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    authFetch("/admin/sns/brag").then(setCfg).catch(() => {});
+  }, []);
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
+
+  const save = async (patch: Partial<BragCfg>) => {
+    setBusy(true);
+    try {
+      setCfg(await authFetch("/admin/sns/brag", { method: "PUT", body: JSON.stringify(patch) }));
+      setMsg(patch.enabled === true ? "콕집 홍보를 시작했습니다."
+        : patch.enabled === false ? "콕집 홍보를 멈췄습니다." : "설정을 저장했습니다.");
+      load();
+    } catch { setMsg("저장 실패"); } finally { setBusy(false); }
+  };
+  const now = async () => {
+    setBusy(true);
+    try {
+      const r = await authFetch("/admin/sns/brag/now", { method: "POST" });
+      setMsg(r.ok ? "홍보 1건을 큐에 넣었습니다. 워커가 곧 발행합니다."
+        : "지금은 넣지 못했습니다(정기 발행이 대기 중이거나 하루 한도 소진).");
+      load();
+    } catch { setMsg("실패"); } finally { setBusy(false); }
+  };
+
+  if (!cfg) return <div className="sns-card">불러오는 중…</div>;
+
+  return (
+    <>
+      <div className="sns-card">
+        <h3>콕집 홍보
+          <span className={`sns-chk sns-chk-${cfg.enabled ? "ok" : "none"}`}>
+            {cfg.enabled ? "작동 중" : "멈춤"}
+          </span>
+        </h3>
+        <div className="sns-hint" style={{ marginTop: 0, marginBottom: 12 }}>
+          정기 발행이 없는 <b>빈 시간대에만</b> 스레드에 홍보 글을 올립니다. 두 가지를 번갈아 씁니다 —
+          <b> 빅데이터·급매</b>(지역 카드뉴스 첨부)와 <b>중개사·광고 점검</b>(광고 영상 첨부).
+          지역은 서울 → {cfg.regions.slice(1).join(" → ")} 순으로 돕니다.
+        </div>
+        <div className="sns-form">
+          <button className="sns-primary" disabled={busy}
+            onClick={() => save({ enabled: !cfg.enabled })}
+            style={cfg.enabled ? { background: "#d23b3b" } : undefined}>
+            {cfg.enabled ? "■ 멈추기" : "▶ 시작하기"}
+          </button>
+          <button disabled={busy} onClick={now}>지금 1건 발행</button>
+          <span className="muted">
+            오늘 {cfg.today_count} / {cfg.daily_limit}건
+            {cfg.next_at && ` · 다음 가능 ${cfg.next_at.slice(11, 16)} (UTC)`}
+          </span>
+        </div>
+      </div>
+
+      <div className="sns-card">
+        <h3>설정</h3>
+        <div className="sns-form">
+          <label className="muted">간격 최소
+            <input type="number" min={300} step={60} value={cfg.min_gap_sec}
+              onChange={(e) => setCfg({ ...cfg, min_gap_sec: Number(e.target.value) })}
+              style={{ width: 90, marginLeft: 6 }} />초
+          </label>
+          <label className="muted">최대
+            <input type="number" min={360} step={60} value={cfg.max_gap_sec}
+              onChange={(e) => setCfg({ ...cfg, max_gap_sec: Number(e.target.value) })}
+              style={{ width: 90, marginLeft: 6 }} />초
+          </label>
+          <label className="muted">하루 최대
+            <input type="number" min={1} value={cfg.daily_limit}
+              onChange={(e) => setCfg({ ...cfg, daily_limit: Number(e.target.value) })}
+              style={{ width: 80, marginLeft: 6 }} />건
+          </label>
+          <button disabled={busy} onClick={() => save({
+            min_gap_sec: cfg.min_gap_sec, max_gap_sec: cfg.max_gap_sec, daily_limit: cfg.daily_limit,
+          })}>설정 저장</button>
+        </div>
+        <div className="sns-hint">기본은 15~25분(900~1500초)입니다.</div>
+      </div>
+
+      <div className="sns-card">
+        <h3>최근 홍보 <span className="muted">{cfg.recent.length}건</span></h3>
+        {cfg.recent.length === 0 ? <div className="muted">아직 기록이 없습니다.</div> : (
+          <table className="sns-tbl">
+            <thead><tr><th>시각</th><th>주제</th><th>첨부</th><th>글</th><th>상태</th></tr></thead>
+            <tbody>
+              {cfg.recent.map((r) => (
+                <tr key={r.id}>
+                  <td className="muted">{(r.at || "").slice(5, 16)}</td>
+                  <td>{r.name}</td>
+                  <td>{r.media}</td>
+                  <td className="sns-res" title={r.caption}>{r.caption}</td>
+                  <td>
+                    <span className={`sns-st sns-st-${r.status === "done" ? "done"
+                      : r.status === "error" ? "err" : "pending"}`}>
+                      {r.status === "done" ? "발행됨" : r.status === "error" ? "실패" : r.status}
+                    </span>
+                    {r.status === "error" && <div className="muted" style={{ fontSize: 11 }}>{r.result}</div>}
+                  </td>
                 </tr>
               ))}
             </tbody>
