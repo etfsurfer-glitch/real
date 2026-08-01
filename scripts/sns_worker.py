@@ -473,16 +473,78 @@ async def handle_2fa(page, acc: dict) -> str:
         return f" (2FA 실패: {e})"
 
 
+async def type_into(page, el, text: str, css: str) -> bool:
+    """입력란에 값을 넣고 '실제로 들어갔는지' 확인한다.
+    인스타·쓰레드 입력란은 React 라서 값만 바꿔치기하면 화면엔 보여도 내부 상태가 안 바뀐다
+    (로그인 버튼이 비활성인 채로 남고, 다시 그려지면 값이 지워진다 — 실측).
+    그래서 ①진짜 키 입력(CDP Input.insertText) ②안 되면 React 가 인정하는 방식으로 값 주입."""
+    try:
+        await el.click()
+    except Exception:                               # noqa: BLE001
+        pass
+    await asyncio.sleep(0.4)
+
+    async def val_len() -> int:
+        try:
+            v = await page.evaluate(
+                "() => { const e = document.querySelector(" + json.dumps(css) + ");"
+                " return e ? (e.value || '').length : -1; }")
+            return int(float(str(v)))
+        except Exception:                           # noqa: BLE001
+            return -1
+
+    try:      # ① 사람이 친 것과 같은 입력 이벤트
+        sid = await page._ensure_session()          # noqa: SLF001
+        await page._client.send.Input.insertText(   # noqa: SLF001
+            params={"text": text}, session_id=sid)
+        await asyncio.sleep(0.5)
+        if await val_len() == len(text):
+            return True
+    except Exception as e:                          # noqa: BLE001
+        log("insertText 실패:", e)
+
+    try:      # ② React 가 인정하는 값 주입(네이티브 setter + input 이벤트)
+        await page.evaluate(
+            "() => { const e = document.querySelector(" + json.dumps(css) + "); if (!e) return;"
+            " const set = Object.getOwnPropertyDescriptor("
+            "   window.HTMLInputElement.prototype, 'value').set;"
+            " set.call(e, " + json.dumps(text) + ");"
+            " e.dispatchEvent(new Event('input', {bubbles: true}));"
+            " e.dispatchEvent(new Event('change', {bubbles: true})); }")
+        await asyncio.sleep(0.5)
+        if await val_len() == len(text):
+            return True
+    except Exception as e:                          # noqa: BLE001
+        log("값 주입 실패:", e)
+
+    try:      # ③ 마지막으로 라이브러리 기본 방식
+        await el.fill(text)
+        await asyncio.sleep(0.5)
+        return await val_len() == len(text)
+    except Exception:                               # noqa: BLE001
+        return False
+
+
 async def fill_login_form(page, user: str, pw: str) -> bool:
     """아이디/비밀번호 폼 채우고 제출. 폼이 없으면 False."""
-    el, _ = await first_el(page, ['input[name="username"]', 'input[autocomplete="username"]',
-                                  'input[name="email"]', 'input[type="text"]'], timeout=8)
+    # 인스타는 name 이 email/pass 다(2026-08 실측). autocomplete 는 "username webauthn" 이라
+    # 정확일치 셀렉터로는 안 잡히므로 부분일치(*=)를 쓴다.
+    el, css = await first_el(page, ['input[name="username"]', 'input[name="email"]',
+                                    'input[autocomplete*="username"]', 'input[type="text"]'],
+                             timeout=8)
     if not el:
         return False
-    await el.click(); await el.fill(user); await asyncio.sleep(0.6)
-    el2, _ = await first_el(page, ['input[name="password"]', 'input[type="password"]'], timeout=6)
+    if not await type_into(page, el, user, css):
+        log("아이디 입력 실패 — 값이 남지 않음")
+        return False
+    await asyncio.sleep(0.6)
+    el2, css2 = await first_el(page, ['input[name="password"]', 'input[name="pass"]',
+                                      'input[type="password"]'], timeout=6)
     if el2:
-        await el2.click(); await el2.fill(pw); await asyncio.sleep(0.6)
+        if not await type_into(page, el2, pw, css2):
+            log("비밀번호 입력 실패 — 값이 남지 않음")
+            return False
+        await asyncio.sleep(0.6)
     # 제출: submit 입력이 있으면 그걸(가장 확실), 없으면 정확 일치 버튼
     clicked = False
     try:   # Threads의 input[type=submit]은 0x0 숨김 — 보이는 경우에만 클릭(실측 확인)
