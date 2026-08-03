@@ -42,6 +42,7 @@ import KoczipRequest from "./pages/KoczipRequest";
 import AdminRequests from "./pages/AdminRequests";
 import MyRequests from "./pages/MyRequests";
 import OfferByLink from "./pages/OfferByLink";
+import ProposalsByLink from "./pages/ProposalsByLink";
 import AdminSns from "./pages/AdminSns";
 import AdminResident from "./pages/AdminResident";
 import AdminRealtorRequests from "./pages/AdminRealtorRequests";
@@ -424,6 +425,7 @@ function AppShell() {
         <Route path="/request" element={<KoczipRequest />} />
         <Route path="/me/requests" element={<MyRequests />} />
         <Route path="/offer/:token" element={<OfferByLink />} />
+        <Route path="/proposals/:token" element={<ProposalsByLink />} />
         <Route path="/admin/requests" element={<AdminRequests />} />
         <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
         <Route path="/my/favorites" element={<RequireAdmin><MyFavorites /></RequireAdmin>} />

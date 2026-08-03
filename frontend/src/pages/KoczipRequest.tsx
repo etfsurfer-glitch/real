@@ -51,7 +51,8 @@ export default function KoczipRequest() {
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ sent_to: number; offices: { name: string }[] } | null>(null);
+  const [done, setDone] = useState<{ sent_to: number; offices: { name: string }[];
+                                    proposals_url?: string } | null>(null);
   const [err, setErr] = useState("");
 
   const authH = useCallback((): Record<string, string> =>
@@ -136,8 +137,19 @@ export default function KoczipRequest() {
             중개사무소가 매물과 연락처를 제안으로 남기면 알려드릴게요. 보통 하루 안에 옵니다.
             확인하시고 <b>마음에 드는 곳에만</b> 전화하시면 됩니다.
           </p>
+          {done.proposals_url && (
+            <div className="kreq-q" style={{ marginTop: 12 }}>
+              <div>제안이 오면 문자로 알려드려요. 이 주소로 <b>로그인 없이</b> 다시 보실 수 있습니다.
+                <div className="kreq-q-sub">{done.proposals_url}</div>
+              </div>
+            </div>
+          )}
           <div className="kreq-row" style={{ marginTop: 14 }}>
-            <button className="kreq-primary" onClick={() => nav("/me/requests")}>내 요청 보기</button>
+            <button className="kreq-primary"
+              onClick={() => nav(done.proposals_url
+                ? new URL(done.proposals_url).pathname : "/me/requests")}>
+              받은 제안 보기
+            </button>
             <button className="kreq-ghost" onClick={() => nav("/")}>홈으로</button>
           </div>
         </div>

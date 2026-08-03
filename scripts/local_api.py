@@ -17531,7 +17531,9 @@ def _init_request_db() -> None:
           ON koczip_request_offers(request_id, created_at DESC);
         """)
         for _col, _sql in (("escalated", "INTEGER NOT NULL DEFAULT 0"),
-                           ("last_escalated_at", "TEXT")):
+                           ("last_escalated_at", "TEXT"),
+                           # 문자로 받은 기기에서 로그인 없이 제안을 볼 수 있게 하는 열쇠
+                           ("cust_token", "TEXT")):
             try:
                 c.execute(f"ALTER TABLE koczip_requests ADD COLUMN {_col} {_sql}")
             except Exception:  # noqa: BLE001
@@ -17730,18 +17732,21 @@ def request_create(body: dict, user: dict = Depends(current_user)):
             f"SELECT realtor_id, realtor_name FROM naver_realtors WHERE realtor_id IN ({ph})", ids)}
     consent_txt = _req_consent_text([names.get(i, i) for i in ids])
 
+    import secrets as _sec2
+    cust_tok = _sec2.token_urlsafe(24)
     with _reviews_db() as c:
         cur = c.execute(
             "INSERT INTO koczip_requests(user_id,member_no,name,phone,sido,sigungu,cortar,"
             "region_name,asset,trade,area_txt,budget_txt,memo,ai_query,pick_mode,target_count,"
-            "consent_at,consent_txt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+9 hours'),?)",
+            "cust_token,consent_at,consent_txt) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+9 hours'),?)",
             (uid, pr[2], str(body.get("name") or pr[3] or "")[:30], pr[0],
              str(body.get("sido") or "")[:10], sigungu, cortar,
              str(body.get("region_name") or "")[:60],
              str(body.get("asset") or "apt")[:10], str(body.get("trade") or "A1")[:3],
              str(body.get("area_txt") or "")[:40], str(body.get("budget_txt") or "")[:40],
              str(body.get("memo") or "")[:1000], str(body.get("ai_query") or "")[:500],
-             mode, len(ids), consent_txt))
+             mode, len(ids), cust_tok, consent_txt))
         rid = cur.lastrowid
         import secrets as _sec
         for i in ids:
@@ -17754,6 +17759,7 @@ def request_create(body: dict, user: dict = Depends(current_user)):
 
     _req_notify(rid, ids, names)
     return {"ok": True, "id": rid, "sent_to": len(ids),
+            "proposals_url": f"https://koczip.com/proposals/{cust_tok}",
             "offices": [{"realtor_id": i, "name": names.get(i)} for i in ids]}
 
 
@@ -18068,6 +18074,42 @@ def lounge_requests(user: dict = Depends(current_user)):
                                  if r[9] is not None or r[11] else None)} for r in rows]}
 
 
+def _request_view(req_id: int) -> dict:
+    """요청 하나와 받은 제안들. 손님 본인 연락처는 담지 않는다(링크가 새도 안전하게)."""
+    with _reviews_db() as c:
+        q = c.execute("SELECT region_name,asset,trade,area_txt,budget_txt,memo,created_at,"
+                      "       (SELECT COUNT(*) FROM koczip_request_targets t "
+                      "        WHERE t.request_id=koczip_requests.id) "
+                      "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
+        if not q:
+            raise HTTPException(404, "요청을 찾을 수 없습니다")
+        of = c.execute("SELECT realtor_name,message,contact,listings,"
+                       "COALESCE(updated_at,created_at) FROM koczip_request_offers "
+                       "WHERE request_id=? ORDER BY created_at", (req_id,)).fetchall()
+        c.execute("UPDATE koczip_request_offers SET seen_at=datetime('now','+9 hours') "
+                  "WHERE request_id=? AND seen_at IS NULL", (req_id,))
+        c.commit()
+    return {"id": req_id, "region": q[0], "asset": _ASSET_LB.get(q[1], q[1]),
+            "trade": _TRADE_LB.get(q[2], q[2]), "area": q[3], "budget": q[4], "memo": q[5],
+            "at": q[6], "sent_to": q[7],
+            "offers": [{"name": o[0], "message": o[1], "contact": o[2],
+                        "listings": _authjson.loads(o[3] or "[]"), "at": o[4]} for o in of]}
+
+
+@app.get("/proposals/{token}")
+def proposals_by_token(token: str):
+    """손님이 문자로 받은 링크 — 로그인 없이 받은 제안을 본다.
+    담기는 개인정보는 '중개사무소 연락처'(사업자 공개정보)뿐이라, 링크가 새도 손님 정보는 안전하다."""
+    t = (token or "").strip()
+    if len(t) < 20:
+        raise HTTPException(404, "잘못된 링크입니다")
+    with _reviews_db() as c:
+        r = c.execute("SELECT id FROM koczip_requests WHERE cust_token=?", (t,)).fetchone()
+    if not r:
+        raise HTTPException(404, "링크를 찾을 수 없습니다")
+    return _request_view(r[0])
+
+
 def _suggest_contact(realtor_id: str) -> str:
     """제안 폼에 미리 채워 줄 번호.
     ① 그 사무소가 전에 제안에 쓴 번호(가장 최근) ② 없으면 등록된 대표번호.
@@ -18224,11 +18266,16 @@ def _offer_notify_text(req_id: int) -> tuple:
     title = "중개사무소가 매물을 제안했어요"
     body = (f"{who}{more}에서 제안이 왔어요"
             + (f" (매물 {n_ls}건)" if n_ls else "") + ". 확인하고 마음에 드는 곳에 연락해 보세요.")
+    with _reviews_db() as c:
+        tk = c.execute("SELECT cust_token FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
+    # 문자를 받은 기기에서 로그인 없이 바로 열리도록 개인 링크를 준다
+    link = (f"https://koczip.com/proposals/{tk[0]}" if tk and tk[0]
+            else "https://koczip.com/me/requests")
     sms = (f"[콕집] 요청하신 조건에 제안이 도착했습니다.\n"
            f"조건: {cond}\n"
            f"제안: {who}{more}" + (f" · 매물 {n_ls}건" if n_ls else "") + "\n"
            f"매물과 연락처를 확인하고 마음에 드는 곳에 전화하세요.\n"
-           f"https://koczip.com/me/requests\n"
+           f"{link}\n"
            f"콕집 koczip.com")
     return title, body, sms
 
