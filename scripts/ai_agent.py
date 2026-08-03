@@ -2105,7 +2105,24 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
                    or "cannot fulfill" in answer or "unable to" in answer):
         answer = ("죄송해요, 그 조건으로는 바로 답하기 어려워요. 질문을 조금 바꿔서 다시 물어봐 주세요. "
                   "(예: '강남구 거래량 많은 단지', '직원 많은 부동산', '은마아파트 시세')")
-    return {"answer": answer, "tools_used": trace, "usage": usage, "model": MODEL}
+    return {"answer": _with_request_cta(answer, trace), "tools_used": trace,
+            "usage": usage, "model": MODEL}
+
+
+# 매물을 '찾아주는' 도구들. 이 도구를 쓴 답변 끝에만 콕집요청을 권한다.
+_LISTING_TOOLS = {"find_apartments", "find_quick_deals", "find_owner_deals", "find_presale"}
+_REQUEST_LINE = ("\n\n원하는 조건을 남기시면 **그 조건의 매물을 가진 동네 중개사무소**가 연락드려요 "
+                 "→ [콕집요청 보내기](/request)")
+
+
+def _with_request_cta(answer: str, trace: list | None) -> str:
+    """매물을 찾은 답변에 콕집요청 한 줄을 덧붙인다.
+    프롬프트로 시켰더니 모델이 자주 빠뜨려서 코드에서 확정적으로 붙인다.
+    이미 들어 있으면 두 번 붙이지 않는다."""
+    if not answer or "/request" in answer:
+        return answer
+    used = {t.get("tool") for t in (trace or [])}
+    return answer + _REQUEST_LINE if used & _LISTING_TOOLS else answer
 
 
 _TOOL_LABEL = {
@@ -2189,7 +2206,10 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
                             out_tok += (um2.candidates_token_count or 0)
                 except Exception:  # noqa: BLE001
                     pass
-            yield {"type": "done", "answer": _strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp)))), "tools_used": trace,
+            yield {"type": "done",
+                   "answer": _with_request_cta(
+                       _strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp)))), trace),
+                   "tools_used": trace,
                    "usage": {"input_tokens": in_tok, "output_tokens": out_tok,
                              "total_tokens": in_tok + out_tok}, "model": MODEL}
             return

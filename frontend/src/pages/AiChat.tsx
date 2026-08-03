@@ -157,7 +157,7 @@ function AiTurn({ t, children }: { t: Turn; children?: ReactNode }) {
           </div>
         )}
       </div>
-      {t.answer && wantsListing(t.q) && (
+      {t.answer && wantsListing(t.q) && !t.answer.includes("/request") && (
         <div className="ai-req no-capture">
           <div>
             <b>「{shortQ(t.q)}」 조건으로 콕집요청 보내보시겠어요?</b>
