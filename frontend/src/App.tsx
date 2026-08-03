@@ -423,7 +423,7 @@ function AppShell() {
         <Route path="/lounge" element={<Lounge />} />
         <Route path="/request" element={<KoczipRequest />} />
         <Route path="/me/requests" element={<MyRequests />} />
-        <Route path="/r/:token" element={<OfferByLink />} />
+        <Route path="/offer/:token" element={<OfferByLink />} />
         <Route path="/admin/requests" element={<AdminRequests />} />
         <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
         <Route path="/my/favorites" element={<RequireAdmin><MyFavorites /></RequireAdmin>} />

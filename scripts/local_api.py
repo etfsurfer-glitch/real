@@ -17963,7 +17963,7 @@ def _req_sms_body(req_id: int, rid: str) -> str | None:
         return None
     cond = " · ".join(x for x in [q[0], _ASSET_LB.get(q[1], q[1]),
                                   _TRADE_LB.get(q[2], q[2]), q[3], q[4]] if x)
-    link = f"https://koczip.com/r/{tk[0]}" if tk and tk[0] else "https://koczip.com"
+    link = f"https://koczip.com/offer/{tk[0]}" if tk and tk[0] else "https://koczip.com"
     return (f"[콕집] 손님 매물요청이 접수됐습니다.\n"
             f"조건: {cond}\n"
             + (f"요청: {str(q[5])[:120]}\n" if q[5] else "")
@@ -18084,9 +18084,10 @@ def _token_target(token: str):
     return r[0], r[1], r[2]
 
 
-@app.get("/r/{token}")
+@app.get("/offer/{token}")
 def request_by_token(token: str):
-    """미가입 사무소가 링크로 여는 화면 — 조건만 보인다(고객 이름·전화 없음)."""
+    """미가입 사무소가 링크로 여는 화면 — 조건만 보인다(고객 이름·전화 없음).
+    경로가 /offer 인 이유: /r/{slug} 는 중개사 홈페이지가 이미 쓰고 있다(충돌하면 404)."""
     req_id, rid, rname = _token_target(token)
     with _reviews_db() as c:
         q = c.execute("SELECT region_name,asset,trade,area_txt,budget_txt,memo,created_at "
@@ -18103,7 +18104,7 @@ def request_by_token(token: str):
                        "listings": _authjson.loads(o[2] or "[]"), "at": o[3]} if o else None)}
 
 
-@app.get("/r/{token}/listings")
+@app.get("/offer/{token}/listings")
 def request_token_listings(token: str, q: str = "", limit: int = 30):
     """그 사무소가 지금 가진 매물 — 답장에 첨부할 것을 고르게 한다.
     글쓰기 부담을 없애는 게 이 기능의 핵심이다(빈 칸을 주면 아무도 안 쓴다)."""
@@ -18127,7 +18128,7 @@ def _office_listings(realtor_id: str, q: str = "", limit: int = 30) -> dict:
                        "trade": _TRADE_LB.get(r[7], r[7])} for r in rows]}
 
 
-@app.post("/r/{token}/offer")
+@app.post("/offer/{token}/offer")
 def request_token_offer(token: str, body: dict):
     """링크로 들어온 사무소의 제안 등록. 로그인 없이 토큰만으로 확인한다."""
     req_id, rid, _ = _token_target(token)

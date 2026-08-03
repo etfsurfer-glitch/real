@@ -22,7 +22,7 @@ export default function OfferByLink() {
   const [done, setDone] = useState(false);
 
   const load = useCallback(() => {
-    fetch(`${API}/r/${token}`)
+    fetch(`${API}/offer/${token}`)
       .then(async (r) => {
         const j = await r.json();
         if (!r.ok) throw new Error(j?.detail || "링크를 열 수 없습니다");
@@ -85,8 +85,8 @@ export default function OfferByLink() {
 
       <div className="kreq-card">
         <OfferForm
-          listUrl={`${API}/r/${token}/listings`}
-          postUrl={`${API}/r/${token}/offer`}
+          listUrl={`${API}/offer/${token}/listings`}
+          postUrl={`${API}/offer/${token}/offer`}
           existing={d.offer}
           onDone={() => setDone(true)} />
       </div>
