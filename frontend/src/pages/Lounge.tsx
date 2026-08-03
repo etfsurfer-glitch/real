@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import { PhoneModal } from "../components/PhoneVerify";
+import SupportLink from "../components/SupportLink";
 import { Loading } from "../components/Loading";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
-  ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2 } from "lucide-react";
+  ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
@@ -16,6 +17,7 @@ const TT: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 type ChgItem = { article_no: string; complex_no: string; complex_name?: string | null;
   trade_type: string; area_name: string | null; floor: string | null; price: string; building: string | null; direction: string | null };
 import { copyText, shareUrlNative } from "../lib/share";
+import { areaLabel } from "../lib/area";
 
 function won(v: number | null | undefined): string {
   if (v == null) return "-";
@@ -44,7 +46,8 @@ export type Status = {
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-export type Tab = "dashboard" | "listings" | "calendar" | "customers" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff";
+export type Tab = "dashboard" | "listings" | "calendar" | "customers" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
+export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "calendar", "customers", "contracts", "audit", "office", "edit", "leads", "homepage", "staff"];
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -68,7 +71,26 @@ export default function Lounge() {
   const [st, setSt] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [phoneOpen, setPhoneOpen] = useState(false);
-  const [tab, setTab] = useState<Tab>("dashboard");
+  // 탭을 URL(?tab=)과 동기화 — 상단 '중개사라운지' 드롭다운 하위메뉴가 특정 탭으로 바로 진입.
+  const [sp, setSp] = useSearchParams();
+  const _initTab = ((): Tab => {
+    const t = sp.get("tab") as Tab | null;
+    return t && LOUNGE_TABS.includes(t) ? t : "dashboard";
+  })();
+  const [tab, setTabState] = useState<Tab>(_initTab);
+  const setTab = useCallback((t: Tab) => {
+    setTabState(t);
+    setSp((prev) => {
+      const n = new URLSearchParams(prev);
+      if (t === "dashboard") n.delete("tab"); else n.set("tab", t);
+      return n;
+    }, { replace: true });
+  }, [setSp]);
+  // 라운지에 머문 채 드롭다운으로 다른 탭 URL을 열면(리마운트 없음) 탭 반영
+  useEffect(() => {
+    const t = sp.get("tab") as Tab | null;
+    if (t && LOUNGE_TABS.includes(t) && t !== tab) setTabState(t);
+  }, [sp]); // eslint-disable-line
   const [joinRole, setJoinRole] = useState<"owner" | "staff">("owner");  // 미연결 시 역할 선택
 
   const authH = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
@@ -117,7 +139,7 @@ export default function Lounge() {
             대표님이 라운지 직원관리에서 승인하면 바로 이용할 수 있어요. (대표님께 푸시 알림이 발송됐습니다)
           </p>
           <button className="chip" style={{ width: "fit-content" }} onClick={unlink}>신청 취소 / 다른 사무소 다시 선택</button>
-        </Card>
+        <SupportLink variant="banner" sub="승인 문의는" label="고객센터" context="lounge-staff-pending" /></Card>
       )}
 
       {joinRole === "owner" && st.state === "need_phone" && (
@@ -161,6 +183,7 @@ export default function Lounge() {
             관리자 확인 후 연결해 드립니다.
           </p>
           <DocSubmit authH={authH} onDone={loadStatus} />
+          <SupportLink variant="banner" sub="사무소 연결이 계속 안 되시나요?" label="고객센터" context="lounge-no-match" />
         </Card>
       )}
 
@@ -172,7 +195,9 @@ export default function Lounge() {
       )}
 
       {st.state === "doc_pending" && (
-        <Card><p>제출하신 서류를 <b>관리자가 확인 중</b>입니다. 승인되면 라운지가 열립니다. (보통 1영업일 이내)</p></Card>
+        <Card><p>제출하신 서류를 <b>관리자가 확인 중</b>입니다. 승인되면 라운지가 열립니다. (보통 1영업일 이내)</p>
+          <SupportLink variant="banner" sub="승인이 지연되거나 문의가 있으시면" label="고객센터" context="lounge-doc-pending" />
+        </Card>
       )}
 
       {st.state === "linked" && st.office && (
@@ -184,6 +209,7 @@ export default function Lounge() {
               ...((isAdmin ? [["calendar", "계약캘린더", CalendarDays],
                               ["customers", "고객관리", Users],
                               ["contracts", "계약관리", FileText]] : []) as [Tab, string, typeof Users][]),
+              ["requests", "콕집요청", Sparkles],
               ["audit", "매물점검", ShieldCheck],
               ["homepage", st.has_homepage ? "홈페이지관리" : "홈페이지생성", Globe],
               ["leads", "상담신청", MessageSquare],
@@ -202,6 +228,7 @@ export default function Lounge() {
           {tab === "calendar" && isAdmin && <ContractCalendar authH={authH} />}
           {tab === "customers" && isAdmin && <BizCustomers authH={authH} />}
           {tab === "contracts" && isAdmin && <BizContracts authH={authH} />}
+          {tab === "requests" && <RequestsTab authH={authH} />}
           {tab === "audit" && <AuditTab authH={authH} />}
           {tab === "office" && <OfficeTab office={st.office} method={st.method} onUnlink={unlink} />}
           {tab === "edit" && <EditTab authH={authH} />}
@@ -1686,7 +1713,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               {l.address && <div className="mlj-addr"><MapPin size={12} aria-hidden /> {l.address}{l.building_name && l.complex_name && l.building_name !== l.complex_name ? ` · ${l.building_name}` : ""}</div>}
               <div className="mlj-meta">
                 {l.area1_m2 ? <span>공급 {l.area1_m2}㎡</span> : null}
-                {l.area2_m2 ? <span>전용 {l.area2_m2}㎡</span> : null}
+                {l.area2_m2 ? <span>{areaLabel(l.area2_m2)}</span> : null}
                 {l.area_name && <span>{l.area_name}</span>}
                 {l.floor_info && <span>{l.floor_info}층</span>}
                 {l.direction && <span>{l.direction}</span>}
@@ -2075,7 +2102,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose }: {
           <Row k="유형" v={l.type} />
           <Row k="거래" v={l.trade_type === "월세" ? `월세 보증 ${l.price_text} / 월 ${l.rent_price_text}` : `${l.trade_type} ${l.price_text}`} />
           <Row k="공급면적" v={l.area1_m2 ? `${l.area1_m2}㎡` : null} />
-          <Row k="전용면적" v={l.area2_m2 ? `${l.area2_m2}㎡` : null} />
+          <Row k="전용면적" v={l.area2_m2 ? areaLabel(l.area2_m2) : null} />
           <Row k="평형" v={l.area_name} />
           <Row k="층" v={l.floor_info ? `${l.floor_info}층` : null} />
           <Row k="방향" v={l.direction} />
@@ -2120,5 +2147,80 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose }: {
         )}
       </div>
     </div>
+  );
+}
+
+
+type KReq = {
+  id: number; name: string; phone: string; region: string; asset: string; trade: string;
+  area: string; budget: string; memo: string; at: string; status: string; read_at: string | null;
+};
+
+/** 콕집요청 — 손님이 남긴 조건이 우리 사무소로 전달된 것. 연락처는 전달받은 곳만 볼 수 있다. */
+export function RequestsTab({ authH }: { authH: () => Record<string, string> }) {
+  const [items, setItems] = useState<KReq[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    fetch(`${API_BASE}/lounge/requests`, { headers: authH() })
+      .then((r) => r.json()).then((d) => setItems(d.items ?? []))
+      .catch(() => setItems([])).finally(() => setLoading(false));
+  }, [authH]);
+  useEffect(() => { load(); }, [load]);
+
+  const mark = async (id: number, status: string) => {
+    await fetch(`${API_BASE}/lounge/requests/${id}/status`, {
+      method: "POST", headers: { "Content-Type": "application/json", ...authH() },
+      body: JSON.stringify({ status }),
+    }).catch(() => {});
+    load();
+  };
+
+  if (loading && items.length === 0) return <Card><p className="muted" style={{ margin: 0 }}>불러오는 중…</p></Card>;
+  if (items.length === 0) {
+    return (
+      <Card>
+        <p style={{ margin: 0 }}>아직 전달된 콕집요청이 없습니다.</p>
+        <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+          손님이 콕집에서 원하는 조건을 남기면, 그 동네 사무소로 요청이 전달됩니다.
+          매물이 많을수록 더 자주 전달됩니다.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <Card>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          손님이 남긴 조건입니다. 연락처는 <b>요청이 전달된 사무소와 콕집 관리자만</b> 볼 수 있으며,
+          상담 목적 외 이용이나 재제공은 금지됩니다.
+        </p>
+      </Card>
+      {items.map((r) => (
+        <Card key={r.id}>
+          <div className="lreq-h">
+            <b>{r.region || "지역 미지정"} · {r.asset} {r.trade}</b>
+            <span className={`sns-st sns-st-${r.status === "responded" ? "done" : "pending"}`}>
+              {r.status === "responded" ? "연락함" : r.status === "declined" ? "보류" : r.status === "read" ? "읽음" : "새 요청"}
+            </span>
+          </div>
+          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            {[r.area, r.budget].filter(Boolean).join(" · ")} · {(r.at || "").slice(5, 16)}
+          </div>
+          {r.memo && <p style={{ marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>{r.memo}</p>}
+          <div className="lreq-contact">
+            <b>{r.name || "이름 미기재"}</b>
+            <a href={`tel:${r.phone}`}>{r.phone}</a>
+          </div>
+          <div className="lreq-btns">
+            <button onClick={() => mark(r.id, "responded")}>연락했어요</button>
+            <button onClick={() => mark(r.id, "read")}>확인함</button>
+            <button onClick={() => mark(r.id, "declined")}>맞는 매물 없음</button>
+          </div>
+        </Card>
+      ))}
+    </>
   );
 }

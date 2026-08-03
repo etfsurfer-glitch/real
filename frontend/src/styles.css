@@ -4100,3 +4100,114 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .sns-warn{margin-top:9px;font-size:13px;line-height:1.6;color:#9a5b00;background:#fff6e5;border:1px solid #f3ddb0;padding:10px 12px;border-radius:9px}
 .sns-noconn input{cursor:not-allowed}
 .sns-primary:disabled{opacity:.45;cursor:not-allowed}
+
+
+/* ── 콕집요청 ─────────────────────────────────────────────────
+   손님이 조건을 남기면 그 동네 중개사무소로 전달되는 화면.
+   개인정보가 오가므로 '받는 곳'과 동의 내용을 눈에 띄게 둔다. */
+.kreq{max-width:760px;margin:0 auto;padding:14px 14px 40px}
+.kreq h2{display:flex;align-items:center;gap:7px;font-size:20px;font-weight:800;margin:0 0 8px}
+.kreq-lead{font-size:14.5px;line-height:1.65;color:#33414f;margin:0 0 12px}
+.kreq-q{display:flex;align-items:center;gap:6px;background:#eef4fd;color:#1268d3;
+  border-radius:9px;padding:9px 12px;font-size:13px;margin-bottom:12px}
+.kreq-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:14px;
+  padding:16px 16px 18px;margin-bottom:12px}
+.kreq-center{text-align:center}
+.kreq-step{font-size:16px;font-weight:800;letter-spacing:-.02em;margin-bottom:10px}
+.kreq-region{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.kreq-chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.kreq-chip{border:1.4px solid var(--line,#e2e8f0);background:#fff;border-radius:999px;
+  padding:7px 14px;font-size:13.5px;font-weight:600;cursor:pointer;color:#41505f}
+.kreq-chip.on{background:#1268d3;border-color:#1268d3;color:#fff}
+.kreq-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+@media(max-width:560px){.kreq-grid2{grid-template-columns:1fr}}
+.kreq-grid2 label,.kreq-full{display:flex;flex-direction:column;gap:5px;font-size:13px;
+  font-weight:700;color:#41505f}
+.kreq-full{margin-top:10px}
+.kreq input,.kreq textarea{border:1.4px solid var(--line,#e2e8f0);border-radius:9px;
+  padding:10px 12px;font-size:14.5px;font-family:inherit;width:100%;box-sizing:border-box}
+.kreq textarea{resize:vertical}
+.kreq-modes{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+@media(max-width:560px){.kreq-modes{grid-template-columns:1fr}}
+.kreq-mode{display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;
+  border:1.6px solid var(--line,#e2e8f0);background:#fff;border-radius:12px;padding:12px 14px;
+  cursor:pointer}
+.kreq-mode.on{border-color:#1268d3;background:#f4f8fe}
+.kreq-mode b{font-size:14.5px}
+.kreq-mode span{font-size:12.5px;color:#6b7a89;line-height:1.45}
+.kreq-count{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13.5px;
+  font-weight:700;color:#41505f}
+.kreq-cands{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;
+  max-height:320px;overflow-y:auto}
+.kreq-cands label{display:flex;gap:10px;align-items:flex-start;border:1.3px solid var(--line,#e2e8f0);
+  border-radius:10px;padding:10px 12px;cursor:pointer;font-size:14px}
+.kreq-cands .muted{font-size:12px;margin-top:2px}
+.kreq-offices{list-style:none;padding:0;margin:8px 0 0;display:flex;flex-direction:column;gap:6px}
+.kreq-offices li{display:flex;align-items:center;gap:7px;background:#f5f8fc;border-radius:9px;
+  padding:9px 12px;font-size:14px;font-weight:600}
+.kreq-ok{display:flex;align-items:center;gap:6px;color:#15803d;font-weight:700;font-size:14px}
+.kreq-consent{margin-top:14px;border:1.6px solid #cfe0f6;background:#f7fafe;border-radius:12px;
+  padding:13px 14px}
+.kreq-consent-h{display:flex;align-items:center;gap:6px;font-size:14.5px;font-weight:800;
+  color:#0d4f9e}
+.kreq-consent-h span{font-weight:700;color:#b4232a}
+.kreq-consent-b{margin-top:8px;display:flex;flex-direction:column;gap:5px;font-size:13px;
+  line-height:1.6;color:#3d4c5c}
+.kreq-consent-note{margin-top:4px;padding-top:7px;border-top:1px dashed #cfe0f6}
+.kreq-agree{display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:13.5px;
+  line-height:1.55;cursor:pointer;font-weight:600;color:#26323e}
+.kreq-row{display:flex;gap:8px;flex-wrap:wrap}
+.kreq-primary{background:#1268d3;color:#fff;border:0;border-radius:10px;padding:11px 18px;
+  font-size:14.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.kreq-ghost{background:#fff;color:#41505f;border:1.4px solid var(--line,#e2e8f0);border-radius:10px;
+  padding:11px 18px;font-size:14.5px;font-weight:700;cursor:pointer}
+.kreq-submit{width:100%;background:#1268d3;color:#fff;border:0;border-radius:12px;padding:15px;
+  font-size:16px;font-weight:800;cursor:pointer;margin-top:4px}
+.kreq-submit:disabled{background:#c3ced9;cursor:not-allowed}
+.kreq-err{background:#fdeaea;color:#b4232a;border-radius:9px;padding:10px 12px;font-size:13.5px;
+  margin-bottom:10px;font-weight:600}
+
+/* AI 답변 아래 콕집요청 안내 */
+.ai-req{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  background:#eef4fd;border:1.4px solid #cfe0f6;border-radius:12px;padding:12px 14px;margin-top:10px}
+.ai-req b{display:block;font-size:14px;color:#0d4f9e}
+.ai-req span{display:block;font-size:12.5px;color:#4a5a6b;margin-top:2px;line-height:1.45}
+.ai-req-btn{background:#1268d3;color:#fff;border-radius:9px;padding:9px 16px;font-size:13.5px;
+  font-weight:700;text-decoration:none;white-space:nowrap}
+
+
+/* ── 관리자 콕집요청 ── */
+.areq{max-width:1000px;margin:0 auto;padding:12px}
+.areq-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.areq-head h2{display:flex;align-items:center;gap:7px;font-size:19px;font-weight:800;margin:0}
+.areq-refresh{display:inline-flex;align-items:center;gap:5px;border:1.3px solid var(--line,#e2e8f0);
+  background:#fff;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.areq-sum{font-size:13.5px;color:#57687a;margin-bottom:12px}
+.areq-list{display:flex;flex-direction:column;gap:9px}
+.areq-card{border:1.3px solid var(--line,#e2e8f0);border-radius:12px;background:#fff;overflow:hidden}
+.areq-top{display:flex;justify-content:space-between;gap:12px;padding:13px 15px;cursor:pointer}
+.areq-title{font-size:15px;font-weight:800;letter-spacing:-.02em}
+.areq-sub{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:4px;font-size:12.5px}
+.areq-name{font-weight:700}
+.areq-phone{display:inline-flex;align-items:center;gap:4px;color:#1268d3;font-weight:700;
+  text-decoration:none}
+.areq-badges{display:flex;gap:4px;flex-wrap:wrap;align-items:flex-start}
+.areq-b{font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.areq-b-sent{background:#eef2f7;color:#5a6b7c}
+.areq-b-read{background:#fdf3e0;color:#9a5c05}
+.areq-b-responded{background:#e4f5ea;color:#14713f}
+.areq-b-declined{background:#fdeaea;color:#b4232a}
+.areq-detail{border-top:1px solid var(--line,#e2e8f0);padding:12px 15px;display:flex;
+  flex-direction:column;gap:9px;background:#fafcfe;font-size:13.5px}
+.areq-memo{line-height:1.6}
+.areq-offices{display:flex;flex-direction:column;gap:5px}
+.areq-office{display:flex;align-items:center;gap:7px;font-size:13px}
+
+/* ── 라운지 콕집요청 ── */
+.lreq-h{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:15px}
+.lreq-contact{display:flex;align-items:center;gap:10px;margin-top:10px;background:#f5f8fc;
+  border-radius:9px;padding:10px 13px;font-size:14.5px}
+.lreq-contact a{color:#1268d3;font-weight:800;text-decoration:none}
+.lreq-btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.lreq-btns button{border:1.3px solid var(--line,#e2e8f0);background:#fff;border-radius:8px;
+  padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer}

@@ -9433,6 +9433,7 @@ def admin_logs_stats(_admin: dict = Depends(admin_user), days: int = 7):
 
 
 
+
 @app.get("/admin/server-disk")
 def admin_server_disk(_admin: dict = Depends(admin_user)):
     """서버 저장공간 현황 — 본서버 디스크·백업 볼륨, 그리고 아카이브 서버(워커가 보고).
@@ -17453,6 +17454,268 @@ def engage_comment(body: dict):
         return {"skip": True, "reason": bad}
     return {"skip": False, "comment": cm, "tone": tone,
             "comment_tone": _tone_of_comment(cm), "tries": tries}
+
+
+# ===========================================================================
+# 콕집요청 — 손님이 원하는 조건을 남기면 그 동네 중개사에게 전달한다.
+#   ① 손님이 조건 입력(AI 검색 결과에서 이어짐) ② 전화 인증
+#   ③ 중개사를 직접 고르거나 '추천받기'(기본 3곳, 최대 10곳)
+#   ④ 제3자 제공에 동의해야 전달 — 동의 내용·받는 곳을 그대로 기록한다
+# 개인정보(이름·전화)는 '전달된 중개사'와 관리자만 볼 수 있다.
+# ===========================================================================
+
+_REQ_MIN_TARGETS, _REQ_MAX_TARGETS, _REQ_DEFAULT_TARGETS = 1, 10, 3
+
+
+def _init_request_db() -> None:
+    with _reviews_db() as c:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS koczip_requests (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id     TEXT NOT NULL,
+          member_no   INTEGER,
+          name        TEXT,                       -- 손님 이름(중개사에게 전달됨)
+          phone       TEXT NOT NULL,              -- 인증된 번호
+          sido        TEXT, sigungu TEXT, cortar TEXT,
+          region_name TEXT,
+          asset       TEXT NOT NULL DEFAULT 'apt',   -- apt|offi|villa|house|comm
+          trade       TEXT NOT NULL DEFAULT 'A1',    -- A1 매매 | B1 전세 | B2 월세
+          area_txt    TEXT,                       -- 예: 30평대
+          budget_txt  TEXT,                       -- 예: 12억 이하
+          memo        TEXT,                       -- 손님이 적은 요청 내용
+          ai_query    TEXT,                       -- AI에 물어본 원문(있으면)
+          pick_mode   TEXT NOT NULL DEFAULT 'recommend',  -- choose|recommend
+          target_count INTEGER NOT NULL DEFAULT 3,
+          status      TEXT NOT NULL DEFAULT 'sent',       -- sent|done|cancel
+          consent_at  TEXT,                       -- 제3자 제공 동의 시각(KST)
+          consent_txt TEXT,                       -- 동의 당시 고지한 내용 전문
+          created_at  TEXT NOT NULL DEFAULT (datetime('now','+9 hours')));
+        CREATE INDEX IF NOT EXISTS kreq_user_idx ON koczip_requests(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS kreq_time_idx ON koczip_requests(created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS koczip_request_targets (
+          request_id   INTEGER NOT NULL,
+          realtor_id   TEXT NOT NULL,
+          realtor_name TEXT,
+          status       TEXT NOT NULL DEFAULT 'sent',      -- sent|read|responded|declined
+          read_at      TEXT, responded_at TEXT, reply_memo TEXT,
+          created_at   TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+          PRIMARY KEY (request_id, realtor_id));
+        CREATE INDEX IF NOT EXISTS kreqt_realtor_idx
+          ON koczip_request_targets(realtor_id, status, created_at DESC);
+        """)
+        c.commit()
+
+
+_init_request_db()
+
+_ASSET_LB = {"apt": "아파트", "offi": "오피스텔", "villa": "빌라·연립",
+             "house": "단독·다가구", "comm": "상가·사무실"}
+_TRADE_LB = {"A1": "매매", "B1": "전세", "B2": "월세"}
+
+
+def _req_consent_text(names: list) -> str:
+    """동의 화면에 그대로 보여주고, 그대로 저장하는 고지문.
+    나중에 '무엇에 동의했는지' 다툼이 생기면 이 문장이 근거가 된다."""
+    who = ", ".join(names) if names else "선택한 중개사무소"
+    return ("[개인정보 제3자 제공 동의]\n"
+            f"· 제공받는 자: {who}\n"
+            "· 제공 항목: 이름, 휴대전화번호, 요청하신 조건(지역·유형·거래·면적·예산·메모)\n"
+            "· 이용 목적: 조건에 맞는 매물 안내 및 상담 연락\n"
+            "· 보유·이용 기간: 상담 종료 후 3개월(요청자가 삭제를 요청하면 즉시 파기)\n"
+            "· 동의를 거부할 수 있으며, 거부하시면 중개사 연결만 되지 않습니다.\n"
+            "· 전달된 중개사무소와 콕집 관리자 외에는 연락처를 볼 수 없습니다.")
+
+
+@app.get("/requests/candidates")
+def request_candidates(cortar: str = "", sigungu: str = "", limit: int = 20):
+    """요청을 보낼 만한 그 동네 중개사 후보. 매물이 많은 곳(=활동 중인 곳) 순.
+    개인정보는 아직 오가지 않으므로 로그인 없이도 볼 수 있다(사무소 공개정보만)."""
+    limit = max(1, min(int(limit), 40))
+    rows = []
+    try:
+        if cortar:
+            r = realtors_by_dong(cortar=cortar[:10], sort="listings", scope="resi", limit=limit)
+            rows = (r or {}).get("items", [])[:limit]
+    except Exception:  # noqa: BLE001
+        rows = []
+    if not rows and sigungu:      # 동에 후보가 없으면 시군구로 넓힌다
+        try:
+            with _open_db() as d:
+                q = d.execute(
+                    "SELECT rd.realtor_id, nr.realtor_name, nr.address, nr.representative_name, "
+                    "       COALESCE(rt.total_n,0) n "
+                    "FROM realtor_dong rd "
+                    "JOIN naver_realtors nr ON nr.realtor_id=rd.realtor_id "
+                    "LEFT JOIN realtor_total rt ON rt.realtor_id=rd.realtor_id "
+                    "WHERE rd.sgg_cd=? GROUP BY rd.realtor_id ORDER BY n DESC LIMIT ?",
+                    (sigungu[:5], limit)).fetchall()
+            rows = [{"realtor_id": x[0], "realtor_name": x[1], "address": x[2],
+                     "representative": x[3], "listings": x[4]} for x in q]
+        except Exception:  # noqa: BLE001
+            rows = []
+    return {"items": [{"realtor_id": x.get("realtor_id"),
+                       "name": x.get("realtor_name") or x.get("name"),
+                       "address": x.get("address"),
+                       "representative": x.get("representative") or x.get("representative_name"),
+                       "listings": x.get("listings") or x.get("n") or 0} for x in rows]}
+
+
+@app.post("/requests")
+def request_create(body: dict, user: dict = Depends(current_user)):
+    """콕집요청 접수 — 전화 인증과 제3자 제공 동의가 있어야 한다."""
+    uid = user.get("id")
+    with _reviews_db() as c:
+        pr = c.execute("SELECT phone, phone_verified, member_no, nickname FROM user_profiles "
+                       "WHERE user_id=?", (uid,)).fetchone()
+    if not pr or not pr[1] or not pr[0]:
+        raise HTTPException(403, "휴대폰 인증을 먼저 해주세요")
+    if not body.get("consent"):
+        raise HTTPException(400, "개인정보 제3자 제공에 동의해야 요청을 보낼 수 있습니다")
+
+    mode = "choose" if body.get("pick_mode") == "choose" else "recommend"
+    picked = [str(x)[:40] for x in (body.get("realtor_ids") or [])][:_REQ_MAX_TARGETS]
+    cnt = int(body.get("target_count") or _REQ_DEFAULT_TARGETS)
+    cnt = max(_REQ_MIN_TARGETS, min(cnt, _REQ_MAX_TARGETS))
+    cortar = str(body.get("cortar") or "")[:10]
+    sigungu = str(body.get("sigungu") or "")[:5]
+
+    if mode == "choose":
+        if not picked:
+            raise HTTPException(400, "중개사무소를 한 곳 이상 선택해 주세요")
+        ids = picked
+    else:                       # 추천받기 — 그 동네에서 활동 많은 순으로 cnt 곳
+        cand = request_candidates(cortar=cortar, sigungu=sigungu, limit=cnt)["items"]
+        ids = [x["realtor_id"] for x in cand if x.get("realtor_id")][:cnt]
+        if not ids:
+            raise HTTPException(400, "이 지역에서 연결할 중개사무소를 찾지 못했습니다")
+
+    with _open_db() as d:
+        ph = ",".join("?" * len(ids))
+        names = {r[0]: r[1] for r in d.execute(
+            f"SELECT realtor_id, realtor_name FROM naver_realtors WHERE realtor_id IN ({ph})", ids)}
+    consent_txt = _req_consent_text([names.get(i, i) for i in ids])
+
+    with _reviews_db() as c:
+        cur = c.execute(
+            "INSERT INTO koczip_requests(user_id,member_no,name,phone,sido,sigungu,cortar,"
+            "region_name,asset,trade,area_txt,budget_txt,memo,ai_query,pick_mode,target_count,"
+            "consent_at,consent_txt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+9 hours'),?)",
+            (uid, pr[2], str(body.get("name") or pr[3] or "")[:30], pr[0],
+             str(body.get("sido") or "")[:10], sigungu, cortar,
+             str(body.get("region_name") or "")[:60],
+             str(body.get("asset") or "apt")[:10], str(body.get("trade") or "A1")[:3],
+             str(body.get("area_txt") or "")[:40], str(body.get("budget_txt") or "")[:40],
+             str(body.get("memo") or "")[:1000], str(body.get("ai_query") or "")[:500],
+             mode, len(ids), consent_txt))
+        rid = cur.lastrowid
+        for i in ids:
+            c.execute("INSERT OR IGNORE INTO koczip_request_targets(request_id,realtor_id,"
+                      "realtor_name) VALUES(?,?,?)", (rid, i, names.get(i)))
+        c.commit()
+
+    _req_notify(rid, ids, names)
+    return {"ok": True, "id": rid, "sent_to": len(ids),
+            "offices": [{"realtor_id": i, "name": names.get(i)} for i in ids]}
+
+
+def _req_notify(rid: int, ids: list, names: dict) -> None:
+    """전달받은 중개사에게 푸시 + 관리자 텔레그램. 실패해도 접수는 유효하다."""
+    try:
+        with _reviews_db() as c:
+            ph = ",".join("?" * len(ids))
+            uids = [r[0] for r in c.execute(
+                f"SELECT user_id FROM realtor_members WHERE realtor_id IN ({ph}) "
+                f"AND COALESCE(status,'active')='active'", ids)]
+        if uids:
+            _send_web_push(uids, "새 콕집요청이 도착했어요",
+                           "라운지 → 콕집요청에서 조건과 연락처를 확인하세요.",
+                           url="/lounge", tag="koczip-request")
+    except Exception as e:  # noqa: BLE001
+        print(f"[req] 푸시 실패: {str(e)[:100]}", file=_sys.stderr, flush=True)
+    try:
+        import subprocess as _sp
+        _sp.run(["/opt/koczip/.venv/bin/python", "/opt/koczip/scripts/tg_notify.py",
+                 f"콕집요청 #{rid} 접수 — {len(ids)}곳 전달"],
+                capture_output=True, timeout=15)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@app.get("/me/requests")
+def my_requests(user: dict = Depends(current_user)):
+    """내가 보낸 요청과 각 중개사의 진행 상태."""
+    with _reviews_db() as c:
+        rows = c.execute(
+            "SELECT id,region_name,asset,trade,area_txt,budget_txt,memo,status,created_at,"
+            "target_count FROM koczip_requests WHERE user_id=? ORDER BY id DESC LIMIT 20",
+            (user.get("id"),)).fetchall()
+        out = []
+        for r in rows:
+            tg = c.execute("SELECT realtor_name,status,responded_at FROM koczip_request_targets "
+                           "WHERE request_id=? ORDER BY rowid", (r[0],)).fetchall()
+            out.append({"id": r[0], "region": r[1],
+                        "asset": _ASSET_LB.get(r[2], r[2]), "trade": _TRADE_LB.get(r[3], r[3]),
+                        "area": r[4], "budget": r[5], "memo": r[6], "status": r[7],
+                        "at": r[8], "target_count": r[9],
+                        "offices": [{"name": t[0], "status": t[1], "at": t[2]} for t in tg]})
+    return {"items": out}
+
+
+@app.get("/admin/requests")
+def admin_requests(limit: int = 100, _admin: dict = Depends(admin_user)):
+    """관리자 — 접수된 요청 전체(연락처 포함)."""
+    limit = min(max(int(limit), 1), 300)
+    with _reviews_db() as c:
+        rows = c.execute(
+            "SELECT id,name,phone,region_name,asset,trade,area_txt,budget_txt,memo,ai_query,"
+            "pick_mode,target_count,status,created_at,member_no FROM koczip_requests "
+            "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        out = []
+        for r in rows:
+            tg = c.execute("SELECT realtor_id,realtor_name,status,read_at,responded_at "
+                           "FROM koczip_request_targets WHERE request_id=? ORDER BY rowid",
+                           (r[0],)).fetchall()
+            out.append({"id": r[0], "name": r[1], "phone": r[2], "region": r[3],
+                        "asset": _ASSET_LB.get(r[4], r[4]), "trade": _TRADE_LB.get(r[5], r[5]),
+                        "area": r[6], "budget": r[7], "memo": r[8], "ai_query": r[9],
+                        "pick_mode": r[10], "target_count": r[11], "status": r[12],
+                        "at": r[13], "member_no": r[14],
+                        "offices": [{"realtor_id": t[0], "name": t[1], "status": t[2],
+                                     "read_at": t[3], "responded_at": t[4]} for t in tg]})
+    return {"items": out}
+
+
+@app.get("/lounge/requests")
+def lounge_requests(user: dict = Depends(current_user)):
+    """중개사 라운지 — 나에게 전달된 콕집요청만. 다른 사무소 건은 보이지 않는다."""
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+        rows = c.execute(
+            "SELECT q.id,q.name,q.phone,q.region_name,q.asset,q.trade,q.area_txt,q.budget_txt,"
+            "       q.memo,q.created_at,t.status,t.read_at "
+            "FROM koczip_request_targets t JOIN koczip_requests q ON q.id=t.request_id "
+            "WHERE t.realtor_id=? ORDER BY q.id DESC LIMIT 100", (rid,)).fetchall()
+    return {"items": [{"id": r[0], "name": r[1], "phone": r[2], "region": r[3],
+                       "asset": _ASSET_LB.get(r[4], r[4]), "trade": _TRADE_LB.get(r[5], r[5]),
+                       "area": r[6], "budget": r[7], "memo": r[8], "at": r[9],
+                       "status": r[10], "read_at": r[11]} for r in rows]}
+
+
+@app.post("/lounge/requests/{req_id}/status")
+def lounge_request_status(req_id: int, body: dict, user: dict = Depends(current_user)):
+    """중개사가 요청을 읽음/연락함/보류로 표시."""
+    st = str(body.get("status") or "read")
+    if st not in ("read", "responded", "declined"):
+        raise HTTPException(400, "상태값이 올바르지 않습니다")
+    col = "responded_at" if st == "responded" else "read_at"
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+        c.execute(f"UPDATE koczip_request_targets SET status=?, {col}=datetime('now','+9 hours'), "
+                  "reply_memo=? WHERE request_id=? AND realtor_id=?",
+                  (st, str(body.get("memo") or "")[:300], req_id, rid))
+        c.commit()
+    return {"ok": True}
 
 
 # ===========================================================================

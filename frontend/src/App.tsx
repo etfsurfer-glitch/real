@@ -38,6 +38,8 @@ import CardNews from "./pages/CardNews";
 import AdminNewsletter from "./pages/AdminNewsletter";
 import RenderNewsletter from "./pages/RenderNewsletter";
 import RenderBrag from "./pages/RenderBrag";
+import KoczipRequest from "./pages/KoczipRequest";
+import AdminRequests from "./pages/AdminRequests";
 import AdminSns from "./pages/AdminSns";
 import AdminResident from "./pages/AdminResident";
 import AdminRealtorRequests from "./pages/AdminRealtorRequests";
@@ -413,6 +415,8 @@ function AppShell() {
         <Route path="/forum/new" element={<ForumCompose />} />
         <Route path="/forum/:id" element={<ForumPost />} />
         <Route path="/lounge" element={<Lounge />} />
+        <Route path="/request" element={<KoczipRequest />} />
+        <Route path="/admin/requests" element={<AdminRequests />} />
         <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
         <Route path="/my/favorites" element={<RequireAdmin><MyFavorites /></RequireAdmin>} />
         <Route path="/similar" element={<RequireAdmin><SimilarComplexes /></RequireAdmin>} />
@@ -510,6 +514,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/suspicious", label: "의심 중개사", icon: ShieldAlert },
   { to: "/admin/reviews", label: "리뷰 검수", icon: ClipboardCheck },
   { to: "/admin/resident", label: "입주민 인증", icon: HomeIcon },
+  { to: "/admin/requests", label: "콕집요청", icon: Sparkles },
   { to: "/admin/realtor-requests", label: "중개사 라운지", icon: Building2 },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck },
   { to: "/admin/cardnews", label: "카드뉴스 생성", icon: ImageIcon },

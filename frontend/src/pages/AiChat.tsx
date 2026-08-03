@@ -4,7 +4,7 @@ import { Sparkles, MapPin, SendHorizonal, Lock, ShieldCheck } from "lucide-react
 import { useAuth, loginKakao, loginGoogle } from "../auth";
 import { PhoneModal } from "../components/PhoneVerify";
 import { LevelBadge } from "../components/LevelBadge";
-import ShareBar from "../components/ShareBar";
+import ShareInline from "../components/ShareInline";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -98,6 +98,15 @@ const LOADING_HINTS = [
   "거의 다 됐어요. 답변을 정리하는 중이에요",
 ];
 
+/** 매물을 찾는 질문일 때만 콕집요청을 권한다(통계·용어 질문엔 붙이지 않는다). */
+function wantsListing(q: string): boolean {
+  const t = (q || "").replace(/\s/g, "");
+  if (!t) return false;
+  const want = /(매물|집|아파트|오피스텔|빌라|원룸|전세|월세|매매|급매|추천|찾아|구해|알아보|보고싶)/;
+  const stat = /(통계|추이|평균|시세동향|무엇|뜻|이란|의미|어떻게계산|세금|취득세|양도세)/;
+  return want.test(t) && !stat.test(t);
+}
+
 // 한 문답(질문+답변) 블록 — 자체 ref로 감싸 공유(이미지/카카오/URL) 가능. 추천칩 등은 children.
 function AiTurn({ t, children }: { t: Turn; children?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -137,9 +146,18 @@ function AiTurn({ t, children }: { t: Turn; children?: ReactNode }) {
           </div>
         )}
       </div>
+      {t.answer && wantsListing(t.q) && (
+        <div className="ai-req no-capture">
+          <div>
+            <b>이 조건으로 매물을 추천받고 싶으세요?</b>
+            <span>콕집요청을 남기시면 그 동네 중개사무소가 찾아서 연락드려요.</span>
+          </div>
+          <a className="ai-req-btn" href={`/request?q=${encodeURIComponent(t.q)}`}>콕집요청 하기</a>
+        </div>
+      )}
       {t.answer && (
         <div className="ai-share no-capture">
-          <ShareBar targetRef={ref} title={t.q} fileName="콕집_AI답변" />
+          <ShareInline targetRef={ref} title={t.q} fileName="콕집_AI답변" />
         </div>
       )}
       {children}
