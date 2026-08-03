@@ -107,6 +107,15 @@ function wantsListing(q: string): boolean {
   return want.test(t) && !stat.test(t);
 }
 
+/** 물음표·군말을 걷어낸 짧은 조건 문구 — 버튼 문구에 그대로 인용한다. */
+function shortQ(q: string): string {
+  const t = (q || "").trim()
+    .replace(/[?？!.]+$/g, "")
+    .replace(/(알려줘|알려주세요|찾아줘|찾아주세요|추천해줘|추천해주세요|보여줘|보여주세요|어때|어떄|얼마야|얼마인가요|있나요|있어)\s*$/g, "")
+    .trim();
+  return t.length > 24 ? `${t.slice(0, 24)}…` : t;
+}
+
 // 한 문답(질문+답변) 블록 — 자체 ref로 감싸 공유(이미지/카카오/URL) 가능. 추천칩 등은 children.
 function AiTurn({ t, children }: { t: Turn; children?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -149,10 +158,10 @@ function AiTurn({ t, children }: { t: Turn; children?: ReactNode }) {
       {t.answer && wantsListing(t.q) && (
         <div className="ai-req no-capture">
           <div>
-            <b>이 조건으로 매물을 추천받고 싶으세요?</b>
-            <span>콕집요청을 남기시면 그 동네 중개사무소가 찾아서 연락드려요.</span>
+            <b>「{shortQ(t.q)}」 조건으로 콕집요청 보내보시겠어요?</b>
+            <span>이 조건 그대로 그 동네 중개사무소에 전달돼요. 맞는 매물이 있으면 연락이 옵니다.</span>
           </div>
-          <a className="ai-req-btn" href={`/request?q=${encodeURIComponent(t.q)}`}>콕집요청 하기</a>
+          <a className="ai-req-btn" href={`/request?q=${encodeURIComponent(t.q)}`}>콕집요청 보내기</a>
         </div>
       )}
       {t.answer && (

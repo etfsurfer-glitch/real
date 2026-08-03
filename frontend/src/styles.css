@@ -4108,8 +4108,9 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .kreq{max-width:760px;margin:0 auto;padding:14px 14px 40px}
 .kreq h2{display:flex;align-items:center;gap:7px;font-size:20px;font-weight:800;margin:0 0 8px}
 .kreq-lead{font-size:14.5px;line-height:1.65;color:#33414f;margin:0 0 12px}
-.kreq-q{display:flex;align-items:center;gap:6px;background:#eef4fd;color:#1268d3;
-  border-radius:9px;padding:9px 12px;font-size:13px;margin-bottom:12px}
+.kreq-q{display:flex;align-items:flex-start;gap:7px;background:#eef4fd;color:#1268d3;
+  border-radius:9px;padding:10px 13px;font-size:13.5px;margin-bottom:12px;line-height:1.55}
+.kreq-q-sub{color:#41505f;font-size:12.5px;margin-top:3px}
 .kreq-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:14px;
   padding:16px 16px 18px;margin-bottom:12px}
 .kreq-center{text-align:center}

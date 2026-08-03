@@ -34,6 +34,7 @@ export default function KoczipRequest() {
   const [trade, setTrade] = useState(sp.get("trade") || "A1");
   const [areaTxt, setAreaTxt] = useState(sp.get("area") || "");
   const [budgetTxt, setBudgetTxt] = useState("");
+  const [prefill, setPrefill] = useState("");        // 무엇이 자동으로 채워졌는지 안내
   const [memo, setMemo] = useState("");
   const aiQuery = sp.get("q") || "";
 
@@ -56,6 +57,25 @@ export default function KoczipRequest() {
     fetch(`${API}/me`, { headers: authH() }).then((r) => r.json())
       .then((d) => setPhoneOK(!!d?.phone_verified)).catch(() => {});
   }, [token, authH]);
+
+  // AI에 물어본 문장을 조건으로 풀어 채워 둔다 — 같은 내용을 두 번 입력하지 않게.
+  useEffect(() => {
+    if (!aiQuery) return;
+    fetch(`${API}/requests/parse?q=${encodeURIComponent(aiQuery)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const got: string[] = [];
+        if (d.sido) { reg.setSido(d.sido.slice(0, 2)); got.push(d.region_name || "지역"); }
+        if (d.sigungu) reg.setSigungu(d.sigungu.slice(0, 5));
+        if (d.cortar) reg.setDong(d.cortar.slice(0, 10));
+        if (d.asset) { setAsset(d.asset); got.push("유형"); }
+        if (d.trade) { setTrade(d.trade); got.push("거래"); }
+        if (d.area_txt) { setAreaTxt(d.area_txt); got.push(d.area_txt); }
+        if (d.budget_txt) { setBudgetTxt(d.budget_txt); got.push(d.budget_txt); }
+        if (got.length) setPrefill(got.join(" · "));
+      })
+      .catch(() => {});
+  }, [aiQuery]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!sigungu) { setCands([]); return; }
@@ -137,7 +157,15 @@ export default function KoczipRequest() {
         원하는 조건을 남기시면 <b>그 동네 중개사무소</b>가 조건에 맞는 매물을 찾아 연락드려요.
         직접 발품 팔지 않아도 됩니다.
       </p>
-      {aiQuery && <div className="kreq-q"><Info size={14} /> AI에 물어보신 내용: <b>{aiQuery}</b></div>}
+      {aiQuery && (
+        <div className="kreq-q">
+          <Info size={14} />
+          <div>
+            AI에 물어보신 <b>「{aiQuery}」</b>
+            {prefill && <div className="kreq-q-sub">{prefill} 을(를) 아래에 채워 뒀어요. 바꾸셔도 됩니다.</div>}
+          </div>
+        </div>
+      )}
 
       {/* 1. 조건 */}
       <div className="kreq-card">

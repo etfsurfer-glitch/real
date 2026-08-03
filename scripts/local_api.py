@@ -17543,6 +17543,52 @@ def _req_consent_text(names: list) -> str:
             "· 전달된 중개사무소와 콕집 관리자 외에는 연락처를 볼 수 없습니다.")
 
 
+@app.get("/requests/parse")
+def request_parse(q: str = ""):
+    """AI에 물어본 문장을 요청 조건으로 풀어준다 — 지역·유형·거래·면적.
+    손님이 같은 내용을 두 번 입력하지 않게 하려는 것이라, 못 알아들으면 빈 값으로 둔다."""
+    q = (q or "").strip()[:200]
+    if not q:
+        return {}
+    out: dict = {"q": q}
+    try:
+        from scripts.ai_agent import _resolve_region
+        r = _resolve_region(q) or {}
+        if r:
+            out.update({"sido": r.get("sido_code"), "sigungu": r.get("sigungu_code"),
+                        "cortar": r.get("dong_cortar"),
+                        "region_name": " ".join(x for x in [r.get("sido"), r.get("sigungu"),
+                                                            r.get("dong")] if x)})
+    except Exception:  # noqa: BLE001
+        pass
+
+    t = q.replace(" ", "")
+    for key, words in (("offi", ("오피스텔", "오피")), ("villa", ("빌라", "연립", "다세대")),
+                       ("house", ("단독", "다가구", "주택")),
+                       ("comm", ("상가", "사무실", "점포", "офис")),
+                       ("apt", ("아파트", "아파", "APT"))):
+        if any(w in t for w in words):
+            out["asset"] = key
+            break
+    for key, words in (("B1", ("전세",)), ("B2", ("월세", "반전세")),
+                       ("A1", ("매매", "매수", "구입", "사려", "살까", "분양"))):
+        if any(w in t for w in words):
+            out["trade"] = key
+            break
+
+    m = _re_link.search(r"(\d{1,3})\s*평\s*대", q) or _re_link.search(r"(\d{1,3})평대", t)
+    if m:
+        out["area_txt"] = f"{m.group(1)}평대"
+    else:
+        m2 = _re_link.search(r"(\d{2,3})\s*(?:㎡|제곱|평)", q)
+        if m2:
+            out["area_txt"] = m2.group(0).replace(" ", "")
+    m3 = _re_link.search(r"(\d+억(?:\s*\d+천)?|\d+천만?)\s*(?:이하|대|미만|정도|안팎)?", q)
+    if m3:
+        out["budget_txt"] = m3.group(0).strip()
+    return out
+
+
 @app.get("/requests/candidates")
 def request_candidates(cortar: str = "", sigungu: str = "", limit: int = 20):
     """요청을 보낼 만한 그 동네 중개사 후보. 매물이 많은 곳(=활동 중인 곳) 순.
