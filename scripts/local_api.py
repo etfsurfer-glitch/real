@@ -17555,8 +17555,12 @@ def request_parse(q: str = ""):
         from scripts.ai_agent import _resolve_region
         r = _resolve_region(q) or {}
         if r:
+            sc = r.get("sido_code") or ""
             out.update({"sido": r.get("sido_code"), "sigungu": r.get("sigungu_code"),
                         "cortar": r.get("dong_cortar"),
+                        # 지역 드롭다운은 10자리 코드를 쓴다 — 2·5자리를 주면 아무것도 안 골라진다
+                        "sido_cortar": (sc + "00000000") if sc else None,
+                        "sigungu_cortar": r.get("sigungu_cortar"),
                         "region_name": " ".join(x for x in [r.get("sido"), r.get("sigungu"),
                                                             r.get("dong")] if x)})
     except Exception:  # noqa: BLE001
@@ -17590,17 +17594,57 @@ def request_parse(q: str = ""):
 
 
 @app.get("/requests/candidates")
-def request_candidates(cortar: str = "", sigungu: str = "", limit: int = 20):
-    """요청을 보낼 만한 그 동네 중개사 후보. 매물이 많은 곳(=활동 중인 곳) 순.
+def request_candidates(cortar: str = "", sigungu: str = "", limit: int = 20,
+                       asset: str = "", trade: str = ""):
+    """요청을 보낼 중개사 후보.
+    **그 조건(지역·유형·거래)의 매물을 실제로 가진 사무소**를 매물 수 순으로 먼저 고른다.
+    조건에 맞는 물건을 쥐고 있는 곳이라야 손님에게 바로 안내할 수 있기 때문이다.
+    조건 매물이 없으면 그 동네에서 활동 많은 곳으로 넓힌다.
     개인정보는 아직 오가지 않으므로 로그인 없이도 볼 수 있다(사무소 공개정보만)."""
     limit = max(1, min(int(limit), 40))
     rows = []
+
+    # ① 조건 매물 보유 사무소 — listings_current 는 오늘 스냅샷이라 '지금 파는 곳'이 나온다
     try:
+        where, params = ["l.realtor_id IS NOT NULL", "l.realtor_id<>''"], []
         if cortar:
-            r = realtors_by_dong(cortar=cortar[:10], sort="listings", scope="resi", limit=limit)
-            rows = (r or {}).get("items", [])[:limit]
+            where.append("c.cortar_no=?"); params.append(cortar[:10])
+        elif sigungu:
+            where.append("substr(c.cortar_no,1,5)=?"); params.append(sigungu[:5])
+        else:
+            raise ValueError("지역 없음")
+        if asset in ("apt", "offi"):
+            where.append("l.real_estate_type=?"); params.append("APT" if asset == "apt" else "OPST")
+        if trade in ("A1", "B1", "B2"):
+            where.append("l.trade_type=?"); params.append(trade)
+        with _open_db() as d:
+            q = d.execute(
+                f"SELECT l.realtor_id, MAX(l.realtor_name), COUNT(*) n "
+                f"FROM listings_current l JOIN complexes c ON c.complex_no=l.complex_no "
+                f"WHERE {' AND '.join(where)} "
+                f"GROUP BY l.realtor_id ORDER BY n DESC LIMIT ?", (*params, limit)).fetchall()
+            ids = [x[0] for x in q]
+            addr = {}
+            if ids:
+                ph = ",".join("?" * len(ids))
+                addr = {r[0]: (r[1], r[2]) for r in d.execute(
+                    f"SELECT realtor_id, address, representative_name FROM naver_realtors "
+                    f"WHERE realtor_id IN ({ph})", ids)}
+        rows = [{"realtor_id": x[0], "realtor_name": x[1],
+                 "address": (addr.get(x[0]) or (None, None))[0],
+                 "representative": (addr.get(x[0]) or (None, None))[1],
+                 "listings": x[2], "matched": True} for x in q]
     except Exception:  # noqa: BLE001
         rows = []
+
+    # ② 조건 매물이 없으면 그 동네 활동 순으로
+    if not rows:
+        try:
+            if cortar:
+                r = realtors_by_dong(cortar=cortar[:10], sort="listings", scope="resi", limit=limit)
+                rows = (r or {}).get("items", [])[:limit]
+        except Exception:  # noqa: BLE001
+            rows = []
     if not rows and sigungu:      # 동에 후보가 없으면 시군구로 넓힌다
         try:
             with _open_db() as d:
@@ -17620,7 +17664,8 @@ def request_candidates(cortar: str = "", sigungu: str = "", limit: int = 20):
                        "name": x.get("realtor_name") or x.get("name"),
                        "address": x.get("address"),
                        "representative": x.get("representative") or x.get("representative_name"),
-                       "listings": x.get("listings") or x.get("n") or 0} for x in rows]}
+                       "listings": x.get("listings") or x.get("n") or 0,
+                       "matched": bool(x.get("matched"))} for x in rows]}
 
 
 @app.post("/requests")
@@ -17647,7 +17692,9 @@ def request_create(body: dict, user: dict = Depends(current_user)):
             raise HTTPException(400, "중개사무소를 한 곳 이상 선택해 주세요")
         ids = picked
     else:                       # 추천받기 — 그 동네에서 활동 많은 순으로 cnt 곳
-        cand = request_candidates(cortar=cortar, sigungu=sigungu, limit=cnt)["items"]
+        cand = request_candidates(cortar=cortar, sigungu=sigungu, limit=cnt,
+                                  asset=str(body.get("asset") or ""),
+                                  trade=str(body.get("trade") or ""))["items"]
         ids = [x["realtor_id"] for x in cand if x.get("realtor_id")][:cnt]
         if not ids:
             raise HTTPException(400, "이 지역에서 연결할 중개사무소를 찾지 못했습니다")

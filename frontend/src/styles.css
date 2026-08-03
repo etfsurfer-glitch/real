@@ -4125,8 +4125,10 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .kreq-grid2 label,.kreq-full{display:flex;flex-direction:column;gap:5px;font-size:13px;
   font-weight:700;color:#41505f}
 .kreq-full{margin-top:10px}
-.kreq input,.kreq textarea{border:1.4px solid var(--line,#e2e8f0);border-radius:9px;
-  padding:10px 12px;font-size:14.5px;font-family:inherit;width:100%;box-sizing:border-box}
+.kreq input:not([type=checkbox]),.kreq textarea{border:1.4px solid var(--line,#e2e8f0);
+  border-radius:9px;padding:10px 12px;font-size:14.5px;font-family:inherit;width:100%;
+  box-sizing:border-box}
+.kreq input[type=checkbox]{width:18px;height:18px;flex:none;margin:1px 0 0;accent-color:#1268d3}
 .kreq textarea{resize:vertical}
 .kreq-modes{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
 @media(max-width:560px){.kreq-modes{grid-template-columns:1fr}}
@@ -4138,11 +4140,20 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .kreq-mode span{font-size:12.5px;color:#6b7a89;line-height:1.45}
 .kreq-count{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13.5px;
   font-weight:700;color:#41505f}
-.kreq-cands{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;
-  max-height:320px;overflow-y:auto}
-.kreq-cands label{display:flex;gap:10px;align-items:flex-start;border:1.3px solid var(--line,#e2e8f0);
-  border-radius:10px;padding:10px 12px;cursor:pointer;font-size:14px}
-.kreq-cands .muted{font-size:12px;margin-top:2px}
+.kreq-cands{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:7px;
+  max-height:340px;overflow-y:auto}
+.kreq-cand{display:flex;gap:11px;align-items:flex-start;width:100%;text-align:left;
+  border:1.4px solid var(--line,#e2e8f0);background:#fff;border-radius:11px;padding:12px 13px;
+  cursor:pointer;font-family:inherit}
+.kreq-cand.on{border-color:#1268d3;background:#f4f8fe}
+.kreq-box{flex:none;width:20px;height:20px;border:1.6px solid #c3ced9;border-radius:6px;
+  display:flex;align-items:center;justify-content:center;background:#fff;color:#fff;margin-top:1px}
+.kreq-box.on{background:#1268d3;border-color:#1268d3}
+.kreq-cand-b{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.kreq-cand-b b{font-size:14.5px;letter-spacing:-.02em}
+.kreq-cand-b em{font-style:normal;font-size:12.5px;color:#1268d3;font-weight:700}
+.kreq-cand-b i{font-style:normal;font-size:12px;color:#7b8896;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
 .kreq-offices{list-style:none;padding:0;margin:8px 0 0;display:flex;flex-direction:column;gap:6px}
 .kreq-offices li{display:flex;align-items:center;gap:7px;background:#f5f8fc;border-radius:9px;
   padding:9px 12px;font-size:14px;font-weight:600}
@@ -4250,3 +4261,31 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .myreq-office{display:flex;align-items:center;gap:7px;font-size:13.5px;background:#f5f8fc;
   border-radius:8px;padding:8px 11px}
 .myreq-office span:first-of-type{flex:1}
+
+
+/* ── 콕집요청 단계 표시 ── */
+.kstep{list-style:none;display:flex;gap:6px;padding:0;margin:0 0 14px}
+.kstep li{flex:1;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;
+  color:#9aa7b4;border-top:3px solid #e6ecf3;padding-top:8px}
+.kstep li i{font-style:normal;width:19px;height:19px;border-radius:50%;background:#e6ecf3;
+  color:#8d9aa8;display:flex;align-items:center;justify-content:center;font-size:11.5px}
+.kstep li.on{color:#1268d3;border-top-color:#1268d3}
+.kstep li.on i{background:#1268d3;color:#fff}
+.kstep li.ok{color:#14713f;border-top-color:#7ecfa3}
+.kstep li.ok i{background:#14713f;color:#fff}
+
+.kreq-lbl{font-size:13px;font-weight:800;color:#41505f;margin:14px 0 6px}
+.kreq-lbl:first-of-type{margin-top:6px}
+.kreq-grid2 label span,.kreq-full span{font-size:11.5px;color:#98a5b2;font-weight:600;
+  margin-left:4px}
+.kreq-pick{margin-top:12px;background:#eef4fd;border-radius:9px;padding:10px 13px;font-size:13.5px;
+  color:#0d4f9e}
+.kreq-sum{display:flex;flex-direction:column;gap:7px;margin-bottom:6px}
+.kreq-sum>div{display:flex;gap:10px;font-size:14px;line-height:1.5}
+.kreq-sum span{flex:none;width:66px;color:#8b98a5;font-size:12.5px;font-weight:700;padding-top:2px}
+.kreq-sum b{flex:1;font-weight:700}
+.kreq-offices li em{font-style:normal;font-size:12.5px;color:#1268d3;font-weight:700}
+.kreq-nav{display:flex;gap:8px;align-items:stretch;margin-top:4px}
+.kreq-nav .kreq-ghost{flex:none;display:inline-flex;align-items:center;gap:3px}
+.kreq-nav .kreq-submit{flex:1;margin-top:0}
+.kreq-agree span{flex:1}
