@@ -18205,25 +18205,52 @@ def _offer_save(req_id: int, realtor_id: str, body: dict) -> dict:
     return {"ok": True, "listings": len(items)}
 
 
+def _offer_notify_text(req_id: int) -> tuple:
+    """고객에게 보낼 알림 문구(제목, 본문, 문자본문).
+    '누가 무엇을 제안했는지'가 보여야 광고 문자로 오해받지 않고 실제로 눌러본다."""
+    with _reviews_db() as c:
+        q = c.execute("SELECT region_name,asset,trade,area_txt FROM koczip_requests WHERE id=?",
+                      (req_id,)).fetchone()
+        rows = c.execute("SELECT realtor_name, listings FROM koczip_request_offers "
+                         "WHERE request_id=? ORDER BY created_at", (req_id,)).fetchall()
+    if not q:
+        return None, None, None
+    cond = " · ".join(x for x in [q[0], _ASSET_LB.get(q[1], q[1]),
+                                  _TRADE_LB.get(q[2], q[2]), q[3]] if x)
+    n = len(rows)
+    n_ls = sum(len(_authjson.loads(r[1] or "[]")) for r in rows)
+    who = (rows[0][0] or "중개사무소") if rows else "중개사무소"
+    more = f" 외 {n - 1}곳" if n > 1 else ""
+    title = "중개사무소가 매물을 제안했어요"
+    body = (f"{who}{more}에서 제안이 왔어요"
+            + (f" (매물 {n_ls}건)" if n_ls else "") + ". 확인하고 마음에 드는 곳에 연락해 보세요.")
+    sms = (f"[콕집] 요청하신 조건에 제안이 도착했습니다.\n"
+           f"조건: {cond}\n"
+           f"제안: {who}{more}" + (f" · 매물 {n_ls}건" if n_ls else "") + "\n"
+           f"매물과 연락처를 확인하고 마음에 드는 곳에 전화하세요.\n"
+           f"https://koczip.com/me/requests\n"
+           f"콕집 koczip.com")
+    return title, body, sms
+
+
 def _offer_notify_customer(req_id: int) -> None:
-    """제안이 오면 고객에게 알린다. 웹푸시가 없으면 문자로 — 우리가 받은 번호를 우리가 쓰는 것이라
-    제3자 제공이 아니다."""
+    """제안이 오면 고객에게 알린다. 웹푸시가 안 가면 문자로 —
+    우리가 받은 번호를 우리가 쓰는 것이라 제3자 제공이 아니다."""
     try:
         with _reviews_db() as c:
-            q = c.execute("SELECT user_id, phone, region_name FROM koczip_requests WHERE id=?",
+            q = c.execute("SELECT user_id, phone FROM koczip_requests WHERE id=?",
                           (req_id,)).fetchone()
             n = c.execute("SELECT COUNT(*) FROM koczip_request_offers WHERE request_id=?",
                           (req_id,)).fetchone()[0]
         if not q:
             return
-        title = "중개사무소에서 매물을 제안했어요"
-        body = f"{q[2] or ''} 요청에 제안 {n}건이 도착했습니다. 확인하고 마음에 드는 곳에 연락해 보세요."
+        title, body, sms = _offer_notify_text(req_id)
+        if not title:
+            return
         sent = _send_web_push([q[0]], title, body, url="/me/requests", tag="koczip-offer")
-        if not sent and n == 1 and q[1]:      # 첫 제안인데 푸시가 없으면 문자로 한 번만
-            _aligo_send_sms(q[1].replace("-", ""),
-                            f"[콕집] 요청하신 조건에 중개사무소 제안이 도착했습니다.\n"
-                            f"koczip.com/me/requests 에서 확인하세요.",
-                            title="콕집 제안 도착")
+        # 첫 제안인데 푸시가 안 갔으면 문자로 한 번만(제안마다 문자를 쏘면 스팸이 된다)
+        if not sent and n == 1 and q[1]:
+            _aligo_send_sms(q[1].replace("-", ""), sms, title="콕집 제안 도착")
     except Exception as e:  # noqa: BLE001
         print(f"[req] 고객 알림 실패: {str(e)[:120]}", file=_sys.stderr, flush=True)
 
