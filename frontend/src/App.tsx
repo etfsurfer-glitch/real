@@ -40,6 +40,7 @@ import RenderNewsletter from "./pages/RenderNewsletter";
 import RenderBrag from "./pages/RenderBrag";
 import KoczipRequest from "./pages/KoczipRequest";
 import AdminRequests from "./pages/AdminRequests";
+import MyRequests from "./pages/MyRequests";
 import AdminSns from "./pages/AdminSns";
 import AdminResident from "./pages/AdminResident";
 import AdminRealtorRequests from "./pages/AdminRealtorRequests";
@@ -122,6 +123,10 @@ const NAV_ITEMS: NavItem[] = [
     { to: "/today/old/stats", label: "오늘 매물 통계" },
   ] },
   { to: "/quick-deals", label: "급매찾기", icon: BadgePercent },
+  { to: "/request", label: "콕집요청", icon: Sparkles, children: [
+    { to: "/request", label: "요청 보내기" },
+    { to: "/me/requests", label: "내 요청 보기" },
+  ] },
   { to: "/finder", label: "맞춤단지", icon: SlidersHorizontal, children: [
     { to: "/finder", label: "맞춤단지" },
     { to: "/finder/compare", label: "단지비교" },
@@ -416,6 +421,7 @@ function AppShell() {
         <Route path="/forum/:id" element={<ForumPost />} />
         <Route path="/lounge" element={<Lounge />} />
         <Route path="/request" element={<KoczipRequest />} />
+        <Route path="/me/requests" element={<MyRequests />} />
         <Route path="/admin/requests" element={<AdminRequests />} />
         <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
         <Route path="/my/favorites" element={<RequireAdmin><MyFavorites /></RequireAdmin>} />

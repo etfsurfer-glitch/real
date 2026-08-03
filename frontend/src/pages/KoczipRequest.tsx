@@ -90,7 +90,7 @@ export default function KoczipRequest() {
       : cands.slice(0, count)
   ), [mode, picked, cands, count]);
 
-  const ready = !!sigungu && targets.length > 0 && phoneOK && consent && !busy;
+  const ready = !!token && !!sigungu && targets.length > 0 && phoneOK && consent && !busy;
 
   const submit = async () => {
     setBusy(true); setErr("");
@@ -112,22 +112,6 @@ export default function KoczipRequest() {
     } catch (e: any) { setErr(e?.message || "요청을 보내지 못했어요"); }
     finally { setBusy(false); }
   };
-
-  if (!token) {
-    return (
-      <div className="kreq">
-        <h2><Sparkles size={20} strokeWidth={2.3} /> 콕집요청</h2>
-        <div className="kreq-card kreq-center">
-          <p className="kreq-lead">원하는 조건을 남기시면 그 동네 중개사무소에서 매물을 찾아 연락드려요.</p>
-          <p className="muted">먼저 로그인해 주세요. 카카오·구글 계정으로 바로 시작할 수 있어요.</p>
-          <div className="kreq-row" style={{ justifyContent: "center" }}>
-            <button className="kreq-primary" onClick={loginKakao}>카카오로 시작하기</button>
-            <button className="kreq-ghost" onClick={loginGoogle}>구글로 시작하기</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (done) {
     return (
@@ -260,7 +244,18 @@ export default function KoczipRequest() {
       {/* 3. 본인 확인 + 동의 */}
       <div className="kreq-card">
         <div className="kreq-step">3. 연락받을 번호를 확인해 주세요</div>
-        {phoneOK ? (
+        {!token ? (
+          <>
+            <p className="muted">
+              중개사무소가 연락드릴 번호를 확인해야 해서, 여기서만 로그인이 필요합니다.
+              적어 두신 조건은 그대로 유지됩니다.
+            </p>
+            <div className="kreq-row">
+              <button className="kreq-primary" onClick={loginKakao}>카카오로 계속하기</button>
+              <button className="kreq-ghost" onClick={loginGoogle}>구글로 계속하기</button>
+            </div>
+          </>
+        ) : phoneOK ? (
           <p className="kreq-ok"><Check size={16} strokeWidth={2.6} /> 휴대폰 인증이 끝났습니다.</p>
         ) : (
           <>
@@ -300,6 +295,7 @@ export default function KoczipRequest() {
         <div className="muted" style={{ textAlign: "center", fontSize: 12.5, marginTop: 6 }}>
           {!sigungu ? "지역을 선택해 주세요"
             : targets.length === 0 ? "보낼 중개사무소를 선택해 주세요"
+            : !token ? "마지막 단계에서 로그인만 하시면 됩니다"
             : !phoneOK ? "휴대폰 인증이 필요해요" : "동의에 체크해 주세요"}
         </div>
       )}

@@ -4,6 +4,7 @@ import { Flame, ExternalLink, Phone, MapPin, X } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { Link, useParams } from "react-router-dom";
 import ComplexDashboard from "./ComplexDashboard";
+import RequestCta from "../components/RequestCta";
 import { usePageMeta } from "../lib/pageMeta";
 import ComplexReviews from "../components/ComplexReviews";
 import FavButton from "../components/FavButton";
@@ -13,6 +14,8 @@ import {
   Tooltip, XAxis, YAxis,
 } from "recharts";
 import { supabase, TRADE_LABEL } from "../supabase";
+// 사이트 표준 전용면적 표기. 이 파일엔 로컬 areaLabel(실거래 소수점 그룹표기)이 이미 있어 별칭 사용.
+import { areaLabel as fmtArea, pyeong as stdPyeong } from "../lib/area";
 
 type Complex = {
   complex_no: string;
@@ -330,6 +333,11 @@ export default function ComplexDetail() {
         · 기준 {snapshotDate ?? "-"}
       </div>
 
+      <RequestCta compact
+        title={`${complex.complex_name} 매물을 찾고 계신가요?`}
+        sub="원하는 층·향·예산을 남기시면 이 동네 중개사무소가 맞는 매물을 찾아 연락드려요."
+        q={`${complex.dong_name || ""} ${complex.complex_name}`.trim()} />
+
       {/* 소메뉴 탭 — 세로로 길던 섹션들을 탭으로 분리 */}
       <nav className="sub-nav">
         {([
@@ -574,7 +582,7 @@ function NearbyTransactions({ complexNo }: { complexNo: string }) {
                     {n.recent.map((d, i) => (
                       <tr key={i} style={{ background: "#fafbfc", fontSize: 12 }}>
                         <td className="muted" style={{ paddingLeft: 20 }}>
-                          {d.deal_ymd} · {d.floor != null ? `${d.floor}층` : "-"} · {d.excl_use_ar != null ? `${Math.round(d.excl_use_ar)}㎡` : ""}
+                          {d.deal_ymd} · {d.floor != null ? `${d.floor}층` : "-"} · {d.excl_use_ar != null ? fmtArea(d.excl_use_ar) : ""}
                         </td>
                         <td className="num" colSpan={4} style={{ fontWeight: 600 }}>
                           {formatWon(d.deal_amount)}
@@ -1077,13 +1085,10 @@ function areaKey(m2: number | null | undefined): number | null {
   return Math.round(m2 * 100) / 100;
 }
 
-function m2ToPyeong(m2: number): number {
-  return m2 / 3.3058;
-}
-
 function areaLabel(key: number): string {
-  // 실거래 면적은 전용면적 기준 — '전용 OO.OO㎡'로 소수점까지 표시.
-  return `전용 ${key.toFixed(2)}㎡ (${m2ToPyeong(key).toFixed(0)}평)`;
+  // 사이트 표준 평형 + 소수점 전용㎡(선택칩·차트에서 84A/84B 등 sub-type 구분 유지).
+  const p = stdPyeong(key);
+  return p ? `${p}평(${key.toFixed(2)}㎡)` : `전용 ${key.toFixed(2)}㎡`;
 }
 
 function ymdToTs(s: string): number {
@@ -1208,7 +1213,7 @@ function SaleSection({ rows }: { rows: SaleRow[] }) {
                 </span>
                 <span className="txf-meta">
                   <i className="txf-dot" style={{ background: colorOf(areaKey(r.excl_use_ar)) }} />
-                  {r.excl_use_ar != null ? `${Math.round(r.excl_use_ar)}㎡` : "-"}
+                  {fmtArea(r.excl_use_ar)}
                   {r.floor != null && ` · ${r.floor}층`}
                   {r.dong && ` · ${dongLabel(r.dong)}`}
                 </span>
@@ -1318,7 +1323,7 @@ function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" })
                   </span>
                   <span className="txf-meta">
                     <i className="txf-dot" style={{ background: colorOf(areaKey(r.excl_use_ar)) }} />
-                    {r.excl_use_ar != null ? `${Math.round(r.excl_use_ar)}㎡` : "-"}
+                    {fmtArea(r.excl_use_ar)}
                     {r.floor != null && ` · ${r.floor}층`}
                   </span>
                 </div>
@@ -1336,7 +1341,7 @@ function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" })
               <button className="phone-banner-x" aria-label="닫기" onClick={() => setHist(null)}><X size={16} /></button>
             </div>
             <div className="muted" style={{ fontSize: 12, margin: "2px 0 10px" }}>
-              {hist.excl_use_ar != null && `전용 ${Math.round(hist.excl_use_ar)}㎡`}
+              {hist.excl_use_ar != null && fmtArea(hist.excl_use_ar)}
               {hist.floor != null && ` · ${hist.floor}층`} — 같은 조건(평형·층·종전금액)으로 추적한 이력입니다
             </div>
             <div style={{ display: "grid", gap: 0 }}>
