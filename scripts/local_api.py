@@ -17513,9 +17513,27 @@ def _init_request_db() -> None:
           PRIMARY KEY (request_id, realtor_id));
         CREATE INDEX IF NOT EXISTS kreqt_realtor_idx
           ON koczip_request_targets(realtor_id, status, created_at DESC);
+
+        -- 중개사가 남기는 제안. 고객 번호는 오가지 않고, 여기에 '중개사 연락처'가 담긴다.
+        -- 사무소당 1건(수정은 가능) — 매물 목록을 계속 밀어 넣는 것을 막는다.
+        CREATE TABLE IF NOT EXISTS koczip_request_offers (
+          request_id   INTEGER NOT NULL,
+          realtor_id   TEXT NOT NULL,
+          realtor_name TEXT,
+          message      TEXT,                     -- 한 줄 코멘트
+          contact      TEXT,                     -- 중개사 연락처(사업자 공개정보)
+          listings     TEXT,                     -- 첨부 매물 JSON [{article_no,complex,area,price,...}]
+          created_at   TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+          updated_at   TEXT,
+          seen_at      TEXT,                     -- 고객이 열어본 시각
+          PRIMARY KEY (request_id, realtor_id));
+        CREATE INDEX IF NOT EXISTS kreqo_req_idx
+          ON koczip_request_offers(request_id, created_at DESC);
         """)
         for _col, _sql in (("channel", "TEXT NOT NULL DEFAULT 'push'"), ("sms_phone", "TEXT"),
-                           ("sms_at", "TEXT"), ("sms_result", "TEXT")):
+                           ("sms_at", "TEXT"), ("sms_result", "TEXT"),
+                           # 미가입 사무소가 로그인 없이 답장할 수 있는 일회용 열쇠
+                           ("token", "TEXT"), ("token_exp", "TEXT")):
             try:
                 c.execute(f"ALTER TABLE koczip_request_targets ADD COLUMN {_col} {_sql}")
             except Exception:  # noqa: BLE001
@@ -17718,9 +17736,13 @@ def request_create(body: dict, user: dict = Depends(current_user)):
              str(body.get("memo") or "")[:1000], str(body.get("ai_query") or "")[:500],
              mode, len(ids), consent_txt))
         rid = cur.lastrowid
+        import secrets as _sec
         for i in ids:
+            # 사무소마다 다른 토큰 — 하나가 새도 다른 곳 답장은 안전하다
             c.execute("INSERT OR IGNORE INTO koczip_request_targets(request_id,realtor_id,"
-                      "realtor_name) VALUES(?,?,?)", (rid, i, names.get(i)))
+                      "realtor_name,token,token_exp) "
+                      "VALUES(?,?,?,?,datetime('now','+9 hours','+72 hours'))",
+                      (rid, i, names.get(i), _sec.token_urlsafe(24)))
         c.commit()
 
     _req_notify(rid, ids, names)
@@ -17738,7 +17760,7 @@ def _req_notify(rid: int, ids: list, names: dict) -> None:
                 f"AND COALESCE(status,'active')='active'", ids)]
         if uids:
             _send_web_push(uids, "새 콕집요청이 도착했어요",
-                           "라운지 → 콕집요청에서 조건과 연락처를 확인하세요.",
+                           "라운지 → 콕집요청에서 조건을 보고 매물을 제안해 주세요.",
                            url="/lounge", tag="koczip-request")
     except Exception as e:  # noqa: BLE001
         print(f"[req] 푸시 실패: {str(e)[:100]}", file=_sys.stderr, flush=True)
@@ -17828,11 +17850,16 @@ def admin_request_sms(req_id: int, body: dict, _admin: dict = Depends(admin_user
 
     cond = " · ".join(x for x in [q[2], _ASSET_LB.get(q[3], q[3]), _TRADE_LB.get(q[4], q[4]),
                                   q[5], q[6]] if x)
+    # 고객 연락처는 보내지 않는다 — 매물을 제안하면 손님이 보고 직접 연락한다
+    with _reviews_db() as c:
+        tk = c.execute("SELECT token FROM koczip_request_targets "
+                       "WHERE request_id=? AND realtor_id=?", (req_id, rid)).fetchone()
+    link = f"https://koczip.com/r/{tk[0]}" if tk and tk[0] else "https://koczip.com"
     msg = (f"[콕집] 손님 매물요청이 접수됐습니다.\n"
            f"조건: {cond}\n"
            + (f"요청: {str(q[7])[:120]}\n" if q[7] else "")
-           + f"손님: {q[0] or '이름 미기재'} {q[1]}\n"
-           f"손님이 이 사무소로 정보 제공에 동의했습니다. 상담 목적 외 사용은 금지됩니다.\n"
+           + f"맞는 매물이 있으면 아래에서 제안해 주세요(72시간). 손님이 보고 직접 연락합니다.\n"
+           f"{link}\n"
            f"콕집 koczip.com · 수신거부 회신")
     res = _aligo_send_sms(phone.replace(" ", ""), msg, title="콕집 매물요청")
     ok = bool(res) and str((res or {}).get("result_code")) == "1"
@@ -17885,14 +17912,172 @@ def lounge_requests(user: dict = Depends(current_user)):
     with _reviews_db() as c:
         rid = _require_member(c, user["id"])
         rows = c.execute(
-            "SELECT q.id,q.name,q.phone,q.region_name,q.asset,q.trade,q.area_txt,q.budget_txt,"
-            "       q.memo,q.created_at,t.status,t.read_at "
+            "SELECT q.id,q.region_name,q.asset,q.trade,q.area_txt,q.budget_txt,q.memo,"
+            "       q.created_at,t.status,o.message,o.contact,o.listings,o.created_at "
             "FROM koczip_request_targets t JOIN koczip_requests q ON q.id=t.request_id "
+            "LEFT JOIN koczip_request_offers o "
+            "       ON o.request_id=t.request_id AND o.realtor_id=t.realtor_id "
             "WHERE t.realtor_id=? ORDER BY q.id DESC LIMIT 100", (rid,)).fetchall()
-    return {"items": [{"id": r[0], "name": r[1], "phone": r[2], "region": r[3],
-                       "asset": _ASSET_LB.get(r[4], r[4]), "trade": _TRADE_LB.get(r[5], r[5]),
-                       "area": r[6], "budget": r[7], "memo": r[8], "at": r[9],
-                       "status": r[10], "read_at": r[11]} for r in rows]}
+    # 고객 이름·전화는 넘기지 않는다 — 중개사가 제안을 남기면 고객이 보고 직접 연락한다
+    return {"items": [{"id": r[0], "region": r[1],
+                       "asset": _ASSET_LB.get(r[2], r[2]), "trade": _TRADE_LB.get(r[3], r[3]),
+                       "area": r[4], "budget": r[5], "memo": r[6], "at": r[7], "status": r[8],
+                       "offer": ({"message": r[9], "contact": r[10],
+                                  "listings": _authjson.loads(r[11] or "[]"), "at": r[12]}
+                                 if r[9] is not None or r[11] else None)} for r in rows]}
+
+
+def _token_target(token: str):
+    """일회용 링크의 토큰 → (요청id, 사무소id, 사무소명). 만료·위조면 404.
+    링크 자체가 열쇠라, 만료 시각을 반드시 확인한다."""
+    t = (token or "").strip()
+    if len(t) < 20:
+        raise HTTPException(404, "잘못된 링크입니다")
+    with _reviews_db() as c:
+        r = c.execute("SELECT request_id, realtor_id, realtor_name, "
+                      "       (token_exp IS NULL OR token_exp >= datetime('now','+9 hours')) ok "
+                      "FROM koczip_request_targets WHERE token=?", (t,)).fetchone()
+    if not r:
+        raise HTTPException(404, "링크를 찾을 수 없습니다")
+    if not r[3]:
+        raise HTTPException(410, "링크가 만료됐습니다(72시간). 콕집으로 문의해 주세요")
+    return r[0], r[1], r[2]
+
+
+@app.get("/r/{token}")
+def request_by_token(token: str):
+    """미가입 사무소가 링크로 여는 화면 — 조건만 보인다(고객 이름·전화 없음)."""
+    req_id, rid, rname = _token_target(token)
+    with _reviews_db() as c:
+        q = c.execute("SELECT region_name,asset,trade,area_txt,budget_txt,memo,created_at "
+                      "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
+        o = c.execute("SELECT message,contact,listings,updated_at FROM koczip_request_offers "
+                      "WHERE request_id=? AND realtor_id=?", (req_id, rid)).fetchone()
+    if not q:
+        raise HTTPException(404, "요청을 찾을 수 없습니다")
+    return {"request_id": req_id, "office": {"realtor_id": rid, "name": rname},
+            "request": {"region": q[0], "asset": _ASSET_LB.get(q[1], q[1]),
+                        "trade": _TRADE_LB.get(q[2], q[2]), "area": q[3], "budget": q[4],
+                        "memo": q[5], "at": q[6]},
+            "offer": ({"message": o[0], "contact": o[1],
+                       "listings": _authjson.loads(o[2] or "[]"), "at": o[3]} if o else None)}
+
+
+@app.get("/r/{token}/listings")
+def request_token_listings(token: str, q: str = "", limit: int = 30):
+    """그 사무소가 지금 가진 매물 — 답장에 첨부할 것을 고르게 한다.
+    글쓰기 부담을 없애는 게 이 기능의 핵심이다(빈 칸을 주면 아무도 안 쓴다)."""
+    _req_id, rid, _ = _token_target(token)
+    return _office_listings(rid, q, limit)
+
+
+def _office_listings(realtor_id: str, q: str = "", limit: int = 30) -> dict:
+    limit = max(1, min(int(limit), 60))
+    like = f"%{(q or '').strip()}%"
+    with _open_db() as d:
+        rows = d.execute(
+            "SELECT l.article_no, c.complex_name, l.area_name, l.area1_m2, "
+            "       l.deal_or_warrant_price_text, l.rent_price_text, l.floor_info, l.trade_type "
+            "FROM listings_current l LEFT JOIN complexes c ON c.complex_no=l.complex_no "
+            "WHERE l.realtor_id=? " + ("AND c.complex_name LIKE ? " if q.strip() else "") +
+            "ORDER BY l.deal_or_warrant_price DESC LIMIT ?",
+            ((realtor_id, like, limit) if q.strip() else (realtor_id, limit))).fetchall()
+    return {"items": [{"article_no": r[0], "complex": r[1], "area_name": r[2], "area_m2": r[3],
+                       "price": r[4], "rent": r[5], "floor": r[6],
+                       "trade": _TRADE_LB.get(r[7], r[7])} for r in rows]}
+
+
+@app.post("/r/{token}/offer")
+def request_token_offer(token: str, body: dict):
+    """링크로 들어온 사무소의 제안 등록. 로그인 없이 토큰만으로 확인한다."""
+    req_id, rid, _ = _token_target(token)
+    return _offer_save(req_id, rid, body)
+
+
+@app.get("/lounge/my-listings")
+def lounge_my_listings(q: str = "", limit: int = 30, user: dict = Depends(current_user)):
+    """라운지에서 답장에 첨부할 내 매물 고르기."""
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+    return _office_listings(rid, q, limit)
+
+
+def _offer_save(req_id: int, realtor_id: str, body: dict) -> dict:
+    """중개사 제안 저장. 사무소당 1건이고 다시 보내면 수정된다(목록 도배 방지).
+    고객 번호는 여기에도 오가지 않는다 — 담기는 연락처는 '중개사 것'이다."""
+    msg = str(body.get("message") or "").strip()[:1000]
+    contact = str(body.get("contact") or "").strip()[:40]
+    arts = [str(x)[:20] for x in (body.get("article_nos") or [])][:10]
+    if not (msg or arts):
+        raise HTTPException(400, "매물을 고르거나 한 줄이라도 적어 주세요")
+    if not contact:
+        raise HTTPException(400, "손님이 연락할 번호를 적어 주세요")
+
+    items = []
+    if arts:
+        ph = ",".join("?" * len(arts))
+        with _open_db() as d:
+            for x in d.execute(
+                    f"SELECT l.article_no, c.complex_name, l.area_name, l.area1_m2, "
+                    f"       l.deal_or_warrant_price_text, l.rent_price_text, l.floor_info, "
+                    f"       l.trade_type "
+                    f"FROM listings_current l LEFT JOIN complexes c ON c.complex_no=l.complex_no "
+                    f"WHERE l.article_no IN ({ph}) AND l.realtor_id=?", (*arts, realtor_id)):
+                items.append({"article_no": x[0], "complex": x[1], "area_name": x[2],
+                              "area_m2": x[3], "price": x[4], "rent": x[5], "floor": x[6],
+                              "trade": _TRADE_LB.get(x[7], x[7])})
+
+    with _reviews_db() as c:
+        nm = c.execute("SELECT realtor_name FROM koczip_request_targets "
+                       "WHERE request_id=? AND realtor_id=?", (req_id, realtor_id)).fetchone()
+        c.execute("INSERT INTO koczip_request_offers(request_id,realtor_id,realtor_name,"
+                  "message,contact,listings) VALUES(?,?,?,?,?,?) "
+                  "ON CONFLICT(request_id,realtor_id) DO UPDATE SET "
+                  "message=excluded.message, contact=excluded.contact, "
+                  "listings=excluded.listings, updated_at=datetime('now','+9 hours')",
+                  (req_id, realtor_id, (nm[0] if nm else None), msg, contact,
+                   _authjson.dumps(items, ensure_ascii=False)))
+        c.execute("UPDATE koczip_request_targets SET status='responded', "
+                  "responded_at=datetime('now','+9 hours') "
+                  "WHERE request_id=? AND realtor_id=?", (req_id, realtor_id))
+        c.commit()
+    _offer_notify_customer(req_id)
+    return {"ok": True, "listings": len(items)}
+
+
+def _offer_notify_customer(req_id: int) -> None:
+    """제안이 오면 고객에게 알린다. 웹푸시가 없으면 문자로 — 우리가 받은 번호를 우리가 쓰는 것이라
+    제3자 제공이 아니다."""
+    try:
+        with _reviews_db() as c:
+            q = c.execute("SELECT user_id, phone, region_name FROM koczip_requests WHERE id=?",
+                          (req_id,)).fetchone()
+            n = c.execute("SELECT COUNT(*) FROM koczip_request_offers WHERE request_id=?",
+                          (req_id,)).fetchone()[0]
+        if not q:
+            return
+        title = "중개사무소에서 매물을 제안했어요"
+        body = f"{q[2] or ''} 요청에 제안 {n}건이 도착했습니다. 확인하고 마음에 드는 곳에 연락해 보세요."
+        sent = _send_web_push([q[0]], title, body, url="/me/requests", tag="koczip-offer")
+        if not sent and n == 1 and q[1]:      # 첫 제안인데 푸시가 없으면 문자로 한 번만
+            _aligo_send_sms(q[1].replace("-", ""),
+                            f"[콕집] 요청하신 조건에 중개사무소 제안이 도착했습니다.\n"
+                            f"koczip.com/me/requests 에서 확인하세요.",
+                            title="콕집 제안 도착")
+    except Exception as e:  # noqa: BLE001
+        print(f"[req] 고객 알림 실패: {str(e)[:120]}", file=_sys.stderr, flush=True)
+
+
+@app.post("/lounge/requests/{req_id}/offer")
+def lounge_request_offer(req_id: int, body: dict, user: dict = Depends(current_user)):
+    """라운지(가입 사무소)에서 제안 등록."""
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+        ok = c.execute("SELECT 1 FROM koczip_request_targets WHERE request_id=? AND realtor_id=?",
+                       (req_id, rid)).fetchone()
+    if not ok:
+        raise HTTPException(403, "이 요청의 전달 대상이 아닙니다")
+    return _offer_save(req_id, rid, body)
 
 
 @app.post("/lounge/requests/{req_id}/status")
