@@ -9872,7 +9872,7 @@ def tx_map(asset: str = "apt", trade: str = "A1", sido: str = "", sigungu: str =
                            "kind": "jibun"} for r in jrows]
         note = None
         if trade != "A1":
-            note = "전월세는 단지로 매칭된 신고 건 기준(약 90%)입니다. 갱신·신규 계약 모두 포함."
+            note = "전월세는 갱신·신규 계약을 모두 포함합니다."
         res = {"asset": asset, "trade": trade, "items": items, "note": note}
         _cache_put(_ck, res)
         return res
@@ -9891,9 +9891,6 @@ def tx_map(asset: str = "apt", trade: str = "A1", sido: str = "", sigungu: str =
         rdep = "r.deposit" if trade == "B2" else "NULL"   # 최근 거래의 보증금(월세핀)
         with _open_db() as d:
             d.execute("ATTACH DATABASE ? AS ca", (str(DB_PATH.parent / "coord_addr.sqlite"),))
-            total = d.execute(
-                f"SELECT COUNT(*) FROM {rtable} r WHERE {canc} AND r.deal_ymd>={cut} "
-                f"{rrent_w} AND substr(r.sgg_cd,1,5)=?", (sgg5,)).fetchone()[0]
             # 마스킹 지번('1**') 복원 — 건축물대장 표제부 역매칭 결과(ledger_recover.recovered).
             # 상가만 해당(빌라는 마스킹 0). 복원되면 실지번·건물명으로 지도에 찍힌다.
             rec_join = ""
@@ -9927,18 +9924,13 @@ def tx_map(asset: str = "apt", trade: str = "A1", sido: str = "", sigungu: str =
                 f"WHERE {canc} AND r.deal_ymd>={cut} {rrent_w} AND substr(r.sgg_cd,1,5)=? "
                 f"  AND {fwd_lat} IS NOT NULL "
                 f"GROUP BY r.umd_nm, {jib} ORDER BY n DESC LIMIT ?", (sgg5, limit)).fetchall()
-        mapped = sum(r[4] for r in rows)
         items = [{"lat": r[0], "lng": r[1], "name": (r[8] or r[2]), "ref": r[3],
                   "n": r[4], "last": r[5], "latest": r[6], "ppy": r[7], "deposit": r[9],
                   "avg": r[10], "built": (str(r[11]) if r[11] else None), "kind": "jibun"} for r in rows]
-        pct = round(100 * mapped / total) if total else 0
-        note = None
-        if total and pct < 97:
-            why = ("원본(국토부)에서 지번이 비공개 처리된 거래" if asset == "nrg"
-                   else "좌표 미확보 지번(지오코딩 진행 중)")
-            kind_lb = {"A1": "실거래", "B1": "전세 계약", "B2": "월세 계약"}[trade]
-            note = f"좌표가 확인된 지번만 표시 — 이 지역 {kind_lb} {total:,}건 중 {mapped:,}건({pct}%). 나머지는 {why}."
-        res = {"asset": asset, "trade": trade, "items": items, "note": note}
+        # 지도 아래 '몇 건 중 몇 건(%)' 안내는 두지 않는다 — 지도 위쪽에 이미
+        # "지번 좌표가 확인된 실거래만 표시됩니다" 한 줄이 있어 중복이고,
+        # 수치를 드러내면 데이터가 비어 보인다.
+        res = {"asset": asset, "trade": trade, "items": items, "note": None}
         _cache_put(_ck, res)
         return res
 
@@ -9953,9 +9945,6 @@ def tx_map(asset: str = "apt", trade: str = "A1", sido: str = "", sigungu: str =
         with _open_db() as d:
             d.execute("ATTACH DATABASE ? AS ca", (str(DB_PATH.parent / "coord_addr.sqlite"),))
             d.execute("ATTACH DATABASE ? AS lr", (str(lrdb),))
-            total = d.execute(
-                f"SELECT COUNT(*) FROM sh_transactions WHERE is_cancelled=0 AND deal_ymd>={cut} "
-                f"AND substr(sgg_cd,1,5)=?", (sgg5,)).fetchone()[0]
             has_fwd = d.execute(
                 "SELECT COUNT(*) FROM ca.sqlite_master WHERE type='table' AND name='coord_jibun_fwd'").fetchone()[0]
             fwd_join = ("LEFT JOIN ca.coord_jibun_fwd f ON f.sgg5=substr(r.sgg_cd,1,5) "
@@ -9974,13 +9963,11 @@ def tx_map(asset: str = "apt", trade: str = "A1", sido: str = "", sigungu: str =
                 f"WHERE r.is_cancelled=0 AND r.deal_ymd>={cut} AND substr(r.sgg_cd,1,5)=? "
                 f"  AND {fwd_lat} IS NOT NULL "
                 f"GROUP BY r.umd_nm, rec.jibun ORDER BY n DESC LIMIT ?", (sgg5, limit)).fetchall()
-        mapped = sum(r[4] for r in rows)
         items = [{"lat": r[0], "lng": r[1], "name": r[8] or r[2], "ref": r[3],
                   "n": r[4], "last": r[5], "latest": r[6], "ppy": r[7],
                   "avg": r[9], "built": (str(r[10]) if r[10] else None), "kind": "jibun"} for r in rows]
-        note = (f"단독·다가구는 국토부 원본에 지번이 없어, 건축물대장 대조로 위치가 확실히 특정된 거래만 "
-                f"표시합니다 — 이 지역 {total:,}건 중 {mapped:,}건({round(100*mapped/total) if total else 0}%)." if total else None)
-        res = {"asset": asset, "items": items, "note": note}
+        # 위쪽 설명과 중복이라 지도 아래 안내는 두지 않는다(건수·비율도 노출하지 않음).
+        res = {"asset": asset, "items": items, "note": None}
         _cache_put(_ck, res)
         return res
 
