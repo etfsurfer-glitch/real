@@ -8,6 +8,7 @@ const API = import.meta.env.VITE_API_BASE;
 type Data = {
   request_id: number;
   office: { realtor_id: string; name: string };
+  suggest_contact: string;
   request: { region: string; asset: string; trade: string; area: string; budget: string;
              memo: string; at: string };
   offer: Offer | null;
@@ -88,6 +89,7 @@ export default function OfferByLink() {
           listUrl={`${API}/offer/${token}/listings`}
           postUrl={`${API}/offer/${token}/offer`}
           existing={d.offer}
+          suggestContact={d.suggest_contact}
           onDone={() => setDone(true)} />
       </div>
     </div>

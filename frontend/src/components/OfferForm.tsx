@@ -16,12 +16,13 @@ const areaLabel = (m2: number | null) =>
  *  빈 칸에 글을 쓰라고 하면 아무도 안 쓴다 — 자기 매물을 골라 첨부하고
  *  한 줄만 적으면 끝나도록 만든다. 라운지와 문자 링크 화면이 함께 쓴다. */
 export default function OfferForm({
-  listUrl, postUrl, authH, existing, onDone,
+  listUrl, postUrl, authH, existing, suggestContact, onDone,
 }: {
   listUrl: string;                              // 내 매물 조회 주소
   postUrl: string;                              // 제안 등록 주소
   authH?: () => Record<string, string>;         // 라운지에서만 필요(링크 화면은 토큰)
   existing?: Offer | null;
+  suggestContact?: string;                      // 등록된 번호로 미리 채운다(수정 가능)
   onDone: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -29,7 +30,7 @@ export default function OfferForm({
   const [picked, setPicked] = useState<string[]>(
     (existing?.listings || []).map((x) => x.article_no));
   const [message, setMessage] = useState(existing?.message || "");
-  const [contact, setContact] = useState(existing?.contact || "");
+  const [contact, setContact] = useState(existing?.contact || suggestContact || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -108,6 +109,9 @@ export default function OfferForm({
         <input value={contact} onChange={(e) => setContact(e.target.value)}
           placeholder="02-000-0000 또는 010-0000-0000" />
         <p className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>
+          {!existing && suggestContact && contact === suggestContact
+            ? <>등록된 번호를 넣어 뒀어요. <b>다른 번호로 받으시려면 고치시면 됩니다.</b><br /></>
+            : null}
           손님 번호는 저희도 넘기지 않습니다. 이 번호를 보고 <b>손님이 직접 전화</b>합니다.
         </p>
       </div>

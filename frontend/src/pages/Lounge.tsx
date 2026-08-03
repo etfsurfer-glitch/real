@@ -2161,12 +2161,13 @@ type KReq = {
 /** 콕집요청 — 손님이 남긴 조건이 우리 사무소로 전달된 것. 연락처는 전달받은 곳만 볼 수 있다. */
 export function RequestsTab({ authH }: { authH: () => Record<string, string> }) {
   const [items, setItems] = useState<KReq[]>([]);
+  const [hint, setHint] = useState("");
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
     setLoading(true);
     fetch(`${API_BASE}/lounge/requests`, { headers: authH() })
-      .then((r) => r.json()).then((d) => setItems(d.items ?? []))
+      .then((r) => r.json()).then((d) => { setItems(d.items ?? []); setHint(d.suggest_contact || ""); })
       .catch(() => setItems([])).finally(() => setLoading(false));
   }, [authH]);
   useEffect(() => { load(); }, [load]);
@@ -2222,6 +2223,7 @@ export function RequestsTab({ authH }: { authH: () => Record<string, string> }) 
                 postUrl={`${API_BASE}/lounge/requests/${r.id}/offer`}
                 authH={authH}
                 existing={r.offer}
+                suggestContact={hint}
                 onDone={() => { setOpenId(null); load(); }} />
               <button className="lreq-cancel" onClick={() => setOpenId(null)}>닫기</button>
             </div>

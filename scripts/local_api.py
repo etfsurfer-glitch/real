@@ -18059,12 +18059,30 @@ def lounge_requests(user: dict = Depends(current_user)):
             "       ON o.request_id=t.request_id AND o.realtor_id=t.realtor_id "
             "WHERE t.realtor_id=? ORDER BY q.id DESC LIMIT 100", (rid,)).fetchall()
     # 고객 이름·전화는 넘기지 않는다 — 중개사가 제안을 남기면 고객이 보고 직접 연락한다
-    return {"items": [{"id": r[0], "region": r[1],
+    return {"suggest_contact": _suggest_contact(rid),
+            "items": [{"id": r[0], "region": r[1],
                        "asset": _ASSET_LB.get(r[2], r[2]), "trade": _TRADE_LB.get(r[3], r[3]),
                        "area": r[4], "budget": r[5], "memo": r[6], "at": r[7], "status": r[8],
                        "offer": ({"message": r[9], "contact": r[10],
                                   "listings": _authjson.loads(r[11] or "[]"), "at": r[12]}
                                  if r[9] is not None or r[11] else None)} for r in rows]}
+
+
+def _suggest_contact(realtor_id: str) -> str:
+    """제안 폼에 미리 채워 줄 번호.
+    ① 그 사무소가 전에 제안에 쓴 번호(가장 최근) ② 없으면 등록된 대표번호.
+    매번 손으로 치게 하면 답장률이 떨어진다 — 채워 두고 고칠 수 있게 한다."""
+    try:
+        with _reviews_db() as c:
+            r = c.execute("SELECT contact FROM koczip_request_offers WHERE realtor_id=? "
+                          "AND COALESCE(contact,'')<>'' ORDER BY rowid DESC LIMIT 1",
+                          (realtor_id,)).fetchone()
+        if r and r[0]:
+            return r[0]
+    except Exception:  # noqa: BLE001
+        pass
+    ph = _office_phones(realtor_id)
+    return ph[0]["phone"] if ph else ""
 
 
 def _token_target(token: str):
@@ -18097,6 +18115,7 @@ def request_by_token(token: str):
     if not q:
         raise HTTPException(404, "요청을 찾을 수 없습니다")
     return {"request_id": req_id, "office": {"realtor_id": rid, "name": rname},
+            "suggest_contact": _suggest_contact(rid),
             "request": {"region": q[0], "asset": _ASSET_LB.get(q[1], q[1]),
                         "trade": _TRADE_LB.get(q[2], q[2]), "area": q[3], "budget": q[4],
                         "memo": q[5], "at": q[6]},
