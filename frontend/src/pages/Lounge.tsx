@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth";
+import OfferForm from "../components/OfferForm";
+import type { Offer as KOffer } from "../components/OfferForm";
 import { PhoneModal } from "../components/PhoneVerify";
 import SupportLink from "../components/SupportLink";
 import { Loading } from "../components/Loading";
@@ -2152,8 +2154,8 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose }: {
 
 
 type KReq = {
-  id: number; name: string; phone: string; region: string; asset: string; trade: string;
-  area: string; budget: string; memo: string; at: string; status: string; read_at: string | null;
+  id: number; region: string; asset: string; trade: string;
+  area: string; budget: string; memo: string; at: string; status: string; offer: KOffer | null;
 };
 
 /** 콕집요청 — 손님이 남긴 조건이 우리 사무소로 전달된 것. 연락처는 전달받은 곳만 볼 수 있다. */
@@ -2169,13 +2171,7 @@ export function RequestsTab({ authH }: { authH: () => Record<string, string> }) 
   }, [authH]);
   useEffect(() => { load(); }, [load]);
 
-  const mark = async (id: number, status: string) => {
-    await fetch(`${API_BASE}/lounge/requests/${id}/status`, {
-      method: "POST", headers: { "Content-Type": "application/json", ...authH() },
-      body: JSON.stringify({ status }),
-    }).catch(() => {});
-    load();
-  };
+  const [openId, setOpenId] = useState<number | null>(null);
 
   if (loading && items.length === 0) return <Card><p className="muted" style={{ margin: 0 }}>불러오는 중…</p></Card>;
   if (items.length === 0) {
@@ -2194,31 +2190,48 @@ export function RequestsTab({ authH }: { authH: () => Record<string, string> }) 
     <>
       <Card>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          손님이 남긴 조건입니다. 연락처는 <b>요청이 전달된 사무소와 콕집 관리자만</b> 볼 수 있으며,
-          상담 목적 외 이용이나 재제공은 금지됩니다.
+          손님이 남긴 조건입니다. <b>손님 연락처는 전달되지 않습니다</b> — 매물을 제안하시면
+          손님이 보고 마음에 드는 곳에 직접 연락합니다.
         </p>
       </Card>
       {items.map((r) => (
         <Card key={r.id}>
           <div className="lreq-h">
             <b>{r.region || "지역 미지정"} · {r.asset} {r.trade}</b>
-            <span className={`sns-st sns-st-${r.status === "responded" ? "done" : "pending"}`}>
-              {r.status === "responded" ? "연락함" : r.status === "declined" ? "보류" : r.status === "read" ? "읽음" : "새 요청"}
+            <span className={`sns-st sns-st-${r.offer ? "done" : "pending"}`}>
+              {r.offer ? "제안 보냄" : "새 요청"}
             </span>
           </div>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
             {[r.area, r.budget].filter(Boolean).join(" · ")} · {(r.at || "").slice(5, 16)}
           </div>
           {r.memo && <p style={{ marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>{r.memo}</p>}
-          <div className="lreq-contact">
-            <b>{r.name || "이름 미기재"}</b>
-            <a href={`tel:${r.phone}`}>{r.phone}</a>
-          </div>
-          <div className="lreq-btns">
-            <button onClick={() => mark(r.id, "responded")}>연락했어요</button>
-            <button onClick={() => mark(r.id, "read")}>확인함</button>
-            <button onClick={() => mark(r.id, "declined")}>맞는 매물 없음</button>
-          </div>
+
+          {r.offer && (
+            <div className="lreq-mine">
+              <b>보낸 제안</b>
+              {r.offer.message && <p>{r.offer.message}</p>}
+              <div className="muted">연락처 {r.offer.contact} · 매물 {r.offer.listings.length}건</div>
+            </div>
+          )}
+
+          {openId === r.id ? (
+            <div style={{ marginTop: 10 }}>
+              <OfferForm
+                listUrl={`${API_BASE}/lounge/my-listings`}
+                postUrl={`${API_BASE}/lounge/requests/${r.id}/offer`}
+                authH={authH}
+                existing={r.offer}
+                onDone={() => { setOpenId(null); load(); }} />
+              <button className="lreq-cancel" onClick={() => setOpenId(null)}>닫기</button>
+            </div>
+          ) : (
+            <div className="lreq-btns">
+              <button className="lreq-primary" onClick={() => setOpenId(r.id)}>
+                {r.offer ? "제안 수정하기" : "매물 제안하기"}
+              </button>
+            </div>
+          )}
         </Card>
       ))}
     </>

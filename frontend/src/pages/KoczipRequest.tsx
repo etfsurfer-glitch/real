@@ -19,8 +19,8 @@ const label = (arr: readonly (readonly [string, string])[], k: string) =>
   arr.find(([v]) => v === k)?.[1] || "";
 
 /** 콕집요청 — 한 화면에 하나씩만 묻는 단계형.
- *  개인정보가 제3자(중개사무소)에게 넘어가므로 마지막 단계에서 받는 곳을 그대로 보여주고
- *  동의를 받은 뒤에만 보낸다. */
+ *  중개사무소에는 '조건만' 전달된다(이름·전화 아님). 중개사가 매물과 자기 연락처를
+ *  제안으로 남기면 손님이 보고 직접 전화하는 구조다. */
 export default function KoczipRequest() {
   const { token } = useAuth();
   const nav = useNavigate();
@@ -129,8 +129,12 @@ export default function KoczipRequest() {
           <ul className="kreq-offices">
             {done.offices.map((o, i) => <li key={i}><Building2 size={15} /> {o.name}</li>)}
           </ul>
+          <div className="kreq-safe" style={{ marginTop: 10 }}>
+            <b>연락처는 전달되지 않았습니다.</b> 조건만 갔어요.
+          </div>
           <p className="muted" style={{ marginTop: 10 }}>
-            조건에 맞는 매물이 있으면 인증하신 번호로 연락이 옵니다. 보통 하루 안에 연락이 와요.
+            중개사무소가 매물과 연락처를 제안으로 남기면 알려드릴게요. 보통 하루 안에 옵니다.
+            확인하시고 <b>마음에 드는 곳에만</b> 전화하시면 됩니다.
           </p>
           <div className="kreq-row" style={{ marginTop: 14 }}>
             <button className="kreq-primary" onClick={() => nav("/me/requests")}>내 요청 보기</button>
@@ -317,21 +321,25 @@ export default function KoczipRequest() {
 
             <div className="kreq-consent">
               <div className="kreq-consent-h">
-                <ShieldCheck size={16} strokeWidth={2.4} /> 개인정보 제3자 제공 동의 <span>(필수)</span>
+                <ShieldCheck size={16} strokeWidth={2.4} /> 무엇이 전달되나요 <span>(확인 필요)</span>
               </div>
               <div className="kreq-consent-b">
-                <div><b>제공받는 곳</b> — {targets.length ? targets.map((t) => t.name).join(", ") : "선택한 중개사무소"}</div>
-                <div><b>제공 항목</b> — 이름, 휴대전화번호, 위에 적으신 조건</div>
-                <div><b>이용 목적</b> — 조건에 맞는 매물 안내 및 상담 연락</div>
-                <div><b>보유 기간</b> — 상담 종료 후 3개월 (삭제 요청 시 즉시 파기)</div>
+                <div className="kreq-safe">
+                  <b>내 이름과 전화번호는 전달되지 않습니다.</b>
+                  중개사무소에는 <b>조건만</b> 갑니다.
+                </div>
+                <div><b>전달되는 곳</b> — {targets.length ? targets.map((t) => t.name).join(", ") : "선택한 중개사무소"}</div>
+                <div><b>전달 내용</b> — 지역 · 유형 · 거래 · 면적 · 예산 · 요청 메모</div>
+                <div><b>그다음</b> — 중개사무소가 매물과 자기 연락처를 제안으로 남기면,
+                  확인하시고 <b>마음에 드는 곳에 직접 전화</b>하시면 됩니다.</div>
                 <div className="kreq-consent-note">
-                  <b>전달된 중개사무소와 콕집 관리자 외에는 연락처를 볼 수 없습니다.</b>
-                  동의를 거부하실 수 있으며, 거부하시면 중개사 연결만 되지 않습니다.
+                  인증하신 번호는 콕집이 보관하며 <b>제안 도착 알림에만</b> 씁니다.
+                  요청은 언제든 삭제 요청하실 수 있습니다.
                 </div>
               </div>
               <label className="kreq-agree">
                 <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-                <span>위 내용을 확인했고, 제 정보가 <b>선택한 중개사무소에만</b> 전달되는 것에 동의합니다.</span>
+                <span>위 내용을 확인했고, <b>조건이 전달되는 것</b>에 동의합니다.</span>
               </label>
             </div>
           </div>

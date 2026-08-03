@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Sparkles, Building2, Check } from "lucide-react";
+import { Sparkles, Building2, Check, Phone } from "lucide-react";
 import { useAuth, loginKakao } from "../auth";
 
 const API = import.meta.env.VITE_API_BASE;
 
 type Office = { name: string; status: string; at: string | null };
+type OfferListing = { article_no: string; complex: string | null; area_m2: number | null;
+                      price: string | null; rent: string | null; floor: string | null; trade: string };
+type Offer = { name: string; message: string; contact: string;
+               listings: OfferListing[]; at: string };
+const PY = 3.305785;
+const areaLabel = (m2: number | null) => (m2 ? `${Math.round(m2 / PY)}평(${Math.round(m2)}㎡)` : "");
 type Req = {
   id: number; region: string; asset: string; trade: string; area: string; budget: string;
   memo: string; status: string; at: string; target_count: number; offices: Office[];
-};
-
-const ST: Record<string, string> = {
-  sent: "전달됨", read: "확인함", responded: "연락 예정", declined: "맞는 매물 없음",
+  offers: Offer[];
 };
 
 /** 내가 보낸 콕집요청과 중개사무소별 진행 상태. */
@@ -69,19 +72,41 @@ export default function MyRequests() {
                 </div>
                 {r.memo && <p style={{ fontSize: 14, marginTop: 8, lineHeight: 1.6 }}>{r.memo}</p>}
 
-                <div className="myreq-offices">
-                  {r.offices.map((o, i) => (
-                    <div key={i} className="myreq-office">
-                      <Building2 size={14} />
-                      <span>{o.name || "중개사무소"}</span>
-                      <span className={`sns-st sns-st-${o.status === "responded" ? "done" : "pending"}`}>
-                        {ST[o.status] || o.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                {r.offers.length > 0 ? (
+                  <div className="myoff">
+                    <div className="myoff-h">받은 제안 {r.offers.length}건 — 마음에 드는 곳에 전화해 보세요</div>
+                    {r.offers.map((o, i) => (
+                      <div key={i} className="myoff-card">
+                        <div className="myoff-top">
+                          <b><Building2 size={14} /> {o.name || "중개사무소"}</b>
+                          <a className="myoff-tel" href={`tel:${o.contact}`}>
+                            <Phone size={13} strokeWidth={2.5} /> {o.contact}
+                          </a>
+                        </div>
+                        {o.message && <p className="myoff-msg">{o.message}</p>}
+                        {o.listings.length > 0 && (
+                          <ul className="myoff-ls">
+                            {o.listings.map((x) => (
+                              <li key={x.article_no}>
+                                <b>{x.complex || "단지 미상"}</b>
+                                <i>{[areaLabel(x.area_m2), x.floor ? `${x.floor}층` : "", x.trade]
+                                  .filter(Boolean).join(" · ")}</i>
+                                <em>{x.price || x.rent || "-"}</em>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="muted" style={{ fontSize: 11.5 }}>{(o.at || "").slice(5, 16)}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="myoff-wait">
+                    <b>{r.offices.length}곳에 전달했어요.</b> 제안이 오면 알려드릴게요 — 보통 하루 안에 옵니다.
+                  </div>
+                )}
                 <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                  연락처는 위 중개사무소에만 전달됐어요. 삭제를 원하시면 문의해 주세요.
+                  <b>내 연락처는 중개사무소에 전달되지 않았습니다.</b> 위 번호로 직접 거실 때만 알려집니다.
                 </p>
               </div>
             ))}

@@ -41,6 +41,7 @@ import RenderBrag from "./pages/RenderBrag";
 import KoczipRequest from "./pages/KoczipRequest";
 import AdminRequests from "./pages/AdminRequests";
 import MyRequests from "./pages/MyRequests";
+import OfferByLink from "./pages/OfferByLink";
 import AdminSns from "./pages/AdminSns";
 import AdminResident from "./pages/AdminResident";
 import AdminRealtorRequests from "./pages/AdminRealtorRequests";
@@ -422,6 +423,7 @@ function AppShell() {
         <Route path="/lounge" element={<Lounge />} />
         <Route path="/request" element={<KoczipRequest />} />
         <Route path="/me/requests" element={<MyRequests />} />
+        <Route path="/r/:token" element={<OfferByLink />} />
         <Route path="/admin/requests" element={<AdminRequests />} />
         <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
         <Route path="/my/favorites" element={<RequireAdmin><MyFavorites /></RequireAdmin>} />

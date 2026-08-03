@@ -17549,16 +17549,17 @@ _TRADE_LB = {"A1": "매매", "B1": "전세", "B2": "월세"}
 
 
 def _req_consent_text(names: list) -> str:
-    """동의 화면에 그대로 보여주고, 그대로 저장하는 고지문.
-    나중에 '무엇에 동의했는지' 다툼이 생기면 이 문장이 근거가 된다."""
+    """요청 화면에 그대로 보여주고 그대로 저장하는 고지문.
+    개인정보를 넘기지 않는 구조로 바뀌어(2026-08) '제3자 제공 동의'가 아니라
+    '무엇이 전달되는지'를 알리는 고지가 된다. 나중에 다툼이 생기면 이 문장이 근거다."""
     who = ", ".join(names) if names else "선택한 중개사무소"
-    return ("[개인정보 제3자 제공 동의]\n"
-            f"· 제공받는 자: {who}\n"
-            "· 제공 항목: 이름, 휴대전화번호, 요청하신 조건(지역·유형·거래·면적·예산·메모)\n"
-            "· 이용 목적: 조건에 맞는 매물 안내 및 상담 연락\n"
-            "· 보유·이용 기간: 상담 종료 후 3개월(요청자가 삭제를 요청하면 즉시 파기)\n"
-            "· 동의를 거부할 수 있으며, 거부하시면 중개사 연결만 되지 않습니다.\n"
-            "· 전달된 중개사무소와 콕집 관리자 외에는 연락처를 볼 수 없습니다.")
+    return ("[요청 전달 안내]\n"
+            f"· 요청이 전달되는 곳: {who}\n"
+            "· 전달되는 내용: 지역·유형·거래·면적·예산·요청 메모 (조건만)\n"
+            "· **이름과 휴대전화번호는 전달되지 않습니다.**\n"
+            "· 중개사무소는 매물과 자기 연락처를 제안으로 남기고, 확인 후 회원이 직접 연락합니다.\n"
+            "· 회원 연락처는 콕집이 보관하며, 제안 도착 알림에만 사용합니다.\n"
+            "· 요청은 언제든 삭제를 요청할 수 있습니다.")
 
 
 @app.get("/requests/parse")
@@ -17696,7 +17697,7 @@ def request_create(body: dict, user: dict = Depends(current_user)):
     if not pr or not pr[1] or not pr[0]:
         raise HTTPException(403, "휴대폰 인증을 먼저 해주세요")
     if not body.get("consent"):
-        raise HTTPException(400, "개인정보 제3자 제공에 동의해야 요청을 보낼 수 있습니다")
+        raise HTTPException(400, "전달 내용을 확인하고 동의해야 요청을 보낼 수 있습니다")
 
     mode = "choose" if body.get("pick_mode") == "choose" else "recommend"
     picked = [str(x)[:40] for x in (body.get("realtor_ids") or [])][:_REQ_MAX_TARGETS]
@@ -17785,11 +17786,17 @@ def my_requests(user: dict = Depends(current_user)):
         for r in rows:
             tg = c.execute("SELECT realtor_name,status,responded_at FROM koczip_request_targets "
                            "WHERE request_id=? ORDER BY rowid", (r[0],)).fetchall()
+            of = c.execute("SELECT realtor_name,message,contact,listings,"
+                           "COALESCE(updated_at,created_at) FROM koczip_request_offers "
+                           "WHERE request_id=? ORDER BY created_at", (r[0],)).fetchall()
             out.append({"id": r[0], "region": r[1],
                         "asset": _ASSET_LB.get(r[2], r[2]), "trade": _TRADE_LB.get(r[3], r[3]),
                         "area": r[4], "budget": r[5], "memo": r[6], "status": r[7],
                         "at": r[8], "target_count": r[9],
-                        "offices": [{"name": t[0], "status": t[1], "at": t[2]} for t in tg]})
+                        "offices": [{"name": t[0], "status": t[1], "at": t[2]} for t in tg],
+                        "offers": [{"name": o[0], "message": o[1], "contact": o[2],
+                                    "listings": _authjson.loads(o[3] or "[]"), "at": o[4]}
+                                   for o in of]})
     return {"items": out}
 
 
