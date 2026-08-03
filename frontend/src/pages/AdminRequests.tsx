@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Sparkles, RefreshCw, Phone, Building2 } from "lucide-react";
+import { Sparkles, RefreshCw, Phone, Building2, MessageSquare } from "lucide-react";
 import { useAuth } from "../auth";
 
 const API = import.meta.env.VITE_API_BASE;
 
+type Phone = { phone: string; source: string };
 type Office = { realtor_id: string; name: string; status: string;
-                read_at: string | null; responded_at: string | null };
+                read_at: string | null; responded_at: string | null;
+                is_member: boolean; channel: string;
+                sms_phone: string | null; sms_at: string | null; sms_result: string | null;
+                phones: Phone[] };
 type Req = {
   id: number; name: string; phone: string; region: string; asset: string; trade: string;
   area: string; budget: string; memo: string; ai_query: string; pick_mode: string;
@@ -20,6 +24,9 @@ export default function AdminRequests() {
   const [items, setItems] = useState<Req[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<number | null>(null);
+  const [pick, setPick] = useState<Record<string, string>>({});   // 사무소별 고른 번호
+  const [sending, setSending] = useState("");
+  const [msg, setMsg] = useState("");
 
   const load = useCallback(() => {
     if (!token) return;
@@ -29,6 +36,25 @@ export default function AdminRequests() {
       .catch(() => setItems([])).finally(() => setLoading(false));
   }, [token]);
   useEffect(() => { load(); }, [load]);
+
+  /** 앱 미가입 사무소에 문자로 전달 — 관리자가 번호를 골라 보낸다. */
+  const sendSms = async (reqId: number, o: Office) => {
+    const key = `${reqId}:${o.realtor_id}`;
+    const phone = pick[key] || o.phones[0]?.phone;
+    if (!phone) { setMsg("보낼 번호가 없습니다."); return; }
+    if (!confirm(`${o.name}\n${phone} 으로 손님 요청을 문자로 보낼까요?\n(손님 연락처가 함께 전송됩니다)`)) return;
+    setSending(key); setMsg("");
+    try {
+      const r = await fetch(`${API}/admin/requests/${reqId}/sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ realtor_id: o.realtor_id, phone }),
+      });
+      const d = await r.json();
+      setMsg(d.ok ? `${o.name} — 문자 발송 완료` : `발송 실패: ${d.detail || ""}`);
+      load();
+    } catch { setMsg("발송 실패"); } finally { setSending(""); }
+  };
 
   const today = items.filter((r) => (r.at || "").slice(0, 10) === new Date().toISOString().slice(0, 10));
   const waiting = items.filter((r) => r.offices.every((o) => o.status === "sent"));
@@ -45,6 +71,11 @@ export default function AdminRequests() {
         전체 <b>{items.length}</b>건 · 오늘 <b>{today.length}</b>건 ·
         아직 아무도 안 읽은 요청 <b>{waiting.length}</b>건
       </div>
+      <div className="areq-hint">
+        앱에 <b>가입한 사무소</b>는 요청이 접수되는 즉시 알림으로 전달됩니다.
+        <b> 미가입 사무소</b>는 아래에서 등록된 번호를 골라 문자로 보내세요.
+      </div>
+      {msg && <div className="areq-msg">{msg}</div>}
 
       {loading && items.length === 0 ? <div className="muted">불러오는 중…</div>
         : items.length === 0 ? <div className="muted">아직 접수된 요청이 없습니다.</div> : (
@@ -80,19 +111,55 @@ export default function AdminRequests() {
                     {r.memo && <div className="areq-memo"><b>요청 내용</b><br />{r.memo}</div>}
                     {r.ai_query && <div className="muted">AI 질문: {r.ai_query}</div>}
                     <div className="areq-offices">
-                      {r.offices.map((o) => (
-                        <div key={o.realtor_id} className="areq-office">
-                          <Building2 size={14} />
-                          <b>{o.name || o.realtor_id}</b>
-                          <span className={`areq-b areq-b-${o.status}`}>
-                            {ST[o.status as keyof typeof ST] || o.status}
-                          </span>
-                          <span className="muted">
-                            {o.responded_at ? `연락 ${o.responded_at.slice(5, 16)}`
-                              : o.read_at ? `읽음 ${o.read_at.slice(5, 16)}` : "미확인"}
-                          </span>
-                        </div>
-                      ))}
+                      {r.offices.map((o) => {
+                        const key = `${r.id}:${o.realtor_id}`;
+                        return (
+                          <div key={o.realtor_id} className="areq-office">
+                            <div className="areq-office-h">
+                              <Building2 size={14} />
+                              <b>{o.name || o.realtor_id}</b>
+                              <span className={`areq-b ${o.is_member ? "areq-b-responded" : "areq-b-sent"}`}>
+                                {o.is_member ? "앱 가입 · 알림 전달됨" : "미가입"}
+                              </span>
+                              <span className={`areq-b areq-b-${o.status}`}>
+                                {ST[o.status as keyof typeof ST] || o.status}
+                              </span>
+                              <span className="muted">
+                                {o.responded_at ? `연락 ${o.responded_at.slice(5, 16)}`
+                                  : o.read_at ? `읽음 ${o.read_at.slice(5, 16)}` : "미확인"}
+                              </span>
+                            </div>
+
+                            {!o.is_member && (
+                              <div className="areq-sms">
+                                {o.sms_at && (
+                                  <div className="areq-sms-done">
+                                    <MessageSquare size={13} /> {o.sms_at.slice(5, 16)} · {o.sms_phone} · {o.sms_result}
+                                  </div>
+                                )}
+                                {o.phones.length === 0 ? (
+                                  <span className="muted">등록된 번호가 없어 문자를 보낼 수 없습니다.</span>
+                                ) : (
+                                  <>
+                                    <select value={pick[key] ?? o.phones[0].phone}
+                                      onChange={(e) => setPick((v) => ({ ...v, [key]: e.target.value }))}>
+                                      {o.phones.map((p) => (
+                                        <option key={p.phone} value={p.phone}>
+                                          {p.phone} — {p.source}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button disabled={sending === key}
+                                      onClick={() => sendSms(r.id, o)}>
+                                      {sending === key ? "보내는 중…" : o.sms_at ? "다시 보내기" : "문자 보내기"}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

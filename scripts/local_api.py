@@ -12086,16 +12086,24 @@ def admin_reject_review(review_id: int, req: ReviewReject | None = None,
 # ===========================================================================
 # 전화번호 SMS 인증 (알리고) — 로그인 사용자 본인 번호 인증
 # ===========================================================================
-def _aligo_send_sms(receiver: str, msg: str):
-    """알리고로 SMS 발송. 자격증명 미설정 시 None(=dev 모드, 코드 응답 노출)."""
+def _aligo_send_sms(receiver: str, msg: str, title: str | None = None):
+    """알리고로 문자 발송. 자격증명 미설정 시 None(=dev 모드, 코드 응답 노출).
+    SMS는 90바이트까지라 그보다 길면 자동으로 LMS로 보낸다(안 그러면 뒤가 잘린다)."""
     if not (settings.aligo_api_key and settings.aligo_user_id and settings.aligo_sender):
         return None
     import urllib.parse as _up
-    data = _up.urlencode({
+    try:
+        long_msg = len(msg.encode("euc-kr", errors="ignore")) > 90
+    except Exception:  # noqa: BLE001
+        long_msg = len(msg) > 45
+    body = {
         "key": settings.aligo_api_key, "user_id": settings.aligo_user_id,
         "sender": settings.aligo_sender, "receiver": receiver,
-        "msg": msg, "msg_type": "SMS",
-    }).encode()
+        "msg": msg, "msg_type": "LMS" if long_msg else "SMS",
+    }
+    if long_msg:
+        body["title"] = (title or "콕집 알림")[:44]
+    data = _up.urlencode(body).encode()
     try:
         req = _urlreq.Request("https://apis.aligo.in/send/", data=data, method="POST")
         with _urlreq.urlopen(req, timeout=10) as r:
@@ -17500,10 +17508,18 @@ def _init_request_db() -> None:
           status       TEXT NOT NULL DEFAULT 'sent',      -- sent|read|responded|declined
           read_at      TEXT, responded_at TEXT, reply_memo TEXT,
           created_at   TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+          channel      TEXT NOT NULL DEFAULT 'push',   -- push(앱 회원) | sms(미가입)
+          sms_phone    TEXT, sms_at TEXT, sms_result TEXT,
           PRIMARY KEY (request_id, realtor_id));
         CREATE INDEX IF NOT EXISTS kreqt_realtor_idx
           ON koczip_request_targets(realtor_id, status, created_at DESC);
         """)
+        for _col, _sql in (("channel", "TEXT NOT NULL DEFAULT 'push'"), ("sms_phone", "TEXT"),
+                           ("sms_at", "TEXT"), ("sms_result", "TEXT")):
+            try:
+                c.execute(f"ALTER TABLE koczip_request_targets ADD COLUMN {_col} {_sql}")
+            except Exception:  # noqa: BLE001
+                pass
         c.commit()
 
 
@@ -17662,6 +17678,83 @@ def my_requests(user: dict = Depends(current_user)):
     return {"items": out}
 
 
+_PHONE_RE = _re_link.compile(r"(0\d{1,2}-\d{3,4}-\d{4}|1\d{3}-\d{4}|0\d{8,10})")
+
+
+def _office_phones(realtor_id: str) -> list:
+    """그 사무소로 문자를 보낼 수 있는 번호들. vworld 등록번호 + 네이버 등록번호.
+    vworld phone 은 한 칸에 여러 번호가 공백으로 들어있고 'FAX-' 같은 표기가 섞여 있다."""
+    out, seen = [], set()
+
+    def add(raw: str, src: str) -> None:
+        for m in _PHONE_RE.findall(str(raw or "")):
+            d = m.replace("-", "")
+            if d in seen or len(d) < 8:
+                continue
+            seen.add(d)
+            out.append({"phone": m, "source": src})
+
+    try:
+        with _open_db() as d:
+            nr = d.execute("SELECT representative_tel_no, cell_phone_no FROM naver_realtors "
+                           "WHERE realtor_id=?", (realtor_id,)).fetchone()
+            if nr:
+                add(nr[0], "네이버 대표번호")
+                add(nr[1], "네이버 휴대폰")
+            sysno = d.execute("SELECT sys_regno FROM realtor_match WHERE realtor_id=?",
+                              (realtor_id,)).fetchone()
+            if sysno and sysno[0]:
+                vw = d.execute("SELECT phone FROM vworld_brokers WHERE sys_regno=?",
+                               (sysno[0],)).fetchone()
+                if vw:
+                    add(vw[0], "공적대장(vworld)")
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+@app.post("/admin/requests/{req_id}/sms")
+def admin_request_sms(req_id: int, body: dict, _admin: dict = Depends(admin_user)):
+    """앱에 가입하지 않은 사무소에 문자로 전달. 관리자가 번호를 골라 보낸다."""
+    rid = str(body.get("realtor_id") or "")[:40]
+    phone = str(body.get("phone") or "").strip()
+    if not (rid and phone):
+        raise HTTPException(400, "사무소와 번호를 선택해 주세요")
+    if not _PHONE_RE.fullmatch(phone.replace(" ", "")):
+        raise HTTPException(400, "번호 형식이 올바르지 않습니다")
+
+    with _reviews_db() as c:
+        q = c.execute("SELECT name,phone,region_name,asset,trade,area_txt,budget_txt,memo "
+                      "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
+        if not q:
+            raise HTTPException(404, "요청을 찾을 수 없습니다")
+        tgt = c.execute("SELECT realtor_name FROM koczip_request_targets "
+                        "WHERE request_id=? AND realtor_id=?", (req_id, rid)).fetchone()
+        if not tgt:
+            raise HTTPException(400, "이 요청의 전달 대상이 아닙니다")
+
+    cond = " · ".join(x for x in [q[2], _ASSET_LB.get(q[3], q[3]), _TRADE_LB.get(q[4], q[4]),
+                                  q[5], q[6]] if x)
+    msg = (f"[콕집] 손님 매물요청이 접수됐습니다.\n"
+           f"조건: {cond}\n"
+           + (f"요청: {str(q[7])[:120]}\n" if q[7] else "")
+           + f"손님: {q[0] or '이름 미기재'} {q[1]}\n"
+           f"손님이 이 사무소로 정보 제공에 동의했습니다. 상담 목적 외 사용은 금지됩니다.\n"
+           f"콕집 koczip.com · 수신거부 회신")
+    res = _aligo_send_sms(phone.replace(" ", ""), msg, title="콕집 매물요청")
+    ok = bool(res) and str((res or {}).get("result_code")) == "1"
+
+    with _reviews_db() as c:
+        c.execute("UPDATE koczip_request_targets SET channel='sms', sms_phone=?, "
+                  "sms_at=datetime('now','+9 hours'), sms_result=? "
+                  "WHERE request_id=? AND realtor_id=?",
+                  (phone, ("발송됨" if ok else str((res or {}).get("message") or "미설정(dev)"))[:60],
+                   req_id, rid))
+        c.commit()
+    return {"ok": ok, "detail": (res or {}).get("message") or "발송 설정이 없어 보내지 않았습니다(dev)",
+            "preview": msg}
+
+
 @app.get("/admin/requests")
 def admin_requests(limit: int = 100, _admin: dict = Depends(admin_user)):
     """관리자 — 접수된 요청 전체(연락처 포함)."""
@@ -17673,16 +17766,23 @@ def admin_requests(limit: int = 100, _admin: dict = Depends(admin_user)):
             "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         out = []
         for r in rows:
-            tg = c.execute("SELECT realtor_id,realtor_name,status,read_at,responded_at "
+            tg = c.execute("SELECT realtor_id,realtor_name,status,read_at,responded_at,"
+                           "channel,sms_phone,sms_at,sms_result "
                            "FROM koczip_request_targets WHERE request_id=? ORDER BY rowid",
                            (r[0],)).fetchall()
+            mem = {x[0] for x in c.execute(
+                "SELECT realtor_id FROM realtor_members WHERE COALESCE(status,'active')='active'")}
             out.append({"id": r[0], "name": r[1], "phone": r[2], "region": r[3],
                         "asset": _ASSET_LB.get(r[4], r[4]), "trade": _TRADE_LB.get(r[5], r[5]),
                         "area": r[6], "budget": r[7], "memo": r[8], "ai_query": r[9],
                         "pick_mode": r[10], "target_count": r[11], "status": r[12],
                         "at": r[13], "member_no": r[14],
                         "offices": [{"realtor_id": t[0], "name": t[1], "status": t[2],
-                                     "read_at": t[3], "responded_at": t[4]} for t in tg]})
+                                     "read_at": t[3], "responded_at": t[4],
+                                     "is_member": t[0] in mem, "channel": t[5],
+                                     "sms_phone": t[6], "sms_at": t[7], "sms_result": t[8],
+                                     "phones": ([] if t[0] in mem else _office_phones(t[0]))}
+                                    for t in tg]})
     return {"items": out}
 
 
