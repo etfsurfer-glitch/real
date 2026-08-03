@@ -10,11 +10,17 @@ type Office = { realtor_id: string; name: string; status: string;
                 is_member: boolean; channel: string;
                 sms_phone: string | null; sms_at: string | null; sms_result: string | null;
                 phones: Phone[] };
+type OfferLs = { article_no: string; complex: string | null; area_m2: number | null;
+                 price: string | null; rent: string | null; floor: string | null; trade: string };
+type AOffer = { name: string; message: string; contact: string; listings: OfferLs[]; at: string };
 type Req = {
   id: number; name: string; phone: string; region: string; asset: string; trade: string;
   area: string; budget: string; memo: string; ai_query: string; pick_mode: string;
   target_count: number; status: string; at: string; member_no: number | null; offices: Office[];
+  offers: AOffer[]; escalated: number; last_escalated_at: string | null;
 };
+const PY_ = 3.305785;
+const areaLb = (m2: number | null) => (m2 ? `${Math.round(m2 / PY_)}평(${Math.round(m2)}㎡)` : "");
 
 const ST = { sent: "전달됨", read: "읽음", responded: "연락함", declined: "보류" } as const;
 
@@ -56,8 +62,25 @@ export default function AdminRequests() {
     } catch { setMsg("발송 실패"); } finally { setSending(""); }
   };
 
+  /** 지금 3곳 더 보내기 — 무응답 요청을 관리자가 직접 넓힌다. */
+  const escalate = async (id: number) => {
+    if (!confirm("이 요청을 3곳에 더 보낼까요?\n(미가입 사무소에는 문자가 자동 발송됩니다)")) return;
+    setSending(`esc${id}`); setMsg("");
+    try {
+      const r = await fetch(`${API}/admin/requests/${id}/escalate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ count: 3 }),
+      });
+      const d = await r.json();
+      setMsg(d.ok ? `${d.added}곳 추가 전달 (문자 ${d.sms}건) — ${(d.offices || []).join(", ")}`
+                  : `추가 못 함: ${d.reason || ""}`);
+      load();
+    } catch { setMsg("추가 전달 실패"); } finally { setSending(""); }
+  };
+
   const today = items.filter((r) => (r.at || "").slice(0, 10) === new Date().toISOString().slice(0, 10));
-  const waiting = items.filter((r) => r.offices.every((o) => o.status === "sent"));
+  const waiting = items.filter((r) => (r.offers || []).length === 0);
 
   return (
     <div className="areq">
@@ -69,11 +92,12 @@ export default function AdminRequests() {
       </div>
       <div className="areq-sum">
         전체 <b>{items.length}</b>건 · 오늘 <b>{today.length}</b>건 ·
-        아직 아무도 안 읽은 요청 <b>{waiting.length}</b>건
+        제안 0건 <b>{waiting.length}</b>건
       </div>
       <div className="areq-hint">
-        앱에 <b>가입한 사무소</b>는 요청이 접수되는 즉시 알림으로 전달됩니다.
-        <b> 미가입 사무소</b>는 아래에서 등록된 번호를 골라 문자로 보내세요.
+        손님 연락처는 중개사무소에 전달되지 않습니다 — 조건만 갑니다.
+        가입 사무소는 <b>앱 알림</b>, 미가입은 <b>문자 + 답장 링크</b>로 나갑니다.
+        제안이 0건인 채 <b>30분</b>이 지나면 3곳씩 자동으로 더 보냅니다(최대 3회).
       </div>
       {msg && <div className="areq-msg">{msg}</div>}
 
@@ -110,6 +134,39 @@ export default function AdminRequests() {
                   <div className="areq-detail">
                     {r.memo && <div className="areq-memo"><b>요청 내용</b><br />{r.memo}</div>}
                     {r.ai_query && <div className="muted">AI 질문: {r.ai_query}</div>}
+
+                    <div className="areq-esc">
+                      <span>
+                        전달 {r.offices.length}곳 · 제안 <b>{(r.offers || []).length}건</b>
+                        {r.escalated > 0 && ` · 자동확대 ${r.escalated}회`}
+                        {r.last_escalated_at && ` (${r.last_escalated_at.slice(5, 16)})`}
+                      </span>
+                      <button disabled={sending === `esc${r.id}`} onClick={() => escalate(r.id)}>
+                        {sending === `esc${r.id}` ? "보내는 중…" : "지금 3곳 더 보내기"}
+                      </button>
+                    </div>
+
+                    {(r.offers || []).length > 0 && (
+                      <div className="areq-offers">
+                        <b>받은 제안</b>
+                        {r.offers.map((o, i) => (
+                          <div key={i} className="areq-offer">
+                            <div className="areq-offer-h">
+                              <b>{o.name}</b>
+                              <span>{o.contact}</span>
+                              <span className="muted">{(o.at || "").slice(5, 16)}</span>
+                            </div>
+                            {o.message && <div>{o.message}</div>}
+                            {o.listings.length > 0 && (
+                              <div className="muted">
+                                매물 {o.listings.length}건 — {o.listings.slice(0, 3).map((x) =>
+                                  `${x.complex || "?"} ${areaLb(x.area_m2)} ${x.price || x.rent || ""}`).join(" / ")}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="areq-offices">
                       {r.offices.map((o) => {
                         const key = `${r.id}:${o.realtor_id}`;

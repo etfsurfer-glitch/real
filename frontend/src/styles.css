@@ -4355,3 +4355,17 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 
 .kreq-safe{background:#e4f5ea;border:1.3px solid #a8ddc0;border-radius:9px;padding:10px 13px;
   font-size:13.5px;color:#14713f;line-height:1.55}
+
+.areq-esc{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:9px;padding:9px 12px;
+  font-size:12.5px}
+.areq-esc button{background:#1268d3;color:#fff;border:0;border-radius:7px;padding:7px 13px;
+  font-size:12.5px;font-weight:700;cursor:pointer}
+.areq-esc button:disabled{background:#c3ced9;cursor:not-allowed}
+.areq-offers{display:flex;flex-direction:column;gap:6px}
+.areq-offers>b{font-size:12.5px;color:#0d4f9e}
+.areq-offer{background:#f4f8fe;border:1px solid #cfe0f6;border-radius:9px;padding:9px 12px;
+  font-size:13px;display:flex;flex-direction:column;gap:4px;line-height:1.5}
+.areq-offer-h{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.areq-offer-h b{font-size:13.5px}
+.areq-offer-h span{font-weight:700;color:#1268d3}

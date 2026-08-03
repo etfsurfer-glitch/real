@@ -17530,6 +17530,12 @@ def _init_request_db() -> None:
         CREATE INDEX IF NOT EXISTS kreqo_req_idx
           ON koczip_request_offers(request_id, created_at DESC);
         """)
+        for _col, _sql in (("escalated", "INTEGER NOT NULL DEFAULT 0"),
+                           ("last_escalated_at", "TEXT")):
+            try:
+                c.execute(f"ALTER TABLE koczip_requests ADD COLUMN {_col} {_sql}")
+            except Exception:  # noqa: BLE001
+                pass
         for _col, _sql in (("channel", "TEXT NOT NULL DEFAULT 'push'"), ("sms_phone", "TEXT"),
                            ("sms_at", "TEXT"), ("sms_result", "TEXT"),
                            # 미가입 사무소가 로그인 없이 답장할 수 있는 일회용 열쇠
@@ -17835,6 +17841,137 @@ def _office_phones(realtor_id: str) -> list:
     return out
 
 
+_ESC_GAP_MIN = 30          # 무응답 이 시간이 지나면 확대
+_ESC_ADD = 3               # 한 번에 추가하는 사무소 수
+_ESC_MAX_ROUNDS = 3        # 최대 확대 횟수(3 + 3×3 = 최대 12곳)
+_ESC_HOURS = (8, 21)       # 문자 발송 허용 시간(KST) — 새벽 문자는 민폐이자 위험
+
+
+def _request_escalate(req_id: int, n: int = _ESC_ADD, force: bool = False) -> dict:
+    """제안이 안 오는 요청을 그 조건의 매물을 가진 다른 사무소로 넓힌다.
+    이미 보낸 곳은 제외하고, 가입 사무소엔 알림·미가입엔 문자(허용 시간에만)."""
+    import secrets as _sec
+    with _reviews_db() as c:
+        q = c.execute("SELECT sigungu, cortar, asset, trade, escalated FROM koczip_requests "
+                      "WHERE id=?", (req_id,)).fetchone()
+        if not q:
+            raise HTTPException(404, "요청을 찾을 수 없습니다")
+        if not force and (q[4] or 0) >= _ESC_MAX_ROUNDS:
+            return {"ok": False, "reason": "확대 한도에 도달했습니다", "added": 0}
+        already = {r[0] for r in c.execute(
+            "SELECT realtor_id FROM koczip_request_targets WHERE request_id=?", (req_id,))}
+
+    cand = request_candidates(cortar=q[1] or "", sigungu=q[0] or "",
+                              asset=q[2] or "", trade=q[3] or "",
+                              limit=len(already) + n + 10)["items"]
+    fresh = [x for x in cand if x.get("realtor_id") and x["realtor_id"] not in already][:n]
+    if not fresh:
+        return {"ok": False, "reason": "더 보낼 사무소가 없습니다", "added": 0}
+
+    with _reviews_db() as c:
+        for x in fresh:
+            c.execute("INSERT OR IGNORE INTO koczip_request_targets(request_id,realtor_id,"
+                      "realtor_name,token,token_exp) "
+                      "VALUES(?,?,?,?,datetime('now','+9 hours','+72 hours'))",
+                      (req_id, x["realtor_id"], x["name"], _sec.token_urlsafe(24)))
+        c.execute("UPDATE koczip_requests SET escalated=COALESCE(escalated,0)+1, "
+                  "last_escalated_at=datetime('now','+9 hours') WHERE id=?", (req_id,))
+        c.commit()
+
+    ids = [x["realtor_id"] for x in fresh]
+    _req_notify(req_id, ids, {x["realtor_id"]: x["name"] for x in fresh})
+    sent = _escalate_sms(req_id, ids)
+    return {"ok": True, "added": len(fresh), "sms": sent,
+            "offices": [x["name"] for x in fresh]}
+
+
+def _escalate_sms(req_id: int, ids: list) -> int:
+    """미가입 사무소에 자동 문자. 대표번호를 우선 쓰고, 허용 시간이 아니면 보내지 않는다
+    (다음 확대 때 다시 시도된다)."""
+    import datetime as _dtm
+    hour = (_dtm.datetime.utcnow() + _dtm.timedelta(hours=9)).hour
+    if not (_ESC_HOURS[0] <= hour < _ESC_HOURS[1]):
+        return 0
+    sent = 0
+    with _reviews_db() as c:
+        members = {r[0] for r in c.execute(
+            "SELECT realtor_id FROM realtor_members WHERE COALESCE(status,'active')='active'")}
+    for rid in ids:
+        if rid in members:            # 가입 사무소는 이미 알림을 받았다
+            continue
+        phones = _office_phones(rid)
+        if not phones:
+            continue
+        msg = _req_sms_body(req_id, rid)
+        if not msg:
+            continue
+        res = _aligo_send_sms(phones[0]["phone"].replace("-", ""), msg, title="콕집 매물요청")
+        ok = bool(res) and str((res or {}).get("result_code")) == "1"
+        with _reviews_db() as c:
+            c.execute("UPDATE koczip_request_targets SET channel='sms', sms_phone=?, "
+                      "sms_at=datetime('now','+9 hours'), sms_result=? "
+                      "WHERE request_id=? AND realtor_id=?",
+                      (phones[0]["phone"], ("자동발송" if ok else "실패/미설정")[:60], req_id, rid))
+            c.commit()
+        sent += int(ok)
+    return sent
+
+
+def escalate_due(limit: int = 20) -> dict:
+    """제안이 0건인 채로 30분이 지난 요청을 찾아 확대한다(크론이 부른다)."""
+    with _reviews_db() as c:
+        rows = c.execute(
+            "SELECT q.id FROM koczip_requests q "
+            "LEFT JOIN koczip_request_offers o ON o.request_id=q.id "
+            "WHERE q.status='sent' AND COALESCE(q.escalated,0) < ? "
+            "  AND COALESCE(q.last_escalated_at, q.created_at) "
+            "      <= datetime('now','+9 hours', ?) "
+            "GROUP BY q.id HAVING COUNT(o.realtor_id)=0 ORDER BY q.id LIMIT ?",
+            (_ESC_MAX_ROUNDS, f"-{_ESC_GAP_MIN} minutes", limit)).fetchall()
+    out = []
+    for (rid,) in rows:
+        try:
+            r = _request_escalate(rid)
+            out.append({"id": rid, **r})
+        except Exception as e:  # noqa: BLE001
+            out.append({"id": rid, "ok": False, "reason": str(e)[:80]})
+    return {"checked": len(rows), "results": out}
+
+
+@app.post("/admin/requests/{req_id}/escalate")
+def admin_request_escalate(req_id: int, body: dict | None = None,
+                           _admin: dict = Depends(admin_user)):
+    """관리자가 지금 바로 확대(한도 무시)."""
+    n = int((body or {}).get("count") or _ESC_ADD)
+    return _request_escalate(req_id, max(1, min(n, 5)), force=True)
+
+
+@app.post("/admin/requests/escalate-due")
+def admin_escalate_due(_admin: dict = Depends(admin_user)):
+    """무응답 요청 일괄 확대 — 크론이 죽었을 때 수동으로 돌린다."""
+    return escalate_due()
+
+
+def _req_sms_body(req_id: int, rid: str) -> str | None:
+    """미가입 사무소에 보낼 문자 본문. 고객 연락처는 넣지 않고 답장 링크만 넣는다."""
+    with _reviews_db() as c:
+        q = c.execute("SELECT region_name,asset,trade,area_txt,budget_txt,memo "
+                      "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
+        tk = c.execute("SELECT token FROM koczip_request_targets "
+                       "WHERE request_id=? AND realtor_id=?", (req_id, rid)).fetchone()
+    if not q:
+        return None
+    cond = " · ".join(x for x in [q[0], _ASSET_LB.get(q[1], q[1]),
+                                  _TRADE_LB.get(q[2], q[2]), q[3], q[4]] if x)
+    link = f"https://koczip.com/r/{tk[0]}" if tk and tk[0] else "https://koczip.com"
+    return (f"[콕집] 손님 매물요청이 접수됐습니다.\n"
+            f"조건: {cond}\n"
+            + (f"요청: {str(q[5])[:120]}\n" if q[5] else "")
+            + f"맞는 매물이 있으면 아래에서 제안해 주세요(72시간). 손님이 보고 직접 연락합니다.\n"
+            f"{link}\n"
+            f"콕집 koczip.com · 수신거부 회신")
+
+
 @app.post("/admin/requests/{req_id}/sms")
 def admin_request_sms(req_id: int, body: dict, _admin: dict = Depends(admin_user)):
     """앱에 가입하지 않은 사무소에 문자로 전달. 관리자가 번호를 골라 보낸다."""
@@ -17855,19 +17992,7 @@ def admin_request_sms(req_id: int, body: dict, _admin: dict = Depends(admin_user
         if not tgt:
             raise HTTPException(400, "이 요청의 전달 대상이 아닙니다")
 
-    cond = " · ".join(x for x in [q[2], _ASSET_LB.get(q[3], q[3]), _TRADE_LB.get(q[4], q[4]),
-                                  q[5], q[6]] if x)
-    # 고객 연락처는 보내지 않는다 — 매물을 제안하면 손님이 보고 직접 연락한다
-    with _reviews_db() as c:
-        tk = c.execute("SELECT token FROM koczip_request_targets "
-                       "WHERE request_id=? AND realtor_id=?", (req_id, rid)).fetchone()
-    link = f"https://koczip.com/r/{tk[0]}" if tk and tk[0] else "https://koczip.com"
-    msg = (f"[콕집] 손님 매물요청이 접수됐습니다.\n"
-           f"조건: {cond}\n"
-           + (f"요청: {str(q[7])[:120]}\n" if q[7] else "")
-           + f"맞는 매물이 있으면 아래에서 제안해 주세요(72시간). 손님이 보고 직접 연락합니다.\n"
-           f"{link}\n"
-           f"콕집 koczip.com · 수신거부 회신")
+    msg = _req_sms_body(req_id, rid) or ""
     res = _aligo_send_sms(phone.replace(" ", ""), msg, title="콕집 매물요청")
     ok = bool(res) and str((res or {}).get("result_code")) == "1"
 
@@ -17889,7 +18014,8 @@ def admin_requests(limit: int = 100, _admin: dict = Depends(admin_user)):
     with _reviews_db() as c:
         rows = c.execute(
             "SELECT id,name,phone,region_name,asset,trade,area_txt,budget_txt,memo,ai_query,"
-            "pick_mode,target_count,status,created_at,member_no FROM koczip_requests "
+            "pick_mode,target_count,status,created_at,member_no,"
+            "COALESCE(escalated,0),last_escalated_at FROM koczip_requests "
             "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         out = []
         for r in rows:
@@ -17899,11 +18025,18 @@ def admin_requests(limit: int = 100, _admin: dict = Depends(admin_user)):
                            (r[0],)).fetchall()
             mem = {x[0] for x in c.execute(
                 "SELECT realtor_id FROM realtor_members WHERE COALESCE(status,'active')='active'")}
+            of = c.execute("SELECT realtor_name,message,contact,listings,"
+                           "COALESCE(updated_at,created_at) FROM koczip_request_offers "
+                           "WHERE request_id=? ORDER BY created_at", (r[0],)).fetchall()
             out.append({"id": r[0], "name": r[1], "phone": r[2], "region": r[3],
                         "asset": _ASSET_LB.get(r[4], r[4]), "trade": _TRADE_LB.get(r[5], r[5]),
                         "area": r[6], "budget": r[7], "memo": r[8], "ai_query": r[9],
                         "pick_mode": r[10], "target_count": r[11], "status": r[12],
                         "at": r[13], "member_no": r[14],
+                        "escalated": r[15], "last_escalated_at": r[16],
+                        "offers": [{"name": o[0], "message": o[1], "contact": o[2],
+                                    "listings": _authjson.loads(o[3] or "[]"), "at": o[4]}
+                                   for o in of],
                         "offices": [{"realtor_id": t[0], "name": t[1], "status": t[2],
                                      "read_at": t[3], "responded_at": t[4],
                                      "is_member": t[0] in mem, "channel": t[5],
