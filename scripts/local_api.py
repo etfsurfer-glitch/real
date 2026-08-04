@@ -18607,40 +18607,57 @@ def _offer_save(req_id: int, realtor_id: str, body: dict) -> dict:
                   "responded_at=datetime('now','+9 hours') "
                   "WHERE request_id=? AND realtor_id=?", (req_id, realtor_id))
         c.commit()
-    _offer_notify_customer(req_id, notify_sms=is_new)
+    _offer_notify_customer(req_id, notify_sms=is_new, realtor_id=realtor_id)
     return {"ok": True, "listings": len(items)}
 
 
-def _offer_notify_text(req_id: int) -> tuple:
-    """고객에게 보낼 알림 문구(제목, 본문, 문자본문).
-    '누가 무엇을 제안했는지'가 보여야 광고 문자로 오해받지 않고 실제로 눌러본다."""
+def _offer_bits(req_id: int, realtor_id: str = "") -> dict | None:
+    """알림 문구의 재료. 푸시·문자·알림톡이 같은 값을 써야 어긋나지 않는다.
+
+    realtor_id 를 주면 '방금 제안한 그 사무소'를 앞세운다 — 알림을 받은 사람이
+    바로 전화할 수 있게 그 사무소의 연락처를 문구에 싣기 때문이다. 중개사가 손님에게
+    보이라고 직접 적어 넣은 번호라 노출해도 되는 값이다(손님 번호는 반대로 안 나간다)."""
     with _reviews_db() as c:
-        q = c.execute("SELECT region_name,asset,trade,area_txt FROM koczip_requests WHERE id=?",
-                      (req_id,)).fetchone()
-        rows = c.execute("SELECT realtor_name, listings FROM koczip_request_offers "
-                         "WHERE request_id=? ORDER BY created_at", (req_id,)).fetchall()
+        q = c.execute("SELECT region_name,asset,trade,area_txt,cust_token "
+                      "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
+        rows = c.execute("SELECT realtor_name, listings, contact, realtor_id "
+                         "FROM koczip_request_offers WHERE request_id=? ORDER BY created_at",
+                         (req_id,)).fetchall()
     if not q:
+        return None
+    pick = next((r for r in rows if realtor_id and r[3] == realtor_id), rows[0] if rows else None)
+    n_ls = len(_authjson.loads((pick[1] if pick else None) or "[]"))
+    return {
+        "cond": " · ".join(x for x in [q[0], _ASSET_LB.get(q[1], q[1]),
+                                       _TRADE_LB.get(q[2], q[2]), q[3]] if x),
+        "who": (pick[0] if pick else None) or "중개사무소",
+        "contact": (pick[2] if pick else "") or "",
+        "n_ls": n_ls,
+        "more": f" 외 {len(rows) - 1}곳" if len(rows) > 1 else "",
+        # 문자를 받은 기기에서 로그인 없이 바로 열리도록 개인 링크를 준다
+        "link": (f"https://koczip.com/proposals/{q[4]}" if q[4]
+                 else "https://koczip.com/me/requests"),
+    }
+
+
+def _offer_notify_text(req_id: int, realtor_id: str = "") -> tuple:
+    """고객에게 보낼 알림 문구(제목, 본문, 문자본문).
+    '누가 무엇을 제안했는지'와 '전화할 번호'가 바로 보여야 실제로 연락으로 이어진다."""
+    b = _offer_bits(req_id, realtor_id)
+    if not b:
         return None, None, None
-    cond = " · ".join(x for x in [q[0], _ASSET_LB.get(q[1], q[1]),
-                                  _TRADE_LB.get(q[2], q[2]), q[3]] if x)
-    n = len(rows)
-    n_ls = sum(len(_authjson.loads(r[1] or "[]")) for r in rows)
-    who = (rows[0][0] or "중개사무소") if rows else "중개사무소"
-    more = f" 외 {n - 1}곳" if n > 1 else ""
+    ls = f" · 매물 {b['n_ls']}건" if b["n_ls"] else ""
     title = "중개사무소가 매물을 제안했어요"
-    body = (f"{who}{more}에서 제안이 왔어요"
-            + (f" (매물 {n_ls}건)" if n_ls else "") + ". 확인하고 마음에 드는 곳에 연락해 보세요.")
-    with _reviews_db() as c:
-        tk = c.execute("SELECT cust_token FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
-    # 문자를 받은 기기에서 로그인 없이 바로 열리도록 개인 링크를 준다
-    link = (f"https://koczip.com/proposals/{tk[0]}" if tk and tk[0]
-            else "https://koczip.com/me/requests")
-    sms = (f"[콕집] 요청하신 조건에 제안이 도착했습니다.\n"
-           f"조건: {cond}\n"
-           f"제안: {who}{more}" + (f" · 매물 {n_ls}건" if n_ls else "") + "\n"
-           f"매물과 연락처를 확인하고 마음에 드는 곳에 전화하세요.\n"
-           f"{link}\n"
-           f"콕집 koczip.com")
+    body = (f"{b['who']}{b['more']}에서 제안이 왔어요"
+            + (f" (매물 {b['n_ls']}건)" if b["n_ls"] else "")
+            + ". 확인하고 마음에 드는 곳에 연락해 보세요.")
+    sms = ("[콕집] 요청하신 조건에 제안이 도착했습니다.\n"
+           f"조건: {b['cond']}\n"
+           f"제안: {b['who']}{b['more']}{ls}\n"
+           + (f"연락처: {b['contact']}\n" if b["contact"] else "")
+           + "위 번호로 바로 전화하시거나, 아래에서 제안 매물을 확인하세요.\n"
+           f"{b['link']}\n"
+           "콕집 koczip.com")
     return title, body, sms
 
 
@@ -18651,40 +18668,28 @@ _ALIMTALK_CUST_BODY = """[콕집] 요청하신 조건에 제안이 도착했습�
 ▶ 요청 조건
 {cond}
 
-▶ 도착한 제안
+▶ 제안한 중개사무소
 {who}
+{contact}
 
-아래 버튼을 눌러 제안하신 매물과 연락처를
-확인하실 수 있습니다.
+위 번호로 바로 전화하셔도 되고,
+아래 버튼에서 제안 매물을 보실 수 있습니다.
 
-마음에 드는 곳에 직접 전화하시면 되고,
 고객님 연락처는 중개사무소에 전달되지 않습니다.
+전화를 거실 때만 상대에게 알려집니다.
 
 문의 : 콕집 고객센터"""
 
 
-def _alimtalk_offer(receiver: str, req_id: int) -> dict | None:
+def _alimtalk_offer(receiver: str, req_id: int, realtor_id: str = "") -> dict | None:
     """고객에게 '제안 도착' 알림톡. 미설정이면 None → 호출부가 문자로 폴백."""
     if not (_alimtalk_ready() and settings.aligo_alimtalk_tpl_cust):
         return None
-    title, _body, _sms = _offer_notify_text(req_id)
-    if not title:
+    b = _offer_bits(req_id, realtor_id)
+    if not b:
         return None
-    with _reviews_db() as c:
-        q = c.execute("SELECT region_name,asset,trade,area_txt,cust_token "
-                      "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
-        rows = c.execute("SELECT realtor_name, listings FROM koczip_request_offers "
-                         "WHERE request_id=? ORDER BY created_at", (req_id,)).fetchall()
-    if not q:
-        return None
-    cond = " · ".join(x for x in [q[0], _ASSET_LB.get(q[1], q[1]),
-                                  _TRADE_LB.get(q[2], q[2]), q[3]] if x)
-    n_ls = sum(len(_authjson.loads(r[1] or "[]")) for r in rows)
-    who = ((rows[0][0] or "중개사무소") if rows else "중개사무소") \
-        + (f" 외 {len(rows) - 1}곳" if len(rows) > 1 else "") \
-        + (f" · 매물 {n_ls}건" if n_ls else "")
-    link = (f"https://koczip.com/proposals/{q[4]}" if q[4]
-            else "https://koczip.com/me/requests")
+    _t, _b, sms = _offer_notify_text(req_id, realtor_id)
+    who = b["who"] + b["more"] + (f" · 매물 {b['n_ls']}건" if b["n_ls"] else "")
     body = {
         "apikey": settings.aligo_api_key, "userid": settings.aligo_user_id,
         "senderkey": settings.aligo_alimtalk_senderkey,
@@ -18692,11 +18697,13 @@ def _alimtalk_offer(receiver: str, req_id: int) -> dict | None:
         "sender": settings.aligo_sender,
         "receiver_1": receiver,
         "subject_1": "제안 도착",
-        "message_1": _ALIMTALK_CUST_BODY.format(cond=cond, who=who),
+        "message_1": _ALIMTALK_CUST_BODY.format(
+            cond=b["cond"], who=who, contact=b["contact"] or "-"),
         "button_1": _authjson.dumps({"button": [{
-            "name": "받은 제안 보기", "linkType": "WL", "linkMo": link, "linkPc": link,
+            "name": "받은 제안 보기", "linkType": "WL",
+            "linkMo": b["link"], "linkPc": b["link"],
         }]}, ensure_ascii=False),
-        "failover": "Y", "fsubject_1": "콕집 제안 도착", "fmessage_1": _sms,
+        "failover": "Y", "fsubject_1": "콕집 제안 도착", "fmessage_1": sms,
     }
     import urllib.parse as _up
     try:
@@ -18709,7 +18716,8 @@ def _alimtalk_offer(receiver: str, req_id: int) -> dict | None:
         return None
 
 
-def _offer_notify_customer(req_id: int, notify_sms: bool = True) -> None:
+def _offer_notify_customer(req_id: int, notify_sms: bool = True,
+                           realtor_id: str = "") -> None:
     """제안이 오면 고객에게 알린다. 푸시 성공 여부와 무관하게 문자(승인 후 알림톡)도 보낸다
     — 푸시는 구독한 사람만 받고 잠금화면에서 놓치기 쉬워, 제안이 왔다는 걸 모르고
     지나가면 이 기능 자체가 무의미해진다.
@@ -18722,14 +18730,14 @@ def _offer_notify_customer(req_id: int, notify_sms: bool = True) -> None:
                           (req_id,)).fetchone()
         if not q:
             return
-        title, body, sms = _offer_notify_text(req_id)
+        title, body, sms = _offer_notify_text(req_id, realtor_id)
         if not title:
             return
         _send_web_push([q[0]], title, body, url="/me/requests", tag="koczip-offer")
         if notify_sms and q[1]:
             to = q[1].replace("-", "")
             # 알림톡 우선 — 템플릿 승인 전이면 None 이 와서 문자로 내려간다
-            at = _alimtalk_offer(to, req_id)
+            at = _alimtalk_offer(to, req_id, realtor_id)
             if at is None or str(at.get("code")) != "0":
                 _aligo_send_sms(to, sms, title="콕집 제안 도착")
     except Exception as e:  # noqa: BLE001
