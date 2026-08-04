@@ -437,6 +437,65 @@ _ip_hits: dict = {}             # ip -> deque[monotonic]  (데이터 경로 접�
 _VELOCITY_WINDOW = 60.0
 _VELOCITY_MAX = 900            # 분당 900건(=15/s 지속). CGNAT 공유IP 오차단 방지 상향.
 
+# ── 단지 순회 스크레이퍼 방어 ────────────────────────────────────────────
+# 속도만 보면 못 잡는다. 실제로 잡힌 스크레이퍼는 초당 3.3회(분당 200)로 느긋하게
+# 돌면서 5일간 매일 9,500건씩 긁어갔다 — 속도 임계(900/분) 한참 아래다.
+# 사람과 갈리는 축은 '속도'가 아니라 **얼마나 많은 서로 다른 단지를 보는가**다.
+# 실측(3일): 사람 최대 276개/시간, 스크레이퍼 1,399~4,828개/시간. 그 사이를 끊는다.
+_DIVERSITY_MAX = 400            # 시간당 서로 다른 단지 수
+_ip_complexes: dict = {}        # ip -> (윈도우_시작_monotonic, set(complex_no))
+_BLOCK_FILE = Path(__file__).resolve().parent.parent / "data" / "ip_blocklist.txt"
+_blocked_ips: set = set()
+
+
+def _load_blocklist() -> None:
+    """차단 IP 목록을 파일에서 읽는다. 재시작(배포)해도 유지돼야 한다."""
+    try:
+        if _BLOCK_FILE.exists():
+            _blocked_ips.update(
+                ln.split("#")[0].strip() for ln in _BLOCK_FILE.read_text().splitlines()
+                if ln.split("#")[0].strip())
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _block_ip(ip: str, why: str) -> None:
+    if not ip or ip in _blocked_ips:
+        return
+    _blocked_ips.add(ip)
+    try:
+        _BLOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _BLOCK_FILE.open("a") as f:
+            f.write(f"{ip}  # {why} {_dt_now()}\n")
+    except Exception:  # noqa: BLE001 — 기록 실패해도 메모리 차단은 유효
+        pass
+
+
+def _dt_now() -> str:
+    import datetime as _d
+    return (_d.datetime.now(_d.timezone.utc) + _d.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
+
+
+def _diversity_exceeded(ip: str, path: str, now: float) -> bool:
+    """한 시간 안에 서로 다른 단지를 몇 개나 열었는지. 임계를 넘으면 사람이 아니다."""
+    m = _re_complex_id.search(path)
+    if not m:
+        return False
+    start, seen = _ip_complexes.get(ip, (now, None))
+    if seen is None or now - start > 3600:
+        start, seen = now, set()
+        _ip_complexes[ip] = (start, seen)
+    seen.add(m.group(1))
+    if len(_ip_complexes) > 20000:          # 메모리 상한 — 지난 창은 버린다
+        for k, (st, _s) in list(_ip_complexes.items()):
+            if now - st > 3600:
+                _ip_complexes.pop(k, None)
+    return len(seen) > _DIVERSITY_MAX
+
+
+_re_complex_id = _re_bot.compile(r"^/complex(?:es)?/(\d+)")
+_load_blocklist()
+
 def _goodbot_key(ua: str):
     m = _GOODBOT_UA.search(ua)
     if not m:
@@ -505,6 +564,10 @@ async def _bot_guard_middleware(request, call_next):
             return await call_next(request)  # 내부(warm) — 헤더 불필요
         ua = (request.headers.get("user-agent") or "").strip()
 
+        # 한 번 스크레이퍼로 확정된 IP는 계속 막는다(재시작해도 파일에서 되읽는다)
+        if ip in _blocked_ips:
+            return _deny(403, "blocklist", ip, ua, path, request.method)
+
         # ⓪ AI 학습·검색 크롤러 → 권리 유보 경고와 함께 차단(규약 준수 봇은 수집 중단)
         if _AI_CRAWLER_UA.search(ua):
             return _deny(403, "ai_crawler", ip, ua, path, request.method)
@@ -541,8 +604,14 @@ async def _bot_guard_middleware(request, call_next):
 
         # ④ 속도 백스톱 — 브라우저 UA 사칭 스크레이퍼용. 로그인 사용자는 면제(CGNAT 보호).
         authed = bool(request.headers.get("authorization"))
-        if not authed and _velocity_exceeded(ip, _time.monotonic()):
+        _now = _time.monotonic()
+        if not authed and _velocity_exceeded(ip, _now):
             return _deny(429, "velocity", ip, ua, path, request.method)
+        # ⑤ 단지 순회 백스톱 — 브라우저 UA를 쓰고 느긋하게 도는 스크레이퍼를 잡는다.
+        #    사람이 한 시간에 단지 400곳을 열어 볼 일은 없다. 한 번 걸리면 목록에 박는다.
+        if not authed and _diversity_exceeded(ip, path, _now):
+            _block_ip(ip, "단지순회")
+            return _deny(403, "diversity", ip, ua, path, request.method)
         request.state.bot_class = "client"
     except Exception:      # noqa: BLE001 — 가드 오류는 절대 사이트를 막지 않는다
         return await call_next(request)
@@ -8341,19 +8410,23 @@ def cancelled_summary(
 
 
 @app.get("/ai/ask")
-def ai_ask(q: str, _user: dict = Depends(current_user)):
+def ai_ask(q: str, request: Request,
+           user: dict | None = Depends(current_user_optional)):
     """부동산 전문 AI 질의. 기존 엔드포인트를 도구로 호출해 자연어로 답한다.
-    전화번호 인증 완료(verified_user) 사용자만 호출 가능."""
+    로그인 없이도 쓸 수 있고 포인트도 들지 않는다 — 대신 한 사람 하루 50건."""
     q = (q or "").strip()
     if not q:
         raise HTTPException(400, "질문(q)이 비어있습니다")
     if len(q) > 500:
         raise HTTPException(400, "질문이 너무 깁니다 (최대 500자)")
-    # TODO(출시): _ai_quota_check(user) — 로그인 사용자 일일 쿼터/포인트 차감
+    quota = _ai_quota_check(request, user)
     try:
         from scripts.ai_agent import run_agent
-        return run_agent(q)
+        res = run_agent(q)
+        _ai_quota_release(quota)
+        return {**(res or {}), "remaining": quota["remaining"]}
     except Exception as e:
+        _ai_quota_release(quota, refund=True)
         raise HTTPException(500, f"AI 처리 실패: {e}")
 
 
@@ -8483,9 +8556,167 @@ def _ask_user_region(request: Request) -> str | None:
         return None
 
 
-def _log_ai(user: dict, question: str, *, answer=None, tools=None, usage=None,
+# ─── AI 이용 제한 (비회원 개방 · 포인트 차감 없음) ────────────────────────
+# 하루 50건은 '한 사람' 기준이라 방문자 식별이 먼저다. 쿠키는 koczip.com→api.koczip.com
+# 이 교차 사이트라 credentials 를 켜야 하고(CORS allow_origins="*" 와 충돌) 전 엔드포인트에
+# 영향이 가므로, 프런트가 localStorage 로 만든 방문자 ID 를 헤더로 보낸다.
+# 그건 지우면 초기화되니 **IP 상한을 함께** 둬서 폭주를 막는다(둘 다 통과해야 함).
+AI_DAILY_PER_VISITOR = 50     # 한 사람 하루 질문 수
+AI_DAILY_PER_IP = 200         # 같은 IP 합계 — 통신사 NAT·사무실 공용을 감안해 넉넉히
+AI_BURST_PER_MIN = 10         # 1분 연타 상한(사람이 읽고 묻는 속도를 넘는 구간)
+AI_MAX_INFLIGHT = 2           # 한 사람이 동시에 돌릴 수 있는 질문 수
+AI_MAX_INFLIGHT_ALL = 12      # 서버 전체 동시 처리 상한(박스 2코어 보호)
+
+_AI_INFLIGHT: dict = {}       # {키: 진행 중 건수}
+_AI_BURST: dict = {}          # {키: [최근 요청 시각…]}
+_AI_LOCK = _threading.Lock()
+
+
+def _ai_day() -> str:
+    """한국 날짜. 리셋은 KST 자정 — 프로젝트 전역이 date('now','+9 hours') 관례다."""
+    import datetime as _d
+    return (_d.datetime.now(_d.timezone.utc) + _d.timedelta(hours=9)).strftime("%Y-%m-%d")
+
+
+_AI_SWEPT: list = []          # 마지막으로 옛 행을 지운 날짜(하루 한 번만 돈다)
+
+
+def _ai_quota_db() -> sqlite3.Connection:
+    """일일 카운터는 재시작(배포)에도 살아 있어야 한다 — 메모리에 두면 배포가 곧 초기화다."""
+    c = sqlite3.connect(REVIEWS_DB, timeout=5)
+    c.execute("CREATE TABLE IF NOT EXISTS ai_usage("
+              "scope TEXT NOT NULL, key TEXT NOT NULL, day TEXT NOT NULL, "
+              "n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(scope, key, day))")
+    today = _ai_day()
+    if _AI_SWEPT[:1] != [today]:   # 방문자 수만큼 행이 쌓이므로 지난 것은 버린다
+        _AI_SWEPT[:] = [today]
+        try:
+            c.execute("DELETE FROM ai_usage WHERE day < date(?, '-3 day')", (today,))
+            c.commit()
+        except Exception:  # noqa: BLE001 — 청소 실패가 이용을 막지는 않는다
+            pass
+    return c
+
+
+def _ai_visitor(request: Request, user: dict | None) -> tuple[str, str]:
+    """(방문자키, IP키). 로그인 사용자는 계정이 기준 — 기기를 옮겨도 같은 사람이다."""
+    ip = _client_ip(request) or "-"
+    if user and user.get("id"):
+        return f"u:{user['id']}", f"ip:{ip}"
+    vid = (request.headers.get("x-visitor-id") or "").strip()[:64]
+    # 헤더가 없으면(구버전 프런트·직접 호출) IP 를 방문자로 본다
+    return (f"v:{vid}" if vid else f"ip:{ip}"), f"ip:{ip}"
+
+
+def _ai_quota_check(request: Request, user: dict | None) -> dict:
+    """제한을 넘으면 429. 통과하면 {남은건수} 반환하고 카운터를 올린다.
+
+    올려놓고 실패 시 되돌린다(_ai_quota_release) — 먼저 올려야 동시 요청이 새지 않는다.
+    """
+    vkey, ipkey = _ai_visitor(request, user)
+    now = _time.time()
+    with _AI_LOCK:
+        # ① 서버 전체 동시 처리 — 이게 뚫리면 박스가 통째로 느려진다
+        if sum(_AI_INFLIGHT.values()) >= AI_MAX_INFLIGHT_ALL:
+            raise HTTPException(429, detail={
+                "code": "ai_busy",
+                "message": "지금 AI 이용이 몰리고 있어요. 잠시 후 다시 시도해 주세요."})
+        # ② 개인 동시 처리
+        if _AI_INFLIGHT.get(vkey, 0) >= AI_MAX_INFLIGHT:
+            raise HTTPException(429, detail={
+                "code": "ai_inflight",
+                "message": "앞의 질문에 답하는 중이에요. 잠시만 기다려 주세요."})
+        # ③ 1분 연타
+        hits = [t for t in _AI_BURST.get(vkey, []) if now - t < 60]
+        if len(hits) >= AI_BURST_PER_MIN:
+            raise HTTPException(429, detail={
+                "code": "ai_too_fast", "retry_after": 60,
+                "message": "질문이 너무 빨라요. 1분 뒤에 다시 시도해 주세요."})
+        hits.append(now)
+        _AI_BURST[vkey] = hits
+        if len(_AI_BURST) > 20000:      # 무한 성장 방지 — 오래된 것부터 버린다
+            _AI_BURST.clear()
+        # ★ 검사와 증가는 같은 락 안에서 끝내야 한다. 나눠 두면 동시에 들어온 요청이
+        #   전부 검사를 통과한 뒤 다 같이 증가해 동시 상한이 통째로 무력화된다.
+        _AI_INFLIGHT[vkey] = _AI_INFLIGHT.get(vkey, 0) + 1
+
+    day = _ai_day()
+    try:
+        return _ai_quota_day(vkey, ipkey, day)
+    except Exception:
+        with _AI_LOCK:                  # 일일 상한에 걸렸으면 방금 올린 동시 카운터를 내린다
+            n = _AI_INFLIGHT.get(vkey, 0) - 1
+            _AI_INFLIGHT[vkey] = n if n > 0 else 0
+            if not _AI_INFLIGHT.get(vkey):
+                _AI_INFLIGHT.pop(vkey, None)
+        raise
+
+
+def _ai_quota_day(vkey: str, ipkey: str, day: str) -> dict:
+    """일일 카운터 확인 후 1 증가. 상한이면 429."""
+    with _ai_quota_db() as c:
+        rows = dict(c.execute(
+            "SELECT scope||':'||key, n FROM ai_usage WHERE day=? AND "
+            "((scope='v' AND key=?) OR (scope='i' AND key=?))",
+            (day, vkey, ipkey)).fetchall())
+        used_v = rows.get(f"v:{vkey}", 0)
+        used_ip = rows.get(f"i:{ipkey}", 0)
+        if used_v >= AI_DAILY_PER_VISITOR:
+            raise HTTPException(429, detail={
+                "code": "ai_daily_limit", "limit": AI_DAILY_PER_VISITOR, "used": used_v,
+                "message": f"오늘 AI 질문 {AI_DAILY_PER_VISITOR}건을 모두 쓰셨어요. "
+                           "내일 0시에 다시 채워집니다."})
+        if used_ip >= AI_DAILY_PER_IP:
+            raise HTTPException(429, detail={
+                "code": "ai_ip_limit", "limit": AI_DAILY_PER_IP,
+                "message": "같은 네트워크에서 오늘 질문이 너무 많았어요. 내일 다시 이용해 주세요."})
+        for scope, key in (("v", vkey), ("i", ipkey)):
+            c.execute("INSERT INTO ai_usage(scope,key,day,n) VALUES(?,?,?,1) "
+                      "ON CONFLICT(scope,key,day) DO UPDATE SET n=n+1", (scope, key, day))
+        c.commit()
+    return {"key": vkey, "ip_key": ipkey, "remaining": AI_DAILY_PER_VISITOR - used_v - 1}
+
+
+def _ai_quota_release(st: dict | None, *, refund: bool = False) -> None:
+    """진행 중 카운터를 내린다. refund=True 면 실패한 질문이라 일일 사용분도 돌려준다."""
+    if not st:
+        return
+    with _AI_LOCK:
+        n = _AI_INFLIGHT.get(st["key"], 0) - 1
+        if n > 0:
+            _AI_INFLIGHT[st["key"]] = n
+        else:
+            _AI_INFLIGHT.pop(st["key"], None)
+    if not refund:
+        return
+    try:
+        day = _ai_day()
+        with _ai_quota_db() as c:
+            for scope, key in (("v", st["key"]), ("i", st["ip_key"])):
+                c.execute("UPDATE ai_usage SET n=MAX(0,n-1) WHERE scope=? AND key=? AND day=?",
+                          (scope, key, day))
+            c.commit()
+    except Exception:  # noqa: BLE001 — 환불 실패로 답변까지 막지는 않는다
+        pass
+
+
+@app.get("/ai/quota")
+def ai_quota(request: Request, user: dict | None = Depends(current_user_optional)):
+    """오늘 남은 AI 질문 수. 카운터를 올리지 않는 조회 전용(화면 표시용)."""
+    vkey, _ = _ai_visitor(request, user)
+    with _ai_quota_db() as c:
+        row = c.execute("SELECT n FROM ai_usage WHERE scope='v' AND key=? AND day=?",
+                        (vkey, _ai_day())).fetchone()
+    used = (row[0] if row else 0)
+    return {"limit": AI_DAILY_PER_VISITOR, "used": used,
+            "remaining": max(0, AI_DAILY_PER_VISITOR - used), "login": bool(user)}
+
+
+def _log_ai(user: dict | None, question: str, *, answer=None, tools=None, usage=None,
             status: int = 200, error=None, duration_ms=None, request=None) -> None:
-    """AI 질문-답변을 상세 로그로 남긴다(질문/답변/사용도구/토큰/소요시간)."""
+    """AI 질문-답변을 상세 로그로 남긴다(질문/답변/사용도구/토큰/소요시간).
+    비회원도 질문할 수 있으므로 user 는 None 일 수 있다 — 그때는 IP·UA 만 남는다."""
+    user = user or {}
     detail: dict = {"question": question}
     if answer is not None:
         detail["answer"] = answer[:8000]
@@ -8505,17 +8736,20 @@ def _log_ai(user: dict, question: str, *, answer=None, tools=None, usage=None,
 
 
 @app.post("/ai/ask")
-def ai_ask_post(body: AiAskBody, request: Request, user: dict = Depends(current_user)):
+def ai_ask_post(body: AiAskBody, request: Request,
+                user: dict | None = Depends(current_user_optional)):
     """부동산 AI 질의(멀티턴). history 로 이전 대화를 넘기면 '거기서 30평대만' 같은 후속 질문 가능.
-    전화번호 인증 완료 사용자만 호출 가능."""
+    로그인 없이도 쓸 수 있고 포인트도 들지 않는다 — 대신 한 사람 하루 50건."""
     q = (body.q or "").strip()
     if not q:
         raise HTTPException(400, "질문(q)이 비어있습니다")
     if len(q) > 500:
         raise HTTPException(400, "질문이 너무 깁니다 (최대 500자)")
-    _spend_ai(user["id"])   # 포인트 차감(부족 시 402)
-    with _reviews_db() as c:
-        nick = _nickname(c, user["id"])
+    quota = _ai_quota_check(request, user)
+    nick = None
+    if user and user.get("id"):
+        with _reviews_db() as c:
+            nick = _nickname(c, user["id"])
     t0 = _time.perf_counter()
     try:
         from scripts.ai_agent import run_agent
@@ -8525,33 +8759,39 @@ def ai_ask_post(body: AiAskBody, request: Request, user: dict = Depends(current_
                 tools=(res or {}).get("tools_used") or (res or {}).get("tools"),
                 usage=(res or {}).get("usage"),
                 duration_ms=int((_time.perf_counter() - t0) * 1000), request=request)
-        return res
+        _ai_quota_release(quota)
+        return {**(res or {}), "remaining": quota["remaining"]}
     except Exception as e:
         _log_ai(user, q, status=500, error=e,
                 duration_ms=int((_time.perf_counter() - t0) * 1000), request=request)
-        _refund_ai(user["id"])   # 실패 시 차감 포인트 환불 — 답 못 받았는데 P만 빠지는 일 방지
+        # 답을 못 줬으면 오늘 사용분에서 빼 준다 — 서버 잘못으로 50건이 깎이면 안 된다
+        _ai_quota_release(quota, refund=True)
         msg = str(e)
         transient = "503" in msg or "UNAVAILABLE" in msg or "overloaded" in msg or "429" in msg or "RESOURCE_EXHAUSTED" in msg
-        if transient:   # 일시 과부하 → 친절 안내(200), 포인트 환불됨
-            return {"answer": "지금 AI 이용이 잠시 몰려서 답변을 못 드렸어요. 잠시 후 다시 시도해 주세요. "
-                              "(포인트는 차감되지 않았어요)", "tools_used": [], "usage": {}, "model": "", "retry": True}
+        if transient:   # 일시 과부하 → 친절 안내(200)
+            return {"answer": "지금 AI 이용이 잠시 몰려서 답변을 못 드렸어요. 잠시 후 다시 시도해 주세요.",
+                    "tools_used": [], "usage": {}, "model": "", "retry": True}
         raise HTTPException(500, f"AI 처리 실패: {e}")
 
 
 @app.post("/ai/ask-stream")
-def ai_ask_stream(body: AiAskBody, request: Request, user: dict = Depends(current_user)):
+def ai_ask_stream(body: AiAskBody, request: Request,
+                  user: dict | None = Depends(current_user_optional)):
     """부동산 AI 질의(SSE 스트리밍). 진행 단계를 실시간 전송:
     질문분석중 → (도구별)조회중 → 데이터정리중 → 답변작성중 → done(최종답변).
-    전화번호 인증 완료 사용자만 호출 가능."""
+    로그인 없이도 쓸 수 있고 포인트도 들지 않는다 — 대신 한 사람 하루 50건."""
     from fastapi.responses import StreamingResponse
     q = (body.q or "").strip()
     if not q:
         raise HTTPException(400, "질문(q)이 비어있습니다")
     if len(q) > 500:
         raise HTTPException(400, "질문이 너무 깁니다 (최대 500자)")
-    new_bal = _spend_ai(user["id"])   # 포인트 차감(부족 시 402, 스트리밍 시작 전)
-    with _reviews_db() as c:
-        nick = _nickname(c, user["id"])
+    # 쿼터는 스트리밍 시작 전에 잡는다 — 본문이 흐르기 시작하면 429 를 줄 수 없다
+    quota = _ai_quota_check(request, user)
+    nick = None
+    if user and user.get("id"):
+        with _reviews_db() as c:
+            nick = _nickname(c, user["id"])
 
     def gen():
         t0 = _time.perf_counter()
@@ -8565,19 +8805,18 @@ def ai_ask_stream(body: AiAskBody, request: Request, user: dict = Depends(curren
                     fin["answer"] = ev.get("answer")
                     fin["tools"] = ev.get("tools_used")
                     fin["usage"] = ev.get("usage")
-                    ev["points"] = new_bal   # 차감 후 잔액 → 프런트 표시 갱신
+                    ev["remaining"] = quota["remaining"]   # 남은 질문 수 → 프런트 표시
                 elif ev.get("type") == "error":
                     err = ev.get("error")
                 yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
         except Exception as e:
             err = str(e)
             transient = any(x in err for x in ("503", "UNAVAILABLE", "overloaded", "429", "RESOURCE_EXHAUSTED"))
-            emsg = ("지금 AI 이용이 잠시 몰려서 답변을 못 드렸어요. 잠시 후 다시 시도해 주세요. (포인트는 차감되지 않았어요)"
-                    if transient else "AI 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요. (포인트는 차감되지 않았어요)")
+            emsg = ("지금 AI 이용이 잠시 몰려서 답변을 못 드렸어요. 잠시 후 다시 시도해 주세요."
+                    if transient else "AI 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.")
             yield f"data: {_json.dumps({'type': 'error', 'error': emsg, 'retry': transient}, ensure_ascii=False)}\n\n"
         finally:
-            if err:
-                _refund_ai(user["id"])   # 실패 시 차감 포인트 환불
+            _ai_quota_release(quota, refund=bool(err))
             _log_ai(user, q, answer=fin["answer"], tools=fin["tools"], usage=fin["usage"],
                     status=(500 if err else 200), error=err,
                     duration_ms=int((_time.perf_counter() - t0) * 1000), request=request)
@@ -9207,6 +9446,41 @@ _HUMAN_SQL = (
     "AND user_agent NOT LIKE '%zgrab%' AND user_agent NOT LIKE '%semrush%' "
     "AND user_agent NOT LIKE '%ahrefs%' AND user_agent NOT LIKE '%bytespider%'"
 )
+
+
+@app.get("/admin/bot-blocklist")
+def admin_blocklist(_admin: dict = Depends(admin_user)):
+    """스크레이퍼로 확정돼 차단된 IP 목록(자동 차단분 포함)."""
+    rows = []
+    try:
+        if _BLOCK_FILE.exists():
+            for ln in _BLOCK_FILE.read_text().splitlines():
+                ip, _, note = ln.partition("#")
+                if ip.strip():
+                    rows.append({"ip": ip.strip(), "note": note.strip()})
+    except Exception:  # noqa: BLE001
+        pass
+    return {"count": len(rows), "items": rows, "diversity_max_per_hour": _DIVERSITY_MAX}
+
+
+@app.post("/admin/bot-blocklist")
+def admin_blocklist_edit(body: dict, _admin: dict = Depends(admin_user)):
+    """차단 추가/해제. {"ip": "1.2.3.4", "action": "add"|"remove", "note": "..."}"""
+    ip = str(body.get("ip") or "").strip()
+    if not ip:
+        raise HTTPException(400, "ip 가 필요합니다")
+    if body.get("action") == "remove":
+        _blocked_ips.discard(ip)
+        try:
+            if _BLOCK_FILE.exists():
+                keep = [ln for ln in _BLOCK_FILE.read_text().splitlines()
+                        if ln.split("#")[0].strip() != ip]
+                _BLOCK_FILE.write_text("\n".join(keep) + ("\n" if keep else ""))
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True, "ip": ip, "blocked": False}
+    _block_ip(ip, str(body.get("note") or "관리자 지정"))
+    return {"ok": True, "ip": ip, "blocked": True}
 
 
 @app.get("/admin/bot-stats")
@@ -17533,7 +17807,10 @@ def _init_request_db() -> None:
         for _col, _sql in (("escalated", "INTEGER NOT NULL DEFAULT 0"),
                            ("last_escalated_at", "TEXT"),
                            # 문자로 받은 기기에서 로그인 없이 제안을 볼 수 있게 하는 열쇠
-                           ("cust_token", "TEXT")):
+                           ("cust_token", "TEXT"),
+                           # 내부 발송 점검용 요청. 처음 고른 곳엔 보내되(그게 점검 목적),
+                           # 무응답 확대는 하지 않는다 — 실제 영업 중인 사무소로 번지면 안 된다.
+                           ("is_test", "INTEGER NOT NULL DEFAULT 0")):
             try:
                 c.execute(f"ALTER TABLE koczip_requests ADD COLUMN {_col} {_sql}")
             except Exception:  # noqa: BLE001
@@ -17714,6 +17991,20 @@ def request_candidates(cortar: str = "", sigungu: str = "", limit: int = 20,
                        "matched": bool(x.get("matched"))} for x in rows]}
 
 
+def _is_test_request(user: dict | None, body: dict) -> int:
+    """내부 점검용 요청인지. 1이면 무응답 확대(_request_escalate)를 하지 않는다.
+
+    실제로 당한 일: 관리자 번호로 발송을 점검했더니 30분 무응답 확대가 돌아
+    고르지도 않은 중개사무소 9곳에 광고 문자가 나갔다(2026-08-04).
+    판정은 두 가지 — ①관리자 계정이 넣은 요청 ②이름에 '테스트'가 든 요청.
+    관리자 여부가 주된 신호다. 이름은 관리자가 아닌 사람이 점검을 대신할 때의 보조.
+    """
+    if user and user.get("is_admin"):
+        return 1
+    name = str(body.get("name") or "")
+    return 1 if ("테스트" in name or "test" in name.lower()) else 0
+
+
 @app.post("/requests")
 def request_create(body: dict, user: dict = Depends(current_user)):
     """콕집요청 접수 — 전화 인증과 제3자 제공 동의가 있어야 한다."""
@@ -17757,15 +18048,15 @@ def request_create(body: dict, user: dict = Depends(current_user)):
         cur = c.execute(
             "INSERT INTO koczip_requests(user_id,member_no,name,phone,sido,sigungu,cortar,"
             "region_name,asset,trade,area_txt,budget_txt,memo,ai_query,pick_mode,target_count,"
-            "cust_token,consent_at,consent_txt) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+9 hours'),?)",
+            "cust_token,is_test,consent_at,consent_txt) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+9 hours'),?)",
             (uid, pr[2], str(body.get("name") or pr[3] or "")[:30], pr[0],
              str(body.get("sido") or "")[:10], sigungu, cortar,
              str(body.get("region_name") or "")[:60],
              str(body.get("asset") or "apt")[:10], str(body.get("trade") or "A1")[:3],
              str(body.get("area_txt") or "")[:40], str(body.get("budget_txt") or "")[:40],
              str(body.get("memo") or "")[:1000], str(body.get("ai_query") or "")[:500],
-             mode, len(ids), cust_tok, consent_txt))
+             mode, len(ids), cust_tok, _is_test_request(user, body), consent_txt))
         rid = cur.lastrowid
         import secrets as _sec
         for i in ids:
@@ -17889,10 +18180,14 @@ def _request_escalate(req_id: int, n: int = _ESC_ADD, force: bool = False) -> di
     이미 보낸 곳은 제외하고, 가입 사무소엔 알림·미가입엔 문자(허용 시간에만)."""
     import secrets as _sec
     with _reviews_db() as c:
-        q = c.execute("SELECT sigungu, cortar, asset, trade, escalated FROM koczip_requests "
-                      "WHERE id=?", (req_id,)).fetchone()
+        q = c.execute("SELECT sigungu, cortar, asset, trade, escalated, COALESCE(is_test,0) "
+                      "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
         if not q:
             raise HTTPException(404, "요청을 찾을 수 없습니다")
+        # 점검용 요청은 관리자가 눌러도 막는다. 실수로 확대하면 되돌릴 방법이 없다
+        # (이미 나간 문자는 회수가 안 된다) — 정말 필요하면 is_test 를 내리고 다시 부른다.
+        if q[5]:
+            return {"ok": False, "reason": "점검용 요청이라 확대하지 않습니다", "added": 0}
         if not force and (q[4] or 0) >= _ESC_MAX_ROUNDS:
             return {"ok": False, "reason": "확대 한도에 도달했습니다", "added": 0}
         already = {r[0] for r in c.execute(
@@ -18047,7 +18342,9 @@ def escalate_due(limit: int = 20) -> dict:
         rows = c.execute(
             "SELECT q.id FROM koczip_requests q "
             "LEFT JOIN koczip_request_offers o ON o.request_id=q.id "
-            "WHERE q.status='sent' AND COALESCE(q.escalated,0) < ? "
+            # 점검용 요청은 확대하지 않는다 — 실제 영업 사무소로 광고가 번진다
+            "WHERE q.status='sent' AND COALESCE(q.is_test,0)=0 "
+            "  AND COALESCE(q.escalated,0) < ? "
             "  AND COALESCE(q.last_escalated_at, q.created_at) "
             "      <= datetime('now','+9 hours', ?) "
             "GROUP BY q.id HAVING COUNT(o.realtor_id)=0 ORDER BY q.id LIMIT ?",
