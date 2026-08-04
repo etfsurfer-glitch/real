@@ -18179,11 +18179,38 @@ _ALIMTALK_BODY = """[콕집] 손님 매물요청이 도착했습니다.
 
 문의 : 콕집 고객센터"""
 
-# 대체문자(LMS) — 알림톡 실패 시 나간다. 버튼이 없으니 링크를 본문에 넣는 것만 다르다.
+# 대체문자(LMS) — 알림톡 실패 시 나간다. 알림톡은 가입 사무소에만 가므로 여기서도
+# '등록하신 사무소'가 사실이다. 버튼이 없으니 링크를 본문에 넣는 것만 다르다.
 _ALIMTALK_FALLBACK = """[콕집] 손님 매물요청이 도착했습니다.
 
 콕집에 등록하신 사무소의 활동 지역·조건에 맞는
 손님 요청이 접수되어 안내드립니다.
+
+▶ 요청 조건
+{cond}
+
+▶ 손님 요청사항
+{memo}
+
+보유하신 매물 중 맞는 물건이 있으시면
+아래 주소에서 제안해 주세요.
+접수일로부터 72시간 동안 등록하실 수 있습니다.
+
+손님 연락처는 전달되지 않으며,
+등록하신 제안을 보고 손님이 직접 연락드립니다.
+
+▶ 제안 등록
+{link}
+
+문의 : 콕집 고객센터"""
+
+
+# 미가입 사무소용(광고성) — 가입한 적 없는 곳에 '등록하신 사무소'라고 하면 거짓이다.
+# 어떻게 골랐는지(활동 지역·매물 조건)를 밝혀 스팸이 아님을 스스로 설명하게 한다.
+_SMS_AD_BODY = """[콕집] 손님 매물요청이 도착했습니다.
+
+콕집에 접수된 손님 요청 중 귀 사무소의
+활동 지역·매물 조건에 맞는 건이 있어 안내드립니다.
 
 ▶ 요청 조건
 {cond}
@@ -18215,9 +18242,9 @@ def _req_sms_body(req_id: int, rid: str, phone: str = "") -> str | None:
     if not p:
         return None
     link = f"https://koczip.com/offer/{p['token']}" if p["token"] else "https://koczip.com"
-    body = _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link)
-    if not phone:
-        return body
+    if not phone:      # 알림톡 대체문자(가입 사무소) — 알림톡과 같은 내용이어야 한다
+        return _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link)
+    body = _SMS_AD_BODY.format(cond=p["cond"], memo=p["memo"], link=link)
     tok = _optout_token(phone)
     return ("(광고) " + body
             + "\n\n무료 수신거부\n"
@@ -18565,6 +18592,10 @@ def _offer_save(req_id: int, realtor_id: str, body: dict) -> dict:
     with _reviews_db() as c:
         nm = c.execute("SELECT realtor_name FROM koczip_request_targets "
                        "WHERE request_id=? AND realtor_id=?", (req_id, realtor_id)).fetchone()
+        # 새 제안인지 기존 제안 수정인지 — 수정까지 알리면 손님에게 같은 문자가 반복된다
+        is_new = c.execute("SELECT 1 FROM koczip_request_offers "
+                           "WHERE request_id=? AND realtor_id=?",
+                           (req_id, realtor_id)).fetchone() is None
         c.execute("INSERT INTO koczip_request_offers(request_id,realtor_id,realtor_name,"
                   "message,contact,listings) VALUES(?,?,?,?,?,?) "
                   "ON CONFLICT(request_id,realtor_id) DO UPDATE SET "
@@ -18576,7 +18607,7 @@ def _offer_save(req_id: int, realtor_id: str, body: dict) -> dict:
                   "responded_at=datetime('now','+9 hours') "
                   "WHERE request_id=? AND realtor_id=?", (req_id, realtor_id))
         c.commit()
-    _offer_notify_customer(req_id)
+    _offer_notify_customer(req_id, notify_sms=is_new)
     return {"ok": True, "listings": len(items)}
 
 
@@ -18613,24 +18644,94 @@ def _offer_notify_text(req_id: int) -> tuple:
     return title, body, sms
 
 
-def _offer_notify_customer(req_id: int) -> None:
-    """제안이 오면 고객에게 알린다. 웹푸시가 안 가면 문자로 —
-    우리가 받은 번호를 우리가 쓰는 것이라 제3자 제공이 아니다."""
+# 고객용 카카오 승인 템플릿 — 본인이 요청한 건의 응답이라 정보성이 명확하다
+# ("수신자 요청/신청에 따른 정보"). 승인본과 글자·줄바꿈이 같아야 발송된다.
+_ALIMTALK_CUST_BODY = """[콕집] 요청하신 조건에 제안이 도착했습니다.
+
+▶ 요청 조건
+{cond}
+
+▶ 도착한 제안
+{who}
+
+아래 버튼을 눌러 제안하신 매물과 연락처를
+확인하실 수 있습니다.
+
+마음에 드는 곳에 직접 전화하시면 되고,
+고객님 연락처는 중개사무소에 전달되지 않습니다.
+
+문의 : 콕집 고객센터"""
+
+
+def _alimtalk_offer(receiver: str, req_id: int) -> dict | None:
+    """고객에게 '제안 도착' 알림톡. 미설정이면 None → 호출부가 문자로 폴백."""
+    if not (_alimtalk_ready() and settings.aligo_alimtalk_tpl_cust):
+        return None
+    title, _body, _sms = _offer_notify_text(req_id)
+    if not title:
+        return None
+    with _reviews_db() as c:
+        q = c.execute("SELECT region_name,asset,trade,area_txt,cust_token "
+                      "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
+        rows = c.execute("SELECT realtor_name, listings FROM koczip_request_offers "
+                         "WHERE request_id=? ORDER BY created_at", (req_id,)).fetchall()
+    if not q:
+        return None
+    cond = " · ".join(x for x in [q[0], _ASSET_LB.get(q[1], q[1]),
+                                  _TRADE_LB.get(q[2], q[2]), q[3]] if x)
+    n_ls = sum(len(_authjson.loads(r[1] or "[]")) for r in rows)
+    who = ((rows[0][0] or "중개사무소") if rows else "중개사무소") \
+        + (f" 외 {len(rows) - 1}곳" if len(rows) > 1 else "") \
+        + (f" · 매물 {n_ls}건" if n_ls else "")
+    link = (f"https://koczip.com/proposals/{q[4]}" if q[4]
+            else "https://koczip.com/me/requests")
+    body = {
+        "apikey": settings.aligo_api_key, "userid": settings.aligo_user_id,
+        "senderkey": settings.aligo_alimtalk_senderkey,
+        "tpl_code": settings.aligo_alimtalk_tpl_cust,
+        "sender": settings.aligo_sender,
+        "receiver_1": receiver,
+        "subject_1": "제안 도착",
+        "message_1": _ALIMTALK_CUST_BODY.format(cond=cond, who=who),
+        "button_1": _authjson.dumps({"button": [{
+            "name": "받은 제안 보기", "linkType": "WL", "linkMo": link, "linkPc": link,
+        }]}, ensure_ascii=False),
+        "failover": "Y", "fsubject_1": "콕집 제안 도착", "fmessage_1": _sms,
+    }
+    import urllib.parse as _up
+    try:
+        r = _urlreq.Request("https://kakaoapi.aligo.in/akv10/alimtalk/send/",
+                            data=_up.urlencode(body).encode(), method="POST")
+        with _urlreq.urlopen(r, timeout=10) as res:
+            return _authjson.loads(res.read().decode("utf-8", "replace"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[alimtalk] 고객 알림 실패: {str(e)[:120]}", file=_sys.stderr, flush=True)
+        return None
+
+
+def _offer_notify_customer(req_id: int, notify_sms: bool = True) -> None:
+    """제안이 오면 고객에게 알린다. 푸시 성공 여부와 무관하게 문자(승인 후 알림톡)도 보낸다
+    — 푸시는 구독한 사람만 받고 잠금화면에서 놓치기 쉬워, 제안이 왔다는 걸 모르고
+    지나가면 이 기능 자체가 무의미해진다.
+
+    notify_sms=False 는 기존 제안을 '수정'했을 때 — 같은 문자가 반복되면 스팸이 된다.
+    본인이 요청한 건의 응답이라 정보성이고, (광고) 표기 대상이 아니다."""
     try:
         with _reviews_db() as c:
             q = c.execute("SELECT user_id, phone FROM koczip_requests WHERE id=?",
                           (req_id,)).fetchone()
-            n = c.execute("SELECT COUNT(*) FROM koczip_request_offers WHERE request_id=?",
-                          (req_id,)).fetchone()[0]
         if not q:
             return
         title, body, sms = _offer_notify_text(req_id)
         if not title:
             return
-        sent = _send_web_push([q[0]], title, body, url="/me/requests", tag="koczip-offer")
-        # 첫 제안인데 푸시가 안 갔으면 문자로 한 번만(제안마다 문자를 쏘면 스팸이 된다)
-        if not sent and n == 1 and q[1]:
-            _aligo_send_sms(q[1].replace("-", ""), sms, title="콕집 제안 도착")
+        _send_web_push([q[0]], title, body, url="/me/requests", tag="koczip-offer")
+        if notify_sms and q[1]:
+            to = q[1].replace("-", "")
+            # 알림톡 우선 — 템플릿 승인 전이면 None 이 와서 문자로 내려간다
+            at = _alimtalk_offer(to, req_id)
+            if at is None or str(at.get("code")) != "0":
+                _aligo_send_sms(to, sms, title="콕집 제안 도착")
     except Exception as e:  # noqa: BLE001
         print(f"[req] 고객 알림 실패: {str(e)[:120]}", file=_sys.stderr, flush=True)
 

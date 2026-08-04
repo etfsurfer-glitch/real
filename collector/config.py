@@ -31,7 +31,8 @@ class Settings:
     # 알림톡 — 카카오 템플릿 심사가 끝나면 아래 둘을 .env 에 채운다. 비어 있으면
     # 알림톡을 건너뛰고 기존 문자로 나간다(승인 전에도 배포가 안전하도록).
     aligo_alimtalk_senderkey: str   # 발신프로필 키(채널 인증 후 발급)
-    aligo_alimtalk_tpl_code: str    # 승인된 템플릿 코드(T로 시작)
+    aligo_alimtalk_tpl_code: str    # 중개사용 템플릿 코드(매물요청 안내)
+    aligo_alimtalk_tpl_cust: str    # 고객용 템플릿 코드(제안 도착 안내)
 
     @classmethod
     def load(cls) -> "Settings":
@@ -65,6 +66,7 @@ class Settings:
             aligo_sender=os.getenv("ALIGO_SENDER", ""),
             aligo_alimtalk_senderkey=os.getenv("ALIGO_ALIMTALK_SENDERKEY", ""),
             aligo_alimtalk_tpl_code=os.getenv("ALIGO_ALIMTALK_TPL_CODE", ""),
+            aligo_alimtalk_tpl_cust=os.getenv("ALIGO_ALIMTALK_TPL_CUST", ""),
         )
 
 
