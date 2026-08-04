@@ -17777,6 +17777,12 @@ def request_create(body: dict, user: dict = Depends(current_user)):
         c.commit()
 
     _req_notify(rid, ids, names)
+    # 미가입 사무소 문자는 사무소마다 왕복이 있어 응답을 붙잡지 않도록 백그라운드로
+    # 넘긴다(허용시간 밖이면 아무것도 안 보내고 크론이 아침에 처리한다).
+    try:
+        _threading.Thread(target=_send_pending_sms, daemon=True).start()
+    except Exception as e:  # noqa: BLE001
+        print(f"[req] 최초 문자 발송 기동 실패: {str(e)[:100]}", file=_sys.stderr, flush=True)
     return {"ok": True, "id": rid, "sent_to": len(ids),
             "proposals_url": f"https://koczip.com/proposals/{cust_tok}",
             "offices": [{"realtor_id": i, "name": names.get(i)} for i in ids]}
@@ -17803,12 +17809,9 @@ def _req_notify(rid: int, ids: list, names: dict) -> None:
                 capture_output=True, timeout=15)
     except Exception:  # noqa: BLE001
         pass
-    # 미가입 사무소에도 바로 보낸다. 사무소마다 왕복이 있어 응답을 붙잡지 않도록
-    # 백그라운드로 넘긴다(허용시간 밖이면 아무것도 안 보내고 크론이 아침에 처리).
-    try:
-        _threading.Thread(target=_send_pending_sms, daemon=True).start()
-    except Exception as e:  # noqa: BLE001
-        print(f"[req] 최초 문자 발송 기동 실패: {str(e)[:100]}", file=_sys.stderr, flush=True)
+    # ※ 문자 발송은 여기서 하지 않는다. 확대 발송(_request_escalate)이 _req_notify 직후
+    #   _escalate_sms 를 부르는데, 여기서도 보내면 같은 사무소에 두 통이 간다.
+    #   최초 접수는 호출부(create_request)가 _send_pending_sms 를 따로 기동한다.
 
 
 @app.get("/me/requests")
@@ -17869,6 +17872,9 @@ def _office_phones(realtor_id: str) -> list:
                     add(vw[0], "공적대장(vworld)")
     except Exception:  # noqa: BLE001
         pass
+    # 문자·알림톡은 휴대폰으로만 간다. 사무소 대표번호는 90%가 유선(실측 51,396/56,847)이라
+    # 그대로 첫 번째를 쓰면 대부분 발송이 실패한다 — 휴대폰을 앞으로 당긴다.
+    out.sort(key=lambda p: 0 if p["phone"].replace("-", "").startswith("01") else 1)
     return out
 
 
@@ -17930,16 +17936,30 @@ def _escalate_sms(req_id: int, ids: list) -> int:
     for rid in ids:
         if rid in members:            # 가입 사무소는 이미 알림을 받았다
             continue
-        phones = _office_phones(rid)
+        # ★ 보내기 전에 자리를 먼저 찜한다. 접수 직후 스레드와 10분 크론(별도 프로세스)이
+        #   겹치면 같은 사무소에 두 통이 갈 수 있어, sms_at IS NULL 인 행만 원자적으로
+        #   차지하고 못 차지하면(=이미 누가 가져감) 건너뛴다.
+        with _reviews_db() as c:
+            prev = c.execute("SELECT sms_result FROM koczip_request_targets "
+                             "WHERE request_id=? AND realtor_id=?", (req_id, rid)).fetchone()
+            cur = c.execute("UPDATE koczip_request_targets "
+                            "SET sms_at=datetime('now','+9 hours'), sms_result='발송중' "
+                            "WHERE request_id=? AND realtor_id=? AND sms_at IS NULL",
+                            (req_id, rid))
+            c.commit()
+            if cur.rowcount == 0:
+                continue
+        m = _re_link.search(r"\((\d+)회\)", str((prev or [""])[0] or ""))
+        prev_tries = int(m.group(1)) if m else 0
+        # 유선번호로는 문자가 안 간다 — 시도해봐야 실패만 쌓이므로 휴대폰이 없으면 접는다.
+        # (이런 사무소는 관리자 화면에서 사람이 직접 연락해야 한다)
+        phones = [p for p in _office_phones(rid) if p["phone"].replace("-", "").startswith("01")]
         if not phones:
+            _mark_sms(req_id, rid, None, "휴대폰 번호 없음 — 수동 연락 필요")
             continue
         to = phones[0]["phone"].replace("-", "")
         if _is_optout(to):            # 수신거부한 번호엔 알림톡·문자 모두 보내지 않는다
-            with _reviews_db() as c:
-                c.execute("UPDATE koczip_request_targets SET sms_at=datetime('now','+9 hours'), "
-                          "sms_result='수신거부 번호 — 발송 안 함' "
-                          "WHERE request_id=? AND realtor_id=?", (req_id, rid))
-                c.commit()
+            _mark_sms(req_id, rid, phones[0]["phone"], "수신거부 번호 — 발송 안 함")
             continue
         # 알림톡 우선 — 카톡이 안 되면 알리고가 LMS로 대체발송한다(failover=Y).
         # 템플릿 승인 전이라 설정이 비어 있으면 None 이 와서 기존 문자로 내려간다.
@@ -17954,19 +17974,34 @@ def _escalate_sms(req_id: int, ids: list) -> int:
                       file=_sys.stderr, flush=True)
             msg = _req_sms_body(req_id, rid, phone=to)   # 미가입 사무소 → 광고성 요건 포함
             if not msg:
+                _mark_sms(req_id, rid, phones[0]["phone"], "본문 생성 실패")
                 continue
             res = _aligo_send_sms(to, msg, title="(광고) 콕집 매물요청")
             ok, ch = bool(res) and str((res or {}).get("result_code")) == "1", "sms"
             note = ("자동발송(알림톡 실패 폴백)" if at is not None else "자동발송") if ok \
                 else "실패/미설정"
-        with _reviews_db() as c:
-            c.execute("UPDATE koczip_request_targets SET channel=?, sms_phone=?, "
-                      "sms_at=datetime('now','+9 hours'), sms_result=? "
-                      "WHERE request_id=? AND realtor_id=?",
-                      (ch, phones[0]["phone"], note[:60], req_id, rid))
-            c.commit()
+        if ok:
+            _mark_sms(req_id, rid, phones[0]["phone"], note, channel=ch)
+        else:
+            # 실패는 선점을 되돌려 다음 회차가 다시 시도하게 한다 — 다만 3회까지만.
+            # 설정 오류처럼 영영 안 되는 경우에 10분마다 API를 두드리면 안 된다.
+            tries = prev_tries + 1
+            _mark_sms(req_id, rid, phones[0]["phone"], f"{note} ({tries}회)",
+                      channel=ch, retry=tries < 3)
         sent += int(ok)
     return sent
+
+
+def _mark_sms(req_id: int, rid: str, phone, note: str, channel: str = "sms",
+              retry: bool = False) -> None:
+    """발송 결과 기록. retry=True 면 sms_at 을 비워 다음 회차가 다시 집어가게 한다
+    (발송 실패를 '보냈다'로 남기면 그 사무소는 영영 못 받는다)."""
+    with _reviews_db() as c:
+        c.execute("UPDATE koczip_request_targets SET channel=?, sms_phone=?, "
+                  "sms_at=" + ("NULL" if retry else "datetime('now','+9 hours')") + ", "
+                  "sms_result=? WHERE request_id=? AND realtor_id=?",
+                  (channel, phone, note[:60], req_id, rid))
+        c.commit()
 
 
 def _send_pending_sms(limit: int = 60) -> dict:
