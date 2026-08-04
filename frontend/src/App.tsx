@@ -10,6 +10,7 @@ import {
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginKakao, loginGoogle, isInAppBrowser, authClient } from "./auth";
+import { setAuthReturn } from "./lib/authreturn";
 import { logPageview } from "./lib/pageview";
 import PhoneVerify from "./components/PhoneVerify";
 import CrossAppGate from "./components/CrossAppGate";
@@ -125,8 +126,11 @@ const NAV_ITEMS: NavItem[] = [
     { to: "/today/old/stats", label: "오늘 매물 통계" },
   ] },
   { to: "/quick-deals", label: "급매찾기", icon: BadgePercent },
+  // AI 상담사는 '무엇을 요청할지 모를 때' 먼저 물어보는 입구 — 콕집요청과 같은 흐름이라
+  // 상단 메뉴에서 뺀 /ai 를 여기에 하위로 둔다(플로팅 AiFab 은 그대로 유지).
   { to: "/request", label: "콕집요청", icon: Sparkles, children: [
     { to: "/request", label: "요청 보내기" },
+    { to: "/ai", label: "AI 상담사" },
     { to: "/me/requests", label: "내 요청 보기" },
   ] },
   { to: "/finder", label: "맞춤단지", icon: SlidersHorizontal, children: [
@@ -204,6 +208,10 @@ function AppShell() {
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     if (p.get("login") === "google" && !isInAppBrowser()) {
+      // 인앱→외부 브라우저 전환이라 sessionStorage 가 안 넘어온다. URL 로 받은 복귀 경로를
+      // 이 브라우저에 다시 심어 둬야 로그인 후 하던 화면으로 돌아간다.
+      const back = p.get("back");
+      if (back) setAuthReturn(back);
       window.history.replaceState({}, "", window.location.pathname);
       loginGoogle();
     }

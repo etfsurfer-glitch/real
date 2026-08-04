@@ -1,6 +1,7 @@
 import { createClient, type Session } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { setAuthReturn, takeAuthReturn } from "./lib/authreturn";
 
 // 인증 전용 Supabase 클라이언트. 데이터는 supabase.ts 의 로컬 stub(local_api)으로
 // 가지만, 로그인/세션만 진짜 Supabase Auth(카카오 provider)를 쓴다.
@@ -102,7 +103,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const earnedRef = useRef<number | undefined>(undefined);
   const navigate = useNavigate();
-  const loungeRedirectedRef = useRef(false);  // 로그인 1회당 라운지 자동이동 1번만
 
   const mergeMe = (info: MeInfo | null) => {
     if (!info) return;  // 일시 실패 — 이전 권한·프로필 유지(관리자 홈 튕김 방지)
@@ -156,7 +156,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           user: nextUser,
         };
       });
-      if (!token) loungeRedirectedRef.current = false;  // 로그아웃 시 리셋
+      // OAuth 는 항상 랜딩(origin)으로 돌아온다. 흐름 중간에 로그인했다면 그 화면으로
+      // 되돌려 준다 — 안 그러면 콕집요청에 적어 둔 조건이 통째로 날아간다.
+      // /me 응답을 기다리면(재시도 시 2.5초) 그동안 랜딩이 보이므로 먼저 옮긴다.
+      if (token && event === "SIGNED_IN" && window.location.pathname === "/") {
+        const back = takeAuthReturn();
+        if (back) navigate(back, { replace: true });
+      }
       if (token) {
         let info = await fetchMe(token);
         if (!alive) return;
@@ -174,13 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // 온보딩에서 알림 받기로 했고(권한 허용) 아직 구독 안 됐으면 — 로그인 시 조용히 구독 저장.
         // (1번 일반 사용자가 권한만 먼저 받고 로그인은 나중에 한 경우 자동 연결)
         import("./lib/push").then((m) => m.maybeAutoSubscribe(token)).catch(() => {});
-        // 라운지 인증 회원 라운지 안내는 '홈(랜딩)에서 로그인한 경우'로 한정 — 단지상세 등
-        // 다른 페이지에서 로그인하면 보던 화면 유지(2026-07-03 중개사 피드백: 강제 이동 불편).
-        if (event === "SIGNED_IN" && info?.isRealtorMember && !loungeRedirectedRef.current
-            && window.location.pathname === "/") {
-          loungeRedirectedRef.current = true;
-          navigate("/lounge");
-        }
+        // 중개사 회원이라고 로그인 직후 /lounge 로 옮기던 동작은 제거했다(2026-08-04 사용자 지시:
+        // 보던 화면에서 튕겨 나가 오히려 불편). 라운지는 상단 메뉴로 직접 들어간다.
       }
     };
     authClient.auth.getSession().then(({ data }) => apply(data.session));
@@ -206,6 +207,7 @@ export async function loginKakao() {
     alert("로그인 서버(Supabase)가 설정되지 않았습니다.");
     return;
   }
+  setAuthReturn();   // 돌아올 화면 기억 — 콕집요청처럼 흐름 중간에 로그인하는 경우
   await authClient.auth.signInWithOAuth({
     provider: "kakao",
     options: {
@@ -252,10 +254,14 @@ export async function loginGoogle() {
     alert("로그인 서버(Supabase)가 설정되지 않았습니다.");
     return;
   }
+  setAuthReturn();   // 돌아올 화면 기억
   // 인앱 브라우저면: Google이 webview를 막으므로(PKCE도 같은 브라우저서 시작·완료돼야 함)
   // 앱 자체를 외부 브라우저로 열고, 거기서 자동으로 Google 로그인을 트리거한다(?login=google).
+  // 이 경우엔 브라우저 자체가 바뀌어 sessionStorage 가 안 따라가므로 URL 로 넘긴다.
   if (inAppBrowser().inApp) {
-    openExternalUrl(window.location.origin + "/?login=google");
+    const back = window.location.pathname + window.location.search;
+    openExternalUrl(window.location.origin + "/?login=google"
+      + (back !== "/" ? `&back=${encodeURIComponent(back)}` : ""));
     return;
   }
   await authClient.auth.signInWithOAuth({

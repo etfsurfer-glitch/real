@@ -844,6 +844,29 @@ input.search:focus { outline: none; border-color: var(--c-primary); box-shadow: 
   background: linear-gradient(135deg, #1268d3 0%, #6d4ae0 100%);
   box-shadow: 0 8px 20px rgba(18, 104, 211, 0.32);
 }
+/* 히어로 캐릭터 — 인사하듯 살짝 떠 있게. 움직임을 싫어하는 설정이면 멈춘다. */
+.ai-hero-char {
+  display: block; margin: 0 auto 10px; width: auto; height: 152px;
+  filter: drop-shadow(0 10px 18px rgba(31, 45, 74, 0.16));
+  animation: ai-bob 3.4s ease-in-out infinite;
+}
+@keyframes ai-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@media (prefers-reduced-motion: reduce) { .ai-hero-char { animation: none; } }
+
+/* 답변 앞의 프로필 — 카카오톡처럼 '누가 말했는지'를 먼저 보여준다 */
+/* 질문 말풍선이 float:right 라 clear 가 필요하다. 이제 .ai-a 가 이 안으로 들어갔으니
+   clear 도 바깥 컨테이너인 여기서 걸어야 답변이 질문 위로 올라붙지 않는다. */
+.ai-said { display: flex; gap: 9px; align-items: flex-start; clear: both; }
+.ai-said-body { flex: 1; min-width: 0; }
+.ai-said-name {
+  font-size: 12px; font-weight: 700; color: #51606f;
+  margin: 2px 0 4px; letter-spacing: -0.2px;
+}
+.ai-avatar {
+  flex: none; width: 40px; height: 40px; border-radius: 50%; margin-top: 2px;
+  background: #eef3fb; border: 1px solid #dde6f4; object-fit: cover;
+}
+
 .ai-hero-title { margin: 0 0 6px; font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: #17202b; }
 .ai-hero-sub { margin: 0 0 16px; color: var(--c-muted); font-size: 13.5px; }
 .ai-hero-feats {
@@ -4241,19 +4264,34 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 
 
 /* ── 콕집요청 유도 배너(여러 화면 공용) ── */
-.rcta{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
-  background:linear-gradient(100deg,#eef4fd,#e3edfb);border:1.4px solid #cfe0f6;border-radius:14px;
-  padding:15px 17px;margin:16px 0}
-.rcta-compact{padding:11px 14px;margin:10px 0;border-radius:11px}
-.rcta-txt b{display:flex;align-items:center;gap:6px;font-size:15.5px;color:#0d4f9e;
-  letter-spacing:-.02em}
-.rcta-compact .rcta-txt b{font-size:14px}
-.rcta-txt span{display:block;font-size:13px;color:#435363;margin-top:4px;line-height:1.5}
-.rcta-compact .rcta-txt span{font-size:12.5px}
-.rcta-btn{background:#1268d3;color:#fff;border-radius:10px;padding:11px 18px;font-size:14px;
-  font-weight:800;text-decoration:none;white-space:nowrap}
-.rcta-compact .rcta-btn{padding:9px 15px;font-size:13px}
-.rcta-btn:hover{background:#0d55b0}
+/* 흰 카드가 이어지는 화면에서 묻히지 않아야 해서 배경을 옅게 깔고 테두리를 세운다.
+   시선을 먼저 잡는 건 그라데이션이 아니라 '내 번호 비공개' 배지다. */
+.rcta{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;
+  background:var(--c-primary-tint);border:1.6px solid #b9d3f4;border-radius:var(--r-lg);
+  padding:17px 19px;margin:16px 0}
+.rcta-compact{padding:14px 16px;margin:12px 0}
+.rcta-txt{flex:1 1 300px;min-width:0}
+/* 배지·본문 모두 span 이면 `.rcta-txt span` 이 배지를 덮어써(우선순위 승) 배지가 가로로
+   늘어난다. 본문은 <p class=rcta-sub> 로 두고 선택자를 서로 겹치지 않게 분리한다. */
+.rcta-badge{display:inline-flex;align-items:center;gap:5px;background:var(--c-primary);color:#fff;
+  font-size:11.5px;font-weight:800;letter-spacing:-.01em;padding:4px 9px 4px 8px;
+  border-radius:999px;margin:0 0 9px}
+.rcta-txt b{display:block;font-size:16.5px;color:var(--c-text);letter-spacing:-.025em;
+  line-height:1.35}
+.rcta-compact .rcta-txt b{font-size:15px}
+.rcta-sub{font-size:13.5px;color:var(--c-text-soft);margin:6px 0 0;line-height:1.62}
+.rcta-sub i{font-style:normal;font-weight:800;color:var(--c-primary-strong)}
+.rcta-compact .rcta-sub{font-size:13px}
+.rcta-btn{flex:0 0 auto;background:var(--c-primary);color:#fff;border-radius:var(--r-md);
+  padding:13px 19px;font-size:14.5px;font-weight:800;text-decoration:none;white-space:nowrap;
+  letter-spacing:-.03em;box-shadow:0 2px 9px rgba(18,104,211,.3)}
+.rcta-compact .rcta-btn{padding:11px 16px;font-size:13.5px}
+.rcta-btn:hover{background:var(--c-primary-strong)}
+/* 좁은 화면에선 버튼이 오른쪽 끝에 눌려 붙지 않도록 아래로 내려 폭을 채운다 */
+@media (max-width:560px){
+  .rcta{gap:13px}
+  .rcta-btn{width:100%;text-align:center;padding:13px 0}
+}
 
 /* 내 콕집요청 */
 .myreq-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:15px}
@@ -4262,6 +4300,24 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   border-radius:8px;padding:8px 11px}
 .myreq-office span:first-of-type{flex:1}
 
+
+/* 요청 화면 상단 개인정보 안내 — 단계 내내 붙어 있는 띠. 파랑 계열이 이미 많아
+   초록(신뢰·안전)으로 구분한다. */
+.kreq-privacy{display:flex;align-items:flex-start;gap:9px;margin:0 0 14px;padding:12px 14px;
+  background:#effaf3;border:1.5px solid #a8dfc0;border-radius:var(--r-md);
+  font-size:13.5px;line-height:1.62;color:#1c4632}
+.kreq-privacy svg{flex:0 0 auto;margin-top:2px;color:#1f9d63}
+.kreq-privacy b{font-weight:800;color:#12603c}
+.kreq-privacy b:first-child{display:block}
+
+/* 후보 사무소 조회중 표시 — 응답 전 빈 목록을 '없음'으로 오해하지 않게 */
+.kreq-loading{display:flex;align-items:center;gap:9px;margin:12px 0 4px;
+  font-size:13.5px;color:var(--c-text-soft)}
+.kreq-spin{flex:0 0 auto;width:15px;height:15px;border-radius:50%;
+  border:2.2px solid #cfe0f6;border-top-color:var(--c-primary);
+  animation:kreq-spin .7s linear infinite}
+@keyframes kreq-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.kreq-spin{animation-duration:2.4s}}
 
 /* ── 콕집요청 단계 표시 ── */
 .kstep{list-style:none;display:flex;gap:6px;padding:0;margin:0 0 14px}

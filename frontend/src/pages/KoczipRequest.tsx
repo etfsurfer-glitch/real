@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Building2, Check, ChevronLeft, Phone, ShieldCheck, Sparkles } from "lucide-react";
+import { Building2, Check, ChevronLeft, Lock, Phone, ShieldCheck } from "lucide-react";
 import { useAuth, loginKakao, loginGoogle } from "../auth";
 import { PhoneModal } from "../components/PhoneVerify";
 import { RegionSelect, useRegionFilter } from "../components/RegionSelect";
@@ -21,6 +21,9 @@ const label = (arr: readonly (readonly [string, string])[], k: string) =>
 /** 콕집요청 — 한 화면에 하나씩만 묻는 단계형.
  *  중개사무소에는 '조건만' 전달된다(이름·전화 아님). 중개사가 매물과 자기 연락처를
  *  제안으로 남기면 손님이 보고 직접 전화하는 구조다. */
+// 로그인 왕복(OAuth) 동안만 살아 있으면 되는 임시 보관 — 탭을 닫으면 사라진다.
+const DRAFT_KEY = "koczip_request_draft";
+
 export default function KoczipRequest() {
   const { token } = useAuth();
   const nav = useNavigate();
@@ -34,19 +37,28 @@ export default function KoczipRequest() {
     reg.dongs.find((x) => x.code === dong)?.name,
   ].filter(Boolean).join(" "), [reg.sidos, reg.sigungus, reg.dongs, sido, sigungu, dong]);
 
-  const [step, setStep] = useState(0);
-  const [asset, setAsset] = useState(sp.get("asset") || "apt");
-  const [trade, setTrade] = useState(sp.get("trade") || "A1");
-  const [areaTxt, setAreaTxt] = useState(sp.get("area") || "");
-  const [budgetTxt, setBudgetTxt] = useState("");
-  const [memo, setMemo] = useState("");
+  // 로그인은 마지막 단계에서 필요한데 OAuth 는 페이지를 통째로 떠났다 돌아온다.
+  // 적어 둔 조건이 URL 에 없는 것(면적·예산·메모·단계)까지 살려 두지 않으면
+  // 돌아왔을 때 처음부터 다시 입력해야 한다.
+  const draft = useMemo(() => {
+    try { return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "null") || {}; }
+    catch { return {}; }
+  }, []);
+
+  const [step, setStep] = useState<number>(draft.step ?? 0);
+  const [asset, setAsset] = useState(sp.get("asset") || draft.asset || "apt");
+  const [trade, setTrade] = useState(sp.get("trade") || draft.trade || "A1");
+  const [areaTxt, setAreaTxt] = useState(sp.get("area") || draft.areaTxt || "");
+  const [budgetTxt, setBudgetTxt] = useState(draft.budgetTxt || "");
+  const [memo, setMemo] = useState(draft.memo || "");
   const aiQuery = sp.get("q") || "";
   const [prefill, setPrefill] = useState("");
 
-  const [mode, setMode] = useState<"recommend" | "choose">("recommend");
-  const [count, setCount] = useState(3);
-  const [picked, setPicked] = useState<string[]>([]);
+  const [mode, setMode] = useState<"recommend" | "choose">(draft.mode ?? "recommend");
+  const [count, setCount] = useState<number>(draft.count ?? 3);
+  const [picked, setPicked] = useState<string[]>(draft.picked ?? []);
   const [cands, setCands] = useState<Cand[]>([]);
+  const [candsLoading, setCandsLoading] = useState(false);
   const [phoneOK, setPhoneOK] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -58,16 +70,38 @@ export default function KoczipRequest() {
   const authH = useCallback((): Record<string, string> =>
     (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
 
+  // 로그인하러 떠나기 직전에만 저장한다. 지역은 URL(?q=…)이 아니라 드롭다운 상태라
+  // 코드까지 같이 담아야 돌아왔을 때 그대로 복원된다.
+  const saveDraft = () => {
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+        step, asset, trade, areaTxt, budgetTxt, memo,
+        sido, sigungu, dong, mode, count, picked,
+      }));
+    } catch { /* 저장 실패해도 로그인 자체는 진행 */ }
+  };
+
   useEffect(() => {
     if (!token) return;
     fetch(`${API}/me`, { headers: authH() }).then((r) => r.json())
       .then((d) => setPhoneOK(!!d?.phone_verified)).catch(() => {});
   }, [token, authH]);
 
+  // 로그인 왕복에서 돌아왔으면 지역 드롭다운을 초안대로 되돌린다(한 번만).
+  // 초안을 쓴 뒤엔 지워야 다음에 새로 들어왔을 때 옛 조건이 되살아나지 않는다.
+  useEffect(() => {
+    if (draft.sido) reg.setSido(draft.sido);
+    if (draft.sigungu) reg.setSigungu(draft.sigungu);
+    if (draft.dong) reg.setDong(draft.dong);
+    if (draft.sido || draft.step) {
+      try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* */ }
+    }
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
   // AI에 물어본 문장을 조건으로 풀어 채운다.
   // 지역 드롭다운은 10자리 코드를 쓴다 — 2·5자리를 넣으면 아무것도 안 골라진다(실측).
   useEffect(() => {
-    if (!aiQuery) return;
+    if (!aiQuery || draft.sido) return;   // 초안이 있으면 그게 더 최신이다(사용자가 직접 고른 값)
     fetch(`${API}/requests/parse?q=${encodeURIComponent(aiQuery)}`)
       .then((r) => r.json())
       .then((d) => {
@@ -89,8 +123,15 @@ export default function KoczipRequest() {
     if (step < 2 || !sigungu) return;
     const q = new URLSearchParams({ sigungu: sigungu.slice(0, 5), asset, trade, limit: "20" });
     if (dong) q.set("cortar", dong.slice(0, 10));
+    // 응답 전까지 목록이 비어 '찾지 못했어요'가 잘못 뜨던 자리 — 조회중임을 분명히 한다.
+    let live = true;
+    setCandsLoading(true);
     fetch(`${API}/requests/candidates?${q}`)
-      .then((r) => r.json()).then((d) => setCands(d.items || [])).catch(() => setCands([]));
+      .then((r) => r.json())
+      .then((d) => { if (live) setCands(d.items || []); })
+      .catch(() => { if (live) setCands([]); })
+      .finally(() => { if (live) setCandsLoading(false); });
+    return () => { live = false; };      // 조건을 빨리 바꾸면 늦게 온 응답이 덮어쓰지 않게
   }, [step, sigungu, dong, asset, trade]);
 
   const targets = useMemo(() => (
@@ -159,7 +200,19 @@ export default function KoczipRequest() {
 
   return (
     <div className="kreq">
-      <h2><Sparkles size={20} strokeWidth={2.3} /> 콕집요청</h2>
+      <h2>콕집요청</h2>
+
+      {/* 개인정보 안내는 마지막 '보내기' 단계에만 있었다 — 그때는 이미 다 채운 뒤라
+          늦다. 시작부터 끝까지 붙어 있게 단계 위로 올린다. 실제 동작과 일치:
+          중개사무소에 나가는 문자에는 조건과 답장 링크만 담긴다(_req_sms_body). */}
+      <div className="kreq-privacy">
+        <Lock size={15} strokeWidth={2.7} aria-hidden />
+        <span>
+          <b>어떤 개인정보도 전달되지 않습니다.</b>
+          이름·전화번호 없이 <b>조건만</b> 중개사무소로 갑니다.
+          제안을 받아 보고 <b>마음에 드는 곳에만 직접 전화</b>하시면 됩니다.
+        </span>
+      </div>
 
       <ol className="kstep">
         {STEPS.map((s, i) => (
@@ -249,7 +302,15 @@ export default function KoczipRequest() {
                 정하지 않으시면 3곳입니다. 많이 보낼수록 연락도 많이 옵니다.
                 <b> 받는 곳은 다음 화면에서 확인하실 수 있어요.</b>
               </p>
+              {/* 추천받기에서도 후보를 다 받아야 '다음'이 열린다 — 왜 안 눌리는지 보이게 한다 */}
+              {candsLoading && (
+                <p className="kreq-loading"><span className="kreq-spin" aria-hidden />
+                  최적의 중개사무소를 가져오는 중…</p>
+              )}
             </>
+          ) : candsLoading ? (
+            <p className="kreq-loading"><span className="kreq-spin" aria-hidden />
+              최적의 중개사무소를 가져오는 중…</p>
           ) : cands.length === 0 ? (
             <p className="muted">이 조건의 매물을 가진 사무소를 찾지 못했어요. 추천받기를 이용해 보세요.</p>
           ) : (
@@ -316,8 +377,12 @@ export default function KoczipRequest() {
                   적어 두신 조건은 그대로 유지됩니다.
                 </p>
                 <div className="kreq-row">
-                  <button className="kreq-primary" onClick={loginKakao}>카카오로 계속하기</button>
-                  <button className="kreq-ghost" onClick={loginGoogle}>구글로 계속하기</button>
+                  <button className="kreq-primary" onClick={() => { saveDraft(); loginKakao(); }}>
+                    카카오로 계속하기
+                  </button>
+                  <button className="kreq-ghost" onClick={() => { saveDraft(); loginGoogle(); }}>
+                    구글로 계속하기
+                  </button>
                 </div>
               </>
             ) : phoneOK ? (
@@ -386,6 +451,8 @@ export default function KoczipRequest() {
           onDone={() => { setPhoneOK(true); setPhoneOpen(false); }} />
       )}
       <p className="muted" style={{ fontSize: 12, marginTop: 14, lineHeight: 1.6 }}>
+        인증하신 전화번호는 <b>제안 도착 알림에만</b> 쓰이고 중개사무소에는 넘기지 않습니다.
+        요청은 언제든 삭제하실 수 있습니다.
         콕집은 중개 계약의 당사자가 아니며, 조건에 맞는 중개사무소를 연결해 드리는 역할만 합니다.
         실제 거래 조건과 매물 상태는 해당 중개사무소에서 직접 확인하세요. 이용료는 없습니다.
       </p>

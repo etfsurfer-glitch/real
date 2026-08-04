@@ -83,7 +83,7 @@ export default function Onboarding() {
               <span className="onb-opt-ic a"><Search size={22} strokeWidth={2.2} /></span>
               <span className="onb-opt-tx">
                 <b>실거래·급매를 보고 싶어요</b>
-                <em>로그인 없이 바로 둘러볼 수 있어요. (AI 질문은 로그인 후)</em>
+                <em>로그인 없이 바로 둘러볼 수 있어요. AI 질문도 무료예요.</em>
               </span>
               <ChevronRight size={18} className="onb-opt-go" />
             </button>
