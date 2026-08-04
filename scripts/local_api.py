@@ -17916,16 +17916,21 @@ def _escalate_sms(req_id: int, ids: list) -> int:
         # 알림톡 우선 — 카톡이 안 되면 알리고가 LMS로 대체발송한다(failover=Y).
         # 템플릿 승인 전이라 설정이 비어 있으면 None 이 와서 기존 문자로 내려간다.
         at = _aligo_send_alimtalk(to, req_id, rid)
-        if at is not None:
-            ok, ch = str(at.get("code")) == "0", "alimtalk"
-            note = "알림톡 자동발송" if ok else f"알림톡 실패: {str(at.get('message'))[:40]}"
-        else:
+        ok = at is not None and str(at.get("code")) == "0"
+        ch, note = "alimtalk", "알림톡 자동발송"
+        if not ok:
+            # 미설정(None)이든 발송거절(템플릿 미승인·포인트부족 등)이든 문자로 내려간다.
+            # 여기서 안 받으면 아무에게도 안 가므로, 실패는 조용히 넘기지 않는다.
+            if at is not None:
+                print(f"[alimtalk] 문자 폴백 — {str(at.get('message'))[:80]}",
+                      file=_sys.stderr, flush=True)
             msg = _req_sms_body(req_id, rid)
             if not msg:
                 continue
             res = _aligo_send_sms(to, msg, title="콕집 매물요청")
             ok, ch = bool(res) and str((res or {}).get("result_code")) == "1", "sms"
-            note = "자동발송" if ok else "실패/미설정"
+            note = ("자동발송(알림톡 실패 폴백)" if at is not None else "자동발송") if ok \
+                else "실패/미설정"
         with _reviews_db() as c:
             c.execute("UPDATE koczip_request_targets SET channel=?, sms_phone=?, "
                       "sms_at=datetime('now','+9 hours'), sms_result=? "
@@ -18111,14 +18116,15 @@ def admin_request_sms(req_id: int, body: dict, _admin: dict = Depends(admin_user
 
     msg = _req_sms_body(req_id, rid) or ""
     to = phone.replace(" ", "").replace("-", "")
-    at = _aligo_send_alimtalk(to, req_id, rid)      # 승인 전이면 None → 문자
-    if at is not None:
-        ok, ch = str(at.get("code")) == "0", "alimtalk"
+    at = _aligo_send_alimtalk(to, req_id, rid)      # 미설정·미승인이면 아래에서 문자로
+    ok, ch, detail = at is not None and str(at.get("code")) == "0", "alimtalk", ""
+    if ok:
         detail = str(at.get("message") or "")
     else:
+        pre = f"알림톡 실패({str(at.get('message'))[:40]}) → " if at is not None else ""
         res = _aligo_send_sms(to, msg, title="콕집 매물요청")
         ok, ch = bool(res) and str((res or {}).get("result_code")) == "1", "sms"
-        detail = str((res or {}).get("message") or "발송 설정이 없어 보내지 않았습니다(dev)")
+        detail = pre + str((res or {}).get("message") or "발송 설정이 없어 보내지 않았습니다(dev)")
 
     with _reviews_db() as c:
         c.execute("UPDATE koczip_request_targets SET channel=?, sms_phone=?, "
