@@ -17931,11 +17931,13 @@ def _escalate_sms(req_id: int, ids: list) -> int:
         return 0
     sent = 0
     with _reviews_db() as c:
+        # 가입 사무소도 문자를 보낸다(푸시는 잠금화면에서 놓치기 쉽고, 가입 39곳 중
+        # 푸시 구독은 4곳뿐이었다). 다만 문구가 달라진다 — 가입 사무소는 우리 서비스
+        # 이용자라 정보성이고, 미가입은 사전 관계가 없어 (광고) 표기가 필요하다.
         members = {r[0] for r in c.execute(
             "SELECT realtor_id FROM realtor_members WHERE COALESCE(status,'active')='active'")}
     for rid in ids:
-        if rid in members:            # 가입 사무소는 이미 알림을 받았다
-            continue
+        is_member = rid in members
         # ★ 보내기 전에 자리를 먼저 찜한다. 접수 직후 스레드와 10분 크론(별도 프로세스)이
         #   겹치면 같은 사무소에 두 통이 갈 수 있어, sms_at IS NULL 인 행만 원자적으로
         #   차지하고 못 차지하면(=이미 누가 가져감) 건너뛴다.
@@ -17958,7 +17960,9 @@ def _escalate_sms(req_id: int, ids: list) -> int:
             _mark_sms(req_id, rid, None, "휴대폰 번호 없음 — 수동 연락 필요")
             continue
         to = phones[0]["phone"].replace("-", "")
-        if _is_optout(to):            # 수신거부한 번호엔 알림톡·문자 모두 보내지 않는다
+        # 수신거부는 '광고성 문자를 안 보낸다'는 약속이다(수신거부 안내 문구 그대로).
+        # 가입 사무소에 가는 건 본인이 등록한 서비스의 알림이라 그 약속의 대상이 아니다.
+        if not is_member and _is_optout(to):
             _mark_sms(req_id, rid, phones[0]["phone"], "수신거부 번호 — 발송 안 함")
             continue
         # 알림톡 우선 — 카톡이 안 되면 알리고가 LMS로 대체발송한다(failover=Y).
@@ -17972,11 +17976,13 @@ def _escalate_sms(req_id: int, ids: list) -> int:
             if at is not None:
                 print(f"[alimtalk] 문자 폴백 — {str(at.get('message'))[:80]}",
                       file=_sys.stderr, flush=True)
-            msg = _req_sms_body(req_id, rid, phone=to)   # 미가입 사무소 → 광고성 요건 포함
+            # 가입 사무소는 정보성(등록하신 사무소 안내), 미가입은 (광고)+수신거부.
+            msg = _req_sms_body(req_id, rid, phone=("" if is_member else to))
             if not msg:
                 _mark_sms(req_id, rid, phones[0]["phone"], "본문 생성 실패")
                 continue
-            res = _aligo_send_sms(to, msg, title="(광고) 콕집 매물요청")
+            res = _aligo_send_sms(
+                to, msg, title=("콕집 매물요청" if is_member else "(광고) 콕집 매물요청"))
             ok, ch = bool(res) and str((res or {}).get("result_code")) == "1", "sms"
             note = ("자동발송(알림톡 실패 폴백)" if at is not None else "자동발송") if ok \
                 else "실패/미설정"
@@ -18018,8 +18024,6 @@ def _send_pending_sms(limit: int = 60) -> dict:
     if not (_ESC_HOURS[0] <= hour < _ESC_HOURS[1]):
         return {"sent": 0, "targets": 0, "skipped": "허용시간(08~21) 아님"}
     with _reviews_db() as c:
-        members = {r[0] for r in c.execute(
-            "SELECT realtor_id FROM realtor_members WHERE COALESCE(status,'active')='active'")}
         # · status='sent' — 이미 읽거나 제안한 곳에 '요청이 도착했습니다'는 뒷북이다.
         # · 12시간 — 밤 늦게(21:59) 들어온 건이 아침 8시에 나가는 것까지만 허용한다.
         #   그보다 오래된 건은 지금 보내봐야 늦어서 오히려 민폐다.
@@ -18030,9 +18034,7 @@ def _send_pending_sms(limit: int = 60) -> dict:
             "  AND q.created_at >= datetime('now','+9 hours','-12 hours') "
             "ORDER BY t.request_id DESC LIMIT ?", (limit,)).fetchall()
     todo: dict = {}
-    for req_id, rid in rows:
-        if rid in members:            # 가입 사무소는 푸시로 이미 받았다
-            continue
+    for req_id, rid in rows:          # 가입 여부와 무관하게 전부 — 문구만 _escalate_sms 가 가른다
         todo.setdefault(req_id, []).append(rid)
     sent = sum(_escalate_sms(req_id, ids) for req_id, ids in todo.items())
     return {"sent": sent, "targets": sum(len(v) for v in todo.values()),
