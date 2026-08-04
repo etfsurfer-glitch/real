@@ -18131,7 +18131,7 @@ p{{font-size:14.5px;line-height:1.7;color:#2c3a4d;margin:0 0 10px}}
 font-size:12.5px;font-weight:800;background:{'#effaf3' if ok else '#fdf1f1'};
 color:{'#12603c' if ok else '#a33'}}}</style>
 <div class=c><h1>{title}</h1>{body}
-<p class=m>콕집 · koczip.com<br>문의: 콕집 고객센터</p></div></html>"""
+<p class=m>콕집 · koczip.com<br>문의: <a href="https://pf.kakao.com/_ackPX/chat" target="_blank" rel="noopener">콕집 고객센터(카카오톡)</a></p></div></html>"""
 
     with _reviews_db() as c:
         row = c.execute("SELECT phone FROM sms_optout_link WHERE token=?", (token[:64],)).fetchone()
@@ -18216,6 +18216,8 @@ _ALIMTALK_BODY = """[콕집] 손님 매물요청이 도착했습니다.
 
 문의 : 콕집 고객센터"""
 
+_CS_URL = "https://pf.kakao.com/_ackPX/chat"   # 콕집 고객센터(카카오톡 채널·프런트와 동일)
+
 # 대체문자(LMS) — 알림톡 실패 시 나간다. 알림톡은 가입 사무소에만 가므로 여기서도
 # '등록하신 사무소'가 사실이다. 버튼이 없으니 링크를 본문에 넣는 것만 다르다.
 _ALIMTALK_FALLBACK = """[콕집] 손님 매물요청이 도착했습니다.
@@ -18239,7 +18241,8 @@ _ALIMTALK_FALLBACK = """[콕집] 손님 매물요청이 도착했습니다.
 ▶ 제안 등록
 {link}
 
-문의 : 콕집 고객센터"""
+문의 : 콕집 고객센터(카카오톡)
+{cs}"""
 
 
 # 미가입 사무소용(광고성) — 가입한 적 없는 곳에 '등록하신 사무소'라고 하면 거짓이다.
@@ -18265,7 +18268,8 @@ _SMS_AD_BODY = """[콕집] 손님 매물요청이 도착했습니다.
 ▶ 제안 등록
 {link}
 
-문의 : 콕집 고객센터"""
+문의 : 콕집 고객센터(카카오톡)
+{cs}"""
 
 
 def _req_sms_body(req_id: int, rid: str, phone: str = "") -> str | None:
@@ -18280,12 +18284,16 @@ def _req_sms_body(req_id: int, rid: str, phone: str = "") -> str | None:
         return None
     link = f"https://koczip.com/offer/{p['token']}" if p["token"] else "https://koczip.com"
     if not phone:      # 알림톡 대체문자(가입 사무소) — 알림톡과 같은 내용이어야 한다
-        return _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link)
-    body = _SMS_AD_BODY.format(cond=p["cond"], memo=p["memo"], link=link)
+        return _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link, cs=_CS_URL)
+    body = _SMS_AD_BODY.format(cond=p["cond"], memo=p["memo"], link=link, cs=_CS_URL)
     tok = _optout_token(phone)
+    # 수신거부는 자동 처리 링크를 그대로 둔다 — 사람 손을 타면 처리 누락이 생기고,
+    # 정보통신망법이 요구하는 '쉽고 명확한 수단'은 즉시 처리되는 쪽이 안전하다.
+    # 고객센터(카카오톡)는 문의·수동 요청 창구로 함께 안내한다.
     return ("(광고) " + body
             + "\n\n무료 수신거부\n"
-            + (f"https://api.koczip.com/optout/{tok}" if tok else "회신 '수신거부'"))
+            + (f"https://api.koczip.com/optout/{tok}" if tok else _CS_URL)
+            + "\n또는 콕집 고객센터(카카오톡)로 요청하시면 처리해 드립니다.")
 
 
 def _alimtalk_ready() -> bool:
@@ -18318,7 +18326,8 @@ def _aligo_send_alimtalk(receiver: str, req_id: int, rid: str) -> dict | None:
         }]}, ensure_ascii=False),
         "failover": "Y",
         "fsubject_1": "콕집 손님 매물요청 도착",
-        "fmessage_1": _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link),
+        "fmessage_1": _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link,
+                                               cs=_CS_URL),
     }
     import urllib.parse as _up
     try:
