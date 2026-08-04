@@ -50,8 +50,9 @@ SYSTEM_PROMPT = (
     "의도가 조금이라도 있으면 — 규칙 5를 절대 적용하지 말고(절대 '저는 콕집 데이터로만 분석합니다' 문장 쓰지 마라) — "
     "아래 [콕집 사이트 안내] 내용으로 구체적으로 답한다. 도구 호출도 거절 문장도 쓰지 마라.\n"
     "5) [먼저 예외] '살기 좋은 아파트'·'어디가 살기 좋아'·'실거주/주거 만족도 높은 곳/단지'는 off-topic이 절대 아니다 — "
-    "지역이 있으면 find_record_high(그 지역; 신고가 경신=실거주 선호 단지)로 답하고, 지역이 없으면 "
-    "'어느 지역으로 볼까요? (예: 강남구)'라고 한 줄로만 물어라(이 지표는 지역이 필요). 아래 거절문은 쓰지 마라.\n"
+    "find_record_high(신고가 경신=실거주 선호 단지)로 답한다. 지역을 안 밝혔으면 되묻지 말고 "
+    "전국(region='')으로 즉시 조회하고, 답 끝에 '지역을 좁히면 더 정확해요' 한 줄만 덧붙여라. "
+    "아래 거절문은 쓰지 마라.\n"
     "   부동산 데이터와도 무관하고 콕집 사이트 안내도 아닌 질문(청약·학군·날씨·코딩·"
     "일반상식·전망 예측, 개별 은행 금리·DSR 상담, 양도세·종부세·보유세 등)에만 정확히 아래 한 문장으로 답하고, 다른 말이나 추천 질문 나열은 하지 "
     "않는다(추천 질문은 화면이 버튼으로 보여줌):\n"
@@ -63,8 +64,12 @@ SYSTEM_PROMPT = (
     "거절하지 말고 **깡통전세지수(/jeonse-check)**를 안내하라(공시가격 기준 빌라 전세 위험 판정 기능). "
     "빌라 전세 시세가 필요하면 find_villa_stats(trade_type='전월세')도 함께 쓸 수 있다. 규칙 5.5(거절)을 적용하지 마라.\n"
     "5.45) [예외 — 취득세·매수비용·대출한도] '취득세 얼마', 'N억 사면 대출 얼마', '중개수수료 얼마', "
+    "'N억 대출 얼마나 나와'(=집값 N억 기준 한도로 읽어라), "
     "'생애최초 혜택', '매수 비용' 류 질문은 거절하지 말고 calc_purchase_cost 도구로 계산해 답하라. "
     "매매가를 억 단위로 넘기고, 지역이 서울이거나 규제지역 언급이면 region_type='규제지역'. "
+    "★조건을 안 밝혔다고 되묻지 마라 — 보유주택 0채·생애최초 아님·전용 85㎡ 이하·비규제지역을 "
+    "기본값으로 두고 **즉시 계산**한 뒤 '무주택·85㎡ 이하 기준이에요'처럼 가정을 한 줄로 밝혀라. "
+    "도구를 호출하지 않고 계산식이나 코드를 글로 적는 것은 금지다. "
     "답변 끝에 '자세한 전체 비용은 아파트매수계산기(/buy-calculator)에서'를 안내. "
     "단 양도세·종부세·재산세·개별 은행 금리·DSR 계산은 데이터가 없으니 규칙 5로 거절한다.\n"
     "5.46) [매물 수 답변 규칙 — 병기] 매물 개수를 답할 땐 get_listing_stats/find_apartments 의 값으로 "
@@ -101,13 +106,17 @@ SYSTEM_PROMPT = (
     "6.2) [URL·링크] 사용자가 URL(네이버부동산 링크 등)을 붙여넣으면 — 나는 링크를 열 수 없다. "
     "'링크 내용은 열 수 없어요'라고 먼저 정직히 밝히고, 링크 대신 단지명/중개사무소명/지역을 텍스트로 적어달라고 "
     "짧게 안내한다(같은 링크가 반복돼도 같은 안내를 짧게, 도구 호출·추측 금지).\n"
+    "6.4) [여러 지역·단지 비교 — 기준을 되묻지 마라] '강남 3구 비교', 'A랑 B 어디가 나아' 처럼 "
+    "비교를 요청하면 기준을 되묻지 말고 **거래량·평균가(평당가)·전세가율**을 기본 기준으로 즉시 "
+    "compare_regions(둘) 또는 각 지역 region_market_pulse·rank_complexes 를 호출해 나란히 답하라. "
+    "셋 이상이면 각각 조회해 나란히 놓는다. 답 끝에 '다른 기준으로도 볼 수 있어요' 한 줄만 덧붙인다.\n"
     "6.5) [후속질문 — 직전 맥락을 누적해 같은 도구를 다시 호출] '거기서/그 지역/방금 거기'는 직전 질문의 지역을 그대로 쓴다. "
     "'거기서 30평대만', '20억 이하만', '반대로 비싼것부터', '전세는?' 처럼 조건만 바꾸면 — 직전에 쓴 것과 같은 도구를 "
     "(직전 지역·지표는 유지하고 새 조건만 추가/변경해) 다시 호출하라. 예: 직전이 '강남구 거래량 순위'이고 '거기서 30평대만'이면 "
     "→ rank_complexes(metric='거래량', region='강남구', pyeong=30) 재호출. 직전이 단지 시세였고 '그 단지 전세는?'이면 그 단지로 "
     "get_complex_info 재호출. 후속질문에 '이해하지 못했다'·되묻기로 답하는 것은 금지 — 직전 맥락으로 반드시 도구를 다시 부른다. "
-    "특히 '살기 좋은'·'실거주 만족도 높은'·'만족도 높은 아파트'는 find_record_high(그 지역)로 답하라"
-    "(지역 없으면 '어느 지역으로 볼까요?' 한 줄). 이런 질문에 '질문을 이해하지 못했어요'·off-topic 거절은 금지.\n"
+    "특히 '살기 좋은'·'실거주 만족도 높은'·'만족도 높은 아파트'는 find_record_high 로 답하라"
+    "(지역 없으면 전국으로 즉시 — 되묻지 마라). 이런 질문에 '질문을 이해하지 못했어요'·off-topic 거절은 금지.\n"
     "7) '국평(국민평형)' = 전용 84㎡(공급 30평대)가 기본. 전용 59㎡(공급 20평대)도 국평으로 본다(좁은 의미). "
     "40평대 이상은 절대 국평이 아니다. 국평 질문엔 도구 pyeong 인자를 84㎡=30, 59㎡=20 으로 준다(절대 40을 쓰지 마라).\n"
     "8) 가격대(예: '20억대 국평 아파트')로 '살 수 있는 매물'을 찾는 질문은 반드시 find_apartments 를 써라. "
@@ -126,6 +135,10 @@ SYSTEM_PROMPT = (
     "★'제일 비싼/비싼 순/고가/가장 높은' 매물은 sort='높은순', '제일 싼/저렴한'은 sort='낮은순' 을 준다. "
     "그 외에는 sort 를 주지 마라 — 기본값 '대표순'이 가격대 전체에서 고르게 뽑아 준다. "
     "극단 정렬을 습관적으로 넣으면 '강남구 월세'에 월 1만짜리만, '30억~40억'에 30억만 나온다.\n"
+    "8.5) ['살까 말까'·'오를까'·'지금이 적기인가' — 근거부터 가져와라] 전망을 단정하지는 않되, "
+    "빈손으로 감상만 말하지도 마라. region_market_pulse(거래 분위기)와 rank_complexes·find_record_high 로 "
+    "실제 수치를 먼저 가져와 '거래량은 이렇고 신고가는 이렇다'까지 보여 주고, 판단은 손님 몫으로 남긴다. "
+    "도구 없이 '소폭 증가했습니다'·'관망세입니다' 같은 방향을 말하는 것은 지어내기다.\n"
     "9) '못 찾는다'로 끝내지 마라. 요청한 가격대에 없으면 가장 근접한 가격대라도 찾아 "
     "'20억대는 없고 30억대부터 있습니다' 식으로 안내하며 실제 단지를 제시한다. 빈손·되묻기로 끝내는 답변 금지.\n"
     "9.6) [주인전세·세안고·주인대출] '주인전세', '세안고/세끼고', '갭투자 가능한 매물', "
@@ -135,8 +148,7 @@ SYSTEM_PROMPT = (
     "  세 조건은 서로 다르다 — 주인전세=매도인이 전세로 눌러앉음, 세안고=기존 임차인 승계, "
     "주인대출=매도인이 직접 자금 제공. 질문 표현에 맞는 kind 로 호출하고, 도구가 준 '설명'을 "
     "한 줄로 곁들여라 — 용어만으로는 구분이 안 돼 매수자가 실익을 오해한다.\n"
-    "  ★도구가 '답변에_그대로_넣을_목록'을 주면 그 줄들을 **그대로 옮겨 적어라**(가공·생략 금지). "
-    "건수만 요약하고 목록을 빠뜨리면 사용자는 어느 단지인지 알 수 없다.\n"
+    "  ★목록은 아래 9.45 규칙대로 도구가 준 본문을 그대로 옮겨 적어라.\n"
     "  반드시 '광고 문구 기준이라 실제 조건은 중개사무소 확인 필요'를 밝히고, 끝에 [주인 매물 보기](/special-deals)를 붙여라.\n"
     "9.3) [단지 질문 — 도구가 돌려준 정식 단지명과 링크를 반드시 밝혀라] get_complex_info 로 답할 때는 "
     "도구 결과의 '단지' 값(정식 명칭)을 그대로 쓰고, 첫 문장에 **[단지정보 →](/complex/…)** 링크를 붙여라.\n"
@@ -154,6 +166,9 @@ SYSTEM_PROMPT = (
     "  '단지내매물수'와 '단지정보' 값은 도구 결과에 이미 들어 있다 — 그대로 쓰면 된다. 없다고 생략하지 마라. "
     "건수를 빼면 사용자는 그 단지에 몇 개가 있는지 몰라 다시 물어야 하고, 링크를 빼면 확인하러 갈 곳이 없다.\n"
     "  끝에 '총 N건 중 상위 M개 단지'처럼 전체 규모를 한 줄로 밝혀라.\n"
+    "9.45) [도구가 '답변에_그대로_쓸_본문'을 주면 그 줄들을 **그대로** 옮겨 적어라] 줄을 다시 쓰거나 "
+    "요약·생략하지 마라. 직접 쓰면 지역(구·동)·거래유형·링크를 빠뜨린다. 앞뒤로 한두 문장 덧붙이는 것은 "
+    "좋지만 목록 줄 자체는 손대지 않는다. 이 본문은 이미 10줄 이하로 맞춰져 있다.\n"
     "9.5) [목록은 최대 10개 — 같은 줄을 반복하지 마라] 도구가 수십·수백 건을 돌려줘도 답변에 나열하는 항목은 **최대 10개**다. 그 이상은 '외 N건'으로 줄여라. "
     "이미 쓴 줄과 같은 내용을 다시 쓰지 마라 — 단지·면적·가격이 같으면 한 줄로 합치고 옆에 'N건'을 적는다. "
     "사용자 조건에 **맞지 않는 항목은 아예 싣지 마라**. '(조건 초과)'를 붙여 나열하는 것은 금지다 — 조건에 맞는 게 없으면 '조건에 맞는 매물이 없어요'라고 한 줄로 답하고, 가장 근접한 것 3건만 따로 제시하라.\n"
@@ -174,7 +189,7 @@ SYSTEM_PROMPT = (
     "region 을 주면 그 지역만 집계하니 지역 질문에 그대로 써라(예: '강남구 거래량'·'대전 평당가'). "
     "★지역을 안 주면 region 생략하고 **전국으로 즉시 호출**하라 — '저평가 단지', '갭투자 좋은 단지', '회전율 높은 단지', "
     "'수익률 높은 단지'처럼 지역 없는 순위질문에 **절대 '어느 지역이요?'라고 되묻지 마라**(rank_complexes를 전국으로 바로 호출). "
-    "최고가·전세가율·저가거래·호가갭도 이제 region 을 받는다(2026-08-04 수정) — 지역 순위를 물으면 그대로 쓰면 된다. "
+    "최고가·전세가율·저가거래·호가갭도 region 을 받는다 — 지역 순위를 물으면 그대로 쓰면 된다. "
     "▸특정 지역의 '비싼/싼/가격대 **매물**'(예: '제주 비싼 아파트', '대전 싼 아파트')은 지금 나와 있는 호가를 묻는 것이므로 "
     "find_apartments(region=지역, sort) 로 답하고, '실거래 최고가 순위'를 물으면 rank_complexes(metric='최고가', region=지역). "
     "▸특정 지역의 '시세·집값·요즘 거래 활발도'(예: '대전 시세', '강남구 거래 어때') → region_market_pulse(region=지역). "
@@ -229,6 +244,8 @@ SYSTEM_PROMPT = (
     "국회의장(85,000) → 대통령(150,000) → 조물주(300,000) → 건물주(500,000, 최고 등급). "
     "'내 정보 → 계급표 보기'에서 전체 표를 볼 수 있다. (예: '포인트 어떻게 모아요?' → 위 적립 목록을 "
     "안내. '계급 어떻게 올려요?' → 활동으로 포인트를 쌓으면 누적 기준으로 등급이 오른다고 설명.)\n"
+    "· 콕집요청(/request): 조건만 남기면 그 조건의 매물을 가진 동네 중개사무소가 매물을 제안한다(무료). "
+    "전화번호는 중개사무소로 넘어가지 않는다. **보낸 요청과 도착한 제안은 '내 요청 보기(/me/requests)'** 에서 본다.\n"
     "· 관심단지 알림: 단지 상세에서 '관심단지(♥)'를 누르면 등록되고, 계정메뉴 '알림 켜기'로 권한을 켜면 "
     "매일 오후 4시에 관심단지의 매물·실거래 변동을 푸시로 받는다(안드로이드 앱·PC 브라우저, 아이폰은 홈화면 추가 시).\n"
     "· 중개사 홈페이지: 중개사는 '중개사 라운지'에서 휴대폰 인증으로 본인 사무소를 연결한 뒤 무료 홈페이지를 "
@@ -466,6 +483,21 @@ def _won(v):
 # ---------------------------------------------------------------------------
 # 도구 (Gemini function calling 대상)
 # ---------------------------------------------------------------------------
+@lru_cache(maxsize=1)
+def _dong_lookup() -> dict:
+    """cortar_no(동) → '구 동'. 급매·매물 목록에 지역을 붙이는 데 쓴다."""
+    cities, dvsn, sec = _region_index()
+    out = {}
+    for cno, name, parent in sec:
+        gu = (dvsn.get(parent) or (None, None))[0]
+        out[cno] = " ".join(x for x in (gu, name) if x)
+    return out
+
+
+def _gu_dong(cortar_no) -> str:
+    return _dong_lookup().get(str(cortar_no or ""), "")
+
+
 def find_quick_deals(region: str, trade_type: str = "매매",
                      min_discount_pct: float = 5.0, period_days: int = 90,
                      pyeong: int = 0) -> dict:
@@ -533,19 +565,30 @@ def find_quick_deals(region: str, trade_type: str = "매매",
     elif reg.get("city4") and not reg.get("sigungu_cortar"):
         items = [x for x in items if (x.get("cortar_no") or "").startswith(reg["city4"])]
     deals = [{
-        "단지": x["complex_name"], "면적타입(공급㎡)": x["area_name"],
+        "단지": x["complex_name"], "지역": _gu_dong(x.get("cortar_no")),
+        "면적타입(공급㎡)": x["area_name"],
         "전용㎡": round(x["avg_excl"]) if x.get("avg_excl") else None,
-        "현재_최저호가": _won(x["asking_min"]),        # 지금 나와 있는 가장 싼 매물의 호가
+        # 거래유형을 값에 붙인다 — 따로 두면 모델이 빠뜨려 매매인지 전세인지 알 수 없다
+        "현재_최저호가": f"{trade_type} {_won(x['asking_min'])}",
         "기준_실거래평균": _won(x["avg_real"]),         # 할인율의 비교 기준
         "참고_최저실거래": _won(x.get("min_real")),     # 최근 실거래 중 최저(참고용)
         "할인율%": round((x["discount_min"] or 0) * 100, 1),
         "매물수": x["n_listings"],
         "단지정보": f"/complex/{x['complex_no']}",   # 프런트 바로가기 경로
-    } for x in items[:12]]
+    } for x in items[:_LIST_N]]
     resolved = (" ".join(filter(None, [reg["sido"], reg["sigungu"], reg["dong"]])) or "전국")
+    # find_apartments 와 같은 이유로 본문을 완성해 준다 — 모델이 직접 쓰면 지역·거래유형이 샌다
+    body = ""
+    if deals:
+        body = (f"**{resolved} · {trade_type} · 실거래 평균 대비 {min_discount_pct:g}% 이상 싼 매물** "
+                f"{len(deals)}곳이에요.\n\n" + "\n".join(
+                    f"- **{d['단지']}** {d['지역']} · 전용 {d['전용㎡']}㎡ · {d['현재_최저호가']}"
+                    f" (실거래 평균 {d['기준_실거래평균']} 대비 -{d['할인율%']}%)"
+                    f" · 매물 {d['매물수']}건 [단지정보 →]({d['단지정보']})" for d in deals))
     out = {
         "해석된_지역": resolved,
         "거래유형": trade_type, "최소할인율%": min_discount_pct,
+        "답변에_그대로_쓸_본문": body,
         "건수": len(deals), "급매목록": deals,
         "설명": "할인율% = 현재_최저호가가 기준_실거래평균보다 얼마나 싼지. "
               "문장으로 말할 땐 '실거래 평균 X 대비 최저 호가 Y (-Z%)' 형태로 쓰고, 두 값을 바꿔 말하지 말 것.",
@@ -574,7 +617,7 @@ def find_apartments(region: str, excl_min: float = 0.0, excl_max: float = 0.0,
 
     ★'답변에_그대로_쓸_본문'을 **그대로** 답변에 넣는다. 줄을 다시 쓰거나 요약하지 말 것.
       직접 쓰면 지역(구·동)과 거래유형을 계속 빠뜨려서, 손님이 '서울 어디인지, 매매인지
-      전세인지, 왜 84㎡인지' 알 수 없는 목록이 나갔다(실측 2026-08-04).
+      전세인지, 왜 84㎡인지' 알 수 없는 목록이 나간다.
       앞뒤로 한두 문장 덧붙이는 것은 좋지만 목록 자체는 손대지 않는다.
 
     Args:
@@ -1010,19 +1053,22 @@ def find_record_high(region: str, trade_type: str = "매매",
         months: 최근 몇 개월 내 경신을 볼지. 보통 3~6.
     """
     import scripts.local_api as api
-    reg = _resolve_region(region)
-    if not reg:
-        return {"error": f"지역 '{region}' 을(를) 찾지 못했습니다."}
+    # 전국을 지원한다. 예전엔 region 이 비면 에러를 냈고, 모델이 그걸 '0건'으로 읽어
+    # "전국에 신고가 경신 단지가 없다"는 거짓을 말했다(실측 2026-08-04).
+    national = (not (region or "").strip()) or any(k in region for k in ("전국", "전체"))
+    reg = None if national else _resolve_region(region)
+    if not national and not reg:
+        return {"error": f"지역 '{region}' 을(를) 찾지 못했습니다. '서울 강남구'처럼 알려주세요."}
     tt = "B1" if "전세" in trade_type else "A1"
     # 캐시 선조회 — 빌더 AI 캐논 키(days 30/90/180/360)와 일치 시 즉시. 미스 → 라이브.
     items = _rank_items("/stats/tx-record-high", api.tx_record_high,
                         days=int(months * 30), trade=tt, asset="apt",
                         order="recent", limit=1000)
-    if reg.get("dong_cortar"):
+    if reg and reg.get("dong_cortar"):
         items = [x for x in items if (x.get("cortar_no") or "") == reg["dong_cortar"]]
-    elif reg.get("sigungu_code"):
+    elif reg and reg.get("sigungu_code"):
         items = [x for x in items if (x.get("cortar_no") or "").startswith(reg["sigungu_code"])]
-    elif reg.get("sido_code"):
+    elif reg and reg.get("sido_code"):
         items = [x for x in items if (x.get("cortar_no") or "").startswith(reg["sido_code"])]
 
     def up(x):
@@ -1030,13 +1076,14 @@ def find_record_high(region: str, trade_type: str = "매매",
         return round((rp - ph) / ph * 100, 1) if rp and ph else None
 
     out = [{
-        "단지": x["complex_name"], "면적타입(공급㎡)": x["area_key"],
-        "신고가": _won(x["record_price"]), "경신일": x["record_date"],
+        "단지": x["complex_name"], "지역": _gu_dong(x.get("cortar_no")),
+        "면적타입(공급㎡)": x["area_key"],
+        "신고가": f"{trade_type}(실거래) " + _won(x["record_price"]), "경신일": x["record_date"],
         "직전최고": _won(x["prev_high"]), "상승률%": up(x), "층": x["floor"],
         "단지정보": f"/complex/{x['complex_no']}",
     } for x in items[:limit]]
     return {
-        "해석된_지역": " ".join(filter(None, [reg["sido"], reg["sigungu"], reg["dong"]])),
+        "해석된_지역": ("전국" if not reg else " ".join(filter(None, [reg["sido"], reg["sigungu"], reg["dong"]]))),
         "거래유형": trade_type, "건수": len(out), "신고가목록": out,
     }
 
@@ -1236,7 +1283,8 @@ def rank_complexes(metric: str, order: str = "", pyeong: int = 0,
                             trade="A1", asset="apt", area_class=ac, limit=pool, **reg_kw)
         param_region = region_exact
         title = "실거래 최고가순"
-        row = lambda x: {"단지": x["complex_name"], "지역": x["region_name"], "거래가": _won(x["price"]),
+        row = lambda x: {"단지": x["complex_name"], "지역": x["region_name"],
+                         "거래가": "매매(실거래) " + _won(x["price"]),
                          "전용㎡": x["excl_use_ar"], "층": x["floor"], "계약일": x["deal_ymd"]}
     elif "거래량" in m or "거래 많" in m:
         items = _rank_items("/stats/tx-top-volume", api.tx_top_volume,
@@ -1889,7 +1937,7 @@ def find_owner_deals(kind: str = "주인전세", region: str = "", complex_name:
         "많은지역": [f"{t['name']} {t['n']}건" for t in (st.get("top_regions") or [])][:5],
         # ★표시는 이 목록 한 갈래만 준다 — 구조화 목록을 함께 주면 모델이 재가공하다
         #   [단지정보 →] 링크를 빠뜨린다(실측). 답변에 아래 줄을 그대로 옮겨 적으면 된다.
-        "답변에_그대로_넣을_목록": lines,
+        "답변에_그대로_쓸_본문": "\n".join(lines),
         "광고원문": [
             {"단지": x.get("complex_name"), "문구": x.get("desc"), "걸린표현": x.get("matched")}
             for x in (r.get("items") or [])[:5]
@@ -2115,6 +2163,41 @@ def _strip_bad_links(text: str) -> str:
     return re.sub(r"\[([^\]\n]+)\]\(([^)\n]+)\)", repl, text)
 
 
+def _cap_listing_rows(text: str, cap: int = _LIST_N) -> str:
+    """단지 줄이 cap 을 넘으면 자른다.
+
+    모델이 매매·전세·월세로 도구를 나눠 부르면 목록이 10줄씩 붙어 30줄이 된다
+    (실측 2026-08-04 '서초동 59㎡ 매물 있어?' 23줄). 규칙은 최대 10개다.
+    """
+    if not text:
+        return text
+    out, kept, dropped = [], 0, 0
+    for ln in text.split("\n"):
+        if "/complex/" in ln and ln.lstrip().startswith(("-", "*", "•")):
+            kept += 1
+            if kept > cap:
+                dropped += 1
+                continue
+        out.append(ln)
+    if dropped:
+        out.append(f"\n…외 {dropped}곳이 더 있어요. 조건을 좁히면 더 정확히 보여드릴게요.")
+    return "\n".join(out)
+
+
+def _strip_code_leak(text: str) -> str:
+    """모델이 도구를 '호출'하는 대신 호출 코드를 글로 적어 버리는 경우를 지운다.
+
+    실측(2026-08-04): '15억 아파트 매수 비용'에 답하면서
+    ```python print(default_api.calc_purchase_cost(...)) ``` 를 손님에게 그대로 보여줬다.
+    내부 함수명이 새는 것도, 코드가 답인 것도 둘 다 곤란하다.
+    """
+    if not text:
+        return text
+    text = re.sub(r"```[a-zA-Z]*\n.*?```", "", text, flags=re.S)      # 코드블록 통째로
+    text = re.sub(r"^.*default_api\.[a-zA-Z_]+\(.*$", "", text, flags=re.M)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def _dedupe_complexes(text: str) -> str:
     """같은 단지가 두 번 나오는 줄을 지운다.
 
@@ -2205,7 +2288,13 @@ def _askback_nudge(user_region):
 
 # 도구를 안 부르고 '데이터처럼 보이는 답'을 지어낸 경우를 잡는 신호.
 # 단지 링크나 가격이 들어 있는데 조회 도구를 하나도 안 썼다면 그건 지어낸 것이다.
-_FABRICATED_RE = re.compile(r"/complex/\d+|\d+억\s*[\d,]*|\d[\d,]*만원?")
+# '억'이라는 글자만 보고 잡으면 안 된다. 손님 질문을 되받는 문장('15억 아파트 매수 비용은…')
+# 이나 사이트 안내까지 지어내기로 몰려 정상 답변이 통째로 보류됐다(실측 2026-08-04).
+# 지어내기의 실제 표식은 '근거 없이 단지 목록을 늘어놓는 것'이다.
+_COMPLEX_LINK_RE = re.compile(r"/complex/\d+")
+# 시장 수치를 단정하는 문장. '포인트 +100P' 같은 사이트 안내와 겹치지 않게 지표 이름을 함께 본다.
+_STAT_CLAIM_RE = re.compile(
+    r"(거래량|평균\s*매매|평균\s*전세|평균가|전세가율|평당가|신고가|호가|매물수)[^\n]{0,20}?\d")
 
 
 def _history_text(h: dict) -> str:
@@ -2242,7 +2331,13 @@ def _looks_fabricated(text: str, trace: list | None) -> bool:
     """
     if not text or trace:          # 도구를 하나라도 썼으면 근거가 있는 답이다
         return False
-    return bool(_FABRICATED_RE.search(text))
+    # ① 도구 없이 단지 링크가 있는 것은 불가능하다 — 확실한 지어내기.
+    if _COMPLEX_LINK_RE.search(text):
+        return True
+    # ② 지표 이름 옆에 수치를 단정하는 문장이 둘 이상이면 지어낸 것이다.
+    #    '살까 말까'에 도구 없이 "거래량 1,500건·평균 12억 3,000·전세가율 55%"를 만들어 낸 사례가 있다.
+    #    지표 이름을 함께 보므로 사이트 안내(포인트·경로)나 질문 되받기에는 걸리지 않는다.
+    return len(_STAT_CLAIM_RE.findall(text)) >= 2
 
 
 _FABRICATED_NUDGE = (
@@ -2466,7 +2561,7 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
         except Exception:  # noqa: BLE001
             pass
 
-    answer = _dedupe_complexes(_fix_complex_names(_strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp))))))
+    answer = _cap_listing_rows(_strip_code_leak(_dedupe_complexes(_fix_complex_names(_strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp))))))))
     if _looks_fabricated(answer, trace):     # 재시도해도 근거가 없다 → 지어낸 값은 안 내보낸다
         answer = _FABRICATED_FALLBACK
     # 안전망: 모델이 가끔 영어 거절문을 내뱉음 → 한국어로 치환(고객 노출 방지).
@@ -2661,7 +2756,7 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
                             out_tok += (um2.candidates_token_count or 0)
                 except Exception:  # noqa: BLE001
                     pass
-            _ans = _dedupe_complexes(_fix_complex_names(_strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp))))))
+            _ans = _cap_listing_rows(_strip_code_leak(_dedupe_complexes(_fix_complex_names(_strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp))))))))
             if _looks_fabricated(_ans, trace):   # 근거 없는 숫자는 내보내지 않는다
                 _ans = _FABRICATED_FALLBACK
             yield {"type": "done",
