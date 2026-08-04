@@ -16,7 +16,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def main() -> int:
-    from scripts.local_api import escalate_due
+    from scripts.local_api import escalate_due, _send_pending_sms
+
+    # ① 아직 아무 알림도 못 받은 미가입 사무소부터 — 접수 직후 발송이 허용시간(08~21)
+    #    밖이라 걸렀거나, 그때 실패한 건을 여기서 집어간다.
+    p = _send_pending_sms()
+    if p.get("targets"):
+        print(f"최초발송: {p['requests']}건 요청 / {p['targets']}곳 중 {p['sent']}곳 성공")
+    elif p.get("skipped"):
+        print(f"최초발송 보류: {p['skipped']}")
+
     r = escalate_due()
     done = [x for x in r["results"] if x.get("ok")]
     if not r["checked"]:

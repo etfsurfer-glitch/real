@@ -17788,6 +17788,12 @@ def _req_notify(rid: int, ids: list, names: dict) -> None:
                 capture_output=True, timeout=15)
     except Exception:  # noqa: BLE001
         pass
+    # 미가입 사무소에도 바로 보낸다. 사무소마다 왕복이 있어 응답을 붙잡지 않도록
+    # 백그라운드로 넘긴다(허용시간 밖이면 아무것도 안 보내고 크론이 아침에 처리).
+    try:
+        _threading.Thread(target=_send_pending_sms, daemon=True).start()
+    except Exception as e:  # noqa: BLE001
+        print(f"[req] 최초 문자 발송 기동 실패: {str(e)[:100]}", file=_sys.stderr, flush=True)
 
 
 @app.get("/me/requests")
@@ -17939,6 +17945,41 @@ def _escalate_sms(req_id: int, ids: list) -> int:
             c.commit()
         sent += int(ok)
     return sent
+
+
+def _send_pending_sms(limit: int = 60) -> dict:
+    """아직 아무 알림도 못 받은 미가입 사무소에 발송한다.
+
+    최초 발송은 원래 '가입 사무소 푸시 + 관리자 텔레그램'뿐이라, 미가입 사무소는
+    30분 뒤 확대 발송 전까지 아무것도 못 받았다(실측: 푸시 구독 중개사 4곳).
+    요청 접수 직후 한 번, 그리고 크론이 주기적으로 부른다 — 허용시간(08~21) 밖에
+    들어온 건은 다음 크론이 아침에 집어간다.
+
+    기준은 sms_at IS NULL — 한 번 보낸 곳에 다시 보내지 않는다."""
+    import datetime as _dtm
+    hour = (_dtm.datetime.utcnow() + _dtm.timedelta(hours=9)).hour
+    if not (_ESC_HOURS[0] <= hour < _ESC_HOURS[1]):
+        return {"sent": 0, "targets": 0, "skipped": "허용시간(08~21) 아님"}
+    with _reviews_db() as c:
+        members = {r[0] for r in c.execute(
+            "SELECT realtor_id FROM realtor_members WHERE COALESCE(status,'active')='active'")}
+        # · status='sent' — 이미 읽거나 제안한 곳에 '요청이 도착했습니다'는 뒷북이다.
+        # · 12시간 — 밤 늦게(21:59) 들어온 건이 아침 8시에 나가는 것까지만 허용한다.
+        #   그보다 오래된 건은 지금 보내봐야 늦어서 오히려 민폐다.
+        rows = c.execute(
+            "SELECT t.request_id, t.realtor_id FROM koczip_request_targets t "
+            "JOIN koczip_requests q ON q.id = t.request_id "
+            "WHERE t.sms_at IS NULL AND t.status = 'sent' "
+            "  AND q.created_at >= datetime('now','+9 hours','-12 hours') "
+            "ORDER BY t.request_id DESC LIMIT ?", (limit,)).fetchall()
+    todo: dict = {}
+    for req_id, rid in rows:
+        if rid in members:            # 가입 사무소는 푸시로 이미 받았다
+            continue
+        todo.setdefault(req_id, []).append(rid)
+    sent = sum(_escalate_sms(req_id, ids) for req_id, ids in todo.items())
+    return {"sent": sent, "targets": sum(len(v) for v in todo.values()),
+            "requests": len(todo)}
 
 
 def escalate_due(limit: int = 20) -> dict:
