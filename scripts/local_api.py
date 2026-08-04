@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi import Form as FastapiForm
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -17546,6 +17546,21 @@ def _init_request_db() -> None:
                 c.execute(f"ALTER TABLE koczip_request_targets ADD COLUMN {_col} {_sql}")
             except Exception:  # noqa: BLE001
                 pass
+        # 광고성 문자 수신거부 — 정보통신망법 §50. 한 번 거부한 번호로는 다시 보내지 않는다.
+        # 링크 토큰을 따로 두는 이유: 문자에 전화번호를 그대로 실으면 그 자체가 유출이다.
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS sms_optout (
+          phone      TEXT PRIMARY KEY,
+          realtor_id TEXT,
+          source     TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now','+9 hours'))
+        );
+        CREATE TABLE IF NOT EXISTS sms_optout_link (
+          token      TEXT PRIMARY KEY,
+          phone      TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL DEFAULT (datetime('now','+9 hours'))
+        );
+        """)
         c.commit()
 
 
@@ -17919,6 +17934,13 @@ def _escalate_sms(req_id: int, ids: list) -> int:
         if not phones:
             continue
         to = phones[0]["phone"].replace("-", "")
+        if _is_optout(to):            # 수신거부한 번호엔 알림톡·문자 모두 보내지 않는다
+            with _reviews_db() as c:
+                c.execute("UPDATE koczip_request_targets SET sms_at=datetime('now','+9 hours'), "
+                          "sms_result='수신거부 번호 — 발송 안 함' "
+                          "WHERE request_id=? AND realtor_id=?", (req_id, rid))
+                c.commit()
+            continue
         # 알림톡 우선 — 카톡이 안 되면 알리고가 LMS로 대체발송한다(failover=Y).
         # 템플릿 승인 전이라 설정이 비어 있으면 None 이 와서 기존 문자로 내려간다.
         at = _aligo_send_alimtalk(to, req_id, rid)
@@ -17930,10 +17952,10 @@ def _escalate_sms(req_id: int, ids: list) -> int:
             if at is not None:
                 print(f"[alimtalk] 문자 폴백 — {str(at.get('message'))[:80]}",
                       file=_sys.stderr, flush=True)
-            msg = _req_sms_body(req_id, rid)
+            msg = _req_sms_body(req_id, rid, phone=to)   # 미가입 사무소 → 광고성 요건 포함
             if not msg:
                 continue
-            res = _aligo_send_sms(to, msg, title="콕집 매물요청")
+            res = _aligo_send_sms(to, msg, title="(광고) 콕집 매물요청")
             ok, ch = bool(res) and str((res or {}).get("result_code")) == "1", "sms"
             note = ("자동발송(알림톡 실패 폴백)" if at is not None else "자동발송") if ok \
                 else "실패/미설정"
@@ -18017,6 +18039,105 @@ def admin_escalate_due(_admin: dict = Depends(admin_user)):
     return escalate_due()
 
 
+# ── 광고성 문자 수신거부 ────────────────────────────────────────────────
+# 정보통신망법 §50: (광고) 표기 + 전송자 명시 + '무료' 수신거부 수단. 표기만 하고
+# 실제로 막지 않으면 위반이라, 발송 직전에 항상 _is_optout() 을 확인한다.
+
+def _digits(phone: str) -> str:
+    return "".join(ch for ch in str(phone or "") if ch.isdigit())
+
+
+def _optout_token(phone: str) -> str:
+    """번호별 고정 토큰. 문자에 번호를 그대로 실으면 그게 곧 유출이라 토큰을 쓴다."""
+    import secrets as _secrets
+    ph = _digits(phone)
+    if not ph:
+        return ""
+    with _reviews_db() as c:
+        row = c.execute("SELECT token FROM sms_optout_link WHERE phone=?", (ph,)).fetchone()
+        if row:
+            return row[0]
+        tok = _secrets.token_urlsafe(12)
+        try:
+            c.execute("INSERT INTO sms_optout_link(token, phone) VALUES(?,?)", (tok, ph))
+            c.commit()
+        except Exception:  # noqa: BLE001  (동시 요청이 먼저 넣었으면 그것을 쓴다)
+            row = c.execute("SELECT token FROM sms_optout_link WHERE phone=?", (ph,)).fetchone()
+            return row[0] if row else ""
+    return tok
+
+
+def _is_optout(phone: str) -> bool:
+    ph = _digits(phone)
+    if not ph:
+        return False
+    with _reviews_db() as c:
+        return c.execute("SELECT 1 FROM sms_optout WHERE phone=?", (ph,)).fetchone() is not None
+
+
+@app.get("/optout/{token}", response_class=HTMLResponse)
+def sms_optout_page(token: str):
+    """문자 속 수신거부 링크. 누르면 그 자리에서 처리된다 — 로그인·입력 없이 한 번에.
+    JS 없이 동작해야 해서 서버가 HTML을 그대로 그린다."""
+    def page(title: str, body: str, ok: bool = True) -> str:
+        return f"""<!doctype html><html lang=ko><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>{title} · 콕집</title>
+<style>body{{margin:0;padding:38px 20px;background:#f4f6f9;font-family:-apple-system,
+"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#16202e}}
+.c{{max-width:460px;margin:0 auto;background:#fff;border:1px solid #e3e8ee;
+border-radius:14px;padding:26px 22px}}
+h1{{font-size:19px;margin:0 0 12px;letter-spacing:-.02em}}
+p{{font-size:14.5px;line-height:1.7;color:#2c3a4d;margin:0 0 10px}}
+.m{{font-size:12.5px;color:#6b7280;margin-top:16px}}
+.b{{display:inline-block;margin-top:8px;padding:6px 11px;border-radius:999px;
+font-size:12.5px;font-weight:800;background:{'#effaf3' if ok else '#fdf1f1'};
+color:{'#12603c' if ok else '#a33'}}}</style>
+<div class=c><h1>{title}</h1>{body}
+<p class=m>콕집 · koczip.com<br>문의: 콕집 고객센터</p></div></html>"""
+
+    with _reviews_db() as c:
+        row = c.execute("SELECT phone FROM sms_optout_link WHERE token=?", (token[:64],)).fetchone()
+    if not row:
+        return HTMLResponse(page("링크를 확인할 수 없습니다",
+                                 "<p>주소가 잘못되었거나 만료된 링크입니다. "
+                                 "문자에 있는 주소를 그대로 열어 주세요.</p>", ok=False),
+                            status_code=404)
+    ph = row[0]
+    with _reviews_db() as c:
+        c.execute("INSERT OR IGNORE INTO sms_optout(phone, source) VALUES(?, 'link')", (ph,))
+        c.commit()
+    masked = ph[:3] + "-****-" + ph[-4:] if len(ph) >= 10 else ph
+    return HTMLResponse(page(
+        "수신거부 처리되었습니다",
+        f"<p><b>{masked}</b> 번호로는 앞으로 콕집의 광고성 문자를 보내지 않습니다.</p>"
+        "<p>이미 발송 대기 중인 건이 있으면 최대 하루 정도 더 도착할 수 있습니다.</p>"
+        "<span class=b>처리 완료</span>"))
+
+
+@app.get("/admin/sms-optout")
+def admin_sms_optout(limit: int = 200, _admin: dict = Depends(admin_user)):
+    """수신거부 명단 — 법정 기록이라 지우지 않고 보관한다."""
+    with _reviews_db() as c:
+        rows = c.execute("SELECT phone, realtor_id, source, created_at FROM sms_optout "
+                         "ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 1000)),)).fetchall()
+    return {"count": len(rows),
+            "items": [{"phone": r[0], "realtor_id": r[1], "source": r[2], "at": r[3]}
+                      for r in rows]}
+
+
+@app.post("/admin/sms-optout")
+def admin_sms_optout_add(body: dict, _admin: dict = Depends(admin_user)):
+    """문자 회신·전화로 들어온 수신거부를 관리자가 직접 등록."""
+    ph = _digits(body.get("phone"))
+    if len(ph) < 8:
+        raise HTTPException(400, "번호 형식이 올바르지 않습니다")
+    with _reviews_db() as c:
+        c.execute("INSERT OR IGNORE INTO sms_optout(phone, source) VALUES(?, 'admin')", (ph,))
+        c.commit()
+    return {"ok": True, "phone": ph}
+
+
 def _req_msg_parts(req_id: int, rid: str) -> dict | None:
     """요청 안내 메시지의 재료. 알림톡·대체문자가 같은 값을 써야 어긋나지 않는다.
     손님 이름·연락처는 어디에도 넣지 않는다(중개사에겐 조건과 답장 링크만 간다)."""
@@ -18083,13 +18204,24 @@ _ALIMTALK_FALLBACK = """[콕집] 손님 매물요청이 도착했습니다.
 문의 : 콕집 고객센터"""
 
 
-def _req_sms_body(req_id: int, rid: str) -> str | None:
-    """알림톡을 못 쓸 때 나가는 문자 본문(대체문자와 동일)."""
+def _req_sms_body(req_id: int, rid: str, phone: str = "") -> str | None:
+    """문자 본문. phone 을 주면 광고성 요건((광고)·전송자·무료 수신거부)을 갖춘 형태로,
+    안 주면 알림톡 대체문자(정보성, 가입 사무소용)로 만든다.
+
+    미가입 사무소는 우리와 사전 관계가 없어 광고성으로 보는 게 안전하다 —
+    정보통신망법 §50 위반은 과태료 대상이고, 표기만 하고 실제로 차단하지 않으면
+    표기한 의미도 없다."""
     p = _req_msg_parts(req_id, rid)
     if not p:
         return None
     link = f"https://koczip.com/offer/{p['token']}" if p["token"] else "https://koczip.com"
-    return _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link)
+    body = _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link)
+    if not phone:
+        return body
+    tok = _optout_token(phone)
+    return ("(광고) " + body
+            + "\n\n무료 수신거부\n"
+            + (f"https://api.koczip.com/optout/{tok}" if tok else "회신 '수신거부'"))
 
 
 def _alimtalk_ready() -> bool:
@@ -18155,8 +18287,10 @@ def admin_request_sms(req_id: int, body: dict, _admin: dict = Depends(admin_user
         if not tgt:
             raise HTTPException(400, "이 요청의 전달 대상이 아닙니다")
 
-    msg = _req_sms_body(req_id, rid) or ""
     to = phone.replace(" ", "").replace("-", "")
+    if _is_optout(to):
+        raise HTTPException(400, "수신거부한 번호입니다. 발송할 수 없습니다.")
+    msg = _req_sms_body(req_id, rid, phone=to) or ""
     at = _aligo_send_alimtalk(to, req_id, rid)      # 미설정·미승인이면 아래에서 문자로
     ok, ch, detail = at is not None and str(at.get("code")) == "0", "alimtalk", ""
     if ok:
