@@ -17634,10 +17634,14 @@ def request_candidates(cortar: str = "", sigungu: str = "", limit: int = 20,
     # ① 조건 매물 보유 사무소 — listings_current 는 오늘 스냅샷이라 '지금 파는 곳'이 나온다
     try:
         where, params = ["l.realtor_id IS NOT NULL", "l.realtor_id<>''"], []
+        # 지역은 범위조건으로 건다 — substr(c.cortar_no,1,5)=? 로 쓰면 함수가 씌워져
+        # complexes_cortar_idx 를 못 타고 listings_current 전체를 훑는다(강남구 2.6s → 0.09s).
         if cortar:
             where.append("c.cortar_no=?"); params.append(cortar[:10])
         elif sigungu:
-            where.append("substr(c.cortar_no,1,5)=?"); params.append(sigungu[:5])
+            pre = sigungu[:5]
+            where.append("c.cortar_no>=? AND c.cortar_no<?")
+            params += [pre, pre[:-1] + chr(ord(pre[-1]) + 1)]
         else:
             raise ValueError("지역 없음")
         if asset in ("apt", "offi"):
@@ -17647,7 +17651,7 @@ def request_candidates(cortar: str = "", sigungu: str = "", limit: int = 20,
         with _open_db() as d:
             q = d.execute(
                 f"SELECT l.realtor_id, MAX(l.realtor_name), COUNT(*) n "
-                f"FROM listings_current l JOIN complexes c ON c.complex_no=l.complex_no "
+                f"FROM complexes c JOIN listings_current l ON l.complex_no=c.complex_no "
                 f"WHERE {' AND '.join(where)} "
                 f"GROUP BY l.realtor_id ORDER BY n DESC LIMIT ?", (*params, limit)).fetchall()
             ids = [x[0] for x in q]
@@ -17908,16 +17912,25 @@ def _escalate_sms(req_id: int, ids: list) -> int:
         phones = _office_phones(rid)
         if not phones:
             continue
-        msg = _req_sms_body(req_id, rid)
-        if not msg:
-            continue
-        res = _aligo_send_sms(phones[0]["phone"].replace("-", ""), msg, title="콕집 매물요청")
-        ok = bool(res) and str((res or {}).get("result_code")) == "1"
+        to = phones[0]["phone"].replace("-", "")
+        # 알림톡 우선 — 카톡이 안 되면 알리고가 LMS로 대체발송한다(failover=Y).
+        # 템플릿 승인 전이라 설정이 비어 있으면 None 이 와서 기존 문자로 내려간다.
+        at = _aligo_send_alimtalk(to, req_id, rid)
+        if at is not None:
+            ok, ch = str(at.get("code")) == "0", "alimtalk"
+            note = "알림톡 자동발송" if ok else f"알림톡 실패: {str(at.get('message'))[:40]}"
+        else:
+            msg = _req_sms_body(req_id, rid)
+            if not msg:
+                continue
+            res = _aligo_send_sms(to, msg, title="콕집 매물요청")
+            ok, ch = bool(res) and str((res or {}).get("result_code")) == "1", "sms"
+            note = "자동발송" if ok else "실패/미설정"
         with _reviews_db() as c:
-            c.execute("UPDATE koczip_request_targets SET channel='sms', sms_phone=?, "
+            c.execute("UPDATE koczip_request_targets SET channel=?, sms_phone=?, "
                       "sms_at=datetime('now','+9 hours'), sms_result=? "
                       "WHERE request_id=? AND realtor_id=?",
-                      (phones[0]["phone"], ("자동발송" if ok else "실패/미설정")[:60], req_id, rid))
+                      (ch, phones[0]["phone"], note[:60], req_id, rid))
             c.commit()
         sent += int(ok)
     return sent
@@ -17958,8 +17971,9 @@ def admin_escalate_due(_admin: dict = Depends(admin_user)):
     return escalate_due()
 
 
-def _req_sms_body(req_id: int, rid: str) -> str | None:
-    """미가입 사무소에 보낼 문자 본문. 고객 연락처는 넣지 않고 답장 링크만 넣는다."""
+def _req_msg_parts(req_id: int, rid: str) -> dict | None:
+    """요청 안내 메시지의 재료. 알림톡·대체문자가 같은 값을 써야 어긋나지 않는다.
+    손님 이름·연락처는 어디에도 넣지 않는다(중개사에겐 조건과 답장 링크만 간다)."""
     with _reviews_db() as c:
         q = c.execute("SELECT region_name,asset,trade,area_txt,budget_txt,memo "
                       "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
@@ -17967,15 +17981,112 @@ def _req_sms_body(req_id: int, rid: str) -> str | None:
                        "WHERE request_id=? AND realtor_id=?", (req_id, rid)).fetchone()
     if not q:
         return None
-    cond = " · ".join(x for x in [q[0], _ASSET_LB.get(q[1], q[1]),
-                                  _TRADE_LB.get(q[2], q[2]), q[3], q[4]] if x)
-    link = f"https://koczip.com/offer/{tk[0]}" if tk and tk[0] else "https://koczip.com"
-    return (f"[콕집] 손님 매물요청이 접수됐습니다.\n"
-            f"조건: {cond}\n"
-            + (f"요청: {str(q[5])[:120]}\n" if q[5] else "")
-            + f"맞는 매물이 있으면 아래에서 제안해 주세요(72시간). 손님이 보고 직접 연락합니다.\n"
-            f"{link}\n"
-            f"콕집 koczip.com · 수신거부 회신")
+    return {
+        "cond": " · ".join(x for x in [q[0], _ASSET_LB.get(q[1], q[1]),
+                                       _TRADE_LB.get(q[2], q[2]), q[3], q[4]] if x),
+        # 카카오 템플릿은 빈 변수를 허용하지 않는다 — 메모가 없으면 대치문자와 같은 값을 넣는다
+        "memo": (str(q[5])[:120].strip() if q[5] else "") or "특이사항 없음",
+        "token": (tk[0] if tk and tk[0] else ""),
+    }
+
+
+# 카카오 승인 템플릿 — 심사 통과본과 글자·줄바꿈이 정확히 같아야 발송된다
+# ("메시지가 템플릿과 일치하지않음" 으로 반려됨). 문구를 고치려면 템플릿부터 재심사.
+_ALIMTALK_BODY = """[콕집] 손님 매물요청이 도착했습니다.
+
+콕집에 등록하신 사무소의 활동 지역·조건에 맞는
+손님 요청이 접수되어 안내드립니다.
+
+▶ 요청 조건
+{cond}
+
+▶ 손님 요청사항
+{memo}
+
+보유하신 매물 중 맞는 물건이 있으시면
+아래 버튼을 눌러 제안해 주세요.
+접수일로부터 72시간 동안 등록하실 수 있습니다.
+
+손님 연락처는 전달되지 않으며,
+등록하신 제안을 보고 손님이 직접 연락드립니다.
+
+문의 : 콕집 고객센터"""
+
+# 대체문자(LMS) — 알림톡 실패 시 나간다. 버튼이 없으니 링크를 본문에 넣는 것만 다르다.
+_ALIMTALK_FALLBACK = """[콕집] 손님 매물요청이 도착했습니다.
+
+콕집에 등록하신 사무소의 활동 지역·조건에 맞는
+손님 요청이 접수되어 안내드립니다.
+
+▶ 요청 조건
+{cond}
+
+▶ 손님 요청사항
+{memo}
+
+보유하신 매물 중 맞는 물건이 있으시면
+아래 주소에서 제안해 주세요.
+접수일로부터 72시간 동안 등록하실 수 있습니다.
+
+손님 연락처는 전달되지 않으며,
+등록하신 제안을 보고 손님이 직접 연락드립니다.
+
+▶ 제안 등록
+{link}
+
+문의 : 콕집 고객센터"""
+
+
+def _req_sms_body(req_id: int, rid: str) -> str | None:
+    """알림톡을 못 쓸 때 나가는 문자 본문(대체문자와 동일)."""
+    p = _req_msg_parts(req_id, rid)
+    if not p:
+        return None
+    link = f"https://koczip.com/offer/{p['token']}" if p["token"] else "https://koczip.com"
+    return _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link)
+
+
+def _alimtalk_ready() -> bool:
+    """템플릿 승인 후 .env 에 senderkey·tpl_code 를 채우면 그때부터 켜진다."""
+    return bool(settings.aligo_api_key and settings.aligo_user_id and settings.aligo_sender
+                and settings.aligo_alimtalk_senderkey and settings.aligo_alimtalk_tpl_code)
+
+
+def _aligo_send_alimtalk(receiver: str, req_id: int, rid: str) -> dict | None:
+    """알림톡 발송(실패 시 알리고가 LMS로 대체발송). 미설정이면 None → 호출부가 문자로 폴백.
+    응답 code 는 0 이 성공이다(문자 API 의 result_code 와 규칙이 다르다)."""
+    if not _alimtalk_ready():
+        return None
+    p = _req_msg_parts(req_id, rid)
+    if not p:
+        return None
+    link = f"https://koczip.com/offer/{p['token']}" if p["token"] else "https://koczip.com"
+    body = {
+        "apikey": settings.aligo_api_key,
+        "userid": settings.aligo_user_id,
+        "senderkey": settings.aligo_alimtalk_senderkey,
+        "tpl_code": settings.aligo_alimtalk_tpl_code,
+        "sender": settings.aligo_sender,
+        "receiver_1": receiver,
+        "subject_1": "손님 매물요청 도착",
+        "message_1": _ALIMTALK_BODY.format(cond=p["cond"], memo=p["memo"]),
+        "button_1": _authjson.dumps({"button": [{
+            "name": "매물 제안하기", "linkType": "WL",
+            "linkMo": link, "linkPc": link,
+        }]}, ensure_ascii=False),
+        "failover": "Y",
+        "fsubject_1": "콕집 손님 매물요청 도착",
+        "fmessage_1": _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link),
+    }
+    import urllib.parse as _up
+    try:
+        req = _urlreq.Request("https://kakaoapi.aligo.in/akv10/alimtalk/send/",
+                              data=_up.urlencode(body).encode(), method="POST")
+        with _urlreq.urlopen(req, timeout=10) as r:
+            return _authjson.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[alimtalk] 발송 실패: {str(e)[:120]}", file=_sys.stderr, flush=True)
+        return None
 
 
 @app.post("/admin/requests/{req_id}/sms")
@@ -17999,18 +18110,59 @@ def admin_request_sms(req_id: int, body: dict, _admin: dict = Depends(admin_user
             raise HTTPException(400, "이 요청의 전달 대상이 아닙니다")
 
     msg = _req_sms_body(req_id, rid) or ""
-    res = _aligo_send_sms(phone.replace(" ", ""), msg, title="콕집 매물요청")
-    ok = bool(res) and str((res or {}).get("result_code")) == "1"
+    to = phone.replace(" ", "").replace("-", "")
+    at = _aligo_send_alimtalk(to, req_id, rid)      # 승인 전이면 None → 문자
+    if at is not None:
+        ok, ch = str(at.get("code")) == "0", "alimtalk"
+        detail = str(at.get("message") or "")
+    else:
+        res = _aligo_send_sms(to, msg, title="콕집 매물요청")
+        ok, ch = bool(res) and str((res or {}).get("result_code")) == "1", "sms"
+        detail = str((res or {}).get("message") or "발송 설정이 없어 보내지 않았습니다(dev)")
 
     with _reviews_db() as c:
-        c.execute("UPDATE koczip_request_targets SET channel='sms', sms_phone=?, "
+        c.execute("UPDATE koczip_request_targets SET channel=?, sms_phone=?, "
                   "sms_at=datetime('now','+9 hours'), sms_result=? "
                   "WHERE request_id=? AND realtor_id=?",
-                  (phone, ("발송됨" if ok else str((res or {}).get("message") or "미설정(dev)"))[:60],
-                   req_id, rid))
+                  (ch, phone, (("발송됨(" + ch + ")") if ok else detail)[:60], req_id, rid))
         c.commit()
-    return {"ok": ok, "detail": (res or {}).get("message") or "발송 설정이 없어 보내지 않았습니다(dev)",
-            "preview": msg}
+    return {"ok": ok, "channel": ch, "detail": detail, "preview": msg}
+
+
+@app.get("/admin/alimtalk/status")
+def admin_alimtalk_status(_admin: dict = Depends(admin_user)):
+    """알림톡 준비 상태 — 설정 유무, 승인된 템플릿, 남은 발송건수.
+    '승인 났는데 왜 문자로 나가지?' 를 화면에서 바로 가릴 수 있게 한다."""
+    import urllib.parse as _up
+    out: dict = {
+        "ready": _alimtalk_ready(),
+        "senderkey": bool(settings.aligo_alimtalk_senderkey),
+        "tpl_code": settings.aligo_alimtalk_tpl_code or None,
+        "sender": settings.aligo_sender or None,
+    }
+
+    def _post(path: str, extra: dict) -> dict:
+        body = {"apikey": settings.aligo_api_key, "userid": settings.aligo_user_id, **extra}
+        try:
+            r = _urlreq.Request(f"https://kakaoapi.aligo.in{path}",
+                                data=_up.urlencode(body).encode(), method="POST")
+            with _urlreq.urlopen(r, timeout=10) as res:
+                return _authjson.loads(res.read().decode("utf-8", "replace"))
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)[:120]}
+
+    if settings.aligo_api_key and settings.aligo_user_id:
+        out["잔여건수"] = _post("/akv10/heartinfo/", {}).get("list")
+        if settings.aligo_alimtalk_senderkey:
+            tpl = _post("/akv10/template/list/",
+                        {"senderkey": settings.aligo_alimtalk_senderkey})
+            out["templates"] = [
+                {"code": t.get("templtCode"), "name": t.get("templtName"),
+                 "심사": t.get("inspStatus"), "상태": t.get("status")}
+                for t in (tpl.get("list") or [])
+            ]
+            out["심사요약"] = tpl.get("info")
+    return out
 
 
 @app.get("/admin/requests")
