@@ -4,7 +4,7 @@
 // 흐름: ① 입력 → ② 확인(자동으로 채운 값을 근거와 함께) → ③ 저장.
 // 확인을 건너뛰지 않는다 — 근거 없는 값을 그냥 믿으라고 요구하지 않기 위해서다.
 import { useState } from "react";
-import { Sparkles, Loader2, Check, X, Building2, UserRound, Lock, AlertTriangle, Link2 } from "lucide-react";
+import { Sparkles, Loader2, Check, X, Building2, UserRound, Lock, AlertTriangle, Link2, Search } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -165,9 +165,23 @@ export default function QuickAdd({ authH, onSaved }: {
 
   // 단지 후보 중 하나를 고르면 그 단지 기준으로 다시 채운다
   const [enriching, setEnriching] = useState<number | null>(null);
+  // 후보에도 없으면 중개사가 직접 찾아 넣는다
+  const [cxOpen, setCxOpen] = useState<number | null>(null);
+  const [cxQ, setCxQ] = useState("");
+  const [cxHits, setCxHits] = useState<{ complex_no: string; complex_name: string; region?: string; households?: number }[]>([]);
+  const [cxBusy, setCxBusy] = useState(false);
+  const searchComplex = async () => {
+    if (cxQ.trim().length < 2 || cxBusy) return;
+    setCxBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}/lounge/complex-search?q=${encodeURIComponent(cxQ)}`, { headers: authH() });
+      const j = await r.json();
+      setCxHits(j.items ?? []);
+    } catch { setCxHits([]); } finally { setCxBusy(false); }
+  };
   const pickComplex = async (i: number, complex_no: string) => {
     if (!parsed || enriching !== null) return;
-    setEnriching(i); setErr("");
+    setEnriching(i); setErr(""); setCxOpen(null); setCxHits([]); setCxQ("");
     try {
       const res = await fetch(`${API_BASE}/lounge/quick-enrich`, {
         method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
@@ -322,15 +336,48 @@ export default function QuickAdd({ authH, onSaved }: {
               {r._note && (
                 <p className="qadd-note warn"><AlertTriangle size={12} /> {r._note}</p>
               )}
-              {r._complex_cands && r._complex_cands.length > 0 && (
+              {(r._complex_cands?.length || r._note) && (
                 <div className="qadd-cands">
-                  {r._complex_cands.map((cd) => (
+                  {(r._complex_cands || []).map((cd) => (
                     <button key={cd.complex_no} disabled={enriching !== null}
                       onClick={() => pickComplex(i, cd.complex_no)}>
                       {enriching === i ? <Loader2 size={11} className="txm-spin" /> : <Building2 size={11} />}
                       {cd.name}{cd.region ? <em>{cd.region}</em> : null}
                     </button>
                   ))}
+                  <button className="ghost" onClick={() => {
+                    setCxOpen(cxOpen === i ? null : i);
+                    setCxQ(String(r.complex_name || "").replace(/아파트$/, "").trim());
+                    setCxHits([]);
+                  }}>
+                    <Search size={11} /> 단지 직접 찾기
+                  </button>
+                </div>
+              )}
+              {cxOpen === i && (
+                <div className="qadd-cxfind">
+                  <span className="qadd-cxin">
+                    <Search size={14} />
+                    <input value={cxQ} autoFocus placeholder="단지명 두 글자 이상"
+                      onChange={(e) => setCxQ(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") searchComplex(); }} />
+                    <button onClick={searchComplex} disabled={cxBusy || cxQ.trim().length < 2}>
+                      {cxBusy ? <Loader2 size={12} className="txm-spin" /> : "찾기"}
+                    </button>
+                  </span>
+                  {cxHits.length > 0 && (
+                    <div className="qadd-cxlist">
+                      {cxHits.map((h) => (
+                        <button key={h.complex_no} onClick={() => pickComplex(i, h.complex_no)}>
+                          <b>{h.complex_name}</b>
+                          <span>{h.region}{h.households ? ` · ${h.households.toLocaleString()}세대` : ""}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!cxBusy && cxHits.length === 0 && cxQ.trim().length >= 2 && (
+                    <p className="qadd-note">찾기를 눌러 단지를 검색하세요.</p>
+                  )}
                 </div>
               )}
               {r._area_name_cands && r._area_name_cands.length > 1 && (

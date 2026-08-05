@@ -13629,6 +13629,40 @@ def _qa_match_complex(c, name: str, hint: str) -> tuple:
     return None, [], f"'{name}' 을(를) 단지 목록에서 못 찾았어요"
 
 
+def _qa_pick_by_ledger(cands, dong, ho):
+    """후보가 여럿일 때 건축물대장 건물명으로 하나를 가린다.
+
+    같은 지번에 여러 단지가 등록된 경우가 있다(둔산동 1388 = 한마루럭키·한마루삼성).
+    지번만으로는 못 가르므로, 그 동·호의 대장 건물명을 읽어 후보 이름과 대조한다.
+    확실히 하나로 좁혀질 때만 고른다 — 애매하면 사람에게 넘긴다.
+    반환: (고른 후보 or None, 대장 건물명 or "")
+    """
+    if not (dong and ho and cands):
+        return None, ""
+    seen, bld = set(), ""
+    for r in cands:
+        cortar, addr = r[2], r[3]
+        if not (cortar and addr) or (cortar, addr) in seen:
+            continue
+        seen.add((cortar, addr))
+        led = _qa_expos(cortar, addr, dong, ho, want_bld=True)
+        if led and led.get("bld"):
+            bld = led["bld"]
+            break
+    if not bld:
+        return None, ""
+    import re as _re
+    key = _qa_name_key(_re.sub(r"[()\s]", "", bld))
+    hits = [r for r in cands if _qa_name_key(r[1]) == key]
+    if len(hits) == 1:
+        return hits[0], bld
+    # 괄호 안 브랜드까지 본다: '한마루(삼성)아파트' → '한마루삼성'
+    hits = [r for r in cands if _qa_name_key(r[1]) and key.endswith(_qa_name_key(r[1]))]
+    if len(hits) == 1:
+        return hits[0], bld
+    return None, bld
+
+
 def _qa_enrich_listing(row: dict) -> dict:
     """단지명+동+호 → 건축물대장·우리 단지 DB 로 빈칸을 채운다(설계안 §4-2).
 
@@ -13643,6 +13677,15 @@ def _qa_enrich_listing(row: dict) -> dict:
         with _open_db() as c:
             hint = " ".join(str(row.get(k) or "") for k in ("address", "address_detail", "memo"))
             hit, cands, why = _qa_match_complex(c, name, hint)
+            if not hit and cands:
+                # 지번이 같아 이름만으로 못 가르는 경우가 있다 → 대장 건물명으로 한 번 더 가린다
+                d0, h0 = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
+                picked, bld = _qa_pick_by_ledger(cands, d0, h0)
+                if picked:
+                    hit, why = picked, ""
+                    auto["complex_name"] = "건축물대장 건물명"
+                elif bld:
+                    why = f"건축물대장에는 '{bld}' 로 되어 있어요. 어느 단지인지 골라 주세요"
             if not hit:
                 row["_note"] = why
                 if cands:
@@ -13711,7 +13754,8 @@ def _qa_norm_dong_ho(dong, ho):
     return (d or None), (h or None)
 
 
-def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str) -> dict | None:
+def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
+              want_bld: bool = False) -> dict | None:
     """건축물대장 전유부 — 동·호 단위 전용면적·층. 실패는 None(저장은 계속된다).
 
     data.go.kr 은 간헐적으로 401/5xx 를 낸다(실측: 같은 요청이 3초 뒤엔 정상).
@@ -13752,9 +13796,12 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str) -> dict |
             g = lambda t: (it.findtext(t) or "").strip()   # noqa: E731
             if g("exposPubuseGbCdNm") != "전유":
                 continue
-            return {"area": float(g("area") or 0) or None,
-                    "floor": int(g("flrNo") or 0) or None,
-                    "struct": g("strctCdNm")}
+            out = {"area": float(g("area") or 0) or None,
+                   "floor": int(g("flrNo") or 0) or None,
+                   "struct": g("strctCdNm")}
+            if want_bld:
+                out["bld"] = g("bldNm")
+            return out
     return None
 
 
