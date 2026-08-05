@@ -332,30 +332,31 @@ export function DashboardTab({ authH, office, onGoTab }: {
                 )))}
             </div>
           )}
+          {/* 상담신청 — 캘린더가 길어 현황 아래가 비었다. 그 자리를 채운다.
+              상담은 '오늘 처리할 일'이라 일정 옆에 붙어 있는 편이 맞기도 하다. */}
+          <div className="dash-sec-h">
+            <h3><MessageSquare size={16} strokeWidth={2.3} /> 상담신청 {d.leads.new_count > 0 && <span className="dash-badge">{d.leads.new_count} 신규</span>}</h3>
+            <button className="hood-more" onClick={() => onGoTab("leads")}>전체보기 <ChevronRight size={13} /></button>
+          </div>
+          {d.leads.recent.length === 0
+            ? <div className="dash-empty">아직 들어온 상담신청이 없어요. 홈페이지를 만들면 상담이 여기로 쌓입니다.</div>
+            : <div className="dash-leads">
+                {d.leads.recent.map((l) => (
+                  <div key={l.id} className="dash-lead">
+                    <span className="ctx-badge" style={leadBadge(l.status)}>{leadKr(l.status)}</span>
+                    <span className="dash-lead-name">{l.name ?? "익명"}</span>
+                    <span className="dash-lead-msg">{l.message ?? "-"}</span>
+                    {l.phone && <a className="dash-lead-tel" href={`tel:${l.phone.replace(/[^0-9+]/g, "")}`}>{l.phone}</a>}
+                    <span className="muted dash-lead-date">{l.created_at?.slice(5, 10)}</span>
+                  </div>
+                ))}
+              </div>}
         </div>
 
         <aside className="dash-top-r">
           <LoungeCalendarPanel authH={authH} onOpenFull={() => onGoTab("calendar")} />
         </aside>
       </div>
-
-      <div className="dash-sec-h">
-        <h3><MessageSquare size={16} strokeWidth={2.3} /> 상담신청 {d.leads.new_count > 0 && <span className="dash-badge">{d.leads.new_count} 신규</span>}</h3>
-        <button className="hood-more" onClick={() => onGoTab("leads")}>전체보기 <ChevronRight size={13} /></button>
-      </div>
-      {d.leads.recent.length === 0
-        ? <div className="dash-empty">아직 들어온 상담신청이 없어요. 홈페이지를 만들면 상담이 여기로 쌓입니다.</div>
-        : <div className="dash-leads">
-            {d.leads.recent.map((l) => (
-              <div key={l.id} className="dash-lead">
-                <span className="ctx-badge" style={leadBadge(l.status)}>{leadKr(l.status)}</span>
-                <span className="dash-lead-name">{l.name ?? "익명"}</span>
-                <span className="dash-lead-msg">{l.message ?? "-"}</span>
-                {l.phone && <a className="dash-lead-tel" href={`tel:${l.phone.replace(/[^0-9+]/g, "")}`}>{l.phone}</a>}
-                <span className="muted dash-lead-date">{l.created_at?.slice(5, 10)}</span>
-              </div>
-            ))}
-          </div>}
 
       <div className="dash-sec-h">
         <h3><Star size={16} strokeWidth={2.3} /> 관심단지 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>신고가·신규매물을 매일 체크</span></h3>

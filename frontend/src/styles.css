@@ -1987,6 +1987,8 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
    왼쪽 카드 4열이 좁아지지 않게 한다(좁아지면 순위 숫자가 줄바꿈된다). */
 .dash-top{display:grid;grid-template-columns:minmax(0,1fr) 344px;gap:16px;align-items:start;margin-bottom:4px}
 .dash-top-l{min-width:0}
+/* 왼쪽 열 안의 섹션 머리 — 바깥 섹션보다 위 여백을 줄인다(열 안에선 22px가 뜬다) */
+.dash-top-l .dash-sec-h{margin-top:16px}
 .dash-top-r{min-width:0;position:sticky;top:14px}
 @media(max-width:1100px){
   .dash-top{grid-template-columns:1fr}
