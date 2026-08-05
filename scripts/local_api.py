@@ -10983,6 +10983,37 @@ def _init_reviews_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS rsi_phone_idx ON realtor_staff_invites(phone_digits, used_at);
 
+            -- 고객 요건 — 한 고객이 여러 건을 갖는다(구함 2 + 내놓음 1 …).
+            -- 고객 원장의 한 행이자, 매칭·거래계획의 단위. 설계안 design/lounge_customer_ledger_설계안.md
+            CREATE TABLE IF NOT EXISTS biz_needs (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              client_uid   TEXT,               -- 클라이언트 생성 UUID. 오프라인 재전송이 같은 행을
+                                               -- 두 번 만들지 않게 하는 멱등키(설계안 §2-4)
+              user_id      TEXT NOT NULL,
+              realtor_id   TEXT,
+              customer_id  INTEGER,
+              kind         TEXT NOT NULL DEFAULT '구함',   -- 구함 | 내놓음
+              trade        TEXT,               -- A1 매매 | B1 전세 | B2 월세
+              role         TEXT,               -- 주안 | 대안 | 보유
+              budget_min   INTEGER, budget_max INTEGER,
+              ask_price    INTEGER,
+              sido TEXT, sigungu TEXT, dong TEXT, complex_no TEXT, address TEXT,
+              area_min     REAL, area_max REAL,
+              status       TEXT NOT NULL DEFAULT '탐색',
+              move_date    TEXT,
+              raw_text     TEXT,               -- 원문. 구조화가 실패해도 이건 남는다
+              extra_json   TEXT,               -- 사용자 정의 열
+              src_request_id INTEGER,          -- 콕집요청에서 승격된 경우
+              sort_key     REAL,
+              memo         TEXT,
+              created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS bzn_uid ON biz_needs(client_uid)
+              WHERE client_uid IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS bzn_rid ON biz_needs(realtor_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS bzn_cust ON biz_needs(customer_id);
+
             -- 계약서 업로드 → AI 파싱 (관리자 가오픈, 추후 중개사 회원 개방)
             CREATE TABLE IF NOT EXISTS biz_contracts (
               id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -13455,6 +13486,258 @@ def lounge_private_list(user: dict = Depends(current_user)):
         items = _collect_private_listings(c, rid, user["id"], None, "")
     items.sort(key=lambda x: x["confirm_ymd"] or "", reverse=True)
     return {"count": len(items), "listings": items}
+
+
+# ── 자연어 빠른 입력 ────────────────────────────────────────────
+# 중개사가 한 줄로 치거나 문자·카톡을 붙여넣으면 매물/고객 항목으로 옮긴다.
+# 규칙 파서로는 실제 메시지를 못 다룬다(설계안 §2-2-3 실측: 카톡 타임스탬프를
+# 입주월로, 호칭 '사장님'을 이름으로 잡는 조용한 오류). 그래서 모델을 쓰되
+# 스키마를 강제하고, 확신 낮은 항목은 따로 표시해 사람이 확인하게 한다.
+
+_QA_LISTING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "매물": {"type": "array", "items": {"type": "object", "properties": {
+            "complex_name": {"type": "string"}, "address": {"type": "string"},
+            "dong": {"type": "string"}, "ho": {"type": "string"},
+            "type": {"type": "string"}, "trade_type": {"type": "string"},
+            "price": {"type": "integer", "nullable": True},
+            "deposit": {"type": "integer", "nullable": True},
+            "rent_price": {"type": "integer", "nullable": True},
+            "area2_m2": {"type": "number", "nullable": True},
+            "floor": {"type": "integer", "nullable": True},
+            "direction": {"type": "string"}, "move_in": {"type": "string"},
+            "owner_name": {"type": "string"}, "owner_tel": {"type": "string"},
+            "feature_desc": {"type": "string"},
+        }}},
+        "확신낮음": {"type": "array", "items": {"type": "string"}},
+        "못읽은줄": {"type": "array", "items": {"type": "string"}},
+    }, "required": ["매물"],
+}
+_QA_CUSTOMER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "고객": {"type": "array", "items": {"type": "object", "properties": {
+            "name": {"type": "string"}, "phone": {"type": "string"},
+            "memo": {"type": "string"},
+            "요건": {"type": "array", "items": {"type": "object", "properties": {
+                "kind": {"type": "string"}, "trade": {"type": "string"}, "role": {"type": "string"},
+                "budget_min": {"type": "integer", "nullable": True},
+                "budget_max": {"type": "integer", "nullable": True},
+                "ask_price": {"type": "integer", "nullable": True},
+                "region": {"type": "string"}, "complex_name": {"type": "string"},
+                "area_min": {"type": "number", "nullable": True},
+                "area_max": {"type": "number", "nullable": True},
+                "move_date": {"type": "string"},
+            }}},
+        }}},
+        "확신낮음": {"type": "array", "items": {"type": "string"}},
+        "못읽은줄": {"type": "array", "items": {"type": "string"}},
+    }, "required": ["고객"],
+}
+_QA_COMMON = (
+    "금액은 원 단위 정수로. 24억=2400000000, 3억5천=350000000, 보증5000/월250 은 "
+    "보증금 50000000·월세 2500000. 열 단위가 만원이면 만원으로 읽어라.\n"
+    "카톡·문자의 타임스탬프는 일정이 아니다 — 절대 입주일로 쓰지 마라.\n"
+    "'25평' 처럼 평만 있으면 면적을 추정하지 마라(공급/전용 구분 불가). 비워 둔다.\n"
+    "원문에 없는 값을 만들지 마라. 추론한 항목은 확신낮음 배열에 이름을 넣어라.\n"
+    "매물이나 고객이 아닌 줄(제목·소계·인사말)은 못읽은줄에 넣어라."
+)
+_QA_LISTING_PROMPT = (
+    "부동산 중개사가 자기 매물을 적은 글이다. 여러 건일 수 있다.\n"
+    "trade_type 은 매매|전세|월세 중 하나. 매매가는 price, 전세·월세 보증금은 deposit, 월세는 rent_price.\n" + _QA_COMMON)
+_QA_CUSTOMER_PROMPT = (
+    "부동산 중개사가 받은 손님 정보다(직접 메모했거나 문자·카톡을 붙여넣었다).\n"
+    "중개사 본인 발화('나')는 근거에서 빼라. 손님이 한 말만 쓴다.\n"
+    "요건.kind=구함|내놓음, trade=매매|전세|월세, role=주안|대안|보유.\n"
+    "한 손님이 여러 요건을 가질 수 있다(매매를 찾으면서 안 되면 전세도 보는 식).\n" + _QA_COMMON)
+
+
+def _qa_parse(text: str, kind: str) -> dict:
+    """자연어 → 구조화 제안. 실패하면 예외를 올려 호출부가 원문 저장으로 흘린다."""
+    from scripts.ai_agent import _genai
+    from google.genai import types as _gt
+    client = _genai()
+    listing = kind != "customer"
+    prompt = _QA_LISTING_PROMPT if listing else _QA_CUSTOMER_PROMPT
+    schema = _QA_LISTING_SCHEMA if listing else _QA_CUSTOMER_SCHEMA
+    import datetime as _dtm
+    today = (_dtm.datetime.utcnow() + _dtm.timedelta(hours=9)).strftime("%Y-%m-%d")
+    resp = client.models.generate_content(
+        model=os.getenv("GEMINI_PARSE_MODEL", "gemini-2.5-flash"),
+        contents=f"{prompt}\n오늘은 {today}.\n\n{text[:6000]}",
+        config=_gt.GenerateContentConfig(
+            temperature=0, thinking_config=_gt.ThinkingConfig(thinking_budget=0),
+            response_mime_type="application/json", response_schema=schema,
+            max_output_tokens=8192),
+    )
+    return _json.loads(resp.text)
+
+
+def _qa_enrich_listing(row: dict) -> dict:
+    """단지명+동+호 → 건축물대장·우리 단지 DB 로 빈칸을 채운다(설계안 §4-2).
+
+    채운 항목은 _auto 에 출처와 함께 남긴다 — 근거 없는 값을 보여주지 않기 위해서다.
+    실패해도 조용히 넘어간다. 보강이 안 되는 것과 저장이 안 되는 것은 다른 문제다.
+    """
+    auto: dict = {}
+    name = (row.get("complex_name") or "").strip()
+    if not name:
+        return auto
+    try:
+        with _open_db() as c:
+            cx = c.execute(
+                "SELECT complex_no, cortar_no, detail_address, use_approve_ymd, "
+                "       parking_per_household, heat_method_code, road_address, total_household_count "
+                "FROM complexes WHERE REPLACE(complex_name,' ','')=? LIMIT 1",
+                (name.replace(" ", ""),)).fetchone()
+            if not cx:
+                return auto
+            row.setdefault("complex_no", str(cx[0]))
+            auto["complex_no"] = "단지 DB"
+            if cx[6] and not row.get("address"):
+                row["address"] = cx[6]; auto["address"] = "단지 DB"
+            if cx[3] and not row.get("approve_ymd"):
+                row["approve_ymd"] = cx[3]; auto["approve_ymd"] = "단지 DB"
+            if cx[4] and not row.get("parking"):
+                row["parking"] = cx[4]; auto["parking"] = "단지 DB(세대당)"
+            # 동·호가 있으면 건축물대장 전유부로 전용면적·층을 확정한다
+            dong, ho = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
+            if dong and ho and cx[1] and cx[2]:
+                led = _qa_expos(cx[1], cx[2], dong, ho)
+                if led:
+                    if led.get("area") and not row.get("area2_m2"):
+                        row["area2_m2"] = led["area"]; auto["area2_m2"] = "건축물대장 전유부"
+                    if led.get("floor") and not row.get("floor"):
+                        row["floor"] = led["floor"]; auto["floor"] = "건축물대장 전유부"
+                    row["dong"], row["ho"] = dong, ho
+            # 전용면적이 정해지면 평형(방·욕실)을 역매칭한다.
+            # 유일해가 아니다(전용 59.05 에 82C·82D·82B) — 방·욕실이 모두 같을 때만 채운다.
+            a2 = row.get("area2_m2")
+            if a2:
+                cands = c.execute(
+                    "SELECT pyeong_name, supply_area, room_cnt, bath_cnt FROM complex_areas "
+                    "WHERE complex_no=? AND ABS(exclusive_area-?)<0.3", (str(cx[0]), float(a2))).fetchall()
+                if cands and len({(r[2], r[3]) for r in cands}) == 1:
+                    if not row.get("room_cnt"):
+                        row["room_cnt"] = cands[0][2]; auto["room_cnt"] = "단지 평형"
+                    if not row.get("bath_cnt"):
+                        row["bath_cnt"] = cands[0][3]; auto["bath_cnt"] = "단지 평형"
+                if len(cands) == 1 and not row.get("area1_m2"):
+                    row["area1_m2"] = cands[0][1]; auto["area1_m2"] = "단지 평형"
+                elif len(cands) > 1:
+                    row["_area_name_cands"] = [r[0] for r in cands]
+    except Exception:  # noqa: BLE001
+        return auto
+    return auto
+
+
+def _qa_norm_dong_ho(dong, ho):
+    """'142동'/'142' → '142동', '2004호'/'2004' → '2004'.
+
+    건축물대장은 동에 '동'을 붙이고 호에는 안 붙인다. 사람이 치는 '101호' 로 조회하면
+    0건이 나온다(실측). 표기 차이는 여기서 한 번만 흡수한다.
+    """
+    d = str(dong or "").strip()
+    h = str(ho or "").strip()
+    if d and not d.endswith("동"):
+        d = d + "동"
+    if h.endswith("호"):
+        h = h[:-1]
+    return (d or None), (h or None)
+
+
+def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str) -> dict | None:
+    """건축물대장 전유부 — 동·호 단위 전용면적·층. 실패는 None(저장은 계속된다)."""
+    try:
+        from collector.ondemand_ledger import _parse_jibun
+        import urllib.parse as _up, urllib.request as _ur
+        import xml.etree.ElementTree as _ET
+        parsed = _parse_jibun(cortar_no, detail_address)
+        if not parsed:
+            return None
+        sgg, plat, bun, ji, bjd = parsed
+        key = (os.getenv("DATA_GO_KR_SERVICE_KEY") or "").split(",")[0].strip()
+        if not key:
+            return None
+        qs = _up.urlencode({"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd,
+                            "platGbCd": plat, "bun": bun, "ji": ji, "dongNm": dong,
+                            "hoNm": ho, "numOfRows": "20", "_type": "xml"}, safe="%")
+        url = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo?" + qs
+        with _ur.urlopen(url, timeout=8) as r:
+            root = _ET.fromstring(r.read())
+        for it in root.findall(".//item"):
+            g = lambda t: (it.findtext(t) or "").strip()   # noqa: E731
+            if g("exposPubuseGbCdNm") != "전유":
+                continue
+            return {"area": float(g("area") or 0) or None,
+                    "floor": int(g("flrNo") or 0) or None,
+                    "struct": g("strctCdNm")}
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+@app.post("/lounge/quick-parse")
+def lounge_quick_parse(body: dict, user: dict = Depends(current_user)):
+    """자연어 한 덩이 → 매물/고객 후보. **저장하지 않는다** — 확인은 사람이 한다."""
+    text = (body.get("text") or "").strip()
+    kind = "customer" if body.get("kind") == "customer" else "listing"
+    if len(text) < 2:
+        raise HTTPException(400, "내용을 입력해 주세요")
+    with _reviews_db() as rc:
+        _require_member(rc, user["id"])
+    try:
+        out = _qa_parse(text, kind)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"인식에 실패했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__})")
+    if kind == "listing":
+        rows = out.get("매물") or []
+        for r in rows:
+            r["_auto"] = _qa_enrich_listing(r)
+        out["매물"] = rows
+    return out
+
+
+@app.post("/lounge/customers/quick-save")
+def lounge_customer_quick_save(body: dict, user: dict = Depends(current_user)):
+    """확인을 마친 고객+요건 저장. 요건이 비어도 고객은 저장된다(나중에 채운다)."""
+    items = body.get("items") or []
+    if not items:
+        raise HTTPException(400, "저장할 내용이 없습니다")
+    saved = 0
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        for it in items:
+            name = (it.get("name") or "").strip()
+            phone = _digits(it.get("phone") or "") or None
+            if not name and not phone:
+                continue
+            rc.execute(
+                "INSERT INTO biz_customers(user_id, realtor_id, name, phone, memo) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(user_id, name, COALESCE(phone,'')) DO UPDATE SET "
+                "  memo=COALESCE(NULLIF(excluded.memo,''), biz_customers.memo), "
+                "  updated_at=datetime('now')",
+                (user["id"], rid, name or "(이름없음)", phone, (it.get("memo") or "").strip()))
+            cid = rc.execute(
+                "SELECT id FROM biz_customers WHERE user_id=? AND name=? AND COALESCE(phone,'')=?",
+                (user["id"], name or "(이름없음)", phone or "")).fetchone()
+            cid = cid[0] if cid else None
+            for nd in (it.get("요건") or []):
+                rc.execute(
+                    "INSERT INTO biz_needs(client_uid, user_id, realtor_id, customer_id, kind, trade, "
+                    "  role, budget_min, budget_max, ask_price, sigungu, dong, address, area_min, "
+                    "  area_max, move_date, raw_text) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(client_uid) DO UPDATE SET updated_at=datetime('now')",
+                    (nd.get("client_uid"), user["id"], rid, cid,
+                     nd.get("kind") or "구함", _TRADE_CODE.get(nd.get("trade") or "") or nd.get("trade"),
+                     nd.get("role"), nd.get("budget_min"), nd.get("budget_max"), nd.get("ask_price"),
+                     None, nd.get("region"), nd.get("complex_name"),
+                     nd.get("area_min"), nd.get("area_max"), nd.get("move_date"),
+                     (body.get("raw_text") or "")[:2000]))
+            saved += 1
+    return {"ok": True, "saved": saved}
 
 
 @app.post("/lounge/private-listings")

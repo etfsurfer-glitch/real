@@ -13,6 +13,7 @@ import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
 import LoungeCalendarPanel from "../components/LoungeCalendarPanel";
+import QuickAdd from "../components/QuickAdd";
 import BizCustomers from "../components/BizCustomers";
 import BizContracts from "../components/BizContracts";
 
@@ -306,6 +307,8 @@ export function DashboardTab({ authH, office, onGoTab }: {
             <div className="dash-office">{office.realtor_name}</div>
             <div className="dash-date">{dateStr} · 오늘의 우리 사무소 현황입니다</div>
           </div>
+
+          <QuickAdd authH={authH} />
 
           <div className="dash-stats">
             <StatCard icon={<Building2 size={18} />} accent="blue" label="우리 매물수"
