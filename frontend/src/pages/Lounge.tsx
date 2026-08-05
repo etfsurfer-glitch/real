@@ -1743,6 +1743,10 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               </div>
               {l.tags?.length > 0 && <div className="mlj-tags">{l.tags.map((t, i) => <span key={i}>{t}</span>)}</div>}
               {l.feature_desc && <div className="mlj-feat">{l.feature_desc}</div>}
+              {/* 확인 화면에서 못 채우고 저장한 매물 — 나중에 되살리는 길 */}
+              {l.is_private && !l.area2_m2 && (l.complex_name || l.building_name) && (
+                <FillInfo authH={authH} pid={l.private_id!} onDone={load} />
+              )}
               {(l.same_addr_min || l.same_addr_max) ? (
                 <div className="mlj-same">동일주소 {l.same_addr_cnt}건 · {eokWon(l.same_addr_min)} ~ {eokWon(l.same_addr_max)}</div>
               ) : null}
@@ -2074,6 +2078,46 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
     {editPhoto && <PhotoMaskEditor authH={authH} name={editPhoto}
       onClose={() => setEditPhoto(null)} onDone={() => setPhVer((v) => v + 1)} />}
     </>
+  );
+}
+
+/** 빈 칸 채우기 — 건축물대장·단지 DB 로 다시 시도한다.
+ *  단지가 여러 곳이면 그 자리에서 고르게 한다(엉뚱한 단지를 붙이지 않기 위해). */
+function FillInfo({ authH, pid, onDone }: {
+  authH: () => Record<string, string>; pid: number; onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [cands, setCands] = useState<{ complex_no: string; name: string; region?: string }[]>([]);
+  const run = async (complex_no?: string) => {
+    setBusy(true); setMsg("");
+    try {
+      const r = await fetch(`${API_BASE}/lounge/private-listings/${pid}/enrich`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify(complex_no ? { complex_no } : {}),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.detail || `오류 ${r.status}`);
+      setCands(j.cands || []);
+      if (j.filled?.length && !j.cands?.length) { setMsg(`${j.filled.length}개 항목을 채웠어요`); onDone(); }
+      else if (j.note) setMsg(j.note);
+      else setMsg("더 채울 정보가 없어요");
+    } catch (e: any) {
+      setMsg(e?.message || "실패했어요");
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="mlj-fill">
+      <button onClick={() => run()} disabled={busy}>
+        {busy ? "채우는 중…" : "건축물대장으로 정보 채우기"}
+      </button>
+      {msg && <span>{msg}</span>}
+      {cands.map((c) => (
+        <button key={c.complex_no} className="cand" disabled={busy} onClick={() => run(c.complex_no)}>
+          {c.name}
+        </button>
+      ))}
+    </div>
   );
 }
 

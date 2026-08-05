@@ -13425,6 +13425,38 @@ def _pl_visible_sql(uid: str) -> tuple:
     return ("(visibility='office' OR created_by=?)", [uid])
 
 
+def _pl_auto_tags(g, num) -> list:
+    """비공개매물 태그 — 저장된 값에서 그때그때 만든다.
+
+    저장 시점에 굳혀 두면 준공연도·층 같은 게 바뀌었을 때 태그만 옛날 값으로 남는다.
+    네이버 매물 카드와 같은 자리에 같은 모양으로 붙는다.
+    """
+    t = []
+    ap = (g("approve_ymd") or "")[:4]
+    if ap.isdigit():
+        age = _dt_now_year() - int(ap)
+        t.append("신축" if age <= 1 else f"{5 if age <= 5 else 10 if age <= 10 else 20}년이내"
+                 if age <= 20 else f"{ap}년 준공")
+    fl, tf = num("floor"), num("total_floor")
+    if fl:
+        t.append("1층" if fl == 1 else "저층" if fl <= 3 else "고층" if tf and fl >= tf - 2 else f"{int(fl)}층")
+    rc, bc = num("room_cnt"), num("bath_cnt")
+    if rc:
+        t.append(f"방{int(rc)}" + (f"/욕실{int(bc)}" if bc else ""))
+    if num("parking"):
+        t.append("주차가능")
+    if (g("elevator") or "") in ("있음", "Y", "y", "1"):
+        t.append("엘리베이터")
+    if (g("move_in") or "").strip():
+        t.append(str(g("move_in")).strip()[:10])
+    return t[:6]
+
+
+def _dt_now_year() -> int:
+    import datetime as _d
+    return (_d.datetime.utcnow() + _d.timedelta(hours=9)).year
+
+
 def _pl_row_to_item(r) -> dict:
     """비공개매물 행 → 매물장 카드가 쓰는 공통 형태(네이버 매물과 같은 키)."""
     g = lambda k: r[k] if k in r.keys() else None          # noqa: E731
@@ -13451,13 +13483,13 @@ def _pl_row_to_item(r) -> dict:
         "floor_info": g("floor_info") or "", "direction": g("direction") or "",
         "price_text": _ml_price_text(price), "rent_price_text": _ml_price_text(num("rent_price") or 0),
         "price": price, "confirm_ymd": g("confirm_ymd") or (g("created_at") or "")[:10].replace("-", ""),
-        "building_name": g("building_name") or "", "tags": tags,
+        "building_name": g("building_name") or "", "tags": tags or _pl_auto_tags(g, num),
         "same_addr_cnt": 0, "same_addr_min": 0, "same_addr_max": 0,
         "feature_desc": g("feature_desc") or "",
         "naver_url": "", "cp_name": "", "verification_type": "",
         "lat": num("lat"), "lng": num("lng"), "dong": g("dong") or "",
         "address": " ".join(x for x in [g("address") or "", g("address_detail") or ""] if x).strip(),
-        "parking_total": None, "parking_per": None, "households": None,
+        "parking_total": None, "parking_per": num("parking"), "households": None,
         "approve_ymd": g("approve_ymd"), "builder": None, "mgmt_tel": None,
         "memo": g("memo") or "", "contact": g("contact") or "", "manager": g("manager") or "",
         "photos": photos,
@@ -13739,6 +13771,39 @@ def _qa_enrich_listing(row: dict) -> dict:
     return auto
 
 
+def _qa_to_listing_units(r: dict) -> None:
+    """파서가 낸 값(원 단위)을 매물장 규약으로 옮긴다.
+
+    매물장은 네이버 매물과 같은 형태를 쓴다 — 금액은 **만원 단위**이고,
+    price 는 '매매가·보증금' 겸용이다(수동 등록 폼도 같다). 원 단위로 넣으면
+    월세 200만원이 '200억' 으로 표시된다(실측).
+    """
+    def man(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return None if not f else int(round(f / 10000)) if f >= 10000 else int(f)
+
+    for k in ("price", "deposit", "rent_price", "maintenance_fee", "loan_amount"):
+        if r.get(k) not in (None, ""):
+            r[k] = man(r[k])
+    # 전세·월세는 보증금이 price 자리에 온다. 매매는 price 가 매매가다.
+    if (r.get("trade_type") or "") in ("전세", "월세", "B1", "B2") and not r.get("price"):
+        if r.get("deposit"):
+            r["price"] = r["deposit"]
+    # 층 표기(11/25층)와 평 — 카드가 이 값들을 그대로 읽는다
+    if r.get("floor") and not (r.get("floor_info") or "").strip():
+        tf = r.get("total_floor")
+        # 화면이 뒤에 '층' 을 붙인다 — 여기서 붙이면 '11층층' 이 된다(네이버 원본도 '1/2' 형태)
+        r["floor_info"] = f"{int(float(r['floor']))}/{int(float(tf))}" if tf else f"{int(float(r['floor']))}"
+    if r.get("area2_m2") and not r.get("area_py"):
+        try:
+            r["area_py"] = round(float(r["area2_m2"]) / 3.3058, 1)
+        except (TypeError, ValueError):
+            pass
+
+
 def _qa_norm_dong_ho(dong, ho):
     """'142동'/'142' → '142동', '2004호'/'2004' → '2004'.
 
@@ -13803,6 +13868,46 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
                 out["bld"] = g("bldNm")
             return out
     return None
+
+
+@app.post("/lounge/private-listings/{pid}/enrich")
+def lounge_private_enrich(pid: int, body: dict, user: dict = Depends(current_user)):
+    """이미 저장된 비공개매물의 빈 칸을 건축물대장·단지 DB 로 채운다.
+
+    확인 화면에서 못 채우고 저장한 매물을 나중에 되살리는 길. complex_no 를 주면
+    그 단지로 확정하고, 없으면 이름으로 다시 찾는다. 사람이 넣은 값은 덮지 않는다.
+    """
+    cno = str(body.get("complex_no") or "").strip()
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.row_factory = sqlite3.Row
+        _ensure_private_listings(rc)
+        row = rc.execute("SELECT * FROM private_listings WHERE id=? AND realtor_id=?",
+                         (pid, rid)).fetchone()
+        if not row:
+            raise HTTPException(404, "매물을 찾을 수 없어요")
+    r = {k: row[k] for k in row.keys() if row[k] not in (None, "")}
+    r.pop("id", None)
+    if cno:
+        with _open_db() as c:
+            nm = c.execute("SELECT complex_name FROM complexes WHERE complex_no=?", (cno,)).fetchone()
+        if not nm:
+            raise HTTPException(404, "단지를 찾을 수 없어요")
+        r["complex_name"] = nm[0]
+        r["complex_no"] = cno
+    before = {k: r.get(k) for k in ("area1_m2", "area2_m2", "floor", "room_cnt", "bath_cnt",
+                                    "approve_ymd", "parking", "address")}
+    auto = _qa_enrich_listing(r)
+    _qa_to_listing_units(r)
+    changed = {k: r.get(k) for k in list(before) + ["complex_no", "complex_name", "floor_info", "area_py"]
+               if r.get(k) not in (None, "") and str(r.get(k)) != str(before.get(k) or "")}
+    if changed:
+        sets = ", ".join(f"{k}=?" for k in changed)
+        with _reviews_db() as rc:
+            rc.execute(f"UPDATE private_listings SET {sets}, updated_at=datetime('now') WHERE id=?",
+                       list(changed.values()) + [pid])
+    return {"ok": True, "filled": list(changed), "auto": auto,
+            "note": r.get("_note"), "cands": r.get("_complex_cands") or []}
 
 
 @app.post("/lounge/quick-enrich")
@@ -13957,6 +14062,14 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
             # 넣으면 화면에서 안 보인다 — 비어 있을 때만 옮겨 담는다.
             if not (r.get("contact") or "").strip() and r.get("owner_tel"):
                 r["contact"] = str(r["owner_tel"])
+            # 확인 화면에서 대장 조회가 실패했거나 단지를 안 고른 채 저장할 수 있다.
+            # 비어 있는 항목이 있으면 저장 직전에 한 번 더 시도한다(성공하면 그만큼 덜 묻는다).
+            if r.get("complex_name") and not r.get("area2_m2"):
+                try:
+                    _qa_enrich_listing(r)
+                except Exception:  # noqa: BLE001
+                    pass
+            _qa_to_listing_units(r)
             vals = {}
             for f in _PL_FIELDS:
                 v = r.get(f)
