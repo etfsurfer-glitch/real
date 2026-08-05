@@ -14,6 +14,7 @@ import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
 import LoungeCalendarPanel from "../components/LoungeCalendarPanel";
 import QuickAdd from "../components/QuickAdd";
+import CustomerLedger from "../components/CustomerLedger";
 import BizCustomers from "../components/BizCustomers";
 import BizContracts from "../components/BizContracts";
 
@@ -50,8 +51,8 @@ export type Status = {
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-export type Tab = "dashboard" | "listings" | "calendar" | "customers" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
-export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "calendar", "customers", "contracts", "audit", "office", "edit", "leads", "homepage", "staff"];
+export type Tab = "dashboard" | "listings" | "ledger" | "calendar" | "customers" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
+export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "ledger", "calendar", "customers", "contracts", "audit", "office", "edit", "leads", "homepage", "staff"];
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -210,6 +211,7 @@ export default function Lounge() {
             {([
               ["dashboard", "대시보드", LayoutDashboard],
               ["listings", "매물장", ClipboardList],
+              ["ledger", "고객원장", Users],
               ...((isAdmin ? [["calendar", "계약캘린더", CalendarDays],
                               ["customers", "고객관리", Users],
                               ["contracts", "계약관리", FileText]] : []) as [Tab, string, typeof Users][]),
@@ -229,6 +231,7 @@ export default function Lounge() {
           </div>
           {tab === "dashboard" && <DashboardTab authH={authH} office={st.office} onGoTab={setTab} />}
           {tab === "listings" && <ListingsTab authH={authH} office={st.office} />}
+          {tab === "ledger" && <CustomerLedger authH={authH} onGoListings={() => setTab("listings")} />}
           {tab === "calendar" && isAdmin && <ContractCalendar authH={authH} />}
           {tab === "customers" && isAdmin && <BizCustomers authH={authH} />}
           {tab === "contracts" && isAdmin && <BizContracts authH={authH} />}
@@ -308,7 +311,7 @@ export function DashboardTab({ authH, office, onGoTab }: {
             <div className="dash-date">{dateStr} · 오늘의 우리 사무소 현황입니다</div>
           </div>
 
-          <QuickAdd authH={authH} />
+          <QuickAdd authH={authH} onSaved={() => onGoTab("ledger")} />
 
           <div className="dash-stats">
             <StatCard icon={<Building2 size={18} />} accent="blue" label="우리 매물수"

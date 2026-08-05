@@ -13682,6 +13682,76 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str) -> dict |
     return None
 
 
+@app.get("/lounge/customers")
+def lounge_customers(user: dict = Depends(current_user), q: str = "", limit: int = 300):
+    """고객 원장 — 고객 + 요건 + 그 요건이 가리키는 우리 매물.
+
+    매물장과 고객이 따로 놀지 않게 한 번에 실어 보낸다. 요건에 listing_id 가 있으면
+    그 매물의 지금 값을 함께 준다(고객 화면에서 매물을 다시 조회하지 않아도 되게).
+    """
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.row_factory = sqlite3.Row
+        _ensure_private_listings(rc)
+        cust = rc.execute(
+            "SELECT id, name, phone, memo, updated_at FROM biz_customers "
+            "WHERE realtor_id=? ORDER BY updated_at DESC LIMIT ?", (rid, max(1, min(limit, 1000)))
+        ).fetchall()
+        cids = [c["id"] for c in cust]
+        needs: dict = {}
+        if cids:
+            qs = ",".join("?" * len(cids))
+            for n in rc.execute(
+                f"SELECT n.*, l.complex_name AS l_name, l.dong AS l_dong, l.ho AS l_ho, "
+                f"       l.trade_type AS l_trade, l.price AS l_price, l.deposit AS l_deposit, "
+                f"       l.rent_price AS l_rent, l.area2_m2 AS l_area "
+                f"FROM biz_needs n LEFT JOIN private_listings l ON l.id = n.listing_id "
+                f"WHERE n.customer_id IN ({qs}) ORDER BY n.id", cids).fetchall():
+                d = dict(n)
+                lst = None
+                if d.get("listing_id") and d.get("l_name") is not None:
+                    lst = {"id": d["listing_id"], "complex_name": d["l_name"], "dong": d["l_dong"],
+                           "ho": d["l_ho"], "trade_type": d["l_trade"], "price": d["l_price"],
+                           "deposit": d["l_deposit"], "rent_price": d["l_rent"], "area2_m2": d["l_area"]}
+                for k in list(d):
+                    if k.startswith("l_"):
+                        d.pop(k)
+                d["listing"] = lst
+                needs.setdefault(d["customer_id"], []).append(d)
+
+    items = []
+    ql = (q or "").strip()
+    for c in cust:
+        row = dict(c)
+        row["needs"] = needs.get(c["id"], [])
+        kinds = {n.get("kind") for n in row["needs"]}
+        # 유형은 요건에서 계산한다 — 손으로 고르게 하면 실제와 어긋난다
+        row["ctype"] = ("양쪽" if {"구함", "내놓음"} <= kinds
+                        else "내놓음" if "내놓음" in kinds
+                        else "구함" if "구함" in kinds else "미정")
+        if ql:
+            hay = " ".join(str(x) for x in [row.get("name"), row.get("phone"), row.get("memo")] if x)
+            hay += " " + " ".join(str(n.get(k) or "") for n in row["needs"]
+                                  for k in ("address", "dong", "sigungu"))
+            if ql not in hay:
+                continue
+        items.append(row)
+    return {"items": items, "total": len(items)}
+
+
+@app.get("/lounge/listings/{lid}/customers")
+def lounge_listing_customers(lid: int, user: dict = Depends(current_user)):
+    """이 매물을 내놓은 사람(들). 매물장에서 고객으로 건너가기 위한 것."""
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.row_factory = sqlite3.Row
+        rows = rc.execute(
+            "SELECT c.id, c.name, c.phone, n.kind, n.trade, n.ask_price "
+            "FROM biz_needs n JOIN biz_customers c ON c.id = n.customer_id "
+            "WHERE n.listing_id=? AND n.realtor_id=?", (lid, rid)).fetchall()
+    return {"items": [dict(r) for r in rows]}
+
+
 @app.post("/lounge/quick-parse")
 def lounge_quick_parse(body: dict, user: dict = Depends(current_user)):
     """자연어 한 덩이 → 매물 + 고객 후보. **저장하지 않는다** — 확인은 사람이 한다."""
@@ -13720,6 +13790,13 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
         rid = _require_member(rc, user["id"])
         _ensure_private_listings(rc)
         for r in listings:
+            # 동·호 표기를 저장 전에 통일한다. 같은 물건이 '2004'와 '2004호'로 나뉘면
+            # 중복 검사(단지+동+호)가 무력해진다.
+            d, h = _qa_norm_dong_ho(r.get("dong"), r.get("ho"))
+            if d:
+                r["dong"] = d
+            if h:
+                r["ho"] = h
             vals = {}
             for f in _PL_FIELDS:
                 v = r.get(f)

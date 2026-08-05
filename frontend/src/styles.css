@@ -1995,6 +1995,72 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   .dash-top-r{position:static}
 }
 
+/* ── 고객 원장 ── */
+.cled{max-width:1240px}
+.cled-h{display:flex;align-items:center;gap:12px;margin:2px 2px 12px;flex-wrap:wrap}
+.cled-h h3{margin:0;display:flex;align-items:center;gap:7px;font-size:17px;font-weight:800;color:#13294b}
+.cled-h h3 svg{color:var(--c-primary)}
+.cled-kpi{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--c-muted)}
+.cled-kpi b{font-weight:800;color:#13294b;background:var(--c-primary-soft);padding:3px 10px;border-radius:999px}
+.cled-kpi i{font-style:normal;background:#eef2f7;padding:3px 10px;border-radius:999px;font-weight:600}
+.cled-refresh{margin-left:auto;border:1px solid var(--c-border);background:#fff;border-radius:9px;
+  padding:7px 9px;cursor:pointer;color:#64748b;display:flex}
+.cled-refresh:hover{border-color:var(--c-primary);color:var(--c-primary)}
+.cled-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:11px}
+.cled-search{display:flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--c-border);
+  border-radius:999px;padding:7px 14px;flex:1;min-width:200px;max-width:380px}
+.cled-search svg{color:var(--c-faint);flex:none}
+.cled-search input{flex:1;min-width:0;border:none;outline:none;background:none;font:inherit;font-size:13.5px}
+.cled-seg{display:inline-flex;gap:2px;background:#eef2f7;border-radius:999px;padding:3px}
+.cled-seg button{border:none;background:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
+  color:#64748b;padding:6px 14px;border-radius:999px}
+.cled-seg button.on{background:#fff;color:#13294b;box-shadow:var(--sh-xs)}
+.cled-empty{border:1px dashed var(--c-border);border-radius:12px;padding:26px 18px;text-align:center;
+  font-size:13px;color:#64748b;line-height:1.6}
+/* 고객 1명 = 행 1개가 아니다. 왼쪽에 고객, 오른쪽에 요건들 */
+.cled-row{display:grid;grid-template-columns:212px minmax(0,1fr);gap:0;background:#fff;
+  border:1px solid var(--c-border);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.cled-cust{display:flex;align-items:center;gap:8px;padding:12px 13px;background:#fbfcfe;
+  border-right:1px solid var(--c-border-soft);flex-wrap:wrap;align-content:center}
+.cled-av{width:28px;height:28px;border-radius:50%;background:var(--c-primary);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex:none}
+.cled-nm{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.cled-nm b{font-size:13.5px;font-weight:800;color:#13294b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cled-nm a{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;color:var(--c-primary);
+  text-decoration:none;font-variant-numeric:tabular-nums}
+.cled-type{flex:none;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px}
+.cled-type.t-buy{background:#e7f0ff;color:#1259b8}
+.cled-type.t-sell{background:#e8f6ee;color:#1a7f4b}
+.cled-type.t-both{background:#f0e9fb;color:#6b39c9}
+.cled-needs{display:flex;flex-direction:column;min-width:0}
+.cled-need{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:9px 13px;font-size:12.5px;
+  border-bottom:1px solid var(--c-border-soft)}
+.cled-need:last-child{border-bottom:none}
+.cled-need.muted{color:var(--c-faint)}
+.cled-k{flex:none;background:var(--c-primary);color:#fff;font-size:10.5px;font-weight:700;
+  padding:2px 8px;border-radius:6px}
+.cled-k.sell{background:#1a7f4b}
+.cled-tr{font-weight:800;color:#13294b;flex:none}
+.cled-role{font-size:11px;color:#64748b;background:#eef2f7;padding:1px 7px;border-radius:999px;flex:none}
+.cled-price{font-weight:800;color:var(--c-sale);font-variant-numeric:tabular-nums;flex:none}
+.cled-where{color:var(--c-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cled-move{color:var(--c-muted);font-size:11.5px;flex:none}
+/* 매물장과 이어진 요건 — 이 배지가 '따로 놀지 않는다'의 증거다 */
+.cled-link{display:inline-flex;align-items:center;gap:4px;margin-left:auto;flex:none;
+  font-size:11px;font-weight:700;color:var(--c-primary);background:var(--c-primary-soft);
+  padding:3px 9px;border-radius:999px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cled-nolink{margin-left:auto;flex:none;font-size:11px;color:var(--c-faint)}
+.cled-memo{flex-basis:100%;font-size:11.5px;color:var(--c-muted)}
+.cled-foot{display:inline-flex;align-items:center;gap:6px;margin-top:6px;border:1px solid var(--c-border);
+  background:#fff;border-radius:10px;padding:9px 15px;font:inherit;font-size:13px;font-weight:700;
+  color:#13294b;cursor:pointer}
+.cled-foot:hover{border-color:var(--c-primary);color:var(--c-primary)}
+@media(max-width:720px){
+  .cled-row{grid-template-columns:1fr}
+  .cled-cust{border-right:none;border-bottom:1px solid var(--c-border-soft)}
+  .cled-link,.cled-nolink{margin-left:0}
+}
+
 /* ── 빠른 입력(자연어 → 매물·고객) ── */
 .qadd{background:#fff;border:1px solid var(--c-border);border-radius:16px;padding:14px 16px 12px;
   box-shadow:var(--sh-sm);margin-bottom:14px}

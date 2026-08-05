@@ -18,6 +18,7 @@ import {
   type Office, type Status, type Tab, type Fav, type FavOffice,
 } from "./Lounge";
 import ContractCalendar from "../components/ContractCalendar";
+import CustomerLedger from "../components/CustomerLedger";
 import BizCustomers from "../components/BizCustomers";
 import BizContracts from "../components/BizContracts";
 
@@ -26,11 +27,11 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // 콕집 중개사 앱(/biz) — 라운지 기능을 '매물장 중심의 중개사 다이어리'로 재구성한 전용 셸.
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
-type Screen = "diary" | "calendar" | "customers" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
+type Screen = "diary" | "ledger" | "calendar" | "customers" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
             | "office" | "edit" | "dash" | "staff" | "settings" | "calls";
 
 const SCREENS: Record<Screen, { title: string }> = {
-  diary: { title: "매물장" }, calendar: { title: "계약캘린더" },
+  diary: { title: "매물장" }, ledger: { title: "고객원장" }, calendar: { title: "계약캘린더" },
   customers: { title: "고객관리" }, contracts: { title: "계약관리" }, audit: { title: "매물점검" },
   leads: { title: "상담신청" },
   homepage: { title: "내 홈페이지" }, favs: { title: "관심단지" }, "fav-offices": { title: "관심중개사" },
@@ -164,6 +165,7 @@ export default function BizApp() {
         <BizTop backTo="/biz" title={SCREENS[screen].title} />
         <div className="biz-body">
           {screen === "diary" && <ListingsTab authH={authH} office={office} />}
+          {screen === "ledger" && <CustomerLedger authH={authH} onGoListings={() => nav("/biz/diary")} />}
           {/* 계약캘린더·고객관리·계약관리 = 관리자 가오픈. 타일뿐 아니라 화면도 막는다
               (URL 직접 접근 차단 — 데이터는 백엔드 admin_user가 이미 막지만 화면도 노출 금지) */}
           {screen === "calendar" && (isAdmin ? <ContractCalendar authH={authH} /> : <AdminOnly />)}
@@ -205,7 +207,7 @@ export default function BizApp() {
   }
   function goTab(t: Tab) {
     const map: Record<Tab, string> = {
-      dashboard: "dash", listings: "diary", calendar: "calendar", customers: "customers",
+      dashboard: "dash", listings: "diary", ledger: "ledger", calendar: "calendar", customers: "customers",
       contracts: "contracts", audit: "audit", office: "office", requests: "requests",
       edit: "edit", leads: "leads", homepage: "homepage", staff: "staff",
     };
@@ -390,6 +392,7 @@ function BizHome({ office, authH, hasHomepage, role, staffName, onLogout }: {
 
         <div className="biz-grid">
           <BizBtn to="/biz/diary" icon={<ClipboardList size={22} />} label="매물장" desc="내 매물 다이어리" primary />
+          <BizBtn to="/biz/ledger" icon={<Users size={22} />} label="고객원장" desc="손님 요건·내놓은 물건" primary />
           {isAdmin && <BizBtn to="/biz/calendar" icon={<CalendarDays size={22} />} label="계약캘린더" desc="계약서 → 일정 (가오픈)" />}
           {isAdmin && <BizBtn to="/biz/customers" icon={<Users size={22} />} label="고객관리" desc="임대인·임차인 고객DB (가오픈)" />}
           {isAdmin && <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="계약서·조건·당사자 (가오픈)" />}
