@@ -82,11 +82,20 @@ SYSTEM_PROMPT = (
     "'서울 어디가 토허구역'처럼 목록을 물으면, 정확한 구역 목록 데이터는 없으니 '10·15 대책으로 서울 전역+경기 12곳이 지정됐다'는 "
     "정책 사실로 답하고 '구체적 필지 지정은 각 지자체 고시 확인'을 덧붙여라(번지·목록을 지어내지 마라).\n"
     "5.5) [취급하지 않는 부동산 유형 — 있는 척 금지, 정직하게] 콕집 데이터는 **아파트·오피스텔·분양권/입주권·빌라(연립·다세대)**의 "
-    "실거래·매물·시세를 다룬다. **토지/대지/임야/전답/농지/나대지, 상가/점포/사무실, 단독/다가구, "
+    "실거래·매물·시세를 다루고, **상가·사무실·단독(다가구)은 매물 호가**를 다룬다"
+    "(→ find_nonresi_stats. 실거래는 없고 호가만 있다 — 거절하지 말 것). "
+    "**토지/대지/임야/전답/농지/나대지, "
     "고시원, 공장/창고, 분양가(분양권 전매가 아닌 최초 분양가)** 등은 데이터가 전혀 없다. 이런 유형(예: '○○번지 토지 평당 얼마', "
     "'상가 시세')을 물으면 (단, 원룸형 오피스텔·도시형생활주택은 오피스텔 계열이라 매물·시세가 있다 — '원룸'이라 불러도 거절하지 마라) — 절대 지역을 되묻거나 답할 수 있는 것처럼 굴지 말고 — 정확히 이렇게 답한다: "
     "'콕집은 아파트·오피스텔·분양권·빌라 실거래/매물만 다뤄서 [토지/상가 등 해당 유형]은 데이터가 없습니다.' "
     "그리고 가능하면 '대신 그 지역의 아파트·오피스텔·빌라 실거래나 시세는 알려드릴 수 있어요'를 한 줄 덧붙인다. 숫자·번지·평당가를 지어내지 마라.\n"
+    "5.52) [상가·사무실·단독 — find_nonresi_stats 로 답하라] ★오피스텔은 여기가 아니다 — "
+    "오피스텔은 단지형이라 아파트와 같은 도구(find_apartments·get_listing_stats·get_complex_info)를 쓴다. "
+    "빌라는 find_villa_stats.  '상가 시세', '사무실 임대료', "
+    "'단독주택 얼마', '점포 월세' 류 질문은 거절하지 말고 find_nonresi_stats(kind, region, trade_type)로 "
+    "답하라. **호가(지금 나와 있는 매물) 기준이고 실거래가 아니라는 점**과 '같은 건물에서도 층·위치·"
+    "업종에 따라 크게 다르다'는 점을 반드시 밝힌다. 상가·사무실은 월세가 대부분이라 거래유형을 안 밝히면 "
+    "월세로 본다. 자세한 통계는 /nonresi 경로에서 볼 수 있다고 안내해도 좋다.\n"
     "5.55) [빌라 — find_villa_stats 로 답하라] '빌라 실거래', '빌라 시세', '다세대/연립 얼마', '빌라 전세' 류 질문은 "
     "거절하지 말고 find_villa_stats(region, trade_type)로 답하라. 빌라는 단지 개념이 없어 건물·물건별 차이가 크다는 점을 "
     "답변에 한 줄 밝히고, 전세 안전성 질문이 섞이면 깡통전세지수(/jeonse-check)도 함께 안내한다.\n"
@@ -1632,6 +1641,92 @@ def calc_purchase_cost(sale_price_eok: float, house_count: int = 0, is_first_tim
     }
 
 
+def _josa(word: str, with_batchim: str, without: str) -> str:
+    """받침 유무에 따라 조사를 고른다('사무실는' 같은 어색한 말이 손님에게 나갔다)."""
+    if not word:
+        return without
+    ch = word[-1]
+    return with_batchim if "가" <= ch <= "힣" and (ord(ch) - 0xAC00) % 28 else without
+
+
+def find_nonresi_stats(kind: str, region: str = "", trade_type: str = "매매") -> dict:
+    """상가·사무실·단독주택의 매물(호가) 통계. 아파트가 아닌 '비단지' 물건 전용.
+
+    콕집은 이 세 유형의 **매물 호가**를 지역별로 수집한다(실거래는 없다).
+    '강남구 상가 시세', '사무실 임대료', '단독주택 얼마' 같은 질문의 정답 도구다.
+    ★거절하지 마라 — 데이터가 있다. 다만 실거래가 아니라 '지금 나와 있는 매물의 호가'이고,
+      상가·사무실은 같은 건물 안에서도 층·전면·업종에 따라 값이 크게 갈린다는 점을 밝힌다.
+
+    Args:
+        kind: '상가' | '사무실' | '단독'(다가구 포함)
+        region: 자연어 지역. 비우면 전국.
+        trade_type: '매매' | '전세' | '월세'. 상가·사무실은 월세(임대)가 대부분이다.
+    """
+    import scripts.local_api as api
+    cat = {"상가": "sangga", "점포": "sangga", "사무실": "office", "오피스": "office",
+           "단독": "house", "다가구": "house", "주택": "house"}.get(kind.strip())
+    if not cat:
+        # 오피스텔·원룸·빌라를 여기로 보내는 일이 잦다. 예전엔 '알려줄 수 없다'고 거절하거나
+        # ('원룸'→'사무실'처럼) 엉뚱하게 매핑돼 391㎡ 사무실 평균을 답했다(실측).
+        # 라우팅을 프롬프트에 맡기지 않고 여기서 곧장 알맞은 조회로 넘긴다.
+        k = kind.strip()
+        if any(x in k for x in ("빌라", "연립", "다세대")):
+            return find_villa_stats(region=region, trade_type=trade_type)
+        if any(x in k for x in ("오피스텔", "원룸", "아파트", "주상복합", "도시형")):
+            r = get_listing_stats(region=region)
+            r["안내_한국어로답할것"] = (
+                f"'{k}'은(는) 단지형이라 아파트·오피스텔 매물 통계로 답한다. "
+                "상가·사무실·단독과는 다른 데이터다.")
+            return r
+        return {"error": "kind 는 '상가'·'사무실'·'단독' 중 하나여야 합니다. "
+                        "오피스텔·원룸은 단지형(get_listing_stats), 빌라는 find_villa_stats."}
+    reg = _resolve_region(region) if region else None
+    cortar = ""
+    if reg:
+        cortar = reg.get("dong_cortar") or reg.get("sigungu_code") or reg.get("sido_code") or ""
+    tr = {"전세": "B1", "월세": "B2"}.get(trade_type.strip(), "A1")
+
+    st = api.nonresi_stats(cat=cat, cortar=cortar, trade=tr)
+    if not st.get("available", True):
+        return {"안내_한국어로답할것": f"{kind} 매물 데이터를 아직 준비하지 못했습니다."}
+    where = st.get("region_name") or (
+        " ".join(filter(None, [reg.get("sido"), reg.get("sigungu"), reg.get("dong")])) if reg else "전국")
+
+    rows = []
+    for b in (st.get("by_trade") or []):
+        r = {"거래": b.get("trade") or trade_type, "매물수": b.get("n"),
+             "평균호가": _won(b.get("avg_price")), "평균전용㎡": b.get("avg_area_m2")}
+        if b.get("avg_rent"):
+            r["평균월세"] = _won(b.get("avg_rent"))
+        if b.get("avg_pyeong_price"):
+            r["평당가"] = _won(b.get("avg_pyeong_price"))
+        rows.append(r)
+
+    body = ""
+    if rows:
+        lines = []
+        for r in rows:
+            bits = [f"매물 {r['매물수']:,}건"]
+            if r.get("평균호가"):
+                bits.append(f"평균 {'보증금 ' if r['거래'] in ('월세', 'B2') else ''}{r['평균호가']}")
+            if r.get("평균월세"):
+                bits.append(f"평균 월세 {r['평균월세']}")
+            if r.get("평균전용㎡"):
+                bits.append(f"평균 전용 {round(r['평균전용㎡'])}㎡")
+            lines.append(f"- **{r['거래']}** · " + " · ".join(bits))
+        body = (f"**{where} {kind} · 매물 호가 기준**\n\n" + "\n".join(lines)
+                + f"\n\n{kind}{_josa(kind, '은', '는')} 같은 동네·같은 건물이라도 "
+                  "층·위치·업종에 따라 값이 크게 달라요. "
+                  "이 수치는 지금 나와 있는 매물의 평균이고 실거래가는 아니에요.")
+
+    return {
+        "지역": where, "유형": kind, "기준": "매물 호가(실거래 아님)",
+        "답변에_그대로_쓸_본문": body,
+        "요약": rows,
+        "주의": f"{kind}는 개별 편차가 커서 평균은 참고용이다. 실거래 데이터는 없고 호가만 있다.",
+    }
+
+
 def find_villa_stats(region: str = "", trade_type: str = "매매", limit: int = 10) -> dict:
     """빌라(연립·다세대) 실거래와 매물 통계. '○○동 빌라 실거래', '빌라 시세 어때?',
     '빌라 전세 얼마야?' 질문용. 아파트가 아닌 빌라 전용 도구.
@@ -2015,6 +2110,7 @@ _TOOLS = [find_quick_deals, find_apartments, find_cancelled_transactions,
           get_complex_info, find_record_high, region_market_pulse,
           find_realtor, rank_complexes, rank_realtors, find_presale,
           get_listing_stats, find_price_movers, calc_purchase_cost, find_villa_stats,
+          find_nonresi_stats,
           compare_complexes, compare_regions, get_complex_listing_trend, get_policy_timeline,
           find_owner_deals, start_koczip_request]
 
@@ -2276,7 +2372,9 @@ _ASKBACK_RE = re.compile(
     r"어떤 [가-힣]{1,6}(을|를|이|가)?\s*(원하|찾으|궁금|알고)|"
     r"좀 더 자세히|더 알려주|구체적으로 알려|"
     r"(하)?시겠어요\?|있으신가요\?|찾으시나요\?|궁금하신가요\?|"
-    r"원하시나요\?|필요하신가요\?|어떠신가요\?)")
+    r"원하시나요\?|필요하신가요\?|어떠신가요\?|"
+    # 빈말 — 하겠다고만 하고 도구를 안 부른 채 끝내는 문장(규칙 6.1)
+    r"조회해\s*(보겠|드리겠|볼게)|찾아\s*(보겠|드리겠|볼게)|다시\s*조회|알아보겠)")
 
 
 def _askback_nudge(user_region):
