@@ -12,6 +12,7 @@ import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, Clipboar
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
+import LoungeCalendarPanel from "../components/LoungeCalendarPanel";
 import BizCustomers from "../components/BizCustomers";
 import BizContracts from "../components/BizContracts";
 
@@ -296,37 +297,47 @@ export function DashboardTab({ authH, office, onGoTab }: {
 
   return (
     <div className="dash">
-      <div className="dash-hero">
-        <div className="dash-greet"><b>{greetName}</b> 대표님, 안녕하세요</div>
-        <div className="dash-office">{office.realtor_name}</div>
-        <div className="dash-date">{dateStr} · 오늘의 우리 사무소 현황입니다</div>
-      </div>
+      {/* 위쪽 2단 — 왼쪽에 인사말과 현황, 오른쪽에 일정. 사무소 하루는
+          '우리 상태'와 '오늘 할 일' 두 축이라 나란히 두는 편이 읽기 쉽다. */}
+      <div className="dash-top">
+        <div className="dash-top-l">
+          <div className="dash-hero">
+            <div className="dash-greet"><b>{greetName}</b> 대표님, 안녕하세요</div>
+            <div className="dash-office">{office.realtor_name}</div>
+            <div className="dash-date">{dateStr} · 오늘의 우리 사무소 현황입니다</div>
+          </div>
 
-      <div className="dash-stats">
-        <StatCard icon={<Building2 size={18} />} accent="blue" label="우리 매물수"
-          value={(s.total_listings || 0).toLocaleString()} unit="건"
-          sub={`단지형 ${(s.complex_listings || 0).toLocaleString()} · 비단지 ${((s.total_listings || 0) - (s.complex_listings || 0)).toLocaleString()}`} />
-        <StatCard icon={<Award size={18} />} accent="gold" label="전국 순위"
-          value={s.national_rank ? s.national_rank.toLocaleString() : "-"} unit={s.national_rank ? "위" : ""}
-          sub={`전국 ${s.national_total.toLocaleString()}개 중`} />
-        <StatCard icon={<TrendingUp size={18} />} accent="green" label={s.region ? `${s.region.sido_name} 순위` : "지역 순위"}
-          value={s.region ? s.region.rank.toLocaleString() : "-"} unit={s.region ? "위" : ""}
-          sub={s.region ? `${s.region.count.toLocaleString()}건 · ${s.region.total.toLocaleString()}개 중` : "집계 전"} />
-        <StatCard icon={<Star size={18} />} accent="pink" label="신규 리뷰" onClick={() => onGoTab("office")}
-          value={`${d.reviews.new_count}`} unit="건"
-          sub={d.reviews.avg ? `평점 ${d.reviews.avg} · 총 ${d.reviews.total}개` : `총 ${d.reviews.total}개 · 최근 30일`} />
-      </div>
+          <div className="dash-stats">
+            <StatCard icon={<Building2 size={18} />} accent="blue" label="우리 매물수"
+              value={(s.total_listings || 0).toLocaleString()} unit="건"
+              sub={`단지형 ${(s.complex_listings || 0).toLocaleString()} · 비단지 ${((s.total_listings || 0) - (s.complex_listings || 0)).toLocaleString()}`} />
+            <StatCard icon={<Award size={18} />} accent="gold" label="전국 순위"
+              value={s.national_rank ? s.national_rank.toLocaleString() : "-"} unit={s.national_rank ? "위" : ""}
+              sub={`전국 ${s.national_total.toLocaleString()}개 중`} />
+            <StatCard icon={<TrendingUp size={18} />} accent="green" label={s.region ? `${s.region.sido_name} 순위` : "지역 순위"}
+              value={s.region ? s.region.rank.toLocaleString() : "-"} unit={s.region ? "위" : ""}
+              sub={s.region ? `${s.region.count.toLocaleString()}건 · ${s.region.total.toLocaleString()}개 중` : "집계 전"} />
+            <StatCard icon={<Star size={18} />} accent="pink" label="신규 리뷰" onClick={() => onGoTab("office")}
+              value={`${d.reviews.new_count}`} unit="건"
+              sub={d.reviews.avg ? `평점 ${d.reviews.avg} · 총 ${d.reviews.total}개` : `총 ${d.reviews.total}개 · 최근 30일`} />
+          </div>
 
-      {s.breakdown && s.total_listings > 0 && (
-        <div className="rl-breakdown">
-          <span className="rl-bd-title">매물 유형</span>
-          {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"], ["빌딩", "building"], ["토지", "land"], ["공장", "factory"], ["지식산업센터", "knowledge"], ["재개발", "redev"], ["원룸", "oneroom"]] as const)
-            .filter(([, k]) => (s.breakdown![k] || 0) > 0)
-            .map(([label, k]) => (
-              <span key={k} className={`rl-bd-chip${k === "complex" ? " primary" : ""}`}>{label} <b>{s.breakdown![k].toLocaleString()}</b></span>
-            )))}
+          {s.breakdown && s.total_listings > 0 && (
+            <div className="rl-breakdown">
+              <span className="rl-bd-title">매물 유형</span>
+              {(([["단지형", "complex"], ["빌라", "villa"], ["단독", "house"], ["상가", "sangga"], ["사무실", "office"], ["빌딩", "building"], ["토지", "land"], ["공장", "factory"], ["지식산업센터", "knowledge"], ["재개발", "redev"], ["원룸", "oneroom"]] as const)
+                .filter(([, k]) => (s.breakdown![k] || 0) > 0)
+                .map(([label, k]) => (
+                  <span key={k} className={`rl-bd-chip${k === "complex" ? " primary" : ""}`}>{label} <b>{s.breakdown![k].toLocaleString()}</b></span>
+                )))}
+            </div>
+          )}
         </div>
-      )}
+
+        <aside className="dash-top-r">
+          <LoungeCalendarPanel authH={authH} onOpenFull={() => onGoTab("calendar")} />
+        </aside>
+      </div>
 
       <div className="dash-sec-h">
         <h3><MessageSquare size={16} strokeWidth={2.3} /> 상담신청 {d.leads.new_count > 0 && <span className="dash-badge">{d.leads.new_count} 신규</span>}</h3>
