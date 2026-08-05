@@ -103,12 +103,44 @@ QUESTIONS = [
     "대전 유성구 30평대 거래량 많은 단지랑 평당가 순위",
     "잠실 30평대 매매 25억 이하 중 저평가된거",
     "서초구 반포동 전세 급매랑 매매 신고가 같이",
+    # S. 서비스 안내 — 콕집이 '무엇을 해줄 수 있는지' 답해야 하는 질문들.
+    #    데이터 조회가 아니라 기능 안내라, 온톨로지의 SERVICES/NOT_COVERED가 살아있는지 본다.
+    "매물 추천받고 싶은데 어떻게 해?",
+    "조건 알려주면 중개사무소랑 연결해줄 수 있어?",
+    "전세금이 위험한지 확인할 방법 있어?",
+    "10억짜리 아파트 사면 취득세 얼마야?",
+    "공인중개사인데 광고 위반 점검할 수 있어?",
+    "우리 중개사무소 홈페이지 만들 수 있어?",
+    "관심 있는 단지 소식 알림으로 받을 수 있어?",
+    "콕집은 뭐 하는 서비스야?",
+    "강남구 상가 시세 알려줘",
+    "토지 시세도 알 수 있어?",
+    "주인전세 매물 찾아줘",
+    "세 안고 살 수 있는 매물 있어?",
 ]
+
+# 기대값 — '적어도 하나는 답변에 나와야 한다'. 없으면 MISS 플래그.
+# 형식만 보던 휴리스틱으로는 "엉뚱하지만 그럴듯한 답"을 못 잡아서 내용까지 본다.
+EXPECT = {
+    "매물 추천받고 싶은데 어떻게 해?": ("콕집요청", "/request"),
+    "조건 알려주면 중개사무소랑 연결해줄 수 있어?": ("콕집요청", "/request"),
+    "전세금이 위험한지 확인할 방법 있어?": ("깡통전세", "jeonse-check", "전세가율"),
+    "10억짜리 아파트 사면 취득세 얼마야?": ("취득세", "%"),
+    "공인중개사인데 광고 위반 점검할 수 있어?": ("점검", "라운지", "/lounge"),
+    "우리 중개사무소 홈페이지 만들 수 있어?": ("홈페이지", "라운지", "real.koczip"),
+    "관심 있는 단지 소식 알림으로 받을 수 있어?": ("관심단지", "알림"),
+    "콕집은 뭐 하는 서비스야?": ("실거래", "매물"),
+    # 상가·사무실·단독은 호가 데이터를 답한다(2026-08-05 도구 추가). 토지는 여전히 없음.
+    "강남구 상가 시세 알려줘": ("호가", "매물", "평균"),
+    "토지 시세도 알 수 있어?": ("없", "다루지", "취급"),
+    "주인전세 매물 찾아줘": ("주인전세", "확인"),
+    "세 안고 살 수 있는 매물 있어?": ("세안고", "세 안고", "임차인", "확인"),
+}
 
 TEST_USER = {"id": "selftest-bot", "email": "selftest@koczip", "provider": "selftest"}
 
 
-def heuristics(ans, tools, ms):
+def heuristics(ans, tools, ms, q=""):
     f = []
     a = ans or ""
     if not a.strip():
@@ -130,6 +162,9 @@ def heuristics(ans, tools, ms):
         f.append("SLOW")
     if len(a) < 15:
         f.append("SHORT")
+    want = EXPECT.get(q)
+    if want and not any(w in a for w in want):
+        f.append(f"MISS:{want[0]}")     # 기대한 안내가 답에 없음
     return f
 
 
@@ -153,7 +188,7 @@ def main():
         except Exception as e:
             ans, tools, err = "", [], f"{type(e).__name__}: {e}"
         ms = int((time.perf_counter() - t0) * 1000)
-        flags = heuristics(ans, tools, ms)
+        flags = heuristics(ans, tools, ms, q)
         if err:
             flags.append("EXC")
         tnames = [t.get("tool") for t in tools]
