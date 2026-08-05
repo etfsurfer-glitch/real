@@ -188,6 +188,10 @@ SYSTEM_PROMPT = (
     "9.45) [도구가 '답변에_그대로_쓸_본문'을 주면 그 줄들을 **그대로** 옮겨 적어라] 줄을 다시 쓰거나 "
     "요약·생략하지 마라. 직접 쓰면 지역(구·동)·거래유형·링크를 빠뜨린다. 앞뒤로 한두 문장 덧붙이는 것은 "
     "좋지만 목록 줄 자체는 손대지 않는다. 이 본문은 이미 10줄 이하로 맞춰져 있다.\n"
+    "9.45-2) [건수만 말하고 끝내지 마라] '급매물 1,100건이 확인됐습니다'처럼 총계만 쓰고 목록을 "
+    "빠뜨리면 손님은 어느 단지인지 알 수 없다. **반드시 5~10곳을 실제로 나열**하고, 그 뒤에 "
+    "'전체 N곳 중 M곳'을 밝혀라. 조건이 넓어 건수가 많으면 '조건을 좁히거나 콕집요청으로 "
+    "동네 중개사무소에 조건을 보내보라'고 한 줄 덧붙인다.\n"
     "9.5) [목록은 최대 10개 — 같은 줄을 반복하지 마라] 도구가 수십·수백 건을 돌려줘도 답변에 나열하는 항목은 **최대 10개**다. 그 이상은 '외 N건'으로 줄여라. "
     "이미 쓴 줄과 같은 내용을 다시 쓰지 마라 — 단지·면적·가격이 같으면 한 줄로 합치고 옆에 'N건'을 적는다. "
     "사용자 조건에 **맞지 않는 항목은 아예 싣지 마라**. '(조건 초과)'를 붙여 나열하는 것은 금지다 — 조건에 맞는 게 없으면 '조건에 맞는 매물이 없어요'라고 한 줄로 답하고, 가장 근접한 것 3건만 따로 제시하라.\n"
@@ -623,11 +627,13 @@ def find_quick_deals(region: str, trade_type: str = "매매",
     # find_apartments 와 같은 이유로 본문을 완성해 준다 — 모델이 직접 쓰면 지역·거래유형이 샌다
     body = ""
     if deals:
-        body = (f"**{resolved} · {trade_type} · 실거래 평균 대비 {min_discount_pct:g}% 이상 싼 매물** "
-                f"{len(deals)}곳이에요.\n\n" + "\n".join(
+        body = (f"**{resolved} · {trade_type} · 실거래 평균 대비 {min_discount_pct:g}% 이상 싼 매물**"
+                f"\n\n" + "\n".join(
                     f"- **{d['단지']}** {d['지역']} · 전용 {d['전용㎡']}㎡ · {d['현재_최저호가']}"
-                    f" (실거래 평균 {d['기준_실거래평균']} 대비 -{d['할인율%']}%)"
-                    f" · 매물 {d['매물수']}건 [단지정보 →]({d['단지정보']})" for d in deals))
+                    f" (실거래 평균 {d['기준_실거래평균']} 대비 {float(d['할인율%']):+.1f}%)"
+                    f" · 매물 {d['매물수']}건 [단지정보 →]({d['단지정보']})" for d in deals)
+                + f"\n\n조건에 맞는 급매물은 모두 {len(items):,}곳이고, 그중 {len(deals)}곳을 "
+                  "보여드렸어요.")
     out = {
         "해석된_지역": resolved,
         "거래유형": trade_type, "최소할인율%": min_discount_pct,
@@ -2337,6 +2343,9 @@ def _strip_code_leak(text: str) -> str:
     # 모델이 도구 호출을 <tool_code> 태그로 흘리는 일이 있다(실측 "수지구나 동탄구는 없는거야?").
     text = re.sub(r"<\s*/?\s*tool_?code[^>]*>.*?(?:<\s*/\s*tool_?code\s*>|$)", "", text, flags=re.S | re.I)
     text = re.sub(r"<\s*/?\s*tool_?[a-z]*[^>]*>", "", text, flags=re.I)
+    # 이력용 내부 표식 — 모델이 답변에 그대로 옮겨 적는 일이 있었다
+    text = re.sub(r"\[\[SYS:[^\]]*\]\]", "", text)
+    text = re.sub(r"^.*\(매물 목록 \d+줄을 함께 보여드렸음[^)]*\).*$", "", text, flags=re.M)
     text = re.sub(r"^.*default_api\.[a-zA-Z_]+\(.*$", "", text, flags=re.M)
     # 내부 도구 이름이 답변에 새는 일이 있다 — "find_nonresi_stats 도구는 …을 지원하지 않습니다"
     # (실측). 손님에겐 의미 없는 내부 명칭이고 시스템 구조를 드러낸다. 그 문장만 걷어낸다.
@@ -2453,6 +2462,12 @@ _MONEY_ROW_RE = re.compile(r"^\s*[-*•\s]*.*?\d[\d,]*\s*(억|만\s?원)", re.M)
 # (실측: 도구 없이 송파구 단독주택 시세를 지어냄). 금액이 셋 이상이면 조회 없이 나올 수 없다.
 # 사이트 안내(포인트 +100, 계급 150,000)에는 '억·만원' 단위가 없어 걸리지 않는다.
 _MONEY_ANY_RE = re.compile(r"\d[\d,]*\s*(?:억|만\s?원)")
+# "총 1,000건의 매물 중 상위 10곳" 처럼 건수만 단정하는 요약도 조회 없이 나올 수 없다.
+_COUNT_CLAIM_RE = re.compile(r"(?:총\s*)?\d[\d,]{2,}\s*건[^\n]{0,10}(?:매물|급매|거래|중)")
+# "평균 3.3억" 처럼 평균값을 단정하는 것도 조회 없이는 불가능하다. 대화가 길어지면
+# 비단지 질문에 도구를 안 부르고 같은 값을 되풀이하는 일이 있었다(실측 4·5턴 모두 3.3억).
+# 질문 되받기("15억 아파트 매수 비용")에는 '평균'이 없어 걸리지 않는다.
+_AVG_CLAIM_RE = re.compile(r"평균[^\n]{0,12}?\d[\d,.]*\s*(?:억|만)")
 
 
 def _history_text(h: dict) -> str:
@@ -2471,13 +2486,22 @@ def _history_text(h: dict) -> str:
         if ln.lstrip().startswith(("-", "*", "•")) or "/complex/" in ln:
             dropped += 1
             continue
+        # 매 답변 끝에 붙는 콕집요청 안내는 이력에선 순수 잡음이다. 세 턴이면 이것만으로
+        # 글자수 한도를 다 먹어 정작 필요한 지시문이 밀려났다(실측: 4턴부터 도구 호출 중단).
+        if "콕집요청" in ln or "전화번호는 넘어가지 않고" in ln:
+            continue
         keep.append(ln)
-    out = "\n".join(keep).strip() or txt.split("\n")[0]
+    # 모델 차례는 '무슨 얘길 했는지' 한 줄이면 충분하다. 길게 남기면 다음 질문에서
+    # 도구를 건너뛰고 그 문장을 변주해 답한다(실측: 상가 질문에 아파트 도구 호출).
+    out = next((l.strip() for l in keep if l.strip()), txt.split("\n")[0])
+    out = out[:120]
     if dropped:
         # 목록을 통째로 지우면 모델이 '목록은 안 보여주는 것'으로 배워 다음 답에서도
         # 빼먹는다. 값만 없애고 '보여줬다'는 사실은 남긴다.
-        out += f"\n(매물 목록 {dropped}줄을 함께 보여드렸음 — 값은 반드시 도구로 다시 조회할 것)"
-    return out[:400]
+        # ★자르기는 반드시 이 앞에서 끝낸다 — 뒤에 자르면 지시문이 통째로 날아간다.
+        out += (f"\n[[SYS: 직전 답에는 매물 {dropped}건이 목록으로 있었다(길어서 여기선 생략). "
+                "이번 답에도 반드시 도구를 호출해 목록을 그대로 보여줄 것 — 요약만 쓰지 말 것]]")
+    return out
 
 
 def _looks_fabricated(text: str, trace: list | None) -> bool:
@@ -2501,7 +2525,97 @@ def _looks_fabricated(text: str, trace: list | None) -> bool:
     if len(_MONEY_ROW_RE.findall(text)) >= 2:
         return True
     # ④ 줄바꿈 없이 한 문장에 금액을 늘어놓는 경우
-    return len(_MONEY_ANY_RE.findall(text)) >= 3
+    if len(_MONEY_ANY_RE.findall(text)) >= 3:
+        return True
+    # ⑤ 목록 없이 '총 N건' 만 말하는 요약 — 대화가 길어지면 이렇게 껍데기 답이 나온다
+    if _COUNT_CLAIM_RE.search(text):
+        return True
+    # ⑥ 평균값 단정
+    if _AVG_CLAIM_RE.search(text):
+        return True
+    # ⑦ 껍데기 — "하잇님, 마포구 빌라 전세 통계입니다." 로 끝나고 내용이 없는 답(실측).
+    #    숫자가 하나도 없어 ①~⑥ 을 전부 통과하지만 손님에겐 아무 정보도 아니다.
+    #    인사·거절·사이트 안내에는 아래 자료성 낱말이 없어 걸리지 않는다.
+    #    어미는 제각각이라("…통계입니다", "…10건을 찾았어요") 어미로 잡지 않는다.
+    #    '결과를 알린다 + 그런데 목록도 근거도 없다 + 짧다' 세 가지가 껍데기의 정체다.
+    lines = [l for l in text.split("\n") if l.strip()]
+    has_row = any(l.lstrip().startswith(("-", "*", "•", "1.", "2.")) for l in lines)
+    if not has_row and len(lines) <= 2 and len(text) <= 110:
+        return any(w in text for w in ("찾았", "통계", "시세", "평균", "현황", "결과",
+                                       "임대료", "매물", "거래량"))
+    return False
+
+
+# 물건 종류별 담당 도구. 대화가 길어지면 모델이 상가·원룸 질문에도 아파트 도구를
+# 부른다(실측: '강남구 원룸 월세' → find_apartments 로 아파트 13건). 종류는 낱말만
+# 봐도 정해지므로 모델 판단에 맡기지 않고 질문에 담당 도구를 못박아 준다.
+_KIND_TOOL = (
+    (("상가", "점포", "사무실", "오피스 ", "사무공간", "단독주택", "다가구"), "find_nonresi_stats"),
+    (("빌라", "연립", "다세대"), "find_villa_stats"),
+    (("원룸", "투룸", "쓰리룸", "오피스텔"), "get_listing_stats"),
+)
+
+
+def _kind_hint(question: str) -> str:
+    """질문에 물건 종류가 박혀 있으면 담당 도구를 지정하는 한 줄을 덧붙인다."""
+    q = question or ""
+    if "아파트" in q:            # 종류가 이미 아파트면 건드리지 않는다
+        return ""
+    for words, tool in _KIND_TOOL:
+        if any(w in q for w in words):
+            return f"\n[[SYS: 이 질문의 물건 종류는 아파트가 아니다. 반드시 {tool} 를 호출해 답할 것]]"
+    return ""
+
+
+def _solo_contents(question: str, history: list | None):
+    """이력을 걷어낸 단일 질문 contents.
+
+    긴 대화에서 모델이 도구를 건너뛰는 것은 이력이 원인이다(1턴은 언제나 성공,
+    5~6턴부터 도구 0회 — 실측). 앞 대화를 통째로 빼고 다시 물으면 1턴과 같은
+    조건이 되어 도구를 부른다. 대명사로 앞을 가리키는 질문만 직전 손님 발화
+    한 줄을 앞에 붙여 맥락을 살린다.
+    """
+    from google.genai import types      # 모듈 최상단엔 없다(함수 안 import)
+    q = (question or "").strip()
+    prev = ""
+    if any(w in q for w in ("거기", "그거", "그건", "아까", "위에", "같은 곳", "그 단지")):
+        for h in reversed(history or []):
+            if h.get("role") == "user" and (h.get("text") or "").strip():
+                prev = f"(앞선 질문: {h['text'].strip()[:80]})\n"
+                break
+    hint = _kind_hint(q) or (_kind_hint(prev) if prev else "")
+    return [types.Content(role="user", parts=[types.Part.from_text(text=prev + q + hint)])]
+
+
+def _postprocess(text: str) -> str:
+    """모델 원문 → 손님에게 보낼 문장. 판정과 출력이 같은 문장을 보도록 한 곳에 모은다."""
+    return _cap_listing_rows(_strip_code_leak(_dedupe_complexes(_fix_complex_names(
+        _strip_bad_links(_dedupe_lines(_fix_links(text)))))))
+
+
+def _forced_cfg(types, nickname, user_region, thinking_budget):
+    """도구 호출을 강제하는 설정(mode=ANY).
+
+    재시도를 아무리 해도 도구를 건너뛰는 턴이 남는다(멀티턴에서 실측 ~20%).
+    설득 대신 규격으로 못박는다 — 이 설정에서는 모델이 함수 호출 없이는 답할 수 없다.
+    """
+    return types.GenerateContentConfig(
+        system_instruction=_system_for(nickname, user_region),
+        tools=_TOOLS, temperature=0.2,
+        thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
+        max_output_tokens=2048,
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(maximum_remote_calls=6),
+        tool_config=types.ToolConfig(
+            function_calling_config=types.FunctionCallingConfig(mode="ANY")),
+    )
+
+
+_RETRY_LOG: list = []       # 재시도 경로 추적(최근 것만 유지 — 무한 증가 금지)
+
+
+def _rlog(msg: str) -> None:
+    _RETRY_LOG.append(msg)
+    del _RETRY_LOG[:-50]
 
 
 _FABRICATED_NUDGE = (
@@ -2622,7 +2736,8 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
             continue
         role = "model" if h.get("role") == "model" else "user"
         contents.append(types.Content(role=role, parts=[types.Part.from_text(text=txt)]))
-    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=question)]))
+    contents.append(types.Content(role="user",
+                    parts=[types.Part.from_text(text=question + _kind_hint(question))]))
     # 일시 과부하(503)·쿼터(429)는 짧게 재시도 — 답변 누락 방지.
     resp = None
     for _attempt in range(3):
@@ -2706,26 +2821,49 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
         except Exception:  # noqa: BLE001
             pass
 
-    # 지어내기 백스톱 — 도구 없이 단지·가격을 적은 답이면 1회 강제 재시도.
-    if _looks_fabricated(_t0, trace):
+    # 지어내기 백스톱 — 도구 없이 단지·가격을 적은 답이면 강제 재시도.
+    # ★판정은 후처리를 끝낸 문장으로 한다. 원문(_t0)에는 없던 단지 링크를 _fix_links 가
+    #   붙이는 일이 있어, 원문 기준으로 보면 "멀쩡" → 재시도 없이 곧장 보류로 떨어졌다.
+    if _looks_fabricated(_postprocess(_t0), trace):
         try:
             retry_contents = contents + [
                 types.Content(role="model", parts=[types.Part.from_text(text=_t0)]),
                 types.Content(role="user", parts=[types.Part.from_text(text=_FABRICATED_NUDGE)]),
             ]
-            resp4 = client.models.generate_content(model=MODEL, contents=retry_contents, config=cfg)
-            t4 = []
-            for content in (resp4.automatic_function_calling_history or []):
-                for part in (content.parts or []):
-                    fc = getattr(part, "function_call", None)
-                    if fc:
-                        t4.append({"tool": fc.name, "args": dict(fc.args or {})})
-            if t4:                      # 이번엔 도구를 썼다 — 근거 있는 답으로 교체
-                resp, trace = resp4, t4
-        except Exception:  # noqa: BLE001
-            pass
+            for _i in range(2):     # 대화가 길면 1회로는 부족했다(실측 4턴째)
+                # 1회차부터 이력을 걷어낸다 — 도구를 건너뛰게 만드는 것이 이력이기 때문이다.
+                # (이력을 남긴 채 지시문만 덧붙이는 재시도는 실측 성공률이 낮았다)
+                if _i == 0:
+                    retry_contents = _solo_contents(question, history)
+                _rlog(f"fab-retry{_i}")
+                resp4 = client.models.generate_content(model=MODEL, contents=retry_contents, config=cfg)
+                t4 = []
+                for content in (resp4.automatic_function_calling_history or []):
+                    for part in (content.parts or []):
+                        fc = getattr(part, "function_call", None)
+                        if fc:
+                            t4.append({"tool": fc.name, "args": dict(fc.args or {})})
+                if t4:                  # 이번엔 도구를 썼다 — 근거 있는 답으로 교체
+                    resp, trace = resp4, t4
+                    break
+                _rlog(f"  ↳ retry{_i} 도구없음")
+            else:
+                # 설득 실패 — 도구 호출을 강제한다.
+                _rlog("fab-forced")
+                resp5 = client.models.generate_content(
+                    model=MODEL, contents=_solo_contents(question, history),
+                    config=_forced_cfg(types, nickname, user_region, thinking_budget))
+                t5 = [{"tool": fc.name, "args": dict(fc.args or {})}
+                      for c in (resp5.automatic_function_calling_history or [])
+                      for part in (c.parts or []) if (fc := getattr(part, "function_call", None))]
+                # mode=ANY 는 마지막 턴까지 함수 호출을 요구해 본문이 비어 나올 수 있다.
+                # 도구를 썼고 문장도 남았을 때만 교체한다.
+                if t5 and _safe_text(resp5).strip():
+                    resp, trace = resp5, t5
+        except Exception as e:  # noqa: BLE001
+            _rlog(f"  ↳ 재시도 예외 {type(e).__name__}: {e}")
 
-    answer = _cap_listing_rows(_strip_code_leak(_dedupe_complexes(_fix_complex_names(_strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp))))))))
+    answer = _postprocess(_safe_text(resp))
     if _looks_fabricated(answer, trace):     # 재시도해도 근거가 없다 → 지어낸 값은 안 내보낸다
         answer = _FABRICATED_FALLBACK
     # 안전망: 모델이 가끔 영어 거절문을 내뱉음 → 한국어로 치환(고객 노출 방지).
@@ -2864,6 +3002,17 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
         max_output_tokens=2048,        # 위와 동일 — 반복 폭주 차단
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
+    # 도구 호출을 한 번만 강제하는 설정. 스트리밍은 수동 루프라 계속 ANY 로 두면
+    # 모델이 끝내 본문을 못 쓴다 — 딱 한 스텝만 켰다가 바로 되돌린다.
+    cfg_force = types.GenerateContentConfig(
+        system_instruction=_system_for(nickname, user_region), tools=_TOOLS, temperature=0.2,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
+        max_output_tokens=2048,
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        tool_config=types.ToolConfig(
+            function_calling_config=types.FunctionCallingConfig(mode="ANY")),
+    )
+    _force_once = False
     tmap = {f.__name__: f for f in _TOOLS}
     contents = []
     for h in (history or [])[-6:]:
@@ -2871,13 +3020,16 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
         if txt:
             role = "model" if h.get("role") == "model" else "user"
             contents.append(types.Content(role=role, parts=[types.Part.from_text(text=txt)]))
-    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=question)]))
+    contents.append(types.Content(role="user",
+                    parts=[types.Part.from_text(text=question + _kind_hint(question))]))
 
     trace, in_tok, out_tok = [], 0, 0
-    _nudged = False
+    _nudged = 0
     yield {"type": "status", "stage": "analyze", "label": "질문 분석 중…"}
     for _step in range(6):
-        resp = client.models.generate_content(model=MODEL, contents=contents, config=cfg)
+        _use = cfg_force if _force_once else cfg
+        _force_once = False
+        resp = client.models.generate_content(model=MODEL, contents=contents, config=_use)
         um = resp.usage_metadata
         if um:
             in_tok += (um.prompt_token_count or 0)
@@ -2891,17 +3043,19 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
                 _t = ""
             # 되묻기 백스톱 — 도구 0회 + 되묻기면 지시문 넣고 루프 계속(1회만)
             if _t and not trace and not _nudged and _ASKBACK_RE.search(_t):
-                _nudged = True
+                _nudged = 1
                 contents.append(resp.candidates[0].content)
                 contents.append(types.Content(role="user",
                                 parts=[types.Part.from_text(text=_askback_nudge(user_region))]))
                 continue
             # 지어내기 백스톱 — 도구 0회인데 단지·가격을 적었으면 앞 대화를 베낀 것이다
-            if not _nudged and _looks_fabricated(_t, trace):
-                _nudged = True
-                contents.append(resp.candidates[0].content)
-                contents.append(types.Content(role="user",
-                                parts=[types.Part.from_text(text=_FABRICATED_NUDGE)]))
+            if _nudged < 2 and _looks_fabricated(_postprocess(_t), trace):
+                _nudged += 1
+                # 도구를 건너뛰게 만드는 것은 이력이다. 통째로 걷어내고 다시 묻되,
+                # 2회차에는 호출 자체를 강제해 설득에 기대지 않는다.
+                contents = _solo_contents(question, history)
+                if _nudged == 2:
+                    _force_once = True
                 yield {"type": "status", "stage": "verify", "label": "실제 데이터로 다시 확인 중…"}
                 continue
             if not _t and trace:
@@ -2920,7 +3074,7 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
                             out_tok += (um2.candidates_token_count or 0)
                 except Exception:  # noqa: BLE001
                     pass
-            _ans = _cap_listing_rows(_strip_code_leak(_dedupe_complexes(_fix_complex_names(_strip_bad_links(_dedupe_lines(_fix_links(_safe_text(resp))))))))
+            _ans = _postprocess(_safe_text(resp))
             if _looks_fabricated(_ans, trace):   # 근거 없는 숫자는 내보내지 않는다
                 _ans = _FABRICATED_FALLBACK
             yield {"type": "done",
