@@ -2035,19 +2035,27 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .qadd-need-link{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:700;
   color:var(--c-primary);background:var(--c-primary-soft);padding:2px 7px;border-radius:999px}
 .qadd-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:6px}
-.qadd-f{display:flex;align-items:center;gap:6px;font-size:12.5px;padding:5px 8px;border-radius:8px;background:#fff;
-  border:1px solid var(--c-border-soft)}
-.qadd-f > span{color:var(--c-muted);flex:none;min-width:38px}
-.qadd-f > b{font-weight:700;color:var(--c-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qadd-f{display:flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 8px;border-radius:8px;background:#fff;
+  border:1px solid var(--c-border-soft);cursor:text}
+.qadd-f:focus-within{border-color:var(--c-primary);box-shadow:0 0 0 2px var(--c-primary-soft)}
+.qadd-f > span{color:var(--c-muted);flex:none;min-width:40px;font-size:11.5px}
+.qadd-f input,.qadd-f select{flex:1;min-width:0;border:none;outline:none;background:none;font:inherit;
+  font-size:12.5px;font-weight:700;color:var(--c-text);padding:3px 0;width:100%}
+.qadd-f select{cursor:pointer}
+.qadd-f input::placeholder{font-weight:500;color:#c3ccd9}
+/* 아직 안 채운 칸 — 있다는 걸 보이되 시선을 뺏지 않는다 */
+.qadd-f.empty{background:#fbfcfe;border-style:dashed}
+.qadd-f > i{font-style:normal;font-size:11px;color:var(--c-muted);flex:none}
 /* 자동으로 채운 칸은 눈으로 구분된다 — 근거 없는 값을 그냥 믿게 하지 않는다 */
 .qadd-f.auto{background:#f4f6fa;border-color:#e3e8ee}
-.qadd-f.auto > em{margin-left:auto;display:inline-flex;align-items:center;gap:2px;font-style:normal;
+.qadd-f > em{margin-left:auto;display:inline-flex;align-items:center;gap:2px;font-style:normal;
   font-size:10.5px;font-weight:700;color:#8896a8;flex:none}
 .qadd-f.low{border-color:#e08a1e;border-style:dashed}
 .qadd-note{margin:8px 2px 0;font-size:11.5px;color:var(--c-muted);line-height:1.5}
 .qadd-note.warn{display:flex;align-items:center;gap:5px;color:#b45309;font-weight:600}
-.qadd-need{display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-size:12.5px;padding:7px 0;
-  border-top:1px solid var(--c-border-soft)}
+.qadd-needbox{margin-top:9px;padding-top:9px;border-top:1px solid var(--c-border-soft)}
+.qadd-needbox-h{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;
+  color:var(--c-muted);margin-bottom:6px}
 .qadd-need-t{flex:none;background:var(--c-primary);color:#fff;font-size:10.5px;font-weight:700;
   padding:2px 7px;border-radius:6px}
 .qadd-need-t.sell{background:#1a7f4b}
