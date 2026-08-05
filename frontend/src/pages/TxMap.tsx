@@ -4,9 +4,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { loadKakao, wonShort, escapeHtml, attachMapControls, coordToRegion, geocodeRegion } from "../lib/kakaomap";
-import { RegionSelect, useRegionFilter } from "../components/RegionSelect";
+import { useRegionFilter } from "../components/RegionSelect";
 import { areaLabel } from "../lib/area";
-import { Select } from "./TxStats";
 import { MapPin, X, Building2, Search, Loader2 } from "lucide-react";
 
 const API = import.meta.env.VITE_API_BASE;
@@ -171,6 +170,12 @@ export default function TxMap() {
   };
 
   const sgg = region.sigungu, dong = region.dong, sido = region.sido;
+  // 히어로 위쪽 지역 배지 — 지금 어디를 보고 있는지 한 줄로.
+  const regionName = useMemo(() => [
+    region.sidos.find((x) => x.code === sido)?.name,
+    region.sigungus.find((x) => x.code === sgg)?.name,
+    region.dongs.find((x) => x.code === dong)?.name,
+  ].filter(Boolean).join(" ") || "전국", [region.sidos, region.sigungus, region.dongs, sido, sgg, dong]);
   const needRegion = asset === "villa" || asset === "nrg" || asset === "house" ? !sgg : !sido;
 
   useEffect(() => {
@@ -263,46 +268,68 @@ export default function TxMap() {
       <Link to="/tx-stats" className="back">← 실거래 통계</Link>
 
       <section className="txm-hero">
-        <h1 className="txm-hero-t"><MapPin size={20} /> 실거래 지도</h1>
-        <p className="txm-hero-s">주소만 넣으면 그 주변 건물의 최근 실거래가를 지도에 바로 띄웁니다.</p>
-        <form className="txm-search" onSubmit={(e) => { e.preventDefault(); runSearch(); }}>
-          <Search size={19} className="txm-search-i" aria-hidden />
+        <div className="txm-hero-top">
+          <span className="txm-hero-loc"><MapPin size={15} strokeWidth={2.5} aria-hidden /> {regionName}</span>
+          <span className="txm-hero-seg">
+            {(rentOk ? TRADES : TRADES.slice(0, 1)).map((t) => (
+              <button key={t.value} className={tradeEff === t.value ? "on" : ""}
+                onClick={() => setTrade(t.value)}>{t.label}</button>
+            ))}
+          </span>
+        </div>
+        <h1 className="txm-hero-h1">주소만 넣으면<br />그 주변 실거래를 지도에</h1>
+
+        <form className="txm-hero-search" onSubmit={(e) => { e.preventDefault(); runSearch(); }}>
+          <Search size={17} className="txm-hero-search-ic" aria-hidden />
           <input
             value={q} onChange={(e) => { setQ(e.target.value); setSearchErr(""); }}
-            placeholder="지번 또는 도로명 주소 (예: 강일동 680, 테헤란로 152)"
+            placeholder="지번 또는 도로명 주소 (예: 강일동 680)"
             aria-label="지번 또는 도로명 주소" enterKeyHint="search" />
-          {q && <button type="button" className="txm-search-x" onClick={() => { setQ(""); setSearchErr(""); }}
-            aria-label="지우기"><X size={15} /></button>}
-          <button type="submit" className="txm-search-go" disabled={searching || !q.trim()}>
-            {searching ? <Loader2 size={15} className="txm-spin" /> : null}{searching ? "찾는 중" : "찾기"}
+          {q && <button type="button" className="txm-hero-search-x"
+            onClick={() => { setQ(""); setSearchErr(""); }} aria-label="지우기"><X size={15} /></button>}
+          <button type="submit" className="txm-hero-search-go" disabled={searching || !q.trim()}>
+            {searching ? <Loader2 size={15} className="txm-spin" aria-hidden /> : null}
+            {searching ? "찾는 중" : "찾기"}
           </button>
         </form>
-        {searchErr && <p className="txm-search-err">{searchErr}</p>}
+        {searchErr && <p className="txm-hero-err">{searchErr}</p>}
+
+        <div className="txm-hero-region">
+          <select value={region.sido} onChange={(e) => regionUI.setSido(e.target.value)} aria-label="시도">
+            <option value="">시도</option>
+            {region.sidos.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+          </select>
+          <select value={region.sigungu} onChange={(e) => regionUI.setSigungu(e.target.value)}
+            disabled={!region.sido} aria-label="시군구">
+            <option value="">{region.sido ? "시군구 전체" : "시군구"}</option>
+            {region.sigungus.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+          </select>
+          <select value={region.dong} onChange={(e) => regionUI.setDong(e.target.value)}
+            disabled={!region.sigungu} aria-label="읍면동">
+            <option value="">{region.sigungu ? "읍·면·동 전체" : "읍·면·동"}</option>
+            {region.dongs.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
+          </select>
+        </div>
+        <div className="txm-hero-region txm-hero-region2">
+          <select value={asset} onChange={(e) => setAsset(e.target.value)} aria-label="유형">
+            {ASSETS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+          </select>
+          <select value={disp} onChange={(e) => setDisp(e.target.value)} aria-label="핀 표시">
+            {DISPLAYS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+          </select>
+        </div>
+
         {focus ? (
-          <div className="txm-focus">
-            <MapPin size={14} /> <b>{focus.label}</b> 주변을 보고 있어요
+          <div className="txm-hero-focus">
+            <MapPin size={13} aria-hidden /> <b>{focus.label}</b> 주변
             <button type="button" onClick={clearFocus}>지역 전체 보기</button>
           </div>
         ) : (
           <div className="txm-hero-ex">
-            <span>예시</span>
             {EXAMPLES.map((ex) => (
               <button key={ex} type="button" onClick={() => { setQ(ex); runSearch(ex); }}>{ex}</button>
             ))}
           </div>
-        )}
-
-        <div className="txm-hero-div"><span>또는 조건으로 고르기</span></div>
-        <div className="filter-bar txm-hero-filters">
-          <Select label="유형" value={asset} onChange={setAsset} options={ASSETS} />
-          <Select label="거래" value={tradeEff} onChange={setTrade}
-            options={rentOk ? TRADES : TRADES.slice(0, 1)} />
-          <RegionSelect {...regionUI} />
-          <Select label="표시" value={disp} onChange={setDisp} options={DISPLAYS} />
-        </div>
-
-        {(asset === "villa" || asset === "nrg") && (
-          <p className="txm-hero-note">빌라·상가는 지번 좌표가 확인된 실거래만 표시됩니다.</p>
         )}
       </section>
 

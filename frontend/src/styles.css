@@ -3779,53 +3779,61 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 }
 
 /* ===== 실거래 지도 ===== */
-/* 히어로 — 주소만 넣으면 되는 자리. 드롭다운은 그 아래 보조수단으로 내려간다. */
-.txm-hero{background:linear-gradient(180deg,var(--c-primary-tint) 0%,var(--c-card) 62%);
-  border:1px solid var(--c-border);border-radius:var(--r-lg);box-shadow:var(--sh-sm);
-  padding:22px 22px 18px;margin:6px 0 12px}
-.txm-hero-t{display:flex;align-items:center;gap:8px;margin:0;font-size:21px;font-weight:800;
-  color:var(--c-text);letter-spacing:-.01em}
-.txm-hero-t svg{color:var(--c-primary)}
-.txm-hero-s{margin:6px 0 14px;font-size:13.5px;color:var(--c-muted)}
-.txm-search{display:flex;align-items:center;gap:8px;background:var(--c-card);
-  border:1.5px solid var(--c-border);border-radius:var(--r-pill);padding:6px 6px 6px 14px;
-  box-shadow:var(--sh-xs);transition:border-color .15s,box-shadow .15s}
-.txm-search:focus-within{border-color:var(--c-primary);box-shadow:0 0 0 3px var(--c-primary-soft)}
-.txm-search-i{color:var(--c-faint);flex:none}
-.txm-search input{flex:1;min-width:0;border:none;outline:none;background:none;
-  font:inherit;font-size:15px;color:var(--c-text);padding:8px 0}
-.txm-search input::placeholder{color:var(--c-faint)}
-.txm-search-x{border:none;background:none;color:var(--c-faint);cursor:pointer;
-  padding:4px;display:flex;flex:none;border-radius:var(--r-pill)}
-.txm-search-x:hover{background:var(--c-row-hover);color:var(--c-muted)}
-.txm-search-go{flex:none;display:inline-flex;align-items:center;gap:6px;border:none;cursor:pointer;
-  background:var(--c-primary);color:#fff;font:inherit;font-size:14px;font-weight:700;
-  padding:10px 20px;border-radius:var(--r-pill);transition:background .15s}
-.txm-search-go:hover:not(:disabled){background:var(--c-primary-strong)}
-.txm-search-go:disabled{background:var(--c-border);color:var(--c-faint);cursor:default}
+/* 히어로 — 랜딩(.hood-hero)과 같은 시각 언어. 이 페이지의 첫 화면도
+   '어디를 볼지 정하는 곳'이라 같은 카드 문법을 쓴다. */
+.txm-hero{background:radial-gradient(circle 90px at calc(100% - 50px) 50px,rgba(255,255,255,.14),transparent 70%),
+  linear-gradient(135deg,#15315e 0%,#1f56b0 100%);border-radius:20px;padding:20px 22px 22px;
+  color:#fff;position:relative;box-shadow:0 10px 30px -12px rgba(31,86,176,.5);margin:6px 0 14px}
+.txm-hero-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px}
+.txm-hero-loc{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.16);
+  padding:5px 11px;border-radius:999px;font-size:13px;font-weight:700;backdrop-filter:blur(4px)}
+.txm-hero-seg{display:inline-flex;gap:2px;background:rgba(255,255,255,.16);border-radius:999px;padding:3px;flex:none}
+.txm-hero-seg button{border:none;background:none;padding:6px 15px;border-radius:999px;
+  font-size:13px;font-weight:700;color:rgba(255,255,255,.85);cursor:pointer}
+.txm-hero-seg button.on{background:#fff;color:#1f56b0}
+.txm-hero-h1{font-size:24px;line-height:1.3;font-weight:800;margin:0 0 16px;letter-spacing:-.4px}
+/* 검색 — 히어로가 어두우므로 입력면은 밝게 명시 지정한다 */
+.txm-hero-search{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.96);
+  border-radius:11px;padding:4px 4px 4px 12px;box-shadow:0 2px 8px rgba(0,0,0,.08);position:relative;z-index:1}
+.txm-hero-search-ic{color:#8ea3c0;flex:none}
+.txm-hero-search input{flex:1;min-width:0;border:none;outline:none;background:none;
+  font:inherit;font-size:14px;font-weight:600;color:#15315e;padding:9px 0}
+.txm-hero-search input::placeholder{color:#93a2b8;font-weight:500}
+.txm-hero-search-x{border:none;background:none;color:#9fb0c8;cursor:pointer;padding:4px;display:flex;flex:none}
+.txm-hero-search-x:hover{color:#5a6a80}
+.txm-hero-search-go{flex:none;display:inline-flex;align-items:center;gap:5px;border:none;cursor:pointer;
+  background:#15315e;color:#fff;font:inherit;font-size:13.5px;font-weight:700;
+  padding:9px 17px;border-radius:9px;transition:background .15s}
+.txm-hero-search-go:hover:not(:disabled){background:#0f2547}
+.txm-hero-search-go:disabled{background:#c3ccd9;color:#fff;cursor:default}
 .txm-spin{animation:txm-rot .9s linear infinite}
 @keyframes txm-rot{to{transform:rotate(360deg)}}
-.txm-search-err{margin:9px 2px 0;font-size:12.5px;color:var(--c-sale)}
-.txm-hero-ex{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:11px;
-  font-size:12px;color:var(--c-muted)}
-.txm-hero-ex > span{font-weight:700;margin-right:2px}
-.txm-hero-ex button{border:1px solid var(--c-border);background:var(--c-card);cursor:pointer;
-  font:inherit;font-size:12px;color:var(--c-text-soft);padding:4px 11px;border-radius:var(--r-pill)}
-.txm-hero-ex button:hover{border-color:var(--c-primary);color:var(--c-primary);background:var(--c-primary-tint)}
-/* 검색과 드롭다운을 가르는 줄 — 둘이 같은 일을 하는 다른 길임을 보여 준다 */
-.txm-hero-div{display:flex;align-items:center;gap:10px;margin:16px 0 12px;
-  font-size:11.5px;font-weight:700;color:var(--c-faint);letter-spacing:.02em}
-.txm-hero-div::before,.txm-hero-div::after{content:"";flex:1;height:1px;background:var(--c-border)}
-.txm-hero-filters{margin-bottom:0;gap:9px}
-.txm-hero-filters .filter-select select{background-color:var(--c-card)}
-.txm-hero-note{margin:11px 2px 0;font-size:12px;color:var(--c-muted)}
-/* 검색 결과 위치 안내 줄 */
-.txm-focus{display:flex;align-items:center;gap:6px;background:var(--c-primary-soft);
-  border-radius:var(--r-md);padding:8px 12px;margin-top:11px;font-size:12.5px;color:var(--c-text-soft)}
-.txm-focus svg{color:var(--c-primary);flex:none}
-.txm-focus button{margin-left:auto;border:none;background:none;cursor:pointer;font:inherit;
-  font-size:12.5px;font-weight:700;color:var(--c-primary);padding:2px 4px}
-.txm-focus button:hover{text-decoration:underline}
+.txm-hero-err{margin:9px 2px 0;font-size:12.5px;font-weight:600;color:#ffd7d7}
+/* 조건 셀렉트 — 랜딩 .hood-region 과 같은 흰 알약 */
+.txm-hero-region{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1;margin-top:8px}
+.txm-hero-region select{padding:10px 13px;border:none;border-radius:11px;font-size:14px;font-weight:700;
+  background:rgba(255,255,255,.96);color:#15315e;min-width:118px;flex:1;cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.txm-hero-region select:disabled{opacity:.55;cursor:default}
+.txm-hero-region2 select{flex:1 1 40%}
+/* 검색 전 예시 / 검색 후 현재 위치 — 같은 자리를 나눠 쓴다 */
+.txm-hero-ex{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.txm-hero-ex button{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);cursor:pointer;
+  font:inherit;font-size:12px;font-weight:600;color:rgba(255,255,255,.9);padding:5px 11px;border-radius:999px}
+.txm-hero-ex button:hover{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.5)}
+.txm-hero-focus{display:flex;align-items:center;gap:5px;margin-top:11px;font-size:12.5px;
+  font-weight:600;color:rgba(255,255,255,.9)}
+.txm-hero-focus b{font-weight:800;color:#fff}
+.txm-hero-focus button{margin-left:auto;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);
+  cursor:pointer;font:inherit;font-size:12px;font-weight:700;color:#fff;padding:5px 11px;border-radius:999px}
+.txm-hero-focus button:hover{background:rgba(255,255,255,.22)}
+@media(max-width:560px){
+  .txm-hero{padding:18px 16px 18px;border-radius:16px}
+  .txm-hero-h1{font-size:20.5px;margin-bottom:14px}
+  .txm-hero-seg button{padding:6px 11px;font-size:12.5px}
+  .txm-hero-region select{min-width:0;flex:1 1 30%;font-size:13.5px;padding:9px 10px}
+  .txm-hero-search-go{padding:9px 14px}
+}
 /* 지도 위 '검색한 자리' 표식 */
 .txm-here{display:flex;align-items:center;gap:6px;transform:translateX(6px)}
 .txm-here i{width:13px;height:13px;border-radius:50%;background:var(--c-sale);
