@@ -4,11 +4,10 @@
 // 흐름: ① 입력 → ② 확인(자동으로 채운 값을 근거와 함께) → ③ 저장.
 // 확인을 건너뛰지 않는다 — 근거 없는 값을 그냥 믿으라고 요구하지 않기 위해서다.
 import { useState } from "react";
-import { Sparkles, Loader2, Check, X, Building2, UserRound, Lock, AlertTriangle } from "lucide-react";
+import { Sparkles, Loader2, Check, X, Building2, UserRound, Lock, AlertTriangle, Link2 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
-type Kind = "listing" | "customer";
 type Auto = Record<string, string>;
 type ListingRow = Record<string, any> & { _auto?: Auto; _area_name_cands?: string[] };
 type Need = Record<string, any>;
@@ -18,14 +17,15 @@ type Parsed = {
   확신낮음?: string[]; 못읽은줄?: string[];
 };
 
-const PLACEHOLDER: Record<Kind, string> = {
-  listing: "고덕그라시움 142동 2004호 매매 24억 올수리 남향 즉시입주\n여러 건을 줄바꿈으로 한 번에 넣어도 됩니다",
-  customer: "손님이 보낸 문자나 카톡을 그대로 붙여넣어도 됩니다\n김철수 010-1234-5678 고덕동 84 24억까지 10월 입주",
-};
-const EXAMPLE: Record<Kind, string> = {
-  listing: "고덕그라시움 142동 2004호 매매 24억 올수리 남향 즉시입주",
-  customer: "김철수 010-3001-0001 고덕동 34평 매매 24~27억 10월 입주 희망, 전세보증금 9억 9월말 반환 예정",
-};
+// 매물과 고객을 나눠 받지 않는다. 매물 정보에는 임대인·매도인이 딸려 오고,
+// 손님 메시지에는 내놓을 물건이 딸려 온다 — 나누면 같은 글을 두 번 넣게 된다.
+const PLACEHOLDER =
+  "매물이든 손님이든 그냥 적으시면 됩니다. 문자·카톡을 붙여넣어도 돼요.\n\n" +
+  "탕정푸르지오리버파크 205동 1503호 전세 3억5천 임대인 김소연 010-9999-1111";
+const EXAMPLES = [
+  "고덕그라시움 142동 2004호 매매 24억 올수리 남향 즉시입주 매도인 박영희 010-2222-3333",
+  "김철수 010-3001-0001 고덕동 34평 매매 24~27억 10월 입주 희망",
+];
 
 const won = (v: any): string => {
   const n = Number(v);
@@ -73,15 +73,20 @@ const L_FIELDS: [string, string | ((r: ListingRow) => string), (v: any) => strin
 export default function QuickAdd({ authH, onSaved }: {
   authH: () => Record<string, string>; onSaved?: () => void;
 }) {
-  const [kind, setKind] = useState<Kind>("listing");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [parsed, setParsed] = useState<Parsed | null>(null);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState("");
+  // 저장에서 뺄 항목(체크 해제). 기본은 전부 저장 — 뺄 일이 드물다
+  const [offL, setOffL] = useState<Set<number>>(new Set());
+  const [offC, setOffC] = useState<Set<number>>(new Set());
 
-  const reset = () => { setParsed(null); setErr(""); setDone(""); };
+  const reset = () => { setParsed(null); setErr(""); setDone(""); setOffL(new Set()); setOffC(new Set()); };
+  const toggle = (s: Set<number>, set: (v: Set<number>) => void, i: number) => {
+    const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); set(n);
+  };
 
   const run = async () => {
     if (!text.trim() || busy) return;
@@ -89,7 +94,7 @@ export default function QuickAdd({ authH, onSaved }: {
     try {
       const r = await fetch(`${API_BASE}/lounge/quick-parse`, {
         method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
-        body: JSON.stringify({ text, kind }),
+        body: JSON.stringify({ text }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.detail || `오류 ${r.status}`);
@@ -99,34 +104,36 @@ export default function QuickAdd({ authH, onSaved }: {
     } finally { setBusy(false); }
   };
 
+  // 매물을 빼면 그 매물을 가리키던 요건의 연결(매물번호)이 어긋난다 → 인덱스를 다시 매긴다
   const save = async () => {
     if (!parsed || saving) return;
+    const keptL = (parsed.매물 || []).filter((_, i) => !offL.has(i));
+    const remap = new Map<number, number>();
+    (parsed.매물 || []).forEach((_, i) => { if (!offL.has(i)) remap.set(i, remap.size); });
+    const keptC = (parsed.고객 || []).filter((_, i) => !offC.has(i)).map((c) => ({
+      ...c,
+      요건: (c.요건 || []).map((n) => ({
+        ...n,
+        매물번호: typeof n.매물번호 === "number" ? (remap.has(n.매물번호) ? remap.get(n.매물번호) : null) : null,
+      })),
+    }));
+    if (!keptL.length && !keptC.length) { setErr("저장할 항목을 하나 이상 골라 주세요"); return; }
     setSaving(true); setErr("");
     try {
-      if (kind === "listing") {
-        const rows = parsed.매물 || [];
-        for (const r of rows) {
-          const body: Record<string, any> = { visibility: "office" };
-          for (const [k, v] of Object.entries(r)) {
-            if (!k.startsWith("_") && v !== null && v !== "") body[k] = v;
-          }
-          const res = await fetch(`${API_BASE}/lounge/private-listings`, {
-            method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          if (!res.ok) throw new Error(`저장 실패 (${res.status})`);
-        }
-        setDone(`매물 ${rows.length}건을 매물장에 넣었어요`);
-      } else {
-        const res = await fetch(`${API_BASE}/lounge/customers/quick-save`, {
-          method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
-          body: JSON.stringify({ items: parsed.고객 || [], raw_text: text }),
-        });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j?.detail || `저장 실패 (${res.status})`);
-        setDone(`고객 ${j.saved}명을 저장했어요`);
-      }
-      setParsed(null); setText("");
+      const clean = keptL.map((r) => {
+        const o: Record<string, any> = {};
+        for (const [k, v] of Object.entries(r)) if (!k.startsWith("_") && v !== null && v !== "") o[k] = v;
+        return o;
+      });
+      const res = await fetch(`${API_BASE}/lounge/quick-save`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ 매물: clean, 고객: keptC, raw_text: text }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.detail || `저장 실패 (${res.status})`);
+      setDone([j.listings ? `매물 ${j.listings}건` : "", j.customers ? `고객 ${j.customers}명` : ""]
+        .filter(Boolean).join(" · ") + " 저장했어요");
+      setParsed(null); setText(""); setOffL(new Set()); setOffC(new Set());
       onSaved?.();
     } catch (e: any) {
       setErr(e?.message || "저장에 실패했어요");
@@ -134,39 +141,36 @@ export default function QuickAdd({ authH, onSaved }: {
   };
 
   const lowConf = new Set(parsed?.확신낮음 || []);
+  const nL = (parsed?.매물 || []).length - offL.size;
+  const nC = (parsed?.고객 || []).length - offC.size;
 
   return (
     <div className="qadd">
       <div className="qadd-h">
         <h3><Sparkles size={15} strokeWidth={2.3} /> 빠른 입력</h3>
-        <span className="qadd-seg">
-          {(["listing", "customer"] as Kind[]).map((k) => (
-            <button key={k} className={kind === k ? "on" : ""}
-              onClick={() => { setKind(k); reset(); }}>
-              {k === "listing" ? <Building2 size={13} /> : <UserRound size={13} />}
-              {k === "listing" ? "매물" : "고객"}
-            </button>
-          ))}
-        </span>
+        <span className="qadd-sub">매물·고객 한 번에</span>
       </div>
 
       {!parsed && (
         <>
-          <textarea className="qadd-ta" rows={3} value={text}
-            placeholder={PLACEHOLDER[kind]}
+          <textarea className="qadd-ta" rows={4} value={text}
+            placeholder={PLACEHOLDER}
             onChange={(e) => { setText(e.target.value); setErr(""); }}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }} />
           <div className="qadd-row">
-            <button className="qadd-ex" onClick={() => setText(EXAMPLE[kind])}>예시 넣기</button>
+            {EXAMPLES.map((ex, i) => (
+              <button key={i} className="qadd-ex" onClick={() => setText(ex)}>
+                예시 {i === 0 ? "매물" : "손님"}
+              </button>
+            ))}
             <button className="qadd-go" onClick={run} disabled={busy || !text.trim()}>
               {busy ? <Loader2 size={14} className="txm-spin" /> : <Sparkles size={14} />}
               {busy ? "읽는 중…" : "읽기"}
             </button>
           </div>
           <p className="qadd-hint">
-            {kind === "listing"
-              ? "단지·동·호를 적으면 전용면적·층·방·주차를 건축물대장에서 채워 드려요."
-              : "문자나 카톡을 그대로 붙여넣어도 됩니다. 요건이 여러 개면 나눠서 정리해요."}
+            단지·동·호를 적으면 전용면적·층·방·주차를 건축물대장에서 채웁니다.
+            매물에 적힌 임대인·매도인은 고객으로도 함께 등록돼요.
           </p>
         </>
       )}
@@ -176,9 +180,12 @@ export default function QuickAdd({ authH, onSaved }: {
 
       {parsed && (
         <div className="qadd-preview">
-          {kind === "listing" && (parsed.매물 || []).map((r, i) => (
-            <div key={i} className="qadd-card">
-              <div className="qadd-card-h">매물 {i + 1}</div>
+          {(parsed.매물 || []).map((r, i) => (
+            <div key={i} className={"qadd-card" + (offL.has(i) ? " off" : "")}>
+              <label className="qadd-card-h">
+                <input type="checkbox" checked={!offL.has(i)} onChange={() => toggle(offL, setOffL, i)} />
+                <Building2 size={13} /> 매물 {i + 1}
+              </label>
               <div className="qadd-fields">
                 {L_FIELDS.filter(([k]) => r[k] !== null && r[k] !== undefined && r[k] !== "")
                   .map(([k, label, fmt]) => {
@@ -198,9 +205,12 @@ export default function QuickAdd({ authH, onSaved }: {
             </div>
           ))}
 
-          {kind === "customer" && (parsed.고객 || []).map((c, i) => (
-            <div key={i} className="qadd-card">
-              <div className="qadd-card-h">{c.name || "이름 미상"} {c.phone && <span>{c.phone}</span>}</div>
+          {(parsed.고객 || []).map((c, i) => (
+            <div key={i} className={"qadd-card" + (offC.has(i) ? " off" : "")}>
+              <label className="qadd-card-h">
+                <input type="checkbox" checked={!offC.has(i)} onChange={() => toggle(offC, setOffC, i)} />
+                <UserRound size={13} /> {c.name || "이름 미상"} {c.phone && <span>{c.phone}</span>}
+              </label>
               {(c.요건 || []).map((n, j) => (
                 <div key={j} className="qadd-need">
                   <span className={"qadd-need-t" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind}</span>
@@ -212,6 +222,9 @@ export default function QuickAdd({ authH, onSaved }: {
                   </span>
                   <span className="qadd-need-x">{[n.region, n.complex_name].filter(Boolean).join(" ")}</span>
                   {n.move_date && <span className="qadd-need-x">입주 {n.move_date}</span>}
+                  {typeof n.매물번호 === "number" && (
+                    <span className="qadd-need-link"><Link2 size={11} /> 매물 {n.매물번호 + 1}</span>
+                  )}
                 </div>
               ))}
               {(c.요건 || []).length === 0 && <p className="qadd-note">요건은 못 읽었어요. 저장 후 채우실 수 있습니다.</p>}
@@ -235,7 +248,8 @@ export default function QuickAdd({ authH, onSaved }: {
             <button className="qadd-ex" onClick={reset}><X size={13} /> 다시</button>
             <button className="qadd-go" onClick={save} disabled={saving}>
               {saving ? <Loader2 size={14} className="txm-spin" /> : <Check size={14} />}
-              {saving ? "저장 중…" : "이대로 저장"}
+              {saving ? "저장 중…"
+                : `이대로 저장${[nL ? ` 매물 ${nL}` : "", nC ? ` 고객 ${nC}` : ""].join("")}`}
             </button>
           </div>
           <p className="qadd-hint">빈 칸이 있어도 저장됩니다. 나머지는 나중에 채우실 수 있어요.</p>

@@ -10998,6 +10998,7 @@ def _init_reviews_db() -> None:
               budget_min   INTEGER, budget_max INTEGER,
               ask_price    INTEGER,
               sido TEXT, sigungu TEXT, dong TEXT, complex_no TEXT, address TEXT,
+              listing_id   INTEGER,            -- 내놓은 요건이 가리키는 우리 매물장 행
               area_min     REAL, area_max REAL,
               status       TEXT NOT NULL DEFAULT '탐색',
               move_date    TEXT,
@@ -11072,6 +11073,9 @@ def _init_reviews_db() -> None:
         # 기존 테이블에 신규 컬럼 보강(있으면 무시) — 전화번호=유니크 비즈니스키, 회원번호=내부키
         for ddl in (
             "ALTER TABLE biz_contracts ADD COLUMN doc_hash TEXT",   # 동일 파일 재파싱 방지(비용 0)
+            # biz_needs 는 먼저 배포된 적이 있다 — CREATE TABLE IF NOT EXISTS 는 기존
+            # 테이블에 no-op 이라 새 컬럼은 여기서 붙여야 한다.
+            "ALTER TABLE biz_needs ADD COLUMN listing_id INTEGER",
             # doc_hash 보강 뒤에 인덱스(컬럼 생성 전에 만들면 실패) — 재업로드 조회용
             "CREATE INDEX IF NOT EXISTS bzc_hash_idx ON biz_contracts(user_id, doc_hash)",
             "ALTER TABLE user_profiles ADD COLUMN member_no INTEGER",
@@ -13494,7 +13498,7 @@ def lounge_private_list(user: dict = Depends(current_user)):
 # 입주월로, 호칭 '사장님'을 이름으로 잡는 조용한 오류). 그래서 모델을 쓰되
 # 스키마를 강제하고, 확신 낮은 항목은 따로 표시해 사람이 확인하게 한다.
 
-_QA_LISTING_SCHEMA = {
+_QA_SCHEMA = {
     "type": "object",
     "properties": {
         "매물": {"type": "array", "items": {"type": "object", "properties": {
@@ -13510,13 +13514,6 @@ _QA_LISTING_SCHEMA = {
             "owner_name": {"type": "string"}, "owner_tel": {"type": "string"},
             "feature_desc": {"type": "string"},
         }}},
-        "확신낮음": {"type": "array", "items": {"type": "string"}},
-        "못읽은줄": {"type": "array", "items": {"type": "string"}},
-    }, "required": ["매물"],
-}
-_QA_CUSTOMER_SCHEMA = {
-    "type": "object",
-    "properties": {
         "고객": {"type": "array", "items": {"type": "object", "properties": {
             "name": {"type": "string"}, "phone": {"type": "string"},
             "memo": {"type": "string"},
@@ -13529,11 +13526,12 @@ _QA_CUSTOMER_SCHEMA = {
                 "area_min": {"type": "number", "nullable": True},
                 "area_max": {"type": "number", "nullable": True},
                 "move_date": {"type": "string"},
+                "매물번호": {"type": "integer", "nullable": True},
             }}},
         }}},
         "확신낮음": {"type": "array", "items": {"type": "string"}},
         "못읽은줄": {"type": "array", "items": {"type": "string"}},
-    }, "required": ["고객"],
+    }, "required": [],
 }
 _QA_COMMON = (
     "금액은 원 단위 정수로. 24억=2400000000, 3억5천=350000000, 보증5000/월250 은 "
@@ -13543,24 +13541,30 @@ _QA_COMMON = (
     "원문에 없는 값을 만들지 마라. 추론한 항목은 확신낮음 배열에 이름을 넣어라.\n"
     "매물이나 고객이 아닌 줄(제목·소계·인사말)은 못읽은줄에 넣어라."
 )
-_QA_LISTING_PROMPT = (
-    "부동산 중개사가 자기 매물을 적은 글이다. 여러 건일 수 있다.\n"
-    "trade_type 은 매매|전세|월세 중 하나. 매매가는 price, 전세·월세 보증금은 deposit, 월세는 rent_price.\n" + _QA_COMMON)
-_QA_CUSTOMER_PROMPT = (
-    "부동산 중개사가 받은 손님 정보다(직접 메모했거나 문자·카톡을 붙여넣었다).\n"
-    "중개사 본인 발화('나')는 근거에서 빼라. 손님이 한 말만 쓴다.\n"
-    "요건.kind=구함|내놓음, trade=매매|전세|월세, role=주안|대안|보유.\n"
-    "한 손님이 여러 요건을 가질 수 있다(매매를 찾으면서 안 되면 전세도 보는 식).\n" + _QA_COMMON)
+_QA_PROMPT = (
+    "부동산 중개사가 남긴 글이다. 매물 정보와 사람(고객) 정보가 **한 글에 섞여 있을 수 있다.**\n"
+    "둘 다 뽑아라. 없는 쪽은 빈 배열로 둔다.\n"
+    "\n[매물] trade_type 은 매매|전세|월세. 매매가=price, 전세·월세 보증금=deposit, 월세=rent_price.\n"
+    "\n[고객] 요건.kind=구함|내놓음, trade=매매|전세|월세, role=주안|대안|보유.\n"
+    "  한 사람이 여러 요건을 가질 수 있다(매매를 찾으면서 안 되면 전세도 보는 식).\n"
+    "\n★ 매물의 임대인·매도인·집주인은 **그 자체로 고객이다.** 고객 배열에도 넣고,\n"
+    "  그 사람의 요건을 kind=내놓음 / role=보유 / trade=매물의 거래유형 / ask_price=매물 가격 으로\n"
+    "  만들어라. 매물번호에는 그 매물이 매물 배열의 몇 번째인지(0부터) 넣어라.\n"
+    "  손님이 찾는 쪽이면 kind=구함이고 매물번호는 비운다.\n"
+    "  중개사 본인·사무소·대표는 고객이 아니다. 넣지 마라.\n"
+    "  문자·카톡이면 중개사 본인 발화('나')는 근거에서 뺀다.\n" + _QA_COMMON)
 
 
-def _qa_parse(text: str, kind: str) -> dict:
-    """자연어 → 구조화 제안. 실패하면 예외를 올려 호출부가 원문 저장으로 흘린다."""
+def _qa_parse(text: str) -> dict:
+    """자연어 한 덩이 → 매물 + 고객. 나누어 받지 않는다.
+
+    매물 정보에는 임대인·매도인이 딸려 오고, 손님 메시지에는 내놓을 물건이 딸려 온다.
+    입력 단계에서 종류를 고르게 하면 같은 글을 두 번 넣게 된다.
+    """
     from scripts.ai_agent import _genai
     from google.genai import types as _gt
     client = _genai()
-    listing = kind != "customer"
-    prompt = _QA_LISTING_PROMPT if listing else _QA_CUSTOMER_PROMPT
-    schema = _QA_LISTING_SCHEMA if listing else _QA_CUSTOMER_SCHEMA
+    prompt, schema = _QA_PROMPT, _QA_SCHEMA
     import datetime as _dtm
     today = (_dtm.datetime.utcnow() + _dtm.timedelta(hours=9)).strftime("%Y-%m-%d")
     resp = client.models.generate_content(
@@ -13680,31 +13684,59 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str) -> dict |
 
 @app.post("/lounge/quick-parse")
 def lounge_quick_parse(body: dict, user: dict = Depends(current_user)):
-    """자연어 한 덩이 → 매물/고객 후보. **저장하지 않는다** — 확인은 사람이 한다."""
+    """자연어 한 덩이 → 매물 + 고객 후보. **저장하지 않는다** — 확인은 사람이 한다."""
     text = (body.get("text") or "").strip()
-    kind = "customer" if body.get("kind") == "customer" else "listing"
     if len(text) < 2:
         raise HTTPException(400, "내용을 입력해 주세요")
     with _reviews_db() as rc:
         _require_member(rc, user["id"])
     try:
-        out = _qa_parse(text, kind)
+        out = _qa_parse(text)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"인식에 실패했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__})")
-    if kind == "listing":
-        rows = out.get("매물") or []
-        for r in rows:
-            r["_auto"] = _qa_enrich_listing(r)
-        out["매물"] = rows
+    rows = out.get("매물") or []
+    for r in rows:
+        r["_auto"] = _qa_enrich_listing(r)
+    out["매물"] = rows
+    out["고객"] = out.get("고객") or []
     return out
 
 
-@app.post("/lounge/customers/quick-save")
-def lounge_customer_quick_save(body: dict, user: dict = Depends(current_user)):
-    """확인을 마친 고객+요건 저장. 요건이 비어도 고객은 저장된다(나중에 채운다)."""
-    items = body.get("items") or []
-    if not items:
+@app.post("/lounge/quick-save")
+def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
+    """확인을 마친 매물 + 고객을 한 번에 저장하고 서로 연결한다.
+
+    매물을 먼저 넣어 id 를 받고, 그 매물을 '내놓은' 사람의 요건에 listing_id 로 건다.
+    한쪽이 실패해도 다른 쪽은 저장된다 — 절반이라도 남는 편이 낫다.
+    """
+    listings = body.get("매물") or []
+    items = body.get("고객") or []
+    if not listings and not items:
         raise HTTPException(400, "저장할 내용이 없습니다")
+
+    # ① 매물 — 기존 비공개매물 저장 경로를 그대로 쓴다
+    listing_ids: list = []
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        _ensure_private_listings(rc)
+        for r in listings:
+            vals = {}
+            for f in _PL_FIELDS:
+                v = r.get(f)
+                if isinstance(v, (list, dict)):
+                    v = _json.dumps(v, ensure_ascii=False)
+                if f in _PL_NUM and v not in (None, ""):
+                    try:
+                        v = str(float(v))
+                    except (TypeError, ValueError):
+                        v = None
+                vals[f] = v if v not in ("",) else None
+            cols = ["realtor_id", "created_by", "visibility"] + list(vals)
+            q = f"INSERT INTO private_listings({','.join(cols)}) VALUES({','.join('?' * len(cols))})"
+            cur = rc.execute(q, [rid, user["id"], "office"] + list(vals.values()))
+            listing_ids.append(cur.lastrowid)
+
+    # ② 고객 + 요건
     saved = 0
     with _reviews_db() as rc:
         rid = _require_member(rc, user["id"])
@@ -13724,20 +13756,26 @@ def lounge_customer_quick_save(body: dict, user: dict = Depends(current_user)):
                 (user["id"], name or "(이름없음)", phone or "")).fetchone()
             cid = cid[0] if cid else None
             for nd in (it.get("요건") or []):
+                # 내놓은 요건이면 방금 저장한 매물에 건다(매물번호 = 매물 배열 인덱스)
+                lidx = nd.get("매물번호")
+                lid = listing_ids[lidx] if isinstance(lidx, int) and 0 <= lidx < len(listing_ids) else None
                 rc.execute(
                     "INSERT INTO biz_needs(client_uid, user_id, realtor_id, customer_id, kind, trade, "
                     "  role, budget_min, budget_max, ask_price, sigungu, dong, address, area_min, "
-                    "  area_max, move_date, raw_text) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-                    "ON CONFLICT(client_uid) DO UPDATE SET updated_at=datetime('now')",
+                    "  area_max, move_date, listing_id, raw_text) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                    # client_uid 유니크 인덱스가 부분 인덱스(WHERE client_uid IS NOT NULL)라
+                    # 충돌 대상에 같은 조건을 붙여야 매칭된다. 안 붙이면 실행 시점에 터진다.
+                    "ON CONFLICT(client_uid) WHERE client_uid IS NOT NULL "
+                    "  DO UPDATE SET updated_at=datetime('now')",
                     (nd.get("client_uid"), user["id"], rid, cid,
                      nd.get("kind") or "구함", _TRADE_CODE.get(nd.get("trade") or "") or nd.get("trade"),
                      nd.get("role"), nd.get("budget_min"), nd.get("budget_max"), nd.get("ask_price"),
                      None, nd.get("region"), nd.get("complex_name"),
-                     nd.get("area_min"), nd.get("area_max"), nd.get("move_date"),
+                     nd.get("area_min"), nd.get("area_max"), nd.get("move_date"), lid,
                      (body.get("raw_text") or "")[:2000]))
             saved += 1
-    return {"ok": True, "saved": saved}
+    return {"ok": True, "listings": len(listing_ids), "customers": saved}
 
 
 @app.post("/lounge/private-listings")
