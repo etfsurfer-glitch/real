@@ -278,34 +278,34 @@ export default function TxMap() {
           </button>
         </form>
         {searchErr && <p className="txm-search-err">{searchErr}</p>}
-        <div className="txm-hero-ex">
-          <span>예시</span>
-          {EXAMPLES.map((ex) => (
-            <button key={ex} type="button" onClick={() => { setQ(ex); runSearch(ex); }}>{ex}</button>
-          ))}
+        {focus ? (
+          <div className="txm-focus">
+            <MapPin size={14} /> <b>{focus.label}</b> 주변을 보고 있어요
+            <button type="button" onClick={clearFocus}>지역 전체 보기</button>
+          </div>
+        ) : (
+          <div className="txm-hero-ex">
+            <span>예시</span>
+            {EXAMPLES.map((ex) => (
+              <button key={ex} type="button" onClick={() => { setQ(ex); runSearch(ex); }}>{ex}</button>
+            ))}
+          </div>
+        )}
+
+        <div className="txm-hero-div"><span>또는 조건으로 고르기</span></div>
+        <div className="filter-bar txm-hero-filters">
+          <Select label="유형" value={asset} onChange={setAsset} options={ASSETS} />
+          <Select label="거래" value={tradeEff} onChange={setTrade}
+            options={rentOk ? TRADES : TRADES.slice(0, 1)} />
+          <RegionSelect {...regionUI} />
+          <Select label="표시" value={disp} onChange={setDisp} options={DISPLAYS} />
         </div>
+
+        {(asset === "villa" || asset === "nrg") && (
+          <p className="txm-hero-note">빌라·상가는 지번 좌표가 확인된 실거래만 표시됩니다.</p>
+        )}
       </section>
 
-      {focus && (
-        <div className="txm-focus">
-          <MapPin size={14} /> <b>{focus.label}</b> 주변을 보고 있어요
-          <button type="button" onClick={clearFocus}>지역 전체 보기</button>
-        </div>
-      )}
-
-      <div className="filter-bar">
-        <Select label="유형" value={asset} onChange={setAsset} options={ASSETS} />
-        <Select label="거래" value={tradeEff} onChange={setTrade}
-          options={rentOk ? TRADES : TRADES.slice(0, 1)} />
-        <RegionSelect {...regionUI} />
-        <Select label="표시" value={disp} onChange={setDisp} options={DISPLAYS} />
-      </div>
-
-      {(asset === "villa" || asset === "nrg") && (
-        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-          빌라·상가는 지번 좌표가 확인된 실거래만 표시됩니다.
-        </div>
-      )}
       {needRegion && (
         <div className="muted" style={{ padding: "40px 8px", textAlign: "center", fontSize: 13 }}>
           위에 주소를 넣거나, {asset === "apt" || asset === "offi" ? "시도" : "시군구"}를 고르면 지도가 표시됩니다.
