@@ -38,8 +38,17 @@ const won = (v: any): string => {
 };
 const TRADE_KOR: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 
-// 화면에 보여줄 매물 항목 — 라벨, 값 포맷
-const L_FIELDS: [string, string, (v: any) => string][] = [
+// 소유자 호칭은 거래유형에 따라 달라진다. 전세·월세 물건의 소유자는 매도인이 아니라 임대인이다.
+// 거래를 모를 때만 중립어(소유자)를 쓴다 — 기존 매물장 폼과 같은 말.
+function ownerLabel(trade: any): string {
+  const t = String(trade || "");
+  if (t === "매매" || t === "A1") return "매도인";
+  if (t === "전세" || t === "월세" || t === "B1" || t === "B2") return "임대인";
+  return "소유자";
+}
+
+// 화면에 보여줄 매물 항목 — 라벨(고정 또는 행에 따라), 값 포맷
+const L_FIELDS: [string, string | ((r: ListingRow) => string), (v: any) => string][] = [
   ["complex_name", "단지", (v) => v],
   ["address", "주소", (v) => v],
   ["dong", "동", (v) => v],
@@ -56,8 +65,8 @@ const L_FIELDS: [string, string, (v: any) => string][] = [
   ["move_in", "입주", (v) => v],
   ["approve_ymd", "준공", (v) => String(v).slice(0, 4) + "년"],
   ["parking", "주차", (v) => `세대당 ${v}`],
-  ["owner_name", "매도인", (v) => v],
-  ["owner_tel", "연락처", (v) => v],
+  ["owner_name", (r) => ownerLabel(r.trade_type), (v) => v],
+  ["owner_tel", (r) => `${ownerLabel(r.trade_type)} 연락처`, (v) => v],
   ["feature_desc", "특징", (v) => v],
 ];
 
@@ -176,7 +185,7 @@ export default function QuickAdd({ authH, onSaved }: {
                     const src = r._auto?.[k];
                     return (
                       <div key={k} className={"qadd-f" + (src ? " auto" : "") + (lowConf.has(k) ? " low" : "")}>
-                        <span>{label}</span>
+                        <span>{typeof label === "function" ? label(r) : label}</span>
                         <b>{fmt(r[k])}</b>
                         {src && <em title={`${src}에서 자동으로 채웠어요`}><Lock size={10} /> {src}</em>}
                       </div>
