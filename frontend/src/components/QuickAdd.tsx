@@ -9,7 +9,10 @@ import { Sparkles, Loader2, Check, X, Building2, UserRound, Lock, AlertTriangle,
 const API_BASE = import.meta.env.VITE_API_BASE;
 
 type Auto = Record<string, string>;
-type ListingRow = Record<string, any> & { _auto?: Auto; _area_name_cands?: string[] };
+type Cand = { complex_no: string; name: string; region: string };
+type ListingRow = Record<string, any> & {
+  _auto?: Auto; _area_name_cands?: string[]; _note?: string; _complex_cands?: Cand[];
+};
 type Need = Record<string, any>;
 type CustomerRow = { name?: string; phone?: string; memo?: string; 요건?: Need[] };
 type Parsed = {
@@ -160,6 +163,29 @@ export default function QuickAdd({ authH, onSaved }: {
     setParsed(null); setErr(""); setDone(""); setOffL(new Set()); setOffC(new Set()); setShowAll(false);
   };
 
+  // 단지 후보 중 하나를 고르면 그 단지 기준으로 다시 채운다
+  const [enriching, setEnriching] = useState<number | null>(null);
+  const pickComplex = async (i: number, complex_no: string) => {
+    if (!parsed || enriching !== null) return;
+    setEnriching(i); setErr("");
+    try {
+      const res = await fetch(`${API_BASE}/lounge/quick-enrich`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ row: parsed.매물![i], complex_no }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.detail || `오류 ${res.status}`);
+      setParsed((prev) => {
+        if (!prev) return prev;
+        const 매물 = [...(prev.매물 || [])];
+        매물[i] = j.row;
+        return { ...prev, 매물 };
+      });
+    } catch (e: any) {
+      setErr(e?.message || "단지 정보를 가져오지 못했어요");
+    } finally { setEnriching(null); }
+  };
+
   // 편집 — 고치면 그 칸의 '자동' 표식을 뗀다. 사람이 정한 값이라는 뜻이다.
   const editL = (i: number, k: string, v: any) => setParsed((prev) => {
     if (!prev) return prev;
@@ -293,6 +319,20 @@ export default function QuickAdd({ authH, onSaved }: {
                       low={lowConf.has(k)} onChange={(v) => editL(i, k, v)} />
                   ))}
               </div>
+              {r._note && (
+                <p className="qadd-note warn"><AlertTriangle size={12} /> {r._note}</p>
+              )}
+              {r._complex_cands && r._complex_cands.length > 0 && (
+                <div className="qadd-cands">
+                  {r._complex_cands.map((cd) => (
+                    <button key={cd.complex_no} disabled={enriching !== null}
+                      onClick={() => pickComplex(i, cd.complex_no)}>
+                      {enriching === i ? <Loader2 size={11} className="txm-spin" /> : <Building2 size={11} />}
+                      {cd.name}{cd.region ? <em>{cd.region}</em> : null}
+                    </button>
+                  ))}
+                </div>
+              )}
               {r._area_name_cands && r._area_name_cands.length > 1 && (
                 <p className="qadd-note">평형 후보 {r._area_name_cands.join(" · ")} — 전용면적만으로는 하나로 좁혀지지 않아 비워 뒀어요.</p>
               )}

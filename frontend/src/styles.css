@@ -2129,6 +2129,14 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .qadd-need-r{font-size:11px;color:#64748b;background:#eef2f7;padding:1px 7px;border-radius:999px}
 .qadd-need-p{font-weight:700;color:var(--c-sale)}
 .qadd-need-x{color:var(--c-muted)}
+.qadd-cands{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.qadd-cands button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c-border);
+  background:#fff;cursor:pointer;font:inherit;font-size:12px;font-weight:700;color:#13294b;
+  padding:6px 12px;border-radius:9px}
+.qadd-cands button:hover:not(:disabled){border-color:var(--c-primary);color:var(--c-primary);background:var(--c-primary-tint)}
+.qadd-cands button:disabled{opacity:.5;cursor:default}
+.qadd-cands button svg{color:var(--c-primary)}
+.qadd-cands button em{font-style:normal;font-weight:500;color:var(--c-muted);font-size:11px}
 .qadd-skip{margin-top:8px;font-size:11.5px;color:var(--c-muted)}
 .qadd-skip summary{cursor:pointer;font-weight:600}
 .qadd-skip p{margin:4px 0 0 10px;color:var(--c-faint)}

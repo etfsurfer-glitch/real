@@ -13578,6 +13578,57 @@ def _qa_parse(text: str) -> dict:
     return _json.loads(resp.text)
 
 
+# 사람이 부르는 단지명과 DB 이름은 다르다. '둔산동 한마루 아파트' 는 DB 에 '한마루럭키'·
+# '한마루삼성' 으로 있다. 완전일치만 보면 조용히 못 찾고 아무것도 못 채운다(실측).
+_QA_NAME_TAIL = ("아파트", "APT", "apt", "단지", "타운")
+
+
+def _qa_name_key(name: str) -> str:
+    k = (name or "").strip().replace(" ", "")
+    for t in _QA_NAME_TAIL:
+        if len(k) > len(t) + 1 and k.endswith(t):
+            k = k[: -len(t)]
+    return k
+
+
+def _qa_match_complex(c, name: str, hint: str) -> tuple:
+    """(단지행, 후보목록, 사유). 지역 힌트로 좁히고 완전 → 접두 → 부분 순으로 찾는다.
+
+    후보가 여럿이면 고르지 않고 돌려준다 — 엉뚱한 단지의 대장을 붙이는 것보다
+    비워 두고 물어보는 편이 낫다(설계안 §4-3 '후보' 등급).
+    """
+    key = _qa_name_key(name)
+    if len(key) < 2:
+        return None, [], "단지명이 너무 짧아요"
+    cols = ("complex_no, complex_name, cortar_no, detail_address, use_approve_ymd, "
+            "parking_per_household, heat_method_code, road_address, total_household_count")
+    # 지역 힌트(동·구 이름)가 글에 있으면 그 지역으로 먼저 좁힌다
+    prefixes = []
+    hay = (hint or "")
+    if hay:
+        for cno, cname in c.execute(
+                "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type IN ('sec','sigungu')").fetchall():
+            if cname and len(cname) >= 2 and cname in hay:
+                prefixes.append(cno[:8] if len(cno) >= 10 else cno[:5])
+    def _q(where, args, pfx=None):
+        w, a = where, list(args)
+        if pfx:
+            w += " AND (" + " OR ".join(["cortar_no LIKE ?"] * len(pfx)) + ")"
+            a += [p + "%" for p in pfx]
+        return c.execute(f"SELECT {cols} FROM complexes WHERE {w} LIMIT 12", a).fetchall()
+    for pfx in ([prefixes] if prefixes else []) + [None]:
+        for where, args in (
+                ("REPLACE(complex_name,' ','')=?", (key,)),
+                ("REPLACE(complex_name,' ','') LIKE ?", (key + "%",)),
+                ("REPLACE(complex_name,' ','') LIKE ?", ("%" + key + "%",))):
+            rows = _q(where, args, pfx)
+            if len(rows) == 1:
+                return rows[0], [], ""
+            if len(rows) > 1:
+                return None, rows, f"'{name}' 로 {len(rows)}곳이 검색돼요. 단지를 골라 주세요"
+    return None, [], f"'{name}' 을(를) 단지 목록에서 못 찾았어요"
+
+
 def _qa_enrich_listing(row: dict) -> dict:
     """단지명+동+호 → 건축물대장·우리 단지 DB 로 빈칸을 채운다(설계안 §4-2).
 
@@ -13590,13 +13641,18 @@ def _qa_enrich_listing(row: dict) -> dict:
         return auto
     try:
         with _open_db() as c:
-            cx = c.execute(
-                "SELECT complex_no, cortar_no, detail_address, use_approve_ymd, "
-                "       parking_per_household, heat_method_code, road_address, total_household_count "
-                "FROM complexes WHERE REPLACE(complex_name,' ','')=? LIMIT 1",
-                (name.replace(" ", ""),)).fetchone()
-            if not cx:
+            hint = " ".join(str(row.get(k) or "") for k in ("address", "address_detail", "memo"))
+            hit, cands, why = _qa_match_complex(c, name, hint)
+            if not hit:
+                row["_note"] = why
+                if cands:
+                    row["_complex_cands"] = [
+                        {"complex_no": str(r[0]), "name": r[1], "region": r[3] or ""} for r in cands]
                 return auto
+            cx = (hit[0], hit[2], hit[3], hit[4], hit[5], hit[6], hit[7], hit[8])
+            if hit[1] and _qa_name_key(hit[1]) != _qa_name_key(name):
+                row["complex_name"] = hit[1]      # DB 정식 명칭으로 맞춘다
+                auto["complex_name"] = "단지 DB"
             row.setdefault("complex_no", str(cx[0]))
             auto["complex_no"] = "단지 DB"
             if cx[6] and not row.get("address"):
@@ -13607,8 +13663,12 @@ def _qa_enrich_listing(row: dict) -> dict:
                 row["parking"] = cx[4]; auto["parking"] = "단지 DB(세대당)"
             # 동·호가 있으면 건축물대장 전유부로 전용면적·층을 확정한다
             dong, ho = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
+            if dong and ho and not (cx[1] and cx[2]):
+                row["_note"] = "이 단지는 지번이 없어 건축물대장을 조회할 수 없어요"
             if dong and ho and cx[1] and cx[2]:
                 led = _qa_expos(cx[1], cx[2], dong, ho)
+                if not led:
+                    row["_note"] = f"건축물대장에서 {dong} {ho}호를 못 찾았어요. 동·호를 확인해 주세요"
                 if led:
                     if led.get("area") and not row.get("area2_m2"):
                         row["area2_m2"] = led["area"]; auto["area2_m2"] = "건축물대장 전유부"
@@ -13646,30 +13706,48 @@ def _qa_norm_dong_ho(dong, ho):
     h = str(ho or "").strip()
     if d and not d.endswith("동"):
         d = d + "동"
-    if h.endswith("호"):
-        h = h[:-1]
+    if h and not h.endswith("호"):
+        h = h + "호"          # 사람이 읽는 표기로 통일한다. 대장 조회는 두 형태를 다 시도한다
     return (d or None), (h or None)
 
 
 def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str) -> dict | None:
-    """건축물대장 전유부 — 동·호 단위 전용면적·층. 실패는 None(저장은 계속된다)."""
-    try:
-        from collector.ondemand_ledger import _parse_jibun
-        import urllib.parse as _up, urllib.request as _ur
-        import xml.etree.ElementTree as _ET
-        parsed = _parse_jibun(cortar_no, detail_address)
-        if not parsed:
-            return None
-        sgg, plat, bun, ji, bjd = parsed
-        key = (os.getenv("DATA_GO_KR_SERVICE_KEY") or "").split(",")[0].strip()
-        if not key:
-            return None
+    """건축물대장 전유부 — 동·호 단위 전용면적·층. 실패는 None(저장은 계속된다).
+
+    data.go.kr 은 간헐적으로 401/5xx 를 낸다(실측: 같은 요청이 3초 뒤엔 정상).
+    한 번 실패했다고 빈 매물을 저장하게 두면 안 되니 짧게 재시도한다.
+    """
+    from collector.ondemand_ledger import _parse_jibun
+    import urllib.parse as _up, urllib.request as _ur
+    import xml.etree.ElementTree as _ET
+    parsed = _parse_jibun(cortar_no, detail_address)
+    if not parsed:
+        return None
+    sgg, plat, bun, ji, bjd = parsed
+    key = (os.getenv("DATA_GO_KR_SERVICE_KEY") or "").split(",")[0].strip()
+    if not key:
+        return None
+    # 호 표기가 단지마다 다르다 — 고덕그라시움은 '2004', 한마루럭키는 '1506호'(실측).
+    # 어느 쪽인지 미리 알 수 없으니 두 형태를 차례로 넣어 본다.
+    ho_forms = [ho, ho + "호"] if not str(ho).endswith("호") else [ho, str(ho)[:-1]]
+    base = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo?"
+    for hf in ho_forms:
         qs = _up.urlencode({"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd,
                             "platGbCd": plat, "bun": bun, "ji": ji, "dongNm": dong,
-                            "hoNm": ho, "numOfRows": "20", "_type": "xml"}, safe="%")
-        url = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo?" + qs
-        with _ur.urlopen(url, timeout=8) as r:
-            root = _ET.fromstring(r.read())
+                            "hoNm": hf, "numOfRows": "20", "_type": "xml"}, safe="%")
+        for attempt in range(3):
+            try:
+                with _ur.urlopen(base + qs, timeout=8) as r:
+                    root = _ET.fromstring(r.read())
+            except Exception:  # noqa: BLE001
+                if attempt < 2:
+                    import time as _t
+                    _t.sleep(0.6 * (attempt + 1))
+                    continue
+                root = None
+            break
+        if root is None:
+            continue
         for it in root.findall(".//item"):
             g = lambda t: (it.findtext(t) or "").strip()   # noqa: E731
             if g("exposPubuseGbCdNm") != "전유":
@@ -13677,9 +13755,40 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str) -> dict |
             return {"area": float(g("area") or 0) or None,
                     "floor": int(g("flrNo") or 0) or None,
                     "struct": g("strctCdNm")}
-    except Exception:  # noqa: BLE001
-        return None
     return None
+
+
+@app.post("/lounge/quick-enrich")
+def lounge_quick_enrich(body: dict, user: dict = Depends(current_user)):
+    """단지 후보 중 하나를 고른 뒤 그 단지 기준으로 다시 채운다.
+
+    처음 인식에서 '한마루 아파트' 처럼 여러 곳이 걸리면 아무것도 못 채운다.
+    사람이 단지를 고르면 그때 대장을 다시 조회한다.
+    """
+    with _reviews_db() as rc:
+        _require_member(rc, user["id"])
+    row = dict(body.get("row") or {})
+    cno = str(body.get("complex_no") or "").strip()
+    if not cno:
+        raise HTTPException(400, "단지를 골라 주세요")
+    with _open_db() as c:
+        cx = c.execute(
+            "SELECT complex_no, complex_name, cortar_no, detail_address, use_approve_ymd, "
+            "       parking_per_household, heat_method_code, road_address, total_household_count "
+            "FROM complexes WHERE complex_no=?", (cno,)).fetchone()
+    if not cx:
+        raise HTTPException(404, "단지를 찾을 수 없어요")
+    # 고른 단지로 이름을 확정하고, 자동 채움을 처음부터 다시 돌린다
+    row["complex_name"] = cx[1]
+    row.pop("_complex_cands", None)
+    row.pop("_note", None)
+    for k in ("complex_no", "address", "approve_ymd", "parking", "area2_m2", "floor",
+              "room_cnt", "bath_cnt", "area1_m2"):
+        if (row.get("_auto") or {}).get(k):
+            row.pop(k, None)          # 앞서 자동으로 넣은 값만 지운다(사람이 고친 값은 지킨다)
+    row["_auto"] = {}
+    row["_auto"] = _qa_enrich_listing(row)
+    return {"row": row}
 
 
 @app.get("/lounge/customers")
@@ -13797,6 +13906,10 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
                 r["dong"] = d
             if h:
                 r["ho"] = h
+            # 매물장 목록이 실제로 보여 주는 칸은 contact 다. 소유자 연락처를 owner_tel 에만
+            # 넣으면 화면에서 안 보인다 — 비어 있을 때만 옮겨 담는다.
+            if not (r.get("contact") or "").strip() and r.get("owner_tel"):
+                r["contact"] = str(r["owner_tel"])
             vals = {}
             for f in _PL_FIELDS:
                 v = r.get(f)
