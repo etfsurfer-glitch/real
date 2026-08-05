@@ -3,11 +3,11 @@
 // 핀 = 최근 N개월 평균 실거래가(억), 색은 평당가 4분위(같은 화면 안에서 상대 비교).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { loadKakao, wonShort, escapeHtml, attachMapControls, coordToRegion } from "../lib/kakaomap";
+import { loadKakao, wonShort, escapeHtml, attachMapControls, coordToRegion, geocodeRegion } from "../lib/kakaomap";
 import { RegionSelect, useRegionFilter } from "../components/RegionSelect";
 import { areaLabel } from "../lib/area";
 import { Select } from "./TxStats";
-import { MapPin, X, Building2 } from "lucide-react";
+import { MapPin, X, Building2, Search, Loader2 } from "lucide-react";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -91,6 +91,8 @@ const TIER_COLOR = ["#1f9d63", "#1268d3", "#e08a1e", "#d23b3b"]; // 저→고 �
 const TRADES = [
   { value: "A1", label: "매매" }, { value: "B1", label: "전세" }, { value: "B2", label: "월세" },
 ];
+// 검색창 밑 예시 — 지번·도로명 두 형태를 모두 보여 준다(무엇을 넣어야 하는지가 한눈에).
+const EXAMPLES = ["서울 강동구 강일동 680", "서울 테헤란로 152", "성남시 분당구 정자동 178"];
 
 function tiers(pins: Pin[]): (p: Pin) => number {
   const ys = pins.map((p) => p.ppy || 0).filter((x) => x > 0).sort((a, b) => a - b);
@@ -120,6 +122,43 @@ export default function TxMap() {
   const mapRef = useRef<any>(null);
   const ovsRef = useRef<any[]>([]);
   const fitRef = useRef<Pin[] | null>(null);   // 마지막으로 지도범위를 맞춘 pins — 표시모드 변경 땐 재조정 안 함
+  // 주소 검색 — 드롭다운을 하나도 안 건드려도 지번·도로명만으로 그 자리로 간다.
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState("");
+  const [focus, setFocus] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const focusRef = useRef<typeof focus>(null);
+
+  async function runSearch(text?: string) {
+    const query = (text ?? q).trim();
+    if (!query || searching) return;
+    setSearching(true); setSearchErr("");
+    try {
+      const c = await geocodeRegion(query);
+      if (!c) {
+        setSearchErr("그 주소를 찾지 못했어요. 지번(강일동 680)이나 도로명(테헤란로 152) 형태로 넣어 보세요.");
+        return;
+      }
+      // 좌표 → 행정구역으로 필터를 대신 채워 준다(사용자는 주소만 넣으면 된다).
+      const r = await coordToRegion(c.lat, c.lng);
+      if (r) { region.setSido(r.sido); region.setSigungu(r.sigungu); region.setDong(r.dong); }
+      setSel(null);
+      setFocus({ lat: c.lat, lng: c.lng, label: r?.name || query });
+    } catch {
+      setSearchErr("주소 검색에 실패했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  // 드롭다운을 직접 건드리면 검색 위치 고정을 푼다(지역 전체를 보려는 뜻이므로).
+  const clearFocus = () => { setFocus(null); setSearchErr(""); };
+  const regionUI = {
+    ...region,
+    setSido: (v: string) => { clearFocus(); region.setSido(v); },
+    setSigungu: (v: string) => { clearFocus(); region.setSigungu(v); },
+    setDong: (v: string) => { clearFocus(); region.setDong(v); },
+  };
   // 내위치 이동 → 그 좌표의 시군구로 지역 필터 전환(데이터 자동 재조회). 컨트롤은 1회 부착이라 ref로 최신 세터 사용.
   const onLocateRef = useRef<(lat: number, lng: number) => void>(() => {});
   onLocateRef.current = (lat, lng) => {
@@ -166,14 +205,16 @@ export default function TxMap() {
   }, [sel, asset, tradeEff, months, sgg]); // eslint-disable-line
 
   useEffect(() => {
-    if (!elRef.current || pins.length === 0) return;
+    // 검색만 하고 아직 핀이 없을 수도 있다 — 그 자리는 보여 줘야 하므로 focus 도 조건에 넣는다.
+    if (!elRef.current || (pins.length === 0 && !focus)) return;
     let dead = false;
     loadKakao().then(() => {
       if (dead || !elRef.current) return;
       const kakao = (window as any).kakao;
+      const origin = focus || pins[0];
       if (!mapRef.current) {
         mapRef.current = new kakao.maps.Map(elRef.current, {
-          center: new kakao.maps.LatLng(pins[0].lat, pins[0].lng), level: 5,
+          center: new kakao.maps.LatLng(origin.lat, origin.lng), level: focus ? 4 : 5,
         });
         attachMapControls(mapRef.current, elRef.current,
           { onLocate: (la, ln) => onLocateRef.current(la, ln) });
@@ -193,22 +234,70 @@ export default function TxMap() {
         const ov = new kakao.maps.CustomOverlay({ position: pos, content: el, yAnchor: 1.1, clickable: true });
         ov.setMap(map); ovsRef.current.push(ov);
       }
-      if (fitRef.current !== pins) { map.setBounds(bounds, 40, 40, 40, 40); fitRef.current = pins; }
+      if (focus) {
+        // 검색한 자리 표시. 핀이 나중에 도착해도 화면을 그리로 되돌리지 않는다
+        // (setBounds 를 태우면 검색한 집이 화면 밖으로 밀려난다).
+        const hereEl = document.createElement("div");
+        hereEl.className = "txm-here";
+        hereEl.innerHTML = `<i></i><b>${escapeHtml(focus.label)}</b>`;
+        const here = new kakao.maps.CustomOverlay({
+          position: new kakao.maps.LatLng(focus.lat, focus.lng),
+          content: hereEl, yAnchor: 0.5, zIndex: 9,
+        });
+        here.setMap(map); ovsRef.current.push(here);
+        if (focusRef.current !== focus) {
+          map.setLevel(4);
+          map.setCenter(new kakao.maps.LatLng(focus.lat, focus.lng));
+          focusRef.current = focus;
+        }
+        fitRef.current = pins;
+      } else if (fitRef.current !== pins) {
+        map.setBounds(bounds, 40, 40, 40, 40); fitRef.current = pins;
+      }
     }).catch(() => {});
     return () => { dead = true; };
-  }, [pins, tierOf, disp]);
+  }, [pins, tierOf, disp, focus]);
 
   return (
     <div>
       <Link to="/tx-stats" className="back">← 실거래 통계</Link>
-      <div className="section-title" style={{ marginTop: 4 }}>
-        <MapPin size={17} /> 실거래 지도 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>지역·유형을 고르면 건물별 최근 실거래가를 지도에</span>
-      </div>
+
+      <section className="txm-hero">
+        <h1 className="txm-hero-t"><MapPin size={20} /> 실거래 지도</h1>
+        <p className="txm-hero-s">주소만 넣으면 그 주변 건물의 최근 실거래가를 지도에 바로 띄웁니다.</p>
+        <form className="txm-search" onSubmit={(e) => { e.preventDefault(); runSearch(); }}>
+          <Search size={19} className="txm-search-i" aria-hidden />
+          <input
+            value={q} onChange={(e) => { setQ(e.target.value); setSearchErr(""); }}
+            placeholder="지번 또는 도로명 주소 (예: 강일동 680, 테헤란로 152)"
+            aria-label="지번 또는 도로명 주소" enterKeyHint="search" />
+          {q && <button type="button" className="txm-search-x" onClick={() => { setQ(""); setSearchErr(""); }}
+            aria-label="지우기"><X size={15} /></button>}
+          <button type="submit" className="txm-search-go" disabled={searching || !q.trim()}>
+            {searching ? <Loader2 size={15} className="txm-spin" /> : null}{searching ? "찾는 중" : "찾기"}
+          </button>
+        </form>
+        {searchErr && <p className="txm-search-err">{searchErr}</p>}
+        <div className="txm-hero-ex">
+          <span>예시</span>
+          {EXAMPLES.map((ex) => (
+            <button key={ex} type="button" onClick={() => { setQ(ex); runSearch(ex); }}>{ex}</button>
+          ))}
+        </div>
+      </section>
+
+      {focus && (
+        <div className="txm-focus">
+          <MapPin size={14} /> <b>{focus.label}</b> 주변을 보고 있어요
+          <button type="button" onClick={clearFocus}>지역 전체 보기</button>
+        </div>
+      )}
+
       <div className="filter-bar">
         <Select label="유형" value={asset} onChange={setAsset} options={ASSETS} />
         <Select label="거래" value={tradeEff} onChange={setTrade}
           options={rentOk ? TRADES : TRADES.slice(0, 1)} />
-        <RegionSelect {...region} />
+        <RegionSelect {...regionUI} />
         <Select label="표시" value={disp} onChange={setDisp} options={DISPLAYS} />
       </div>
 
@@ -218,8 +307,8 @@ export default function TxMap() {
         </div>
       )}
       {needRegion && (
-        <div className="muted" style={{ padding: "40px 8px", textAlign: "center" }}>
-          {asset === "apt" || asset === "offi" ? "시도 이상 지역" : "시군구"}를 선택하면 지도가 표시됩니다.
+        <div className="muted" style={{ padding: "40px 8px", textAlign: "center", fontSize: 13 }}>
+          위에 주소를 넣거나, {asset === "apt" || asset === "offi" ? "시도" : "시군구"}를 고르면 지도가 표시됩니다.
         </div>
       )}
 

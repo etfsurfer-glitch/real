@@ -3779,6 +3779,59 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 }
 
 /* ===== 실거래 지도 ===== */
+/* 히어로 — 주소만 넣으면 되는 자리. 드롭다운은 그 아래 보조수단으로 내려간다. */
+.txm-hero{background:linear-gradient(180deg,var(--c-primary-tint) 0%,var(--c-card) 62%);
+  border:1px solid var(--c-border);border-radius:var(--r-lg);box-shadow:var(--sh-sm);
+  padding:22px 22px 18px;margin:6px 0 12px}
+.txm-hero-t{display:flex;align-items:center;gap:8px;margin:0;font-size:21px;font-weight:800;
+  color:var(--c-text);letter-spacing:-.01em}
+.txm-hero-t svg{color:var(--c-primary)}
+.txm-hero-s{margin:6px 0 14px;font-size:13.5px;color:var(--c-muted)}
+.txm-search{display:flex;align-items:center;gap:8px;background:var(--c-card);
+  border:1.5px solid var(--c-border);border-radius:var(--r-pill);padding:6px 6px 6px 14px;
+  box-shadow:var(--sh-xs);transition:border-color .15s,box-shadow .15s}
+.txm-search:focus-within{border-color:var(--c-primary);box-shadow:0 0 0 3px var(--c-primary-soft)}
+.txm-search-i{color:var(--c-faint);flex:none}
+.txm-search input{flex:1;min-width:0;border:none;outline:none;background:none;
+  font:inherit;font-size:15px;color:var(--c-text);padding:8px 0}
+.txm-search input::placeholder{color:var(--c-faint)}
+.txm-search-x{border:none;background:none;color:var(--c-faint);cursor:pointer;
+  padding:4px;display:flex;flex:none;border-radius:var(--r-pill)}
+.txm-search-x:hover{background:var(--c-row-hover);color:var(--c-muted)}
+.txm-search-go{flex:none;display:inline-flex;align-items:center;gap:6px;border:none;cursor:pointer;
+  background:var(--c-primary);color:#fff;font:inherit;font-size:14px;font-weight:700;
+  padding:10px 20px;border-radius:var(--r-pill);transition:background .15s}
+.txm-search-go:hover:not(:disabled){background:var(--c-primary-strong)}
+.txm-search-go:disabled{background:var(--c-border);color:var(--c-faint);cursor:default}
+.txm-spin{animation:txm-rot .9s linear infinite}
+@keyframes txm-rot{to{transform:rotate(360deg)}}
+.txm-search-err{margin:9px 2px 0;font-size:12.5px;color:var(--c-sale)}
+.txm-hero-ex{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:11px;
+  font-size:12px;color:var(--c-muted)}
+.txm-hero-ex > span{font-weight:700;margin-right:2px}
+.txm-hero-ex button{border:1px solid var(--c-border);background:var(--c-card);cursor:pointer;
+  font:inherit;font-size:12px;color:var(--c-text-soft);padding:4px 11px;border-radius:var(--r-pill)}
+.txm-hero-ex button:hover{border-color:var(--c-primary);color:var(--c-primary);background:var(--c-primary-tint)}
+/* 검색 결과 위치 안내 줄 */
+.txm-focus{display:flex;align-items:center;gap:6px;background:var(--c-primary-soft);
+  border-radius:var(--r-md);padding:8px 12px;margin-bottom:10px;font-size:12.5px;color:var(--c-text-soft)}
+.txm-focus svg{color:var(--c-primary);flex:none}
+.txm-focus button{margin-left:auto;border:none;background:none;cursor:pointer;font:inherit;
+  font-size:12.5px;font-weight:700;color:var(--c-primary);padding:2px 4px}
+.txm-focus button:hover{text-decoration:underline}
+/* 지도 위 '검색한 자리' 표식 */
+.txm-here{display:flex;align-items:center;gap:6px;transform:translateX(6px)}
+.txm-here i{width:13px;height:13px;border-radius:50%;background:var(--c-sale);
+  border:2.5px solid #fff;box-shadow:0 0 0 4px rgba(210,59,59,.22),0 2px 5px rgba(20,40,80,.3);flex:none}
+.txm-here b{background:var(--c-sale);color:#fff;font-size:11px;font-weight:700;
+  padding:2px 8px;border-radius:var(--r-pill);white-space:nowrap;box-shadow:0 2px 6px rgba(20,40,80,.28)}
+@media(max-width:560px){
+  .txm-hero{padding:18px 14px 14px}
+  .txm-hero-t{font-size:18.5px}
+  .txm-search{padding-left:12px;gap:6px}
+  .txm-search input{font-size:15px}
+  .txm-search-go{padding:10px 15px}
+}
 .txm-map{width:100%;height:min(66vh,620px);border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--c-border)}
 .txm-legend{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--c-muted);margin:2px 0 8px}
 .txm-legend > span:first-child{font-weight:700;color:var(--c-text)}
