@@ -15,7 +15,7 @@ type Need = {
   id: number; kind?: string; trade?: string; role?: string;
   budget_min?: number | null; budget_max?: number | null; ask_price?: number | null;
   sigungu?: string | null; dong?: string | null; address?: string | null;
-  area_min?: number | null; area_max?: number | null; move_date?: string | null;
+  area_min?: number | null; area_max?: number | null; settle_date?: string | null;
   status?: string; listing_id?: number | null; listing?: Listing | null; raw_text?: string | null;
 };
 type Customer = {
@@ -154,7 +154,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
                 {n.role && <span className="cled-role">{n.role}</span>}
                 <span className="cled-price">{priceOf(n)}</span>
                 <span className="cled-where">{whereOf(n)}</span>
-                {n.move_date && <span className="cled-move">입주 {n.move_date}</span>}
+                {n.settle_date && <span className="cled-move">잔금 {n.settle_date}</span>}
                 {n.listing ? (
                   <span className="cled-link" title="이 요건은 우리 매물장의 물건입니다">
                     <Link2 size={11} />

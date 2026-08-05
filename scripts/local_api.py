@@ -11001,7 +11001,8 @@ def _init_reviews_db() -> None:
               listing_id   INTEGER,            -- 내놓은 요건이 가리키는 우리 매물장 행
               area_min     REAL, area_max REAL,
               status       TEXT NOT NULL DEFAULT '탐색',
-              move_date    TEXT,
+              settle_date  TEXT,               -- 잔금 시기. 구함·내놓음 양쪽에 공통인 축이다
+                                               -- (파는 쪽에 '입주 희망'은 말이 안 된다)
               raw_text     TEXT,               -- 원문. 구조화가 실패해도 이건 남는다
               extra_json   TEXT,               -- 사용자 정의 열
               src_request_id INTEGER,          -- 콕집요청에서 승격된 경우
@@ -11076,6 +11077,7 @@ def _init_reviews_db() -> None:
             # biz_needs 는 먼저 배포된 적이 있다 — CREATE TABLE IF NOT EXISTS 는 기존
             # 테이블에 no-op 이라 새 컬럼은 여기서 붙여야 한다.
             "ALTER TABLE biz_needs ADD COLUMN listing_id INTEGER",
+            "ALTER TABLE biz_needs ADD COLUMN settle_date TEXT",
             # doc_hash 보강 뒤에 인덱스(컬럼 생성 전에 만들면 실패) — 재업로드 조회용
             "CREATE INDEX IF NOT EXISTS bzc_hash_idx ON biz_contracts(user_id, doc_hash)",
             "ALTER TABLE user_profiles ADD COLUMN member_no INTEGER",
@@ -13339,7 +13341,7 @@ _PL_FIELDS = [
     "address", "address_detail", "area_name", "area1_m2", "area2_m2", "area_py",
     "floor_info", "floor", "total_floor", "direction", "room_cnt", "bath_cnt",
     "price", "rent_price", "deposit", "maintenance_fee", "loan_amount",
-    "move_in", "approve_ymd", "parking", "elevator", "pets", "heating",
+    "move_in", "settle_ymd", "approve_ymd", "parking", "elevator", "pets", "heating",
     "options", "feature_desc", "memo", "contact", "owner_name", "owner_tel",
     "manager", "tags", "confirm_ymd", "lat", "lng",
 ]
@@ -13369,7 +13371,7 @@ def _ensure_private_listings(c) -> None:
     # (CREATE TABLE IF NOT EXISTS 는 기존 테이블에 no-op 이라, 새 컬럼을 참조하는 인덱스를
     #  같은 스크립트에 두면 'no such column' 으로 터진다.)
     have = {r[1] for r in c.execute("PRAGMA table_info(private_listings)")}
-    for col in ("source_article_no", "source_saved_at", "lat", "lng"):
+    for col in ("source_article_no", "source_saved_at", "lat", "lng", "settle_ymd"):
         if col not in have:
             c.execute(f"ALTER TABLE private_listings ADD COLUMN {col} TEXT")
     c.execute("CREATE INDEX IF NOT EXISTS pl_src ON private_listings(realtor_id, source_article_no)")
@@ -13435,8 +13437,11 @@ def _pl_auto_tags(g, num) -> list:
     ap = (g("approve_ymd") or "")[:4]
     if ap.isdigit():
         age = _dt_now_year() - int(ap)
-        t.append("신축" if age <= 1 else f"{5 if age <= 5 else 10 if age <= 10 else 20}년이내"
-                 if age <= 20 else f"{ap}년 준공")
+        # 준공 연도는 위 스펙 줄에 이미 있다 — 태그에는 '새 건물' 이라는 정보일 때만 붙인다
+        if age <= 1:
+            t.append("신축")
+        elif age <= 10:
+            t.append(f"{5 if age <= 5 else 10}년이내")
     fl, tf = num("floor"), num("total_floor")
     if fl:
         t.append("1층" if fl == 1 else "저층" if fl <= 3 else "고층" if tf and fl >= tf - 2 else f"{int(fl)}층")
@@ -13447,8 +13452,11 @@ def _pl_auto_tags(g, num) -> list:
         t.append("주차가능")
     if (g("elevator") or "") in ("있음", "Y", "y", "1"):
         t.append("엘리베이터")
-    if (g("move_in") or "").strip():
-        t.append(str(g("move_in")).strip()[:10])
+    mi = (g("move_in") or "").strip()
+    if mi in ("즉시", "즉시입주", "빈집", "공실"):
+        t.append("즉시입주")
+    if (g("options") or "").strip():
+        t.append(str(g("options")).strip()[:8])
     return t[:6]
 
 
@@ -13493,9 +13501,16 @@ def _pl_row_to_item(r) -> dict:
         "approve_ymd": g("approve_ymd"), "builder": None, "mgmt_tel": None,
         "memo": g("memo") or "", "contact": g("contact") or "", "manager": g("manager") or "",
         "photos": photos,
+        # 광고 문안을 이 카드만 보고 쓸 수 있어야 한다 — 필요한 값을 위로 올린다
+        "area_py": num("area_py"), "room_cnt": num("room_cnt"), "bath_cnt": num("bath_cnt"),
+        "total_floor": num("total_floor"), "settle_ymd": g("settle_ymd") or "",
+        "move_in": g("move_in") or "", "maintenance_fee": num("maintenance_fee"),
+        "deposit": num("deposit"), "owner_name": g("owner_name") or "",
+        "heating": g("heating") or "", "elevator": g("elevator") or "",
+        "options": g("options") or "", "ho": g("ho") or "",
         # 비공개 전용 부가정보(상세에서 노출)
         "extra": {k: g(k) for k in ("ho", "room_cnt", "bath_cnt", "deposit", "maintenance_fee",
-                                    "loan_amount", "move_in", "elevator", "pets", "heating",
+                                    "loan_amount", "move_in", "settle_ymd", "elevator", "pets", "heating",
                                     "options", "owner_name", "owner_tel", "total_floor", "area_py")},
     }
 
@@ -13543,6 +13558,7 @@ _QA_SCHEMA = {
             "area2_m2": {"type": "number", "nullable": True},
             "floor": {"type": "integer", "nullable": True},
             "direction": {"type": "string"}, "move_in": {"type": "string"},
+            "settle_ymd": {"type": "string"},
             "owner_name": {"type": "string"}, "owner_tel": {"type": "string"},
             "feature_desc": {"type": "string"},
         }}},
@@ -13557,7 +13573,7 @@ _QA_SCHEMA = {
                 "region": {"type": "string"}, "complex_name": {"type": "string"},
                 "area_min": {"type": "number", "nullable": True},
                 "area_max": {"type": "number", "nullable": True},
-                "move_date": {"type": "string"},
+                "settle_date": {"type": "string"},
                 "매물번호": {"type": "integer", "nullable": True},
             }}},
         }}},
@@ -13577,8 +13593,12 @@ _QA_PROMPT = (
     "부동산 중개사가 남긴 글이다. 매물 정보와 사람(고객) 정보가 **한 글에 섞여 있을 수 있다.**\n"
     "둘 다 뽑아라. 없는 쪽은 빈 배열로 둔다.\n"
     "\n[매물] trade_type 은 매매|전세|월세. 매매가=price, 전세·월세 보증금=deposit, 월세=rent_price.\n"
+    "  ★ 잔금과 입주는 다른 것이다. '11월 잔금'·'잔금 11월말' 은 settle_ymd 에 넣고,\n"
+    "    '즉시입주'·'빈집'·'세입자 만기 후' 처럼 언제 들어갈 수 있는지는 move_in 에 넣어라.\n"
     "\n[고객] 요건.kind=구함|내놓음, trade=매매|전세|월세, role=주안|대안|보유.\n"
     "  한 사람이 여러 요건을 가질 수 있다(매매를 찾으면서 안 되면 전세도 보는 식).\n"
+    "  settle_date 는 **잔금 시기**다. 구하는 쪽·내놓는 쪽 모두 잔금이 기준이며,\n"
+    "    '10월 입주 희망' 처럼 입주만 말했으면 그 시기를 잔금 시기로 본다.\n"
     "\n★ 매물의 임대인·매도인·집주인은 **그 자체로 고객이다.** 고객 배열에도 넣고,\n"
     "  그 사람의 요건을 kind=내놓음 / role=보유 / trade=매물의 거래유형 / ask_price=매물 가격 으로\n"
     "  만들어라. 매물번호에는 그 매물이 매물 배열의 몇 번째인지(0부터) 넣어라.\n"
@@ -14112,7 +14132,7 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
                 rc.execute(
                     "INSERT INTO biz_needs(client_uid, user_id, realtor_id, customer_id, kind, trade, "
                     "  role, budget_min, budget_max, ask_price, sigungu, dong, address, area_min, "
-                    "  area_max, move_date, listing_id, raw_text) "
+                    "  area_max, settle_date, listing_id, raw_text) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                     # client_uid 유니크 인덱스가 부분 인덱스(WHERE client_uid IS NOT NULL)라
                     # 충돌 대상에 같은 조건을 붙여야 매칭된다. 안 붙이면 실행 시점에 터진다.
@@ -14122,7 +14142,8 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
                      nd.get("kind") or "구함", _TRADE_CODE.get(nd.get("trade") or "") or nd.get("trade"),
                      nd.get("role"), nd.get("budget_min"), nd.get("budget_max"), nd.get("ask_price"),
                      None, nd.get("region"), nd.get("complex_name"),
-                     nd.get("area_min"), nd.get("area_max"), nd.get("move_date"), lid,
+                     nd.get("area_min"), nd.get("area_max"),
+                     nd.get("settle_date") or nd.get("move_date"), lid,
                      (body.get("raw_text") or "")[:2000]))
             saved += 1
     return {"ok": True, "listings": len(listing_ids), "customers": saved}

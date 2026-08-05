@@ -1527,6 +1527,10 @@ function leadBadge(s: string) {
 type MLItem = {
   article_no: string; complex_no: string | null; complex_name: string | null; trade_type: string;
   type: string; area_name: string; area1_m2: number; area2_m2: number; floor_info: string;
+  area_py?: number | null; room_cnt?: number | null; bath_cnt?: number | null;
+  total_floor?: number | null; settle_ymd?: string; move_in?: string;
+  maintenance_fee?: number | null; deposit?: number | null; owner_name?: string;
+  heating?: string; elevator?: string; options?: string; ho?: string;
   direction: string; price_text: string; rent_price_text: string; price: number; confirm_ymd: string;
   building_name: string; tags: string[]; same_addr_cnt: number; same_addr_min: number; same_addr_max: number;
   price_change_state: string; feature_desc: string; naver_url: string; cp_name: string;
@@ -1731,16 +1735,30 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                 <span className="mlj-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
               </div>
               {l.address && <div className="mlj-addr"><MapPin size={12} aria-hidden /> {l.address}{l.building_name && l.complex_name && l.building_name !== l.complex_name ? ` · ${l.building_name}` : ""}</div>}
+              {/* ① 물건 스펙 — 광고 문안의 앞부분이 여기서 다 나온다 */}
               <div className="mlj-meta">
-                {l.area1_m2 ? <span>공급 {l.area1_m2}㎡</span> : null}
                 {l.area2_m2 ? <span>{areaLabel(l.area2_m2)}</span> : null}
+                {l.area1_m2 ? <span>공급 {l.area1_m2}㎡</span> : null}
                 {l.area_name && <span>{l.area_name}</span>}
                 {l.floor_info && <span>{l.floor_info}층</span>}
                 {l.direction && <span>{l.direction}</span>}
-                {l.parking_per ? <span>세대당 주차 {l.parking_per}대</span> : null}
+                {l.room_cnt ? <span>방 {l.room_cnt}{l.bath_cnt ? `/욕실 ${l.bath_cnt}` : ""}</span> : null}
+                {l.parking_per ? <span>주차 {l.parking_per}대</span> : null}
+                {l.approve_ymd && <span>{String(l.approve_ymd).slice(0, 4)}년 준공</span>}
+                {l.heating && <span>{l.heating}</span>}
                 {l.confirm_ymd && <span>확인 {fmtYmd(l.confirm_ymd)}</span>}
                 {l.verification_type && <span className="mlj-vf">{l.verification_type}</span>}
               </div>
+              {/* ② 거래 조건 — 손님에게 바로 답해야 하는 값들 */}
+              {(l.settle_ymd || l.move_in || l.maintenance_fee || (l.trade_type === "월세" && l.deposit) || l.owner_name) && (
+                <div className="mlj-terms">
+                  {l.settle_ymd && <span><i>잔금</i>{l.settle_ymd}</span>}
+                  {l.move_in && <span><i>입주</i>{l.move_in}</span>}
+                  {l.maintenance_fee ? <span><i>관리비</i>{l.maintenance_fee.toLocaleString()}만</span> : null}
+                  {l.owner_name && <span><i>{l.trade_type === "매매" ? "매도인" : "임대인"}</i>{l.owner_name}</span>}
+                  {l.ho && !String(l.address || "").includes(String(l.ho)) && <span><i>호</i>{l.ho}</span>}
+                </div>
+              )}
               {l.tags?.length > 0 && <div className="mlj-tags">{l.tags.map((t, i) => <span key={i}>{t}</span>)}</div>}
               {l.feature_desc && <div className="mlj-feat">{l.feature_desc}</div>}
               {/* 확인 화면에서 못 채우고 저장한 매물 — 나중에 되살리는 길 */}
@@ -2017,6 +2035,7 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
           <T k="heating" label="난방" placeholder="개별난방" />
           <T k="parking" label="주차(대)" inputMode="numeric" />
           <T k="elevator" label="엘리베이터" placeholder="있음" />
+          <T k="settle_ymd" label="잔금시기" placeholder="11월 / 2026-11-20" />
           <T k="move_in" label="입주가능일" placeholder="즉시 / 2026-09-01" />
           <T k="approve_ymd" label="준공" placeholder="2019.05" />
         </div>
@@ -2165,6 +2184,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose }: {
         <div className="mld-rows">
           <Row k="유형" v={l.type} />
           <Row k="거래" v={l.trade_type === "월세" ? `월세 보증 ${l.price_text} / 월 ${l.rent_price_text}` : `${l.trade_type} ${l.price_text}`} />
+          <Row k="잔금시기" v={l.extra?.settle_ymd as string} />
           <Row k="공급면적" v={l.area1_m2 ? `${l.area1_m2}㎡` : null} />
           <Row k="전용면적" v={l.area2_m2 ? areaLabel(l.area2_m2) : null} />
           <Row k="평형" v={l.area_name} />

@@ -77,7 +77,8 @@ const L_FIELDS: [string, string | ((r: ListingRow) => string), FType, string?][]
   ["room_cnt", "방", "num", "개"],
   ["bath_cnt", "욕실", "num", "개"],
   ["direction", "향", "text"],
-  ["move_in", "입주", "text"],
+  ["settle_ymd", "잔금시기", "text"],
+  ["move_in", "입주가능", "text"],
   ["maintenance_fee", "관리비", "money"],
   ["approve_ymd", "준공", "text"],
   ["parking", "주차", "num", "대"],
@@ -92,7 +93,7 @@ const N_FIELDS: [string, string, FType][] = [
   ["ask_price", "내놓은 가격", "money"],
   ["region", "지역", "text"], ["complex_name", "단지", "text"],
   ["area_min", "면적 최소", "num"], ["area_max", "면적 최대", "num"],
-  ["move_date", "입주 희망", "text"],
+  ["settle_date", "잔금시기", "text"],
 ];
 
 // 소유자 호칭은 거래유형에 따라 달라진다. 전세·월세 물건의 소유자는 매도인이 아니라 임대인이다.
