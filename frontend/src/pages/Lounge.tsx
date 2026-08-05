@@ -1737,7 +1737,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               {l.address && <div className="mlj-addr"><MapPin size={12} aria-hidden /> {l.address}{l.building_name && l.complex_name && l.building_name !== l.complex_name ? ` · ${l.building_name}` : ""}</div>}
               {/* ① 물건 스펙 — 광고 문안의 앞부분이 여기서 다 나온다 */}
               <div className="mlj-meta">
-                {l.area2_m2 ? <span>{areaLabel(l.area2_m2)}</span> : null}
+                {l.area2_m2 ? <span>{areaLabel(l.area2_m2, { supply: l.area1_m2 })}</span> : null}
                 {l.area1_m2 ? <span>공급 {l.area1_m2}㎡</span> : null}
                 {l.area_name && <span>{l.area_name}</span>}
                 {l.floor_info && <span>{l.floor_info}층</span>}
@@ -2186,7 +2186,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose }: {
           <Row k="거래" v={l.trade_type === "월세" ? `월세 보증 ${l.price_text} / 월 ${l.rent_price_text}` : `${l.trade_type} ${l.price_text}`} />
           <Row k="잔금시기" v={l.extra?.settle_ymd as string} />
           <Row k="공급면적" v={l.area1_m2 ? `${l.area1_m2}㎡` : null} />
-          <Row k="전용면적" v={l.area2_m2 ? areaLabel(l.area2_m2) : null} />
+          <Row k="전용면적" v={l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : null} />
           <Row k="평형" v={l.area_name} />
           <Row k="층" v={l.floor_info ? `${l.floor_info}층` : null} />
           <Row k="방향" v={l.direction} />
