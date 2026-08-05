@@ -2747,6 +2747,14 @@ def run_agent(question: str, history: list | None = None, nickname: str | None =
             code = getattr(e, "code", None) or 0
             msg = str(e)
             transient = code in (429, 503) or "UNAVAILABLE" in msg or "overloaded" in msg or "RESOURCE_EXHAUSTED" in msg
+            # 없는 도구명을 지어내면 SDK 가 KeyError 를 던진다(실측 'rank_record_high'
+            # — rank_complexes 와 find_record_high 를 섞은 이름). 그대로 두면 손님에게
+            # 빈 화면이 나간다. 실재하는 도구만 쓰라고 못박고 다시 시도한다.
+            if isinstance(e, KeyError) and _attempt < 2:
+                contents = contents + [types.Content(role="user", parts=[types.Part.from_text(
+                    text="(시스템 지시: 방금 호출한 이름의 도구는 없다. 제공된 도구 목록에 "
+                         "실제로 있는 것만 골라 다시 호출하라.)")])]
+                continue
             if transient and _attempt < 2:
                 time.sleep(1.2 * (_attempt + 1))
                 continue
@@ -3087,6 +3095,13 @@ def run_agent_stream(question: str, history: list | None = None, nickname: str |
         parts = []
         for fc in fcs:
             args = dict(fc.args or {})
+            if fc.name not in tmap:
+                # 없는 도구명을 지어낸 것이다. trace 에 넣으면 '근거 있음'으로 오인되어
+                # 지어내기 검사가 꺼진다 — 기록하지 말고 모델에게 되돌려 준다.
+                parts.append(types.Part.from_function_response(
+                    name=fc.name,
+                    response={"error": "그런 이름의 도구는 없다. 제공된 도구 중에서 골라 다시 호출하라."}))
+                continue
             trace.append({"tool": fc.name, "args": args})
             yield {"type": "status", "stage": "fetch",
                    "label": f"{_TOOL_LABEL.get(fc.name, '데이터 조회')} 중…"}
