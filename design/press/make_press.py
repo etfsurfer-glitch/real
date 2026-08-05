@@ -22,6 +22,9 @@ def make_docx(out: Path):
     st = d.styles["Normal"]
     st.font.name = "맑은 고딕"
     st.font.size = Pt(10.5)
+    # 가독성 — 줄간격 1.45, 문단 아래 간격 확보
+    st.paragraph_format.line_spacing = 1.45
+    st.paragraph_format.space_after = Pt(10)
 
     p = d.add_paragraph()
     r = p.add_run("보도자료")
@@ -38,6 +41,7 @@ def make_docx(out: Path):
     d.add_paragraph(LEAD)
     for head, body in BODY:
         h = d.add_paragraph(); r = h.add_run("■ " + head); r.font.bold = True; r.font.size = Pt(11.5)
+        h.paragraph_format.space_before = Pt(8); h.paragraph_format.space_after = Pt(4)
         d.add_paragraph(body)
     q = d.add_paragraph(); r = q.add_run(QUOTE); r.font.italic = True
 
@@ -108,21 +112,32 @@ def make_pdf(out: Path):
     for k, v in COMPANY:
         story.append(Paragraph(f"· <b>{k}</b>: {v}", ss["body"]))
 
-    story.append(Paragraph("■ 실제 구동 화면 (기사 사용 가능 — 원본 이미지 별도 첨부)", ss["head"]))
-    def shot_cell(fn, cap):
-        img = RLImage(str(SHOT / fn), width=54 * mm, height=54 * mm * _ratio(SHOT / fn))
-        return [img, Paragraph(cap, ss["cap"])]
+    story.append(Paragraph("■ 실제 구동 화면 9장 (기사 사용 가능 — 원본 필요 시 회신)", ss["head"]))
     def _ratio(p):
         from PIL import Image as PImage
         w, h = PImage.open(p).size
         return h / w
-    row = [shot_cell("02_급매찾기_전국.png", "일반 — 급매찾기"),
-           shot_cell("03_우리동네중개사_랭킹.png", "일반 — 우리동네 중개사"),
-           shot_cell("07_중개사_매물점검.png", "중개사 — 매물 자가점검")]
-    tbl = Table([[c for c in row]], colWidths=[58 * mm] * 3)
-    tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
-                             ("ALIGN", (0, 0), (-1, -1), "CENTER")]))
-    story.append(tbl)
+    def shot_cell(fn, cap):
+        img = RLImage(str(SHOT / fn), width=54 * mm, height=54 * mm * _ratio(SHOT / fn))
+        return [img, Paragraph(cap, ss["cap"])]
+    gallery = [
+        ("01_홈_우리동네급매.png", "일반 — 홈(우리동네 급매)"),
+        ("02_급매찾기_전국.png", "일반 — 급매찾기(서울)"),
+        ("03_우리동네중개사_랭킹.png", "일반 — 우리동네 중개사(대치동)"),
+        ("04_단지상세_실거래.png", "일반 — 단지 실거래 분석(은마)"),
+        ("08_호가추이_은마.png", "일반 — 면적타입별 호가 추이(은마)"),
+        ("09_실거래통계.png", "일반 — 실거래 통계(지역별 거래량)"),
+        ("05_중개사앱_홈.png", "중개사 — 전용 앱 홈"),
+        ("06_중개사_매물장.png", "중개사 — 매물장"),
+        ("07_중개사_매물점검.png", "중개사 — 매물 자가점검"),
+    ]
+    for i in range(0, len(gallery), 3):
+        chunk = [shot_cell(fn, cap) for fn, cap in gallery[i:i + 3]]
+        tbl = Table([chunk], colWidths=[58 * mm] * len(chunk))
+        tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                 ("ALIGN", (0, 0), (-1, -1), "CENTER")]))
+        story.append(tbl)
+        story.append(Spacer(1, 4 * mm))
     doc.build(story)
     print("pdf:", out)
 
