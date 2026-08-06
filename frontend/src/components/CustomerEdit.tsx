@@ -264,13 +264,13 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
                   onClick={() => setN(i, { trade: v })}>{l}</button>
               ))}
               <i />
-              {/* 우선순위 — 같은 구분(구함·내놓음) 요건 수만큼. '2안이 뭐였죠'가 바로 보인다 */}
+              {/* 우선순위 — 이 고객의 요건 수만큼. 구분과 무관하게 '몇 번째 안'이다
+                  (구함 1건 + 내놓음 1건이면 1안·2안이 나와야 한다) */}
               <span className="ced-pri">
-                {Array.from({ length: Math.max(1, live.filter((x) => x.kind === n.kind).length) },
-                  (_, k) => `${k + 1}안`).map((r) => (
-                    <button key={r} className={roleNum(n.role) === r ? "on" : ""}
-                      onClick={() => setN(i, { role: roleNum(n.role) === r ? null as any : r })}>{r}</button>
-                  ))}
+                {Array.from({ length: Math.max(1, live.length) }, (_, k) => `${k + 1}안`).map((r) => (
+                  <button key={r} className={roleNum(n.role) === r ? "on" : ""}
+                    onClick={() => setN(i, { role: roleNum(n.role) === r ? null as any : r })}>{r}</button>
+                ))}
               </span>
             </div>
 
