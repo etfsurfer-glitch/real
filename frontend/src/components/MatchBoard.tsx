@@ -11,12 +11,22 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
+type FitStatus = "ok" | "near" | "miss" | "unknown";
+type Fit = { key: string; label: string; status: FitStatus; note?: string };
 type Hit = {
   src: "ours" | "market"; id: number | string; name: string; where?: string;
   trade?: string; price_man?: number | null; rent_man?: number | null;
   area?: number | null; supply?: number | null; floor?: string; direction?: string;
-  settle?: string; n_in_complex?: number; complex_no?: string;
+  settle?: string; n_in_complex?: number; complex_no?: string; fit?: Fit[];
+  // 우리 매물
+  total_floor?: number | null; rooms?: number | null; baths?: number | null;
+  approve?: string; parking?: number | null; move_in?: string; mgmt?: number | null;
+  manager?: string; feature?: string;
+  // 전국 매물
+  households?: number | null; same_addr?: number | null; confirm?: string;
+  range_man?: [number, number]; tx_avg_man?: number | null; vs_tx_pct?: number | null;
 };
+type Criteria = { used: string[]; skipped: string[]; unavailable: string[] };
 type Need = {
   id: number; kind?: string; trade?: string; role?: string;
   budget_min?: number | null; budget_max?: number | null;
@@ -24,7 +34,9 @@ type Need = {
   area_min?: number | null; area_max?: number | null; settle_date?: string | null;
   cname?: string | null; cphone?: string | null;
 };
-type Item = { need: Need; ours: Hit[]; market: Hit[]; n_ours: number; n_market: number };
+type Item = {
+  need: Need; ours: Hit[]; market: Hit[]; n_ours: number; n_market: number; criteria?: Criteria;
+};
 
 const TRADE_KOR: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 const eok = (man?: number | null): string => {
@@ -129,6 +141,17 @@ export default function MatchBoard({ authH, onGoLedger }: {
               </span>
             </button>
 
+            {opened && it.criteria && (
+              <div className="mtb-crit">
+                <span><b>이 조건으로 찾았어요</b> {it.criteria.used.join(" · ") || "없음"}</span>
+                {it.criteria.skipped.length > 0 && (
+                  <span className="skip"><b>요건에 없어 못 건 조건</b> {it.criteria.skipped.join(" · ")}</span>
+                )}
+                {it.criteria.unavailable.length > 0 && (
+                  <span className="na"><b>매물 데이터에 없어 확인 못 함</b> {it.criteria.unavailable.join(" · ")}</span>
+                )}
+              </div>
+            )}
             {opened && total > 0 && (
               <div className="mtb-hits">
                 {it.ours.length > 0 && (
@@ -160,27 +183,60 @@ export default function MatchBoard({ authH, onGoLedger }: {
   );
 }
 
+const FIT_MARK: Record<FitStatus, string> = { ok: "✓", near: "≈", miss: "✕", unknown: "?" };
+
 function HitRow({ h }: { h: Hit }) {
   const price = h.trade === "월세"
     ? `${eok(h.price_man)}${h.rent_man ? ` / ${Math.round(h.rent_man).toLocaleString()}만` : ""}`
     : eok(h.price_man);
+  // 스펙 — 손님에게 전화로 읽어 줄 만한 것들만 순서대로
+  const spec = [
+    h.area ? py(h.area) : "",
+    h.floor ? `${h.floor}${h.total_floor ? `/${h.total_floor}` : ""}층` : "",
+    h.rooms ? `방${h.rooms}${h.baths ? `/욕${h.baths}` : ""}` : "",
+    h.direction || "",
+    h.parking ? `주차 ${h.parking}` : "",
+    h.approve ? `${h.approve}년` : "",
+    h.households ? `${h.households.toLocaleString()}세대` : "",
+    h.settle ? `잔금 ${h.settle}` : "",
+    h.move_in ? `입주 ${h.move_in}` : "",
+    h.mgmt ? `관리비 ${h.mgmt}만` : "",
+    h.where || "",
+  ].filter(Boolean).join(" · ");
+  // 전국 매물은 단지 안 시세 폭과 실거래 대비를 같이 준다 — '싸다'를 근거로 말하게
+  const market = h.src === "market" ? [
+    h.n_in_complex && h.n_in_complex > 1
+      ? `단지 내 ${h.n_in_complex}건${h.range_man ? ` (${eok(h.range_man[0])}~${eok(h.range_man[1])})` : ""}`
+      : "",
+    h.vs_tx_pct != null
+      ? `실거래 평균 ${eok(h.tx_avg_man)} 대비 ${h.vs_tx_pct > 0 ? "+" : ""}${h.vs_tx_pct}%`
+      : "",
+  ].filter(Boolean).join(" · ") : (h.manager ? `담당 ${h.manager}` : "");
+
   const body = (
     <>
-      <span className={"mtb-src " + h.src}>{h.src === "ours" ? "우리" : "전국"}</span>
-      <b className="mtb-nm">{h.name}</b>
-      <span className="mtb-meta">
-        {h.area ? py(h.area) : ""}
-        {h.floor ? ` · ${h.floor}층` : ""}
-        {h.direction ? ` · ${h.direction}` : ""}
-        {h.where ? ` · ${h.where}` : ""}
-        {h.settle ? ` · 잔금 ${h.settle}` : ""}
-        {h.n_in_complex && h.n_in_complex > 1 ? ` · 단지 내 ${h.n_in_complex}건` : ""}
-      </span>
-      <span className="mtb-price">{price}</span>
+      <div className="mtb-hit-top">
+        <span className={"mtb-src " + h.src}>{h.src === "ours" ? "우리" : "전국"}</span>
+        <b className="mtb-nm">{h.name}</b>
+        <span className="mtb-price">{price}</span>
+        {h.src === "market" && h.complex_no && <Search size={12} />}
+      </div>
+      {spec && <div className="mtb-spec">{spec}</div>}
+      {market && <div className={"mtb-mkt" + (h.vs_tx_pct != null && h.vs_tx_pct < -3 ? " cheap" : "")}>{market}</div>}
+      {h.feature && <div className="mtb-feat">{h.feature}</div>}
+      {h.fit && h.fit.length > 0 && (
+        <div className="mtb-fit">
+          {h.fit.map((f) => (
+            <span key={f.key} className={"f-" + f.status} title={f.note || ""}>
+              {FIT_MARK[f.status]} {f.label}{f.note && f.status !== "ok" ? ` ${f.note}` : ""}
+            </span>
+          ))}
+        </div>
+      )}
     </>
   );
   if (h.src === "market" && h.complex_no) {
-    return <Link className="mtb-hit" to={`/complex/${h.complex_no}`}>{body}<Search size={12} /></Link>;
+    return <Link className="mtb-hit" to={`/complex/${h.complex_no}`}>{body}</Link>;
   }
   return <div className="mtb-hit">{body}</div>;
 }

@@ -2034,17 +2034,34 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   color:#1a7f4b}
 .mtb-sec.mkt{color:var(--c-primary)}
 .mtb-sec span{font-weight:500;color:var(--c-faint);font-size:11px}
-.mtb-hit{display:flex;align-items:center;gap:8px;padding:7px 13px;font-size:12.5px;
+.mtb-hit{display:block;padding:9px 13px;font-size:12.5px;
   border-top:1px solid var(--c-border-soft);text-decoration:none;color:inherit}
+.mtb-hit-top{display:flex;align-items:center;gap:8px}
 .mtb-hit:hover{background:var(--c-primary-tint)}
 .mtb-src{flex:none;font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px}
 .mtb-src.ours{background:#e8f6ee;color:#1a7f4b}
 .mtb-src.market{background:var(--c-primary-soft);color:var(--c-primary)}
-.mtb-nm{font-weight:800;color:#13294b;flex:none;max-width:190px;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
-.mtb-meta{flex:1;min-width:0;color:var(--c-muted);font-size:11.5px;overflow:hidden;
+.mtb-nm{font-weight:800;color:#13294b;flex:1;min-width:0;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .mtb-price{flex:none;font-weight:800;color:var(--c-sale);font-variant-numeric:tabular-nums}
+.mtb-spec{margin-top:3px;font-size:11.5px;color:var(--c-text-soft);line-height:1.5}
+.mtb-mkt{margin-top:2px;font-size:11px;color:var(--c-muted)}
+.mtb-mkt.cheap{color:#1a7f4b;font-weight:700}
+.mtb-feat{margin-top:2px;font-size:11px;color:var(--c-faint)}
+/* 조건별 판정 — 왜 이게 나왔는지 손님에게 설명할 수 있어야 한다 */
+.mtb-fit{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.mtb-fit span{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:5px;white-space:nowrap}
+.mtb-fit .f-ok{background:#e8f6ee;color:#1a7f4b}
+.mtb-fit .f-near{background:#fff5e6;color:#b45309}
+.mtb-fit .f-miss{background:#fdecec;color:#c0392b}
+.mtb-fit .f-unknown{background:#f1f5f9;color:#94a3b8;font-weight:600}
+/* 무엇으로 찾았는지 */
+.mtb-crit{display:flex;flex-direction:column;gap:2px;padding:8px 13px;background:#f7faff;
+  border-top:1px solid var(--c-border-soft);font-size:11px;color:var(--c-text-soft);line-height:1.55}
+.mtb-crit b{font-weight:800;color:#13294b;margin-right:5px}
+.mtb-crit .skip b{color:#b45309}
+.mtb-crit .na{color:var(--c-muted)}
+.mtb-crit .na b{color:var(--c-muted)}
 .mtb-hit svg{color:var(--c-faint);flex:none}
 .mtb-empty{margin:0;padding:14px 13px;font-size:12.5px;color:var(--c-muted)}
 @media(max-width:720px){

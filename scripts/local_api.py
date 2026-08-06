@@ -14078,6 +14078,64 @@ def _match_price_range(nd) -> tuple:
     return lo, hi
 
 
+def _fit(nd: dict, hit: dict) -> list:
+    """이 매물이 요건의 각 조건을 어떻게 만족하는지.
+
+    '맞는 매물 2건'만 보여 주면 왜 맞는지 몰라 손님에게 설명할 수가 없다.
+    조건마다 맞음/근접/벗어남/확인불가를 붙여 근거를 그대로 넘긴다.
+    """
+    out = []
+
+    def add(key, label, status, note=""):
+        out.append({"key": key, "label": label, "status": status, "note": note})
+
+    # 거래유형
+    want_tr = _TRADE_KOR.get(nd.get("trade") or "", nd.get("trade") or "")
+    if want_tr:
+        add("trade", "거래", "ok" if hit.get("trade") == want_tr else "miss",
+            hit.get("trade") or "")
+    # 예산
+    lo, hi = _match_price_range(nd)
+    price = (hit.get("price_man") or 0) * 10000
+    if (lo or hi) and price:
+        if (not lo or price >= lo) and (not hi or price <= hi):
+            add("price", "예산", "ok")
+        elif hi and price > hi:
+            add("price", "예산", "near", f"{(price / hi - 1) * 100:.0f}% 초과")
+        else:
+            add("price", "예산", "near", f"{(1 - price / lo) * 100:.0f}% 낮음")
+    elif not (lo or hi):
+        add("price", "예산", "unknown", "요건에 예산 없음")
+    # 면적
+    a = hit.get("area")
+    amin, amax = nd.get("area_min"), nd.get("area_max")
+    if (amin or amax) and a:
+        if (not amin or a >= float(amin)) and (not amax or a <= float(amax)):
+            add("area", "면적", "ok")
+        else:
+            side = "작음" if amin and a < float(amin) else "큼"
+            add("area", "면적", "near", f"{round(a / 3.3058)}평 — 조금 {side}")
+    elif not (amin or amax):
+        add("area", "면적", "unknown", "요건에 면적 없음")
+    # 지역
+    kw = (nd.get("address") or "").strip() or (nd.get("dong") or "").strip()
+    if kw:
+        hay = " ".join(str(hit.get(k) or "") for k in ("name", "where", "region"))
+        add("region", "지역", "ok" if kw.replace(" ", "") in hay.replace(" ", "") else "near",
+            "" if kw.replace(" ", "") in hay.replace(" ", "") else "같은 지역 안")
+    else:
+        add("region", "지역", "unknown", "요건에 지역 없음")
+    # 잔금 — 우리 매물에만 값이 있다. 전국 매물은 원천에 없어 확인 자체가 안 된다.
+    if nd.get("settle_date"):
+        if hit.get("settle"):
+            same = str(hit["settle"])[:2] == str(nd["settle_date"])[:2]
+            add("settle", "잔금", "ok" if same else "near", str(hit["settle"]))
+        else:
+            add("settle", "잔금", "unknown",
+                "매물에 잔금 정보 없음" if hit.get("src") == "ours" else "전국 매물은 확인 불가")
+    return out
+
+
 def _match_ours(rc, rid: str, nd: dict, limit: int = 12) -> list:
     """우리 사무소 매물장에서 찾기. 금액은 만원 단위로 저장돼 있다."""
     _ensure_private_listings(rc)
@@ -14102,7 +14160,9 @@ def _match_ours(rc, rid: str, nd: dict, limit: int = 12) -> list:
         args += [f"%{kw}%"] * 3
     rows = rc.execute(
         f"SELECT id, complex_name, building_name, address, dong, ho, trade_type, price, "
-        f"       rent_price, area2_m2, area1_m2, floor_info, direction, settle_ymd "
+        f"       rent_price, area2_m2, area1_m2, floor_info, direction, settle_ymd, "
+        f"       total_floor, room_cnt, bath_cnt, approve_ymd, parking, move_in, "
+        f"       maintenance_fee, complex_no, manager, feature_desc "
         f"FROM private_listings WHERE {' AND '.join(where)} "
         f"ORDER BY CAST(price AS REAL) LIMIT ?", args + [limit]).fetchall()
     out = []
@@ -14113,7 +14173,12 @@ def _match_ours(rc, rid: str, nd: dict, limit: int = 12) -> list:
                     "trade": r["trade_type"], "price_man": _to_f(r["price"]),
                     "rent_man": _to_f(r["rent_price"]), "area": _to_f(r["area2_m2"]),
                     "supply": _to_f(r["area1_m2"]), "floor": r["floor_info"] or "",
-                    "direction": r["direction"] or "", "settle": r["settle_ymd"] or ""})
+                    "direction": r["direction"] or "", "settle": r["settle_ymd"] or "",
+                    "total_floor": _to_f(r["total_floor"]), "rooms": _to_f(r["room_cnt"]),
+                    "baths": _to_f(r["bath_cnt"]), "approve": (r["approve_ymd"] or "")[:4],
+                    "parking": _to_f(r["parking"]), "move_in": r["move_in"] or "",
+                    "mgmt": _to_f(r["maintenance_fee"]), "complex_no": r["complex_no"],
+                    "manager": r["manager"] or "", "feature": (r["feature_desc"] or "")[:40]})
     return out
 
 
@@ -14158,11 +14223,15 @@ def _match_market(nd: dict, limit: int = 12) -> list:
         return []          # 지역 단서가 하나도 없으면 전국을 통째로 뒤지지 않는다
     sql = f"""
         WITH base AS (
-          SELECT l.complex_no, cx.complex_name, l.area2_m2 AS excl, l.area_name,
-                 l.deal_or_warrant_price AS price, l.rent_price AS rent, l.floor_info,
-                 l.direction, cx.cortar_no,
+          SELECT l.complex_no, cx.complex_name, l.area2_m2 AS excl, l.area1_m2 AS supply,
+                 l.area_name, l.deal_or_warrant_price AS price, l.rent_price AS rent,
+                 l.floor_info, l.direction, l.same_addr_cnt, l.article_confirm_ymd,
+                 cx.cortar_no, cx.total_household_count AS hh, cx.use_approve_ymd AS apr,
+                 cx.parking_per_household AS pk,
                  ROW_NUMBER() OVER (PARTITION BY l.complex_no ORDER BY l.deal_or_warrant_price) AS rn,
-                 COUNT(*) OVER (PARTITION BY l.complex_no) AS n
+                 COUNT(*) OVER (PARTITION BY l.complex_no) AS n,
+                 MIN(l.deal_or_warrant_price) OVER (PARTITION BY l.complex_no) AS lo,
+                 MAX(l.deal_or_warrant_price) OVER (PARTITION BY l.complex_no) AS hi
           FROM listings_current l JOIN complexes cx ON cx.complex_no = l.complex_no
           WHERE {' AND '.join(where)}
         )
@@ -14170,15 +14239,67 @@ def _match_market(nd: dict, limit: int = 12) -> list:
     """
     out = []
     with _open_db() as c:
-        for r in c.execute(sql, args + [limit]).fetchall():
+        rows = c.execute(sql, args + [limit]).fetchall()
+        for r in rows:
             out.append({"src": "market", "id": r["complex_no"], "name": r["complex_name"],
                         "where": "", "trade": _TRADE_KOR.get(tt, tt),
                         "price_man": (r["price"] or 0) / 10000.0,
                         "rent_man": (r["rent"] or 0) / 10000.0 or None,
-                        "area": r["excl"], "supply": None, "floor": r["floor_info"] or "",
+                        "area": r["excl"], "supply": r["supply"], "floor": r["floor_info"] or "",
                         "direction": r["direction"] or "", "settle": "",
-                        "n_in_complex": r["n"], "complex_no": r["complex_no"]})
+                        "n_in_complex": r["n"], "complex_no": r["complex_no"],
+                        "households": r["hh"], "approve": (r["apr"] or "")[:4],
+                        "parking": r["pk"], "same_addr": r["same_addr_cnt"],
+                        "confirm": r["article_confirm_ymd"],
+                        "range_man": [(r["lo"] or 0) / 10000.0, (r["hi"] or 0) / 10000.0]})
+        # 실거래 대비 — 손님에게 '싸다/비싸다'를 근거로 말할 수 있게 한다.
+        # 매매만. 전세·월세는 rollup 이 매매 기준이라 붙이지 않는다.
+        if tt == "A1" and out:
+            cnos = [x["complex_no"] for x in out]
+            qm = ",".join("?" * len(cnos))
+            avg = {}
+            # pyeong 은 숫자가 아니라 평형명이다('115A'). 전용면적은 sum_excl 로 구한다.
+            for cno, py_, ssum, cnt, sexcl in c.execute(
+                    f"SELECT complex_no, pyeong, SUM(sum_amt), SUM(n), SUM(sum_excl) "
+                    f"FROM tx_avg_rollup WHERE kind='sale' AND complex_no IN ({qm}) "
+                    f"  AND deal_ymd >= date('now','+9 hours','-12 months') "
+                    f"GROUP BY complex_no, pyeong", cnos).fetchall():
+                if cnt and sexcl:
+                    avg.setdefault(cno, []).append((sexcl / cnt, ssum / cnt))
+                _ = py_
+            for x in out:
+                cands = avg.get(x["complex_no"]) or []
+                a = x.get("area") or 0
+                if not cands or not a:
+                    continue
+                # 같은 평형대(전용 ±8%)의 최근 1년 평균
+                near = [v for p_, v in cands if p_ and abs(p_ - a) <= max(3.0, a * 0.08)]
+                if not near:
+                    continue
+                mean = sum(near) / len(near)
+                x["tx_avg_man"] = mean / 10000.0
+                x["vs_tx_pct"] = round((x["price_man"] * 10000 / mean - 1) * 100, 1)
     return out
+
+
+def _match_criteria(nd: dict) -> dict:
+    """이 요건에서 무엇으로 찾았고 무엇은 못 찾았는지.
+
+    '지역·예산으로 찾았고 향·잔금은 못 봤다'를 밝혀 두면 중개사가 결과를 어디까지
+    믿을지 스스로 판단할 수 있다. 숨기면 '왜 이게 나왔지'가 된다.
+    """
+    used, skipped = [], []
+    lo, hi = _match_price_range(nd)
+    (used if nd.get("trade") else skipped).append("거래유형")
+    (used if (lo or hi) else skipped).append("예산")
+    (used if (nd.get("area_min") or nd.get("area_max")) else skipped).append("면적")
+    (used if ((nd.get("address") or "").strip() or (nd.get("dong") or "").strip())
+     else skipped).append("지역")
+    # 아래는 원천에 값이 없어 걸러낼 수 없는 조건들 — 검색이 아니라 확인 대상이다
+    unavailable = ["향", "층", "주차"]
+    if nd.get("settle_date"):
+        unavailable.append("잔금 시기")
+    return {"used": used, "skipped": skipped, "unavailable": unavailable}
 
 
 @app.get("/lounge/match")
@@ -14201,8 +14322,11 @@ def lounge_match(user: dict = Depends(current_user), need_id: int = 0, limit: in
                 market = _match_market(nd, limit)
             except Exception:  # noqa: BLE001
                 market = []    # 전국 조회가 실패해도 우리 매물은 보여 준다
+            for h in ours + market:
+                h["fit"] = _fit(nd, h)
             items.append({"need": nd, "ours": ours, "market": market,
-                          "n_ours": len(ours), "n_market": len(market)})
+                          "n_ours": len(ours), "n_market": len(market),
+                          "criteria": _match_criteria(nd)})
     return {"items": items}
 
 
