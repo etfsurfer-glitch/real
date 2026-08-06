@@ -8,7 +8,7 @@ import SupportLink from "../components/SupportLink";
 import { Loading } from "../components/Loading";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
-  ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles, ChevronDown } from "lucide-react";
+  ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles, ChevronDown, Loader2 } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
@@ -1604,6 +1604,15 @@ type Manager = { name: string; position: string; role: string };
 // 매물번호 조회 결과 — mine=false면 다른 사무소 물건(확인 후 열람)
 type ForeignHit = { mine: boolean; article_no: string; realtor_id: string; realtor_name: string; listing: MLItem | null };
 /** 전화 버튼에 넣을 번호. 하이픈만 정리하고 그대로 보여 준다(PC 는 폭이 넉넉하다). */
+/** 동·호 표기 통일 — '104 1103' 과 '104동 1103호' 가 섞여 있었다.
+ *  네이버 매물의 dong 은 법정동('송도동')이라 이미 '동'으로 끝나면 그대로 둔다. */
+function dongHo(l: { dong?: string | null; ho?: string | null; address?: string | null }): string {
+  const d = (l.dong || "").trim(), h = (l.ho || "").trim();
+  const dd = d && !/동$/.test(d) ? `${d}동` : d;
+  const hh = h && !/호$/.test(h) ? `${h}호` : h;
+  return [dd, hh].filter(Boolean).join(" ") || l.address || "-";
+}
+
 function fmtTelShort(p?: string): string {
   const d = (p || "").replace(/[^0-9]/g, "");
   if (d.length === 11) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
@@ -1636,7 +1645,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   const [detailOwner, setDetailOwner] = useState("");            // 타 사무소 매물일 때 사무소명
   const [foreign, setForeign] = useState<ForeignHit | null>(null); // 매물번호가 남의 물건일 때
   const [lookErr, setLookErr] = useState("");
-  const [priv, setPriv] = useState(false);            // 비공개매물 포함 검색
+  const [priv, setPriv] = useState(true);             // 직접등록 매물을 기본으로 포함
   const [privOnly, setPrivOnly] = useState(false);   // 비공개매물만 보기
   const [mapOpen, setMapOpen] = useState(false);     // 사무소 매물 지도
   const [privMsg, setPrivMsg] = useState<Record<string, string>>({});
@@ -1703,6 +1712,19 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     } catch (e: any) { alert(e.message || "보관 실패"); }
   };
 
+  // 같은 단지 물건은 한 덩어리로 — 정렬 순서는 그대로 두고 첫 등장 자리에 모은다.
+  // 단지가 없는 물건(상가·단독 등)은 각자 한 덩어리다.
+  const groups = useMemo(() => {
+    const by = new Map<string, MLItem[]>();
+    const order: string[] = [];
+    for (const l of items || []) {
+      const k = l.complex_no || l.complex_name || `#${l.article_no}`;
+      if (!by.has(k)) { by.set(k, []); order.push(k); }
+      by.get(k)!.push(l);
+    }
+    return order.map((k) => by.get(k)!);
+  }, [items]);
+
   // 담당자 즉시 배정(저장까지)
   const assignManager = async (l: MLItem, v: string) => {
     patch(l.article_no, "manager", v);
@@ -1740,7 +1762,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           <MapIcon size={13} aria-hidden /> 지도
         </button>
         <button className="mlj-gbtn pri" onClick={() => { setEditPL(null); setPlOpen(true); }}>
-          <Plus size={13} aria-hidden /> 비공개매물 등록
+          <Plus size={13} aria-hidden /> 매물 직접등록
         </button>
       </div>
       <div className="mlj-tb2">
@@ -1761,7 +1783,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           <ChevronDown size={11} aria-hidden />
         </span>
         {/* 포함/비공개만은 원래 하나의 축이다 — 셋 중 하나로 합친다 */}
-        <span className="mlj-glab">비공개</span>
+        <span className="mlj-glab">직접등록</span>
         <span className="mlj-seg">
           <button className={!priv && !privOnly ? "on" : ""}
             onClick={() => { setPriv(false); setPrivOnly(false); }}>제외</button>
@@ -1769,7 +1791,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
             onClick={() => { setPriv(true); setPrivOnly(false); }}>포함</button>
           <button className={privOnly ? "on" : ""}
             onClick={() => { setPriv(true); setPrivOnly(true); }}>
-            <Lock size={11} aria-hidden />비공개만</button>
+            <Lock size={11} aria-hidden />직접등록만</button>
         </span>
       </div>
       {lookErr && <div className="mlj-foreign mlj-foreign-err">{lookErr}</div>}
@@ -1810,22 +1832,27 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
             <span className="h-ct">연락처</span>
             <span style={{ textAlign: "right" }}>가격</span>
           </div>
-          {items.map((l) => (
-            <div key={l.article_no} className="mjt-r"
+          {groups.flatMap((g) => g.map((l, i) => (
+            <div key={l.article_no} className={"mjt-r" + (i ? " cont" : "")}
               onClick={() => { setDetailOwner(""); setDetail(l); }}>
               <span className="c-tr">
                 <i className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</i>
               </span>
               <span className="c-nm">
-                {l.complex_name || l.building_name || l.area_name || "매물"}
-                {l.is_private && <em className="c-priv" title={l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}><Lock size={9} /></em>}
-                {l.is_private && l.ad_check && l.ad_check.missing.length > 0 && (
-                  <em className="c-adw" title={`광고 필수항목 ${l.ad_check.done}/${l.ad_check.total}`}>
-                    <ShieldCheck size={9} />{l.ad_check.done}/{l.ad_check.total}</em>
+                {i === 0 ? (
+                  <>
+                    {l.complex_name || l.building_name || l.area_name || "매물"}
+                    {g.length > 1 && <em className="c-gn">{g.length}</em>}
+                    {l.is_private && <em className="c-priv" title={l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}><Lock size={9} /></em>}
+                  </>
+                ) : (
+                  // 같은 단지의 두 번째부터는 이름을 지우고 세로선으로 잇는다(고객원장과 같은 방식)
+                  <em className="c-sub"><i />
+                    {l.is_private && <Lock size={9} aria-label="직접등록" />}</em>
                 )}
               </span>
               <span className="mjt-meta">
-                <span className="c-ho">{[l.dong, l.ho].filter(Boolean).join(" ") || l.address || "-"}</span>
+                <span className="c-ho">{dongHo(l)}</span>
                 <span className="c-ar">{l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : "-"}</span>
                 <span className="c-fl">{l.floor_info
                   ? `${l.floor_info}${l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : ""}층`
@@ -1845,7 +1872,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                 {l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}
               </span>
             </div>
-          ))}
+          )))}
         </div>
       )}
       {detail && <ListingDetail l={detail} owner={detailOwner} authH={authH}
@@ -1995,7 +2022,60 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
   const [msg, setMsg] = useState("");
   const [editPhoto, setEditPhoto] = useState<string | null>(null);   // 수동 보정 대상
   const [phVer, setPhVer] = useState(0);                             // 보정 후 캐시 무효화
+  const [nl, setNl] = useState("");                 // 자연어 한 줄
+  const [nlBusy, setNlBusy] = useState(false);
+  const [fillBusy, setFillBusy] = useState(false);  // 대장 조회
+  const [plMsg, setPlMsg] = useState("");
+  const [plMsgBad, setPlMsgBad] = useState(false);
+  const [more, setMore] = useState(false);          // 상세 칸 펼침
   const set = (k: string) => (e: any) => setF((s) => ({ ...s, [k]: e.target.value }));
+
+  // 자연어 → 항목. 빈 칸만 채운다(사람이 이미 고친 값을 덮지 않는다).
+  const readNl = async () => {
+    if (nl.trim().length < 2 || nlBusy) return;
+    setNlBusy(true); setPlMsg(""); setPlMsgBad(false);
+    try {
+      const r = await fetch(`${API_BASE}/lounge/quick-parse`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ text: nl }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.detail || "인식 실패");
+      const got = (d["매물"] || [])[0];
+      if (!got) throw new Error("매물을 못 읽었어요. 단지·동호·가격을 넣어 보세요.");
+      setF((s) => {
+        const n = { ...s };
+        for (const [k, v] of Object.entries(got)) {
+          if (k.startsWith("_") || v === null || v === "") continue;
+          if (n[k] === undefined || n[k] === null || n[k] === "" ) n[k] = v;
+        }
+        return n;
+      });
+      const auto = Object.keys(got._auto || {});
+      setPlMsg(`읽었어요${auto.length ? ` · 대장에서 ${auto.length}개 항목까지 채움` : ""}`);
+      setNl("");
+    } catch (e: any) { setPlMsg(e.message || "인식 실패"); setPlMsgBad(true); }
+    finally { setNlBusy(false); }
+  };
+
+  // 단지+동+호 → 건축물대장. 이미 적힌 값은 그대로 두고 빈 칸만 채운다.
+  const fillLedger = async () => {
+    if (fillBusy) return;
+    setFillBusy(true); setPlMsg(""); setPlMsgBad(false);
+    try {
+      const r = await fetch(`${API_BASE}/lounge/listing-enrich`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify(f),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.detail || "조회 실패");
+      setF((s) => ({ ...s, ...d.listing }));
+      const n = (d.filled || []).length;
+      setPlMsg(n ? `대장에서 ${n}개 항목을 채웠어요` : "대장에서 더 채울 항목이 없었어요");
+      setPlMsgBad(!n);
+    } catch (e: any) { setPlMsg(e.message || "조회 실패"); setPlMsgBad(true); }
+    finally { setFillBusy(false); }
+  };
 
   const upload = async (file: File) => {
     setUpBusy(true); setMsg("");
@@ -2038,8 +2118,25 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
     <div className="mld-ov" onClick={onClose}>
       <div className="mld pl-modal" onClick={(e) => e.stopPropagation()}>
         <button className="mld-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
-        <h3 className="mld-title"><Lock size={15} style={{ verticalAlign: "-2px" }} /> 비공개매물 {f.id ? "수정" : "등록"}</h3>
-        <p className="pl-hint">모두 선택 입력이에요. 아는 것만 적고 나중에 채워도 됩니다.</p>
+        <h3 className="mld-title"><Lock size={15} style={{ verticalAlign: "-2px" }} /> 매물 직접등록{f.id ? " 수정" : ""}</h3>
+        <p className="pl-hint">한 줄로 적으면 나머지는 우리가 채웁니다. 아는 것만 적고 나중에 보태도 됩니다.</p>
+
+        {/* 칸을 하나씩 채우게 하지 않는다 — 말하듯 적으면 읽어서 넣고, 동·호를 알면 대장에서 긁어온다 */}
+        <div className="pl-quick">
+          <Sparkles size={15} aria-hidden />
+          <input value={nl} placeholder="한마루럭키 104동 1103호 매매 12억 남향 010-1234-5678"
+            onChange={(e) => setNl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); readNl(); } }} />
+          <button onClick={readNl} disabled={nlBusy || nl.trim().length < 2}>
+            {nlBusy ? <Loader2 size={13} className="txm-spin" /> : "읽기"}</button>
+        </div>
+        <div className="pl-quick2">
+          <button onClick={fillLedger} disabled={fillBusy || !(f.complex_name || "").trim()}>
+            {fillBusy ? <Loader2 size={12} className="txm-spin" /> : <ShieldCheck size={12} />}
+            건축물대장에서 채우기
+          </button>
+          {plMsg && <span className={"pl-qmsg" + (plMsgBad ? " bad" : "")}>{plMsg}</span>}
+        </div>
 
         <div className="pl-sec">공개 범위</div>
         <div className="pl-vis">
@@ -2065,17 +2162,28 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
               {PL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select></label>
           <T k="complex_name" label="단지·건물명" placeholder="예: 헬리오시티" />
+          <T k="dong" label="동" placeholder="104" />
+          <T k="ho" label="호" placeholder="1103" />
+          <T k="price" label="매매가·보증금(만원)" inputMode="numeric" placeholder="85000" />
+          <T k="rent_price" label="월세(만원)" inputMode="numeric" />
+          <T k="contact" label="연락처" inputMode="tel" placeholder="010-0000-0000" />
+        </div>
+
+        {/* 나머지는 대장이 채워 주거나 나중에 보태는 것들이다 — 처음부터 다 보이면 겁먹는다 */}
+        <button className="pl-more" onClick={() => setMore((v) => !v)}>
+          {more ? "자세히 입력 접기" : "자세히 입력 (면적·구조·주소·융자 등)"}
+          <ChevronDown size={13} className={more ? "rot" : ""} aria-hidden />
+        </button>
+        {more && (<>
+        <div className="pl-sec">주소</div>
+        <div className="pl-grid">
           <T k="building_name" label="동 이름" placeholder="예: 101동" />
-          <T k="dong" label="동" placeholder="101" />
-          <T k="ho" label="호" placeholder="1502" />
           <T k="address" label="주소" placeholder="서울 강남구 역삼동 222" />
           <T k="address_detail" label="상세주소" />
         </div>
 
         <div className="pl-sec">가격</div>
         <div className="pl-grid">
-          <T k="price" label="매매가·보증금(만원)" inputMode="numeric" placeholder="85000" />
-          <T k="rent_price" label="월세(만원)" inputMode="numeric" />
           <T k="maintenance_fee" label="관리비(만원)" inputMode="numeric" />
           <T k="loan_amount" label="융자금(만원)" inputMode="numeric" />
         </div>
@@ -2096,12 +2204,12 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
           <T k="move_in" label="입주가능일" placeholder="즉시 / 2026-09-01" />
           <T k="approve_ymd" label="준공" placeholder="2019.05" />
         </div>
+        </>)}
 
         <div className="pl-sec">소유자·담당</div>
         <div className="pl-grid">
           <T k="owner_name" label="소유자" />
           <T k="owner_tel" label="소유자 연락처" inputMode="tel" />
-          <T k="contact" label="연락처 메모" />
           <label className="pl-f"><span>담당자</span>
             <select className="ai-input" value={f.manager ?? ""} onChange={set("manager")}>
               <option value="">미지정</option>

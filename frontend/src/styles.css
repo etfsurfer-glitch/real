@@ -2521,6 +2521,14 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:4px}
 .mjt .c-priv{background:#eef2f7;color:#64748b}
 .mjt .c-adw{background:#fff5e6;color:#b45309}
+/* 같은 단지 묶음 — 두 번째 행부터 이름을 지우고 세로선으로 잇는다(고객원장과 같은 방식) */
+.mjt-r.cont{border-top:none}
+.mjt .c-gn{flex:none;font-style:normal;font-size:9.5px;font-weight:800;padding:1px 6px;
+  border-radius:20px;background:var(--c-primary-soft);color:var(--c-primary)}
+.mjt .c-sub{display:inline-flex;align-items:center;gap:6px;margin-left:6px;font-style:normal;
+  color:var(--c-faint)}
+.mjt .c-sub i{display:block;width:12px;height:12px;border-left:2px solid var(--c-border);
+  border-bottom:2px solid var(--c-border);border-bottom-left-radius:4px;margin-top:-8px}
 .mjt .c-ho,.mjt .c-ar,.mjt .c-fl,.mjt .c-st{color:var(--c-text-soft);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
 .mjt .c-pr{font-weight:800;color:var(--c-text);text-align:right;white-space:nowrap;
@@ -3815,6 +3823,28 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 /* 등록 모달 */
 .pl-modal{max-width:640px}
 .pl-hint{font-size:12.5px;color:var(--c-muted);margin:-4px 0 12px}
+/* 칸을 하나씩 채우는 대신 말하듯 적게 한다 */
+.pl-quick{display:flex;align-items:center;gap:8px;background:var(--c-primary-tint);
+  border:1px solid #dbe7fb;border-radius:11px;padding:8px 9px 8px 12px}
+.pl-quick>svg{color:var(--c-primary);flex:none}
+.pl-quick input{flex:1;min-width:0;border:none;outline:none;background:none;font:inherit;font-size:13px}
+.pl-quick button{flex:none;border:none;background:var(--c-primary);color:#fff;border-radius:8px;
+  padding:7px 15px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;
+  display:inline-flex;align-items:center;gap:5px}
+.pl-quick button:disabled{background:var(--c-border);color:var(--c-faint);cursor:default}
+.pl-quick2{display:flex;align-items:center;gap:9px;margin:8px 0 2px;flex-wrap:wrap}
+.pl-quick2>button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c-border);
+  background:#fff;border-radius:9px;padding:6px 12px;font:inherit;font-size:12px;font-weight:700;
+  color:var(--c-text-soft);cursor:pointer}
+.pl-quick2>button:hover:not(:disabled){border-color:var(--c-primary);color:var(--c-primary)}
+.pl-quick2>button:disabled{color:var(--c-faint);cursor:default}
+.pl-qmsg{font-size:11.5px;font-weight:700;color:#1a7f4b}
+.pl-qmsg.bad{color:var(--c-muted)}
+.pl-more{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:14px;
+  border:1px dashed var(--c-border);background:#fff;border-radius:10px;padding:9px;font:inherit;
+  font-size:12.5px;font-weight:700;color:var(--c-primary);cursor:pointer}
+.pl-more:hover{border-style:solid;background:var(--c-primary-tint)}
+.pl-more .rot{transform:rotate(180deg)}
 .pl-sec{font-size:12.5px;font-weight:800;color:var(--c-text);margin:16px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--c-border)}
 .pl-sec-note{font-weight:600;color:var(--c-muted);font-size:11.5px;margin-left:6px}
 .pl-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}

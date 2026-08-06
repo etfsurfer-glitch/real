@@ -15067,6 +15067,23 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
     return {"ok": True, "listings": len(listing_ids), "customers": saved}
 
 
+@app.post("/lounge/listing-enrich")
+def lounge_listing_enrich(body: dict, user: dict = Depends(current_user)):
+    """단지+동+호 → 건축물대장·단지 DB 로 빈칸을 채워 돌려준다. **저장하지 않는다.**
+
+    등록 폼에서 저장 전에 눌러 보게 하려고 따로 뺐다(기존 enrich 는 저장된 행에만 걸렸다).
+    """
+    with _reviews_db() as rc:
+        _require_member(rc, user["id"])
+    row = {k: body.get(k) for k in _PL_FIELDS if body.get(k) not in (None, "")}
+    if not (row.get("complex_name") or row.get("complex_no")):
+        raise HTTPException(400, "단지명을 먼저 적어 주세요")
+    d, h = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
+    row["dong"], row["ho"] = d, h
+    auto = _qa_enrich_listing(row)
+    return {"listing": row, "_auto": auto, "filled": sorted(auto)}
+
+
 @app.post("/lounge/private-listings")
 def lounge_private_save(body: dict, user: dict = Depends(current_user)):
     """등록/수정. 필수 항목 없음 — 빈 값은 그대로 저장(나중에 채울 수 있게)."""
@@ -15081,6 +15098,9 @@ def lounge_private_save(body: dict, user: dict = Depends(current_user)):
             try: v = str(float(v))
             except (TypeError, ValueError): v = None
         vals[f] = None if v in ("",) else v
+    # 동·호 표기를 저장 전에 통일한다. 빠른입력은 통일해 넣는데 이 폼은 안 그래서
+    # 같은 물건이 '104 1103' 과 '104동 1103호' 로 갈렸다.
+    vals["dong"], vals["ho"] = _qa_norm_dong_ho(vals.get("dong"), vals.get("ho"))
     # 좌표가 없고 주소가 있으면 지오코딩해 지도에 표시되게 한다(실패해도 저장은 진행)
     if not vals.get("lat") and vals.get("address"):
         _pt = _geocode_addr(" ".join(x for x in [vals.get("address"), vals.get("address_detail")] if x))
