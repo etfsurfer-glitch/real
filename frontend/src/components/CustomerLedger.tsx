@@ -53,6 +53,10 @@ function whereOf(n: Need): string {
   return [n.sigungu, n.dong, n.address].filter(Boolean).join(" ") || "-";
 }
 
+// 예전 값(주안·대안·보유)도 우선순위로 읽는다
+const ROLE_OLD: Record<string, string> = { 주안: "1안", 대안: "2안", 보유: "보유" };
+const roleLabel = (r?: string | null) => ROLE_OLD[r || ""] || r || "";
+
 const FILTERS = [
   { v: "", label: "전체" }, { v: "구함", label: "구함" },
   { v: "양쪽", label: "양쪽" }, { v: "내놓음", label: "내놓음" },
@@ -67,6 +71,16 @@ export default function CustomerLedger({ authH, onGoListings }: {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<EditCustomer | null>(null);
+  const openEdit = (c: Customer) => setEdit({
+    id: c.id, name: c.name, phone: c.phone, memo: c.memo,
+    needs: c.needs.map((n) => ({
+      id: n.id, kind: n.kind, trade: n.trade, role: n.role,
+      budget_min: n.budget_min, budget_max: n.budget_max, ask_price: n.ask_price,
+      sigungu: n.sigungu, dong: n.dong, address: n.address,
+      area_min: n.area_min, area_max: n.area_max,
+      status: n.status, settle_date: n.settle_date,
+    })),
+  });
 
   const load = useCallback(() => {
     setBusy(true); setErr("");
@@ -131,59 +145,67 @@ export default function CustomerLedger({ authH, onGoListings }: {
         </p>
       )}
 
-      {shown.map((c) => (
-        <div key={c.id} className="cled-row">
-          <div className="cled-cust">
-            <span className="cled-nm">
-              <b>{c.name || "이름 미상"}</b>
-              {c.phone && <a href={`tel:${tel(c.phone)}`}><Phone size={11} /> {fmtTel(c.phone)}</a>}
-            </span>
-            <span className="cled-cust-b">
-            <span className={"cled-type t-" + (c.ctype === "양쪽" ? "both" : c.ctype === "내놓음" ? "sell" : "buy")}>
-              {c.ctype}
-            </span>
-            <button className="cled-edit" onClick={() => setEdit({
-              id: c.id, name: c.name, phone: c.phone, memo: c.memo,
-              needs: c.needs.map((n) => ({
-                id: n.id, kind: n.kind, trade: n.trade, role: n.role,
-                budget_min: n.budget_min, budget_max: n.budget_max, ask_price: n.ask_price,
-                sigungu: n.sigungu, dong: n.dong, address: n.address,
-                area_min: n.area_min, area_max: n.area_max,
-                status: n.status, settle_date: n.settle_date,
-              })),
-            })}><Pencil size={12} /> 수정</button>
-            </span>
+      {shown.length > 0 && (
+        <div className="cldt">
+          <div className="cldt-head">
+            <span>고객</span>
+            <span className="h-kd">구분</span>
+            <span className="h-tr">거래</span>
+            <span className="h-pr">예산·호가</span>
+            <span className="h-rg">지역·단지</span>
+            <span className="h-st">잔금</span>
+            <span className="h-lk">매칭 매물</span>
+            <span className="h-ct">연락처</span>
           </div>
-
-          <div className="cled-needs">
-            {c.needs.length === 0 && <div className="cled-need muted">요건이 없습니다</div>}
-            {c.needs.map((n, i) => (
-              <div key={n.id} className="cled-need">
-                <span className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>
-                  {n.kind || "요건"}{c.needs.filter((x) => x.kind === n.kind).length > 1
-                    ? ` ${c.needs.filter((x) => x.kind === n.kind).indexOf(n) + 1}` : ""}
+          {shown.flatMap((c) => {
+            const rows = c.needs.length ? c.needs : [null];
+            return rows.map((n, i) => (
+              <div key={`${c.id}-${n?.id ?? "x"}`} className={"cldt-r" + (i ? " cont" : "")}
+                onClick={() => openEdit(c)}>
+                <span className="c-nm">
+                  {i === 0 ? (
+                    <>
+                      {c.name || "이름 미상"}
+                      <em className={"c-tp t-" + (c.ctype === "양쪽" ? "both" : c.ctype === "내놓음" ? "sell" : "buy")}>
+                        {c.ctype}</em>
+                      <Pencil size={11} className="c-pen" />
+                    </>
+                  ) : <i className="c-cont" />}
                 </span>
-                <span className="cled-tr">{TRADE_KOR[n.trade || ""] || n.trade || "-"}</span>
-                {n.role && <span className="cled-role">{n.role}</span>}
-                <span className="cled-price">{priceOf(n)}</span>
-                <span className="cled-where">{whereOf(n)}</span>
-                {n.settle_date && <span className="cled-move">잔금 {n.settle_date}</span>}
-                {n.listing ? (
-                  <span className="cled-link" title="이 요건은 우리 매물장의 물건입니다">
-                    <Link2 size={11} />
-                    {n.listing.complex_name}
-                    {n.listing.dong ? ` ${n.listing.dong}` : ""}{n.listing.ho ? ` ${n.listing.ho}호` : ""}
-                    {n.listing.area2_m2 ? ` · 전용 ${Math.round(Number(n.listing.area2_m2))}㎡` : ""}
+                <span className="cldt-meta">
+                  <span className="c-kd">
+                    {n ? (
+                      <>
+                        <em className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind || "요건"}</em>
+                        {n.role && <em className="c-pri">{roleLabel(n.role)}</em>}
+                      </>
+                    ) : <em className="c-none">요건 없음</em>}
                   </span>
-                ) : n.kind === "내놓음" ? (
-                  <span className="cled-nolink">매물장에 없음</span>
-                ) : null}
-                {i === 0 && c.memo && <span className="cled-memo">{c.memo}</span>}
+                  <span className="c-tr">{n ? (TRADE_KOR[n.trade || ""] || n.trade || "-") : ""}</span>
+                  <span className="c-pr">{n ? priceOf(n) : ""}</span>
+                  <span className="c-rg">{n ? whereOf(n) : ""}</span>
+                  <span className="c-st">{n?.settle_date
+                    ? <><em className="lb">잔금</em>{n.settle_date}</> : ""}</span>
+                  <span className="c-lk">{n?.listing ? (
+                    <em className="cled-link" title="우리 매물장의 물건입니다">
+                      <Link2 size={10} />
+                      {n.listing.complex_name}{n.listing.dong ? ` ${n.listing.dong}` : ""}
+                      {n.listing.ho ? ` ${n.listing.ho}` : ""}
+                    </em>
+                  ) : n?.kind === "내놓음" ? <em className="cled-nolink">매물장에 없음</em> : ""}</span>
+                </span>
+                <span className="c-ct" onClick={(e) => e.stopPropagation()}>
+                  {i === 0 && c.phone ? (
+                    <a className="mjt-call" href={`tel:${tel(c.phone)}`} title={`${fmtTel(c.phone)} 로 전화`}>
+                      <Phone size={12} /><b>{fmtTel(c.phone)}</b>
+                    </a>
+                  ) : null}
+                </span>
               </div>
-            ))}
-          </div>
+            ));
+          })}
         </div>
-      ))}
+      )}
 
       {edit && (
         <CustomerEdit authH={authH} cust={edit} onClose={() => setEdit(null)} onSaved={load} />
