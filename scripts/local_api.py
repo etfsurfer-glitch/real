@@ -14189,8 +14189,21 @@ def _to_f(v):
         return None
 
 
-def _match_market(nd: dict, limit: int = 12) -> list:
-    """전국 매물에서 찾기(단지형). 단지당 최저가 1건씩만 올려 목록이 한 단지로 덮이지 않게."""
+# 확대 단계 — (예산 여유, 면적 여유, 단지당 건수, 지역 범위)
+# 조건을 한 번에 다 풀면 엉뚱한 게 쏟아진다. 단계로 나눠 무엇을 풀었는지 밝힌다.
+_EXPAND = [
+    {"price": 0.10, "area": 0.08, "per_cx": 1, "scope": "dong",
+     "label": "기본 — 예산 ±10% · 면적 ±8% · 같은 동"},
+    {"price": 0.20, "area": 0.15, "per_cx": 3, "scope": "sigungu",
+     "label": "넓게 — 예산 ±20% · 면적 ±15% · 같은 시군구 · 단지당 3건"},
+    {"price": 0.30, "area": 0.25, "per_cx": 5, "scope": "sigungu",
+     "label": "아주 넓게 — 예산 ±30% · 면적 ±25% · 같은 시군구 · 단지당 5건"},
+]
+
+
+def _match_market(nd: dict, limit: int = 12, level: int = 0) -> list:
+    """전국 매물에서 찾기(단지형). 단지당 상위 N건만 올려 목록이 한 단지로 덮이지 않게."""
+    ex = _EXPAND[max(0, min(level, len(_EXPAND) - 1))]
     tt = (nd.get("trade") or "A1")
     if tt not in ("A1", "B1", "B2"):
         tt = _TRADE_CODE.get(tt, "A1")
@@ -14200,21 +14213,26 @@ def _match_market(nd: dict, limit: int = 12) -> list:
         where.append("l.deal_or_warrant_price >= 30000000")     # 자릿수 오타 방어
     lo, hi = _match_price_range(nd)
     if lo:
-        where.append("l.deal_or_warrant_price >= ?"); args.append(lo * 0.9)
+        where.append("l.deal_or_warrant_price >= ?"); args.append(lo * (1 - ex["price"]))
     if hi:
-        where.append("l.deal_or_warrant_price <= ?"); args.append(hi * 1.1)
+        where.append("l.deal_or_warrant_price <= ?"); args.append(hi * (1 + ex["price"]))
     if nd.get("area_min"):
-        where.append("l.area2_m2 >= ?"); args.append(float(nd["area_min"]) * 0.92)
+        where.append("l.area2_m2 >= ?"); args.append(float(nd["area_min"]) * (1 - ex["area"]))
     if nd.get("area_max"):
-        where.append("l.area2_m2 <= ?"); args.append(float(nd["area_max"]) * 1.08)
-    # 지역 — 단지명이 있으면 그 단지, 없으면 동·시군구 이름으로 좁힌다
+        where.append("l.area2_m2 <= ?"); args.append(float(nd["area_max"]) * (1 + ex["area"]))
+    # 지역 — 단지명이 있으면 그 단지, 없으면 동(확대 시 시군구)으로 좁힌다
     cxw, cxa = [], []
     if (nd.get("address") or "").strip():
         cxw.append("REPLACE(cx.complex_name,' ','') LIKE ?")
         cxa.append("%" + nd["address"].replace(" ", "") + "%")
     dong = (nd.get("dong") or "").strip()
     if dong:
-        cxw.append("cx.cortar_no IN (SELECT cortar_no FROM regions WHERE cortar_name=?)")
+        if ex["scope"] == "sigungu":
+            # 그 동이 속한 시군구 전체로 넓힌다 — 옆 동네까지 봐야 공동중개 후보가 생긴다
+            cxw.append("SUBSTR(cx.cortar_no,1,5) IN "
+                       "(SELECT SUBSTR(cortar_no,1,5) FROM regions WHERE cortar_name=?)")
+        else:
+            cxw.append("cx.cortar_no IN (SELECT cortar_no FROM regions WHERE cortar_name=?)")
         cxa.append(dong)
     if cxw:
         where.append("(" + " OR ".join(cxw) + ")")
@@ -14228,6 +14246,7 @@ def _match_market(nd: dict, limit: int = 12) -> list:
                  l.floor_info, l.direction, l.same_addr_cnt, l.article_confirm_ymd,
                  cx.cortar_no, cx.total_household_count AS hh, cx.use_approve_ymd AS apr,
                  cx.parking_per_household AS pk,
+                 l.realtor_name, l.realtor_id AS rlt_id, l.article_no,
                  ROW_NUMBER() OVER (PARTITION BY l.complex_no ORDER BY l.deal_or_warrant_price) AS rn,
                  COUNT(*) OVER (PARTITION BY l.complex_no) AS n,
                  MIN(l.deal_or_warrant_price) OVER (PARTITION BY l.complex_no) AS lo,
@@ -14235,7 +14254,7 @@ def _match_market(nd: dict, limit: int = 12) -> list:
           FROM listings_current l JOIN complexes cx ON cx.complex_no = l.complex_no
           WHERE {' AND '.join(where)}
         )
-        SELECT * FROM base WHERE rn = 1 ORDER BY price LIMIT ?
+        SELECT * FROM base WHERE rn <= {int(ex["per_cx"])} ORDER BY price LIMIT ?
     """
     out = []
     with _open_db() as c:
@@ -14251,7 +14270,18 @@ def _match_market(nd: dict, limit: int = 12) -> list:
                         "households": r["hh"], "approve": (r["apr"] or "")[:4],
                         "parking": r["pk"], "same_addr": r["same_addr_cnt"],
                         "confirm": r["article_confirm_ymd"],
-                        "range_man": [(r["lo"] or 0) / 10000.0, (r["hi"] or 0) / 10000.0]})
+                        "range_man": [(r["lo"] or 0) / 10000.0, (r["hi"] or 0) / 10000.0],
+                        "office": r["realtor_name"] or "", "office_id": r["rlt_id"] or "",
+                        "article_no": r["article_no"]})
+        # 공동중개하려면 그 매물을 가진 사무소에 전화해야 한다 — 번호를 같이 준다
+        oids = [x["office_id"] for x in out if x.get("office_id")]
+        if oids:
+            qm2 = ",".join("?" * len(oids))
+            tel = {r[0]: (r[1] or r[2] or "") for r in c.execute(
+                f"SELECT realtor_id, representative_tel_no, cell_phone_no FROM naver_realtors "
+                f"WHERE realtor_id IN ({qm2})", oids).fetchall()}
+            for x in out:
+                x["office_tel"] = tel.get(x.get("office_id"), "")
         # 실거래 대비 — 손님에게 '싸다/비싸다'를 근거로 말할 수 있게 한다.
         # 매매만. 전세·월세는 rollup 이 매매 기준이라 붙이지 않는다.
         if tt == "A1" and out:
@@ -14328,6 +14358,35 @@ def lounge_match(user: dict = Depends(current_user), need_id: int = 0, limit: in
                           "n_ours": len(ours), "n_market": len(market),
                           "criteria": _match_criteria(nd)})
     return {"items": items}
+
+
+@app.get("/lounge/match/expand")
+def lounge_match_expand(need_id: int, level: int = 1, limit: int = 20,
+                        user: dict = Depends(current_user)):
+    """공동가능매물 확대 검색 — 조건을 단계적으로 풀어 다른 사무소 매물까지 찾는다.
+
+    우리 매물장에 없을 때 손님을 놓치지 않으려면 남의 물건으로 붙여야 한다.
+    무엇을 풀었는지(label)와 어느 사무소 물건인지(연락처 포함)를 같이 준다.
+    """
+    lv = max(0, min(int(level), len(_EXPAND) - 1))
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.row_factory = sqlite3.Row
+        r = rc.execute(
+            "SELECT n.*, c.name AS cname, c.phone AS cphone FROM biz_needs n "
+            "LEFT JOIN biz_customers c ON c.id = n.customer_id "
+            "WHERE n.id=? AND n.realtor_id=?", (need_id, rid)).fetchone()
+        if not r:
+            raise HTTPException(404, "요건을 찾을 수 없어요")
+        nd = dict(r)
+    try:
+        hits = _match_market(nd, limit, level=lv)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"매물 조회에 실패했어요 ({type(e).__name__})")
+    for h in hits:
+        h["fit"] = _fit(nd, h)
+    return {"level": lv, "label": _EXPAND[lv]["label"], "items": hits,
+            "has_more": lv < len(_EXPAND) - 1}
 
 
 @app.get("/lounge/match/listing/{pid}")

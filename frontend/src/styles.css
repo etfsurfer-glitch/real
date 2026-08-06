@@ -2063,6 +2063,21 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mtb-crit .na{color:var(--c-muted)}
 .mtb-crit .na b{color:var(--c-muted)}
 .mtb-hit svg{color:var(--c-faint);flex:none}
+.mtb-src.coop{background:#f0e9fb;color:#6b39c9}
+.mtb-sec.exp{color:#6b39c9}
+.mtb-exp{border-top:1px solid var(--c-border-soft);background:#fcfbff}
+.mtb-more{display:inline-flex;align-items:center;gap:6px;margin:9px 13px 11px;
+  border:1px dashed var(--c-border);background:#fff;border-radius:9px;padding:8px 14px;
+  font:inherit;font-size:12.5px;font-weight:700;color:#6b39c9;cursor:pointer}
+.mtb-more:hover:not(:disabled){border-color:#6b39c9;border-style:solid;background:#f7f4fe}
+.mtb-more:disabled{opacity:.55;cursor:default}
+/* 공동중개하려면 그 물건 가진 사무소에 전화해야 한다 */
+.mtb-office{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-top:4px;
+  font-size:11px;font-weight:600;color:var(--c-text-soft)}
+.mtb-office svg{color:var(--c-faint);flex:none}
+.mtb-office a{display:inline-flex;align-items:center;gap:3px;color:var(--c-primary);
+  text-decoration:none;font-weight:700;font-variant-numeric:tabular-nums;
+  background:var(--c-primary-soft);padding:2px 8px;border-radius:999px}
 .mtb-empty{margin:0;padding:14px 13px;font-size:12.5px;color:var(--c-muted)}
 @media(max-width:720px){
   .mtb-need{flex-wrap:wrap}

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Sparkles, Loader2, Building2, Globe, UserRound, Phone, RefreshCw, ChevronRight, Search,
+  Handshake,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -25,6 +26,7 @@ type Hit = {
   // 전국 매물
   households?: number | null; same_addr?: number | null; confirm?: string;
   range_man?: [number, number]; tx_avg_man?: number | null; vs_tx_pct?: number | null;
+  office?: string; office_tel?: string; office_id?: string; article_no?: string;
 };
 type Criteria = { used: string[]; skipped: string[]; unavailable: string[] };
 type Need = {
@@ -64,6 +66,22 @@ export default function MatchBoard({ authH, onGoLedger }: {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<Record<number, boolean>>({});
+  // 확대 검색 — 요건별로 단계와 결과를 따로 들고 있는다
+  const [exp, setExp] = useState<Record<number, { level: number; label: string; items: Hit[]; has_more: boolean }>>({});
+  const [expBusy, setExpBusy] = useState<number | null>(null);
+
+  const expand = useCallback(async (needId: number, level: number) => {
+    setExpBusy(needId);
+    try {
+      const r = await fetch(`${API_BASE}/lounge/match/expand?need_id=${needId}&level=${level}`,
+        { headers: authH() });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.detail || `오류 ${r.status}`);
+      setExp((e) => ({ ...e, [needId]: j }));
+    } catch (e: any) {
+      setErr(e?.message || "확대 검색에 실패했어요");
+    } finally { setExpBusy(null); }
+  }, [authH]);
 
   const load = useCallback(() => {
     setBusy(true); setErr("");
@@ -167,13 +185,13 @@ export default function MatchBoard({ authH, onGoLedger }: {
                     {it.market.map((h) => <HitRow key={`m${h.id}`} h={h} />)}
                   </>
                 )}
+                <ExpandBox nid={n.id} state={exp[n.id]} busy={expBusy === n.id} onRun={expand} />
               </div>
             )}
             {opened && total === 0 && (
               <div className="mtb-hits">
-                <p className="mtb-empty">
-                  조건에 맞는 매물이 없어요. 예산이나 면적을 조금 넓히면 후보가 생길 수 있습니다.
-                </p>
+                <p className="mtb-empty">조건에 딱 맞는 매물이 없어요. 범위를 넓혀 찾아볼 수 있습니다.</p>
+                <ExpandBox nid={n.id} state={exp[n.id]} busy={expBusy === n.id} onRun={expand} />
               </div>
             )}
           </div>
@@ -183,9 +201,42 @@ export default function MatchBoard({ authH, onGoLedger }: {
   );
 }
 
+/** 공동가능매물 확대 검색 — 우리 매물장에 없을 때 남의 물건으로 손님을 붙인다.
+ *  무엇을 풀었는지 밝히고, 어느 사무소에 전화해야 하는지까지 보여 준다. */
+function ExpandBox({ nid, state, busy, onRun }: {
+  nid: number;
+  state?: { level: number; label: string; items: Hit[]; has_more: boolean };
+  busy: boolean;
+  onRun: (nid: number, level: number) => void;
+}) {
+  return (
+    <div className="mtb-exp">
+      {state && (
+        <>
+          <div className="mtb-sec exp">
+            <Handshake size={12} /> 공동가능매물 {state.items.length}건
+            <span>{state.label}</span>
+          </div>
+          {state.items.length === 0 && (
+            <p className="mtb-empty">이 범위에도 맞는 매물이 없어요.</p>
+          )}
+          {state.items.map((h, i) => <HitRow key={`e${h.id}-${i}`} h={h} coop />)}
+        </>
+      )}
+      <button className="mtb-more" disabled={busy}
+        onClick={() => onRun(nid, state ? Math.min(state.level + 1, 2) : 1)}>
+        {busy ? <Loader2 size={13} className="txm-spin" /> : <Handshake size={13} />}
+        {busy ? "찾는 중…"
+          : !state ? "공동가능매물 확대 검색"
+            : state.has_more ? "더 넓게 찾기" : "가장 넓은 범위입니다"}
+      </button>
+    </div>
+  );
+}
+
 const FIT_MARK: Record<FitStatus, string> = { ok: "✓", near: "≈", miss: "✕", unknown: "?" };
 
-function HitRow({ h }: { h: Hit }) {
+function HitRow({ h, coop }: { h: Hit; coop?: boolean }) {
   const price = h.trade === "월세"
     ? `${eok(h.price_man)}${h.rent_man ? ` / ${Math.round(h.rent_man).toLocaleString()}만` : ""}`
     : eok(h.price_man);
@@ -204,6 +255,7 @@ function HitRow({ h }: { h: Hit }) {
     h.where || "",
   ].filter(Boolean).join(" · ");
   // 전국 매물은 단지 안 시세 폭과 실거래 대비를 같이 준다 — '싸다'를 근거로 말하게
+  const tel2 = (h.office_tel || "").replace(/[^0-9+]/g, "");
   const market = h.src === "market" ? [
     h.n_in_complex && h.n_in_complex > 1
       ? `단지 내 ${h.n_in_complex}건${h.range_man ? ` (${eok(h.range_man[0])}~${eok(h.range_man[1])})` : ""}`
@@ -216,7 +268,8 @@ function HitRow({ h }: { h: Hit }) {
   const body = (
     <>
       <div className="mtb-hit-top">
-        <span className={"mtb-src " + h.src}>{h.src === "ours" ? "우리" : "전국"}</span>
+        <span className={"mtb-src " + (coop ? "coop" : h.src)}>
+          {coop ? "공동" : h.src === "ours" ? "우리" : "전국"}</span>
         <b className="mtb-nm">{h.name}</b>
         <span className="mtb-price">{price}</span>
         {h.src === "market" && h.complex_no && <Search size={12} />}
@@ -224,6 +277,16 @@ function HitRow({ h }: { h: Hit }) {
       {spec && <div className="mtb-spec">{spec}</div>}
       {market && <div className={"mtb-mkt" + (h.vs_tx_pct != null && h.vs_tx_pct < -3 ? " cheap" : "")}>{market}</div>}
       {h.feature && <div className="mtb-feat">{h.feature}</div>}
+      {h.office && (
+        <div className="mtb-office">
+          <Building2 size={11} /> {h.office}
+          {h.office_tel && (
+            <a href={`tel:${tel2}`} onClick={(e) => e.stopPropagation()}>
+              <Phone size={10} /> {h.office_tel}
+            </a>
+          )}
+        </div>
+      )}
       {h.fit && h.fit.length > 0 && (
         <div className="mtb-fit">
           {h.fit.map((f) => (
