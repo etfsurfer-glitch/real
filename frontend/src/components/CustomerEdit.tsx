@@ -237,7 +237,6 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
         <div className="ced-body">
           {/* 왼쪽에 손님을 고정한다 — 전화를 받으며 여는 화면이라 누구인지가 스크롤 밖으로 나가면 안 된다 */}
           <aside className="ced-rail">
-            <div className="ced-av">{(name || "·").trim().slice(0, 1)}</div>
             <input className="ced-nm" value={name} placeholder="이름" autoFocus
               onChange={(e) => setName(e.target.value)} />
             <input className="ced-ph" value={phone} inputMode="tel" placeholder="010-0000-0000"

@@ -2016,8 +2016,6 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .ced-body{display:grid;grid-template-columns:252px 1fr;align-items:start}
 .ced-rail{background:#fbfcfe;border-right:1px solid var(--c-border-soft);padding:16px 15px 18px;
   min-width:0;align-self:stretch}
-.ced-av{width:44px;height:44px;border-radius:13px;background:var(--c-primary-soft);color:var(--c-primary);
-  display:grid;place-items:center;font-size:18px;font-weight:800;margin-bottom:9px}
 .ced-nm{display:block;width:100%;border:1px solid transparent;border-radius:8px;background:none;font:inherit;
   font-size:16px;font-weight:800;color:#13294b;letter-spacing:-.3px;padding:3px 6px;margin-left:-6px}
 .ced-ph{display:block;width:100%;border:1px solid transparent;border-radius:8px;background:none;font:inherit;
@@ -2193,13 +2191,8 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 /* 좁아지면 레일을 위로 눕힌다 — 손님 정보가 사라지면 안 되므로 접지 않고 가로로 편다 */
 @media(max-width:860px){
   .ced-body{grid-template-columns:1fr}
-  .ced-rail{border-right:0;border-bottom:1px solid var(--c-border-soft);
-    display:grid;grid-template-columns:44px 1fr;gap:0 12px;align-items:center}
-  .ced-av{margin:0;grid-row:span 2}
-  .ced-nm,.ced-ph{margin-left:0;grid-column:2}
-  .ced-ph{margin-bottom:0}
-  .ced-acts,.ced-stat,.ced-sec2,.ced-memo,.ced-actadd,.ced-log,.ced-actnone{grid-column:1/-1}
-  .ced-acts{margin-top:11px}
+  .ced-rail{border-right:0;border-bottom:1px solid var(--c-border-soft)}
+  .ced-nm,.ced-ph{margin-left:0}
 }
 @media(max-width:560px){
   .ced-main{padding:13px 13px 15px}
