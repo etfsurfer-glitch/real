@@ -16830,12 +16830,24 @@ def biz_customer_contracts(customer_id: int, user: dict = Depends(admin_user)):
     return {"customer": {"id": cu[0], "name": cu[1], "phone": cu[2], "is_company": bool(cu[3])}, "items": items}
 
 
+def _contract_scope(c, user: dict):
+    """계약을 볼 수 있는 범위 — 내가 올린 것 또는 내 사무소 것.
+    계약은 사무소의 자산이라 고객원장에서 회원이 바로 열어 봐야 한다.
+    (예전 계약에는 realtor_id 가 안 붙어 있어 user_id 도 함께 본다)"""
+    try:
+        rid = _require_member(c, user["id"])
+    except HTTPException:
+        rid = None
+    return "(bc.user_id=? OR (bc.realtor_id IS NOT NULL AND bc.realtor_id=?))", [user["id"], rid or ""]
+
+
 @app.get("/biz/contracts/{cid}")
-def biz_contract_detail(cid: int, user: dict = Depends(admin_user)):
+def biz_contract_detail(cid: int, user: dict = Depends(current_user)):
     """계약 상세 — 캘린더 일정 클릭 시 계약서 사진·당사자·계약조건을 함께 보여준다."""
     with _reviews_db() as c:
-        row = c.execute("SELECT id, parsed_json, doc_path, status, created_at FROM biz_contracts "
-                        "WHERE id=? AND user_id=?", (cid, user["id"])).fetchone()
+        w, ps = _contract_scope(c, user)
+        row = c.execute(f"SELECT bc.id, bc.parsed_json, bc.doc_path, bc.status, bc.created_at "
+                        f"FROM biz_contracts bc WHERE bc.id=? AND {w}", [cid] + ps).fetchone()
         if not row:
             raise HTTPException(404, "계약서를 찾을 수 없습니다")
         try:
@@ -16862,12 +16874,13 @@ def biz_contract_detail(cid: int, user: dict = Depends(admin_user)):
 
 
 @app.get("/biz/contracts/{cid}/doc")
-def biz_contract_doc(cid: int, user: dict = Depends(admin_user)):
-    """계약서 원본 파일 서빙(본인 것만). 외부 공개 금지 — 인증된 소유자에게만."""
+def biz_contract_doc(cid: int, user: dict = Depends(current_user)):
+    """계약서 원본 파일 서빙(내 사무소 것만). 외부 공개 금지 — 인증된 회원에게만."""
     from fastapi.responses import FileResponse
     with _reviews_db() as c:
-        row = c.execute("SELECT doc_path FROM biz_contracts WHERE id=? AND user_id=?",
-                        (cid, user["id"])).fetchone()
+        w, ps = _contract_scope(c, user)
+        row = c.execute(f"SELECT bc.doc_path FROM biz_contracts bc WHERE bc.id=? AND {w}",
+                        [cid] + ps).fetchone()
     if not row or not row[0] or not Path(row[0]).exists():
         raise HTTPException(404, "원본이 없습니다")
     p = Path(row[0])

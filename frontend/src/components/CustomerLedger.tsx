@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { UserRound, Search, Loader2, Building2, Link2, Phone, RefreshCw, Pencil, FileText } from "lucide-react";
 import CustomerEdit, { type EditCustomer } from "./CustomerEdit";
+import ContractDetailModal from "./ContractDetailModal";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -94,6 +95,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<EditCustomer | null>(null);
+  const [ctrId, setCtrId] = useState<number | null>(null);   // 계약 상세를 연 계약
   const openEdit = (c: Customer) => setEdit({
     id: c.id, name: c.name, phone: c.phone, memo: c.memo,
     needs: c.needs.map((n) => ({
@@ -195,7 +197,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
             return rows.map(({ n, ct }, i) => (
               <div key={`${c.id}-${ct ? `c${ct.id}` : n?.id ?? "x"}`}
                 className={"cldt-r" + (i ? " cont" : "") + (ct ? " done" : "")}
-                onClick={() => openEdit(c)}>
+                onClick={() => (ct ? setCtrId(ct.id) : openEdit(c))}>
                 <span className="c-nm">
                   {i === 0 ? (
                     <>
@@ -248,6 +250,9 @@ export default function CustomerLedger({ authH, onGoListings }: {
 
       {edit && (
         <CustomerEdit authH={authH} cust={edit} onClose={() => setEdit(null)} onSaved={load} />
+      )}
+      {ctrId !== null && (
+        <ContractDetailModal contractId={ctrId} authH={authH} onClose={() => setCtrId(null)} />
       )}
 
       {onGoListings && shown.length > 0 && (
