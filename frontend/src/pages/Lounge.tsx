@@ -84,6 +84,10 @@ export default function Lounge() {
     return t && LOUNGE_TABS.includes(t) ? t : "dashboard";
   })();
   const [tab, setTabState] = useState<Tab>(_initTab);
+  // 레일 접힘 — 좁은 화면·집중 작업 때 쓰고, 고른 상태는 기억한다
+  const [railFold, setRailFold] = useState(() => {
+    try { return localStorage.getItem("lounge_rail_fold") === "1"; } catch { return false; }
+  });
   const setTab = useCallback((t: Tab) => {
     setTabState(t);
     setSp((prev) => {
@@ -207,30 +211,11 @@ export default function Lounge() {
       )}
 
       {st.state === "linked" && st.office && (
-        <>
-          <div className="chip-row" style={{ marginBottom: 12 }}>
-            {([
-              ["dashboard", "대시보드", LayoutDashboard],
-              ["listings", "매물장", ClipboardList],
-              ["ledger", "고객원장", Users],
-              ["match", "고객·물건매칭", Sparkles],
-              ...((isAdmin ? [["calendar", "계약캘린더", CalendarDays],
-                              ["customers", "고객관리", Users],
-                              ["contracts", "계약관리", FileText]] : []) as [Tab, string, typeof Users][]),
-              ["requests", "콕집요청", Sparkles],
-              ["audit", "매물점검", ShieldCheck],
-              ["homepage", st.has_homepage ? "홈페이지관리" : "홈페이지생성", Globe],
-              ["leads", "상담신청", MessageSquare],
-              ...(((st.role ?? "owner") === "owner" ? [["staff", "직원관리", Users]] : []) as [Tab, string, typeof Users][]),
-              ["edit", "정보수정요청", Pencil],
-              ["office", "내 사무소", Building2],
-            ] as readonly (readonly [Tab, string, typeof Users])[]).map(([k, label, Icon]) => (
-              <button key={k} className={`chip ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>
-                <Icon size={13} strokeWidth={2.2} aria-hidden style={{ marginRight: 4, verticalAlign: "-2px" }} />
-                {label}
-              </button>
-            ))}
-          </div>
+        <div className={"lrail-wrap" + (railFold ? " fold" : "")}>
+          <LoungeRail authH={authH} tab={tab} setTab={setTab} isAdmin={isAdmin}
+            hasHomepage={!!st.has_homepage} isOwner={(st.role ?? "owner") === "owner"}
+            fold={railFold} onFold={() => { setRailFold(!railFold); try { localStorage.setItem("lounge_rail_fold", railFold ? "0" : "1"); } catch { /* 사파리 프라이빗 */ } }} />
+          <div className="lrail-pane">
           {tab === "dashboard" && <DashboardTab authH={authH} office={st.office} onGoTab={setTab} />}
           {tab === "listings" && <ListingsTab authH={authH} office={st.office} />}
           {tab === "ledger" && <CustomerLedger authH={authH} onGoListings={() => setTab("listings")} />}
@@ -245,7 +230,8 @@ export default function Lounge() {
           {tab === "leads" && <LeadsTab authH={authH} />}
           {tab === "staff" && <StaffManageTab authH={authH} office={st.office} />}
           {tab === "homepage" && <HomepageTab authH={authH} office={st.office} onStatusChange={loadStatus} />}
-        </>
+          </div>
+        </div>
       )}
 
       {phoneOpen && token && (
@@ -273,6 +259,73 @@ function Box({ children }: { children: React.ReactNode }) {
 }
 export function Card({ children }: { children: React.ReactNode }) {
   return <div style={{ border: "1px solid var(--c-border)", borderRadius: 12, padding: 18, maxWidth: 640, display: "grid", gap: 8 }}>{children}</div>;
+}
+
+/** 라운지 메뉴 — 알약 14개가 두 줄로 흐르던 것을 세로 레일로 세운다.
+ *  세로라야 ① 묶음 이름을 붙일 수 있고 ② 숫자 배지 자리가 생긴다. 지금은 들어가 봐야
+ *  새 상담이 있는지 안다. 좁게 쓰고 싶으면 접어서 아이콘만 남긴다. */
+function LoungeRail({ authH, tab, setTab, isAdmin, hasHomepage, isOwner, fold, onFold }: {
+  authH: () => Record<string, string>; tab: Tab; setTab: (t: Tab) => void;
+  isAdmin: boolean; hasHomepage: boolean; isOwner: boolean; fold: boolean; onFold: () => void;
+}) {
+  const [n, setN] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let dead = false;
+    fetch(`${API_BASE}/lounge/nav-counts`, { headers: authH() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j && !dead) setN(j); })
+      .catch(() => { /* 숫자는 곁들이는 정보다 — 못 받아도 메뉴는 열린다 */ });
+    return () => { dead = true; };
+  }, [tab]);            // 탭을 옮길 때마다 다시 센다(상담을 읽으면 배지가 줄어야 한다)
+
+  type Row = readonly [Tab, string, typeof Users, keyof typeof n | null];
+  const groups: readonly (readonly [string, readonly Row[]])[] = [
+    ["", [["dashboard", "대시보드", LayoutDashboard, null]]],
+    ["영업", [
+      ["listings", "매물장", ClipboardList, "listings"],
+      ["ledger", "고객원장", Users, "ledger"],
+      ["match", "고객·물건매칭", Sparkles, null],
+      ["leads", "상담신청", MessageSquare, "leads"],
+    ]],
+    ["관리", [
+      ...((isAdmin ? [["calendar", "계약캘린더", CalendarDays, null],
+                      ["customers", "고객관리", Users, null],
+                      ["contracts", "계약관리", FileText, null]] : []) as Row[]),
+      ["audit", "매물점검", ShieldCheck, null],
+      ["homepage", hasHomepage ? "홈페이지관리" : "홈페이지생성", Globe, null],
+      ["requests", "콕집요청", Sparkles, null],
+    ]],
+    ["사무소", [
+      ...((isOwner ? [["staff", "직원관리", Users, null]] : []) as Row[]),
+      ["office", "내 사무소", Building2, null],
+      ["edit", "정보수정요청", Pencil, null],
+    ]],
+  ];
+
+  return (
+    <nav className="lrail" aria-label="라운지 메뉴">
+      <button className="lrail-fold" onClick={onFold} title={fold ? "메뉴 펼치기" : "메뉴 접기"}
+        aria-label={fold ? "메뉴 펼치기" : "메뉴 접기"}>
+        {fold ? <ChevronRight size={14} /> : <><ChevronRight size={14} className="rot" />메뉴 접기</>}
+      </button>
+      {groups.map(([g, rows]) => rows.length === 0 ? null : (
+        <div key={g || "home"} className="lrail-g">
+          {g && <p className="lrail-lab">{g}</p>}
+          {rows.map(([k, label, Icon, cnt]) => (
+            <button key={k} className={"lrail-i" + (tab === k ? " on" : "")}
+              onClick={() => setTab(k)}
+              title={fold ? label + (cnt && n[cnt] ? ` ${n[cnt]}` : "") : undefined}>
+              <Icon size={15} strokeWidth={2.1} aria-hidden />
+              <span>{label}</span>
+              {cnt && n[cnt]
+                ? <i className={"lrail-n" + (cnt === "leads" ? " hot" : "")}>{n[cnt]}</i>
+                : null}
+            </button>
+          ))}
+        </div>
+      ))}
+    </nav>
+  );
 }
 
 export function DashboardTab({ authH, office, onGoTab }: {

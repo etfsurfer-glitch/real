@@ -424,6 +424,60 @@ input.search:focus { outline: none; border-color: var(--c-primary); box-shadow: 
 .chip:hover { border-color: var(--c-primary); color: var(--c-primary); }
 .chip.active { background: var(--c-primary); color: white; border-color: var(--c-primary); }
 
+/* ── 라운지 좌측 메뉴 레일 ──
+   알약 14개가 두 줄로 흐르던 것을 세로로 세웠다. 세로라야 묶음 이름이 붙고
+   숫자 배지 자리가 생긴다. 접으면 아이콘만 남는다(폭 52px). */
+.lrail-wrap{display:grid;grid-template-columns:196px minmax(0,1fr);gap:14px;align-items:start}
+.lrail-wrap.fold{grid-template-columns:52px minmax(0,1fr)}
+.lrail{position:sticky;top:12px;background:var(--c-card);border:1px solid var(--c-border);
+  border-radius:13px;padding:8px 7px 10px}
+.lrail-fold{display:flex;align-items:center;gap:5px;width:100%;border:none;background:none;
+  border-radius:8px;padding:5px 8px;margin-bottom:2px;font:inherit;font-size:10.5px;font-weight:700;
+  color:var(--c-faint);cursor:pointer}
+.lrail-fold:hover{background:var(--c-row-hover);color:var(--c-text-soft)}
+.lrail-fold .rot{transform:rotate(180deg)}
+.lrail-wrap.fold .lrail-fold{justify-content:center;padding:6px 0}
+.lrail-g{display:flex;flex-direction:column;gap:1px}
+.lrail-g + .lrail-g{margin-top:9px;padding-top:9px;border-top:1px solid var(--c-border-soft)}
+.lrail-lab{margin:0 0 3px;padding:0 9px;font-size:10px;font-weight:800;color:var(--c-faint);letter-spacing:.5px}
+.lrail-i{display:flex;align-items:center;gap:9px;width:100%;border:none;background:none;border-radius:9px;
+  padding:8px 9px;font:inherit;font-size:12.5px;font-weight:700;color:var(--c-text-soft);cursor:pointer;
+  text-align:left}
+.lrail-i:hover{background:var(--c-primary-tint);color:var(--c-primary)}
+.lrail-i.on{background:var(--c-primary);color:#fff}
+.lrail-i > span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lrail-n{flex:none;font-style:normal;font-size:10.5px;font-weight:800;border-radius:20px;padding:1px 7px;
+  background:var(--c-border-soft);color:var(--c-muted)}
+.lrail-n.hot{background:var(--c-primary-soft);color:var(--c-primary)}   /* 미확인 상담 */
+.lrail-i.on .lrail-n,.lrail-i.on .lrail-n.hot{background:rgba(255,255,255,.24);color:#fff}
+/* 접힘 — 아이콘만. 이름은 title 로 뜬다 */
+.lrail-wrap.fold .lrail-lab{display:none}
+.lrail-wrap.fold .lrail-i{justify-content:center;padding:10px 0;position:relative}
+.lrail-wrap.fold .lrail-i > span{display:none}
+/* 접으면 숫자가 아이콘을 덮는다 — 점만 찍고 개수는 툴팁으로 넘긴다 */
+.lrail-wrap.fold .lrail-n{position:absolute;top:7px;right:11px;width:6px;height:6px;padding:0;
+  border-radius:50%;font-size:0;background:var(--c-faint)}
+.lrail-wrap.fold .lrail-n.hot{background:var(--c-primary)}
+.lrail-wrap.fold .lrail-i.on .lrail-n{background:#fff}
+/* 좁은 화면 — 세로로 세울 자리가 없으니 가로 한 줄로 눕히고 옆으로 민다 */
+@media(max-width:860px){
+  .lrail-wrap,.lrail-wrap.fold{grid-template-columns:minmax(0,1fr)}
+  .lrail{position:static;display:flex;gap:4px;overflow-x:auto;padding:7px;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .lrail::-webkit-scrollbar{display:none}
+  .lrail-fold{display:none}
+  .lrail-g{flex-direction:row;gap:4px}
+  .lrail-g + .lrail-g{margin:0 0 0 4px;padding:0 0 0 8px;border-top:0;border-left:1px solid var(--c-border-soft)}
+  .lrail-lab{display:none}
+  .lrail-i{width:auto;white-space:nowrap;padding:7px 12px;border-radius:20px}
+  /* 접힘은 무시한다 — 여기선 접기 버튼이 없어 되돌릴 수가 없다 */
+  .lrail-wrap.fold .lrail-i{justify-content:center;padding:7px 12px;position:static}
+  .lrail-wrap.fold .lrail-i > span{display:inline}
+  .lrail-wrap.fold .lrail-n{position:static;width:auto;height:auto;padding:1px 7px;border-radius:20px;
+    font-size:10.5px;background:var(--c-border-soft);color:var(--c-muted)}
+  .lrail-wrap.fold .lrail-n.hot{background:var(--c-primary-soft);color:var(--c-primary)}
+  .lrail-wrap.fold .lrail-i.on .lrail-n{background:rgba(255,255,255,.24);color:#fff}
+}
 .chip-row {
   display: flex;
   gap: 6px;

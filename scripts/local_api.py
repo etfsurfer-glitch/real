@@ -15334,6 +15334,20 @@ def lounge_leads(user: dict = Depends(current_user)):
                        "source": r[4], "status": r[5], "created_at": r[6]} for r in rows]}
 
 
+@app.get("/lounge/nav-counts")
+def lounge_nav_counts(user: dict = Depends(current_user)):
+    """메뉴 옆 숫자 — 들어가 보지 않아도 새 건이 있는지 알게 하는 것이 목적이다.
+    상담신청만 '미확인'이고 나머지는 총 건수다(총 건수가 곧 그 화면의 크기라)."""
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+        one = lambda q, *a: (c.execute(q, a).fetchone() or [0])[0] or 0
+        return {
+            "leads": one("SELECT COUNT(*) FROM consultation_leads WHERE realtor_id=? AND status='new'", rid),
+            "listings": one("SELECT COUNT(*) FROM private_listings WHERE realtor_id=? AND status='active'", rid),
+            "ledger": one("SELECT COUNT(*) FROM biz_customers WHERE realtor_id=?", rid),
+        }
+
+
 @app.post("/lounge/leads/{lead_id}/status")
 def lounge_lead_status(lead_id: int, body: dict, user: dict = Depends(current_user)):
     st = (body.get("status") or "").strip()
