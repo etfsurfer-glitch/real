@@ -2530,17 +2530,25 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   font-size:11px;font-weight:700;color:var(--c-muted)}
 .mlj-legend .src{margin-left:6px}
 .mlj-legend .src:first-child{margin-left:0}
-/* 같은 단지 묶음 — 두 번째 행부터 이름을 지우고 세로선으로 잇는다(고객원장과 같은 방식) */
-.mjt-r.cont{border-top:none}
+/* 단지 폴더 — 같은 단지 물건을 접었다 펼친다. 머리는 모든 열을 가로지른다 */
+.mjt-g{grid-column:1/-1;display:flex;align-items:center;gap:7px;padding:8px 13px;cursor:pointer;
+  background:#f7f9fc;border-bottom:1px solid var(--c-border-soft)}
+.mjt-g:hover{background:var(--c-primary-tint)}
+.mjt-g>svg{color:var(--c-primary);flex:none}
+.mjt-g .chev{color:var(--c-faint);transition:transform .12s}
+.mjt-g.shut .chev{transform:rotate(-90deg)}
+.mjt-g b{font-size:12.5px;font-weight:800;color:var(--c-text);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mjt-g-sum{margin-left:auto;flex:none;font-size:11px;font-weight:700;color:var(--c-muted)}
 .mjt .c-gn{flex:none;font-style:normal;font-size:9.5px;font-weight:800;padding:1px 6px;
   border-radius:20px;background:var(--c-primary-soft);color:var(--c-primary)}
+/* 폴더 안의 행 — 왼쪽에 세로선을 그어 어디까지가 이 폴더인지 보이게 */
+.mjt-r.child{background:#fcfdff}
+.mjt-r.child:hover{background:var(--c-primary-tint)}
 .mjt .c-sub{display:inline-flex;align-items:center;flex:none;margin-left:6px;font-style:normal;
   color:var(--c-faint)}
 .mjt .c-sub i{display:block;width:12px;height:12px;border-left:2px solid var(--c-border);
   border-bottom:2px solid var(--c-border);border-bottom-left-radius:4px;margin-top:-8px}
-/* 이어지는 행의 단지명 — 읽히되 첫 행보다 물러나게 */
-.mjt .c-dim{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-weight:600;color:var(--c-muted)}
 .mjt .c-ho,.mjt .c-ar,.mjt .c-fl,.mjt .c-st{color:var(--c-text-soft);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
 .mjt .c-pr{font-weight:800;color:var(--c-text);text-align:right;white-space:nowrap;

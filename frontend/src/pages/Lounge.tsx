@@ -8,7 +8,8 @@ import SupportLink from "../components/SupportLink";
 import { Loading } from "../components/Loading";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
-  ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles, ChevronDown, Loader2 } from "lucide-react";
+  ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles, ChevronDown, Loader2,
+  Folder, FolderOpen } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
@@ -1604,6 +1605,44 @@ type Manager = { name: string; position: string; role: string };
 // 매물번호 조회 결과 — mine=false면 다른 사무소 물건(확인 후 열람)
 type ForeignHit = { mine: boolean; article_no: string; realtor_id: string; realtor_name: string; listing: MLItem | null };
 /** 전화 버튼에 넣을 번호. 하이픈만 정리하고 그대로 보여 준다(PC 는 폭이 넉넉하다). */
+/** 행의 오른쪽 칸들 — 폴더 안이든 밖이든 같은 모양이라 한 군데로 모은다. */
+function ListingCells({ l }: { l: MLItem }) {
+  return (
+    <>
+      <span className="mjt-meta">
+        <span className="c-ho">{dongHo(l)}</span>
+        <span className="c-ar">{l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : "-"}</span>
+        <span className="c-fl">{l.floor_info
+          ? `${l.floor_info}${l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : ""}층`
+          : "-"}</span>
+        <span className="c-st">{l.settle_ymd ? <><em className="lb">잔금</em>{l.settle_ymd}</> : null}</span>
+      </span>
+      {/* 전화 — PC 는 번호까지 보이고, 폰은 아이콘만. 누르면 바로 걸린다 */}
+      <span className="c-ct" onClick={(e) => e.stopPropagation()}>
+        {l.contact ? (
+          <a className="mjt-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}
+            title={`${l.contact} 로 전화`}>
+            <Phone size={12} /><b>{fmtTelShort(l.contact)}</b>
+          </a>
+        ) : <span className="mjt-nocall">-</span>}
+      </span>
+      <span className="c-pr">
+        {l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}
+      </span>
+    </>
+  );
+}
+
+/** 폴더 머리에 붙는 한 줄 — 접어 둬도 무엇이 들었는지 알게 한다. */
+function groupSummary(g: MLItem[]): string {
+  const n: Record<string, number> = {};
+  for (const l of g) n[l.trade_type || "기타"] = (n[l.trade_type || "기타"] || 0) + 1;
+  const kinds = ["매매", "전세", "월세"].filter((k) => n[k]).map((k) => `${k} ${n[k]}`);
+  const priv = g.filter((l) => l.is_private).length;
+  if (priv) kinds.push(`직접등록 ${priv}`);
+  return kinds.join(" · ");
+}
+
 /** 매물 출처 — 행마다 아이콘 하나. 자물쇠는 우리가 직접 적은 것(우리만 봄),
  *  지구본은 네이버에서 가져온 것(지금 광고 중). 뜻은 표 위 범례에 적어 뒀다. */
 function SrcIcon({ l }: { l: MLItem }) {
@@ -1722,6 +1761,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     } catch (e: any) { alert(e.message || "보관 실패"); }
   };
 
+  const [folded, setFolded] = useState<Set<string>>(new Set());   // 접어 둔 단지 폴더
   // 같은 단지 물건은 한 덩어리로 — 정렬 순서는 그대로 두고 첫 등장 자리에 모은다.
   // 단지가 없는 물건(상가·단독 등)은 각자 한 덩어리다.
   const groups = useMemo(() => {
@@ -1848,51 +1888,42 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
             <span className="h-ct">연락처</span>
             <span style={{ textAlign: "right" }}>가격</span>
           </div>
-          {groups.flatMap((g) => g.map((l, i) => (
-            <div key={l.article_no} className={"mjt-r" + (i ? " cont" : "")}
-              onClick={() => { setDetailOwner(""); setDetail(l); }}>
-              <span className="c-tr">
-                <i className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</i>
-              </span>
-              <span className="c-nm">
-                {i === 0 ? (
-                  <>
-                    {l.complex_name || l.building_name || l.area_name || "매물"}
-                    {g.length > 1 && <em className="c-gn">{g.length}</em>}
-                    <SrcIcon l={l} />
-                  </>
-                ) : (
-                  // 이어지는 행 — 세로선으로 묶음을 보이되 이름은 남긴다. 이름을 지웠더니
-                  // 어느 단지인지 읽히지 않았다. 대신 흐리게 해 첫 행과 구분한다.
-                  <>
-                    <em className="c-sub"><i /></em>
-                    <span className="c-dim">{l.complex_name || l.building_name || l.area_name || "매물"}</span>
-                    <SrcIcon l={l} />
-                  </>
-                )}
-              </span>
-              <span className="mjt-meta">
-                <span className="c-ho">{dongHo(l)}</span>
-                <span className="c-ar">{l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : "-"}</span>
-                <span className="c-fl">{l.floor_info
-                  ? `${l.floor_info}${l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : ""}층`
-                  : "-"}</span>
-                <span className="c-st">{l.settle_ymd ? <><em className="lb">잔금</em>{l.settle_ymd}</> : null}</span>
-              </span>
-              {/* 전화 — PC 는 번호까지 보이고, 폰은 아이콘만. 누르면 바로 걸린다 */}
-              <span className="c-ct" onClick={(e) => e.stopPropagation()}>
-                {l.contact ? (
-                  <a className="mjt-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}
-                    title={`${l.contact} 로 전화`}>
-                    <Phone size={12} /><b>{fmtTelShort(l.contact)}</b>
-                  </a>
-                ) : <span className="mjt-nocall">-</span>}
-              </span>
-              <span className="c-pr">
-                {l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}
-              </span>
-            </div>
-          )))}
+          {groups.flatMap((g) => {
+            const key = g[0].complex_no || g[0].complex_name || `#${g[0].article_no}`;
+            const name = g[0].complex_name || g[0].building_name || g[0].area_name || "매물";
+            // 한 건뿐이면 폴더로 감싸지 않는다 — 열고 닫을 것이 없다
+            if (g.length < 2) {
+              const l = g[0];
+              return [
+                <div key={l.article_no} className="mjt-r" onClick={() => { setDetailOwner(""); setDetail(l); }}>
+                  <span className="c-tr"><i className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</i></span>
+                  <span className="c-nm">{name}<SrcIcon l={l} /></span>
+                  <ListingCells l={l} />
+                </div>,
+              ];
+            }
+            const shut = folded.has(key);
+            return [
+              <div key={`g-${key}`} className={"mjt-g" + (shut ? " shut" : "")}
+                onClick={() => setFolded((s) => {
+                  const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n;
+                })}>
+                <ChevronDown size={14} className="chev" aria-hidden />
+                {shut ? <Folder size={14} /> : <FolderOpen size={14} />}
+                <b>{name}</b>
+                <em className="c-gn">{g.length}</em>
+                <span className="mjt-g-sum">{groupSummary(g)}</span>
+              </div>,
+              ...(shut ? [] : g.map((l) => (
+                <div key={l.article_no} className="mjt-r child"
+                  onClick={() => { setDetailOwner(""); setDetail(l); }}>
+                  <span className="c-tr"><i className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</i></span>
+                  <span className="c-nm"><em className="c-sub"><i /></em><SrcIcon l={l} /></span>
+                  <ListingCells l={l} />
+                </div>
+              ))),
+            ];
+          })}
         </div>
       )}
       {detail && <ListingDetail l={detail} owner={detailOwner} authH={authH}
