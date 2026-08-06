@@ -29,6 +29,9 @@ type Hit = {
   office?: string; office_tel?: string; office_id?: string; article_no?: string;
 };
 type Criteria = { used: string[]; skipped: string[]; unavailable: string[] };
+// role 은 우선순위. 예전 값도 번호로 읽는다
+const ROLE_OLD: Record<string, string> = { 주안: "1안", 대안: "2안", 보유: "1안" };
+const roleLabel = (r?: string | null) => ROLE_OLD[r || ""] || r || "";
 type Need = {
   id: number; kind?: string; trade?: string; role?: string;
   budget_min?: number | null; budget_max?: number | null;
@@ -146,6 +149,8 @@ export default function MatchBoard({ authH, onGoLedger }: {
               </span>
               <span className="mtb-cond">
                 <em>{TRADE_KOR[n.trade || ""] || n.trade || "-"}</em>
+                {/* 몇 번째 안인지 — 어느 조건을 먼저 밀지가 여기서 갈린다 */}
+                {n.role && <i className="mtb-pri">{roleLabel(n.role)}</i>}
                 {eokWonRange(n)}
                 {(n.dong || n.sigungu || n.address) && <i>{[n.sigungu, n.dong, n.address].filter(Boolean).join(" ")}</i>}
                 {(n.area_min || n.area_max) && <i>{[n.area_min, n.area_max].filter(Boolean).map((a) => `${Math.round(Number(a) / 3.3058)}평`).join("~")}</i>}

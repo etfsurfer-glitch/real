@@ -53,8 +53,8 @@ function whereOf(n: Need): string {
   return [n.sigungu, n.dong, n.address].filter(Boolean).join(" ") || "-";
 }
 
-// 예전 값(주안·대안·보유)도 우선순위로 읽는다
-const ROLE_OLD: Record<string, string> = { 주안: "1안", 대안: "2안", 보유: "보유" };
+// role 은 우선순위다. 예전 값(주안·대안·보유)이 남아 있어도 번호로 읽는다
+const ROLE_OLD: Record<string, string> = { 주안: "1안", 대안: "2안", 보유: "1안" };
 const roleLabel = (r?: string | null) => ROLE_OLD[r || ""] || r || "";
 
 const FILTERS = [
