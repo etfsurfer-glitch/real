@@ -1604,6 +1604,16 @@ type Manager = { name: string; position: string; role: string };
 // 매물번호 조회 결과 — mine=false면 다른 사무소 물건(확인 후 열람)
 type ForeignHit = { mine: boolean; article_no: string; realtor_id: string; realtor_name: string; listing: MLItem | null };
 /** 전화 버튼에 넣을 번호. 하이픈만 정리하고 그대로 보여 준다(PC 는 폭이 넉넉하다). */
+/** 매물 출처 — 행마다 아이콘 하나. 자물쇠는 우리가 직접 적은 것(우리만 봄),
+ *  지구본은 네이버에서 가져온 것(지금 광고 중). 뜻은 표 위 범례에 적어 뒀다. */
+function SrcIcon({ l }: { l: MLItem }) {
+  return l.is_private
+    ? <em className="c-src pv" title={`직접등록 — ${l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}`}>
+        <Lock size={9} /></em>
+    : <em className="c-src nv" title="네이버에서 가져온 매물 — 지금 광고 중">
+        <Globe size={9} /></em>;
+}
+
 /** 동·호 표기 통일 — '104 1103' 과 '104동 1103호' 가 섞여 있었다.
  *  네이버 매물의 dong 은 법정동('송도동')이라 이미 '동'으로 끝나면 그대로 둔다. */
 function dongHo(l: { dong?: string | null; ho?: string | null; address?: string | null }): string {
@@ -1814,7 +1824,13 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       )}
       <div className="mlj-count">{office.realtor_name ?? "내 사무소"} · {busy
         ? <span style={{ color: "var(--c-primary)", fontWeight: 700 }}>불러오는 중…</span>
-        : <>총 <b>{items?.length ?? 0}</b>개</>}</div>
+        : <>총 <b>{items?.length ?? 0}</b>개</>}
+        {/* 출처 범례 — 행마다 아이콘 하나가 붙으므로 그 뜻을 여기서 한 번 말해 둔다 */}
+        <span className="mlj-legend">
+          <i className="src pv"><Lock size={9} /></i>직접등록
+          <i className="src nv"><Globe size={9} /></i>네이버
+        </span>
+      </div>
       {!items || (busy && items.length === 0) ? (
         <Loading label="내 매물을 불러오는 중이에요" slowHint="매물이 많으면 조금 더 걸릴 수 있어요" />
       ) : items.length === 0 ? (
@@ -1843,12 +1859,11 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                   <>
                     {l.complex_name || l.building_name || l.area_name || "매물"}
                     {g.length > 1 && <em className="c-gn">{g.length}</em>}
-                    {l.is_private && <em className="c-priv" title={l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}><Lock size={9} /></em>}
+                    <SrcIcon l={l} />
                   </>
                 ) : (
                   // 같은 단지의 두 번째부터는 이름을 지우고 세로선으로 잇는다(고객원장과 같은 방식)
-                  <em className="c-sub"><i />
-                    {l.is_private && <Lock size={9} aria-label="직접등록" />}</em>
+                  <em className="c-sub"><i /><SrcIcon l={l} /></em>
                 )}
               </span>
               <span className="mjt-meta">

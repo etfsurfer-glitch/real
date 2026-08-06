@@ -2521,6 +2521,15 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:4px}
 .mjt .c-priv{background:#eef2f7;color:#64748b}
 .mjt .c-adw{background:#fff5e6;color:#b45309}
+/* 출처 — 행마다 아이콘 하나. 뜻은 표 위 범례에 있다 */
+.mjt .c-src,.mlj-legend .src{display:inline-flex;align-items:center;justify-content:center;flex:none;
+  width:16px;height:16px;border-radius:5px;font-style:normal}
+.mjt .c-src.pv,.mlj-legend .src.pv{background:#eef2f7;color:#64748b}   /* 직접등록 */
+.mjt .c-src.nv,.mlj-legend .src.nv{background:#e6f3ec;color:#1a7f4b}   /* 네이버 광고중 */
+.mlj-legend{display:inline-flex;align-items:center;gap:4px;margin-left:10px;
+  font-size:11px;font-weight:700;color:var(--c-muted)}
+.mlj-legend .src{margin-left:6px}
+.mlj-legend .src:first-child{margin-left:0}
 /* 같은 단지 묶음 — 두 번째 행부터 이름을 지우고 세로선으로 잇는다(고객원장과 같은 방식) */
 .mjt-r.cont{border-top:none}
 .mjt .c-gn{flex:none;font-style:normal;font-size:9.5px;font-weight:800;padding:1px 6px;
