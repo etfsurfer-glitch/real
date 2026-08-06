@@ -3,7 +3,8 @@
 //
 // 매물장과 따로 놀지 않게, 내놓은 요건은 우리 매물장 행을 그대로 물고 온다.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { UserRound, Search, Loader2, Building2, Link2, Phone, RefreshCw } from "lucide-react";
+import { UserRound, Search, Loader2, Building2, Link2, Phone, RefreshCw, Pencil } from "lucide-react";
+import CustomerEdit, { type EditCustomer } from "./CustomerEdit";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -65,6 +66,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
   const [ct, setCt] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [edit, setEdit] = useState<EditCustomer | null>(null);
 
   const load = useCallback(() => {
     setBusy(true); setErr("");
@@ -140,6 +142,16 @@ export default function CustomerLedger({ authH, onGoListings }: {
             <span className={"cled-type t-" + (c.ctype === "양쪽" ? "both" : c.ctype === "내놓음" ? "sell" : "buy")}>
               {c.ctype}
             </span>
+            <button className="cled-edit" onClick={() => setEdit({
+              id: c.id, name: c.name, phone: c.phone, memo: c.memo,
+              needs: c.needs.map((n) => ({
+                id: n.id, kind: n.kind, trade: n.trade, role: n.role,
+                budget_min: n.budget_min, budget_max: n.budget_max, ask_price: n.ask_price,
+                sigungu: n.sigungu, dong: n.dong, address: n.address,
+                area_min: n.area_min, area_max: n.area_max,
+                status: n.status, settle_date: n.settle_date,
+              })),
+            })}><Pencil size={12} /> 수정</button>
           </div>
 
           <div className="cled-needs">
@@ -171,6 +183,10 @@ export default function CustomerLedger({ authH, onGoListings }: {
           </div>
         </div>
       ))}
+
+      {edit && (
+        <CustomerEdit authH={authH} cust={edit} onClose={() => setEdit(null)} onSaved={load} />
+      )}
 
       {onGoListings && shown.length > 0 && (
         <button className="cled-foot" onClick={onGoListings}>

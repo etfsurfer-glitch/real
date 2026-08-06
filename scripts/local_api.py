@@ -14422,6 +14422,117 @@ def _match_criteria(nd: dict) -> dict:
     return {"used": used, "skipped": skipped, "unavailable": unavailable}
 
 
+_NEED_EDIT = ("kind", "trade", "role", "budget_min", "budget_max", "ask_price",
+              "sido", "sigungu", "dong", "complex_no", "address", "area_min", "area_max",
+              "status", "settle_date", "memo", "listing_id")
+
+
+@app.patch("/lounge/customers/{cid}")
+def lounge_customer_update(cid: int, body: dict, user: dict = Depends(current_user)):
+    """고객 정보 수정. 이름·전화·메모만."""
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        row = rc.execute("SELECT id FROM biz_customers WHERE id=? AND realtor_id=?",
+                         (cid, rid)).fetchone()
+        if not row:
+            raise HTTPException(404, "고객을 찾을 수 없어요")
+        vals, cols = [], []
+        for k in ("name", "phone", "memo"):
+            if k in body:
+                v = (body.get(k) or "").strip()
+                if k == "phone":
+                    v = _digits(v) or None
+                cols.append(f"{k}=?")
+                vals.append(v or None)
+        if not cols:
+            return {"ok": True}
+        # 이름을 지우면 원장에서 누구인지 알 수 없게 된다 — 빈 이름은 막는다
+        if "name" in body and not (body.get("name") or "").strip():
+            raise HTTPException(400, "이름은 비울 수 없어요")
+        rc.execute(f"UPDATE biz_customers SET {','.join(cols)}, updated_at=datetime('now') "
+                   f"WHERE id=?", vals + [cid])
+    return {"ok": True}
+
+
+@app.put("/lounge/needs/{nid}")
+def lounge_need_update(nid: int, body: dict, user: dict = Depends(current_user)):
+    """요건 수정."""
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        row = rc.execute("SELECT id FROM biz_needs WHERE id=? AND realtor_id=?",
+                         (nid, rid)).fetchone()
+        if not row:
+            raise HTTPException(404, "요건을 찾을 수 없어요")
+        cols, vals = [], []
+        for k in _NEED_EDIT:
+            if k not in body:
+                continue
+            v = body.get(k)
+            if isinstance(v, str):
+                v = v.strip() or None
+            cols.append(f"{k}=?")
+            vals.append(v)
+        if cols:
+            rc.execute(f"UPDATE biz_needs SET {','.join(cols)}, updated_at=datetime('now') "
+                       f"WHERE id=?", vals + [nid])
+    return {"ok": True}
+
+
+@app.post("/lounge/needs")
+def lounge_need_create(body: dict, user: dict = Depends(current_user)):
+    """요건 추가. 고객에 붙인다."""
+    cid = body.get("customer_id")
+    if not cid:
+        raise HTTPException(400, "고객을 지정해 주세요")
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        if not rc.execute("SELECT id FROM biz_customers WHERE id=? AND realtor_id=?",
+                          (cid, rid)).fetchone():
+            raise HTTPException(404, "고객을 찾을 수 없어요")
+        cols = ["user_id", "realtor_id", "customer_id"]
+        vals = [user["id"], rid, cid]
+        for k in _NEED_EDIT:
+            if k in body:
+                v = body.get(k)
+                if isinstance(v, str):
+                    v = v.strip() or None
+                cols.append(k); vals.append(v)
+        if "kind" not in cols:
+            cols.append("kind"); vals.append("구함")
+        cur = rc.execute(f"INSERT INTO biz_needs({','.join(cols)}) "
+                         f"VALUES({','.join('?' * len(cols))})", vals)
+        nid = cur.lastrowid
+    return {"ok": True, "id": nid}
+
+
+@app.delete("/lounge/needs/{nid}")
+def lounge_need_delete(nid: int, user: dict = Depends(current_user)):
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.execute("DELETE FROM biz_needs WHERE id=? AND realtor_id=?", (nid, rid))
+    return {"ok": True}
+
+
+@app.post("/lounge/needs/parse")
+def lounge_need_parse(body: dict, user: dict = Depends(current_user)):
+    """자연어 한 줄 → 요건 항목. 손으로 칸을 채우는 대신 문장으로 넣게 한다."""
+    text = (body.get("text") or "").strip()
+    if len(text) < 2:
+        raise HTTPException(400, "내용을 입력해 주세요")
+    with _reviews_db() as rc:
+        _require_member(rc, user["id"])
+    try:
+        out = _qa_parse(text)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"인식에 실패했어요 ({type(e).__name__})")
+    needs = []
+    for c in (out.get("고객") or []):
+        for nd in (c.get("요건") or []):
+            nd.pop("매물번호", None)
+            needs.append(nd)
+    return {"needs": needs, "확신낮음": out.get("확신낮음") or []}
+
+
 @app.get("/lounge/match")
 def lounge_match(user: dict = Depends(current_user), need_id: int = 0, limit: int = 10):
     """고객 요건 → 맞는 매물(우리 + 전국). need_id 를 주면 그 요건만."""
