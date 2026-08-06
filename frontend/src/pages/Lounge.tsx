@@ -17,7 +17,6 @@ import LoungeCalendarPanel from "../components/LoungeCalendarPanel";
 import QuickAdd from "../components/QuickAdd";
 import CustomerLedger from "../components/CustomerLedger";
 import MatchBoard from "../components/MatchBoard";
-import BizCustomers from "../components/BizCustomers";
 import BizContracts from "../components/BizContracts";
 
 const TT: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
@@ -53,8 +52,8 @@ export type Status = {
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-export type Tab = "dashboard" | "listings" | "ledger" | "match" | "calendar" | "customers" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
-export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "ledger", "match", "calendar", "customers", "contracts", "audit", "office", "edit", "leads", "homepage", "staff"];
+export type Tab = "dashboard" | "listings" | "ledger" | "match" | "calendar" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
+export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "ledger", "match", "calendar", "contracts", "audit", "office", "edit", "leads", "homepage", "staff"];
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -222,7 +221,6 @@ export default function Lounge() {
           {tab === "ledger" && <CustomerLedger authH={authH} onGoListings={() => setTab("listings")} />}
           {tab === "match" && <MatchBoard authH={authH} onGoLedger={() => setTab("ledger")} />}
           {tab === "calendar" && isAdmin && <ContractCalendar authH={authH} />}
-          {tab === "customers" && isAdmin && <BizCustomers authH={authH} />}
           {tab === "contracts" && isAdmin && <BizContracts authH={authH} />}
           {tab === "requests" && <RequestsTab authH={authH} />}
           {tab === "audit" && <AuditTab authH={authH} />}
@@ -290,7 +288,6 @@ function LoungeRail({ authH, tab, setTab, isAdmin, hasHomepage, isOwner, fold, o
     ]],
     ["관리", [
       ...((isAdmin ? [["calendar", "계약캘린더", CalendarDays, null],
-                      ["customers", "고객관리", Users, null],
                       ["contracts", "계약관리", FileText, null]] : []) as Row[]),
       ["audit", "매물점검", ShieldCheck, null],
       ["homepage", hasHomepage ? "홈페이지관리" : "홈페이지생성", Globe, null],

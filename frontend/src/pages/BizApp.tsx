@@ -17,7 +17,6 @@ import {
 import ContractCalendar from "../components/ContractCalendar";
 import CustomerLedger from "../components/CustomerLedger";
 import MatchBoard from "../components/MatchBoard";
-import BizCustomers from "../components/BizCustomers";
 import BizContracts from "../components/BizContracts";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -25,13 +24,13 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // 콕집 중개사 앱(/biz) — 라운지 기능을 '매물장 중심의 중개사 다이어리'로 재구성한 전용 셸.
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
-type Screen = "diary" | "ledger" | "match" | "calendar" | "customers" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
+type Screen = "diary" | "ledger" | "match" | "calendar" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
             | "office" | "edit" | "dash" | "staff" | "settings" | "calls";
 
 const SCREENS: Record<Screen, { title: string }> = {
   diary: { title: "매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
   calendar: { title: "계약캘린더" },
-  customers: { title: "고객관리" }, contracts: { title: "계약관리" }, audit: { title: "매물점검" },
+  contracts: { title: "계약관리" }, audit: { title: "매물점검" },
   leads: { title: "상담신청" },
   homepage: { title: "내 홈페이지" }, favs: { title: "관심단지" }, "fav-offices": { title: "관심중개사" },
   office: { title: "내 사무소" }, edit: { title: "정보수정요청" }, dash: { title: "대시보드" },
@@ -166,10 +165,9 @@ export default function BizApp() {
           {screen === "diary" && <ListingsTab authH={authH} office={office} />}
           {screen === "ledger" && <CustomerLedger authH={authH} onGoListings={() => nav("/biz/diary")} />}
           {screen === "match" && <MatchBoard authH={authH} onGoLedger={() => nav("/biz/ledger")} />}
-          {/* 계약캘린더·고객관리·계약관리 = 관리자 가오픈. 타일뿐 아니라 화면도 막는다
+          {/* 계약캘린더·계약관리 = 관리자 가오픈. 타일뿐 아니라 화면도 막는다
               (URL 직접 접근 차단 — 데이터는 백엔드 admin_user가 이미 막지만 화면도 노출 금지) */}
           {screen === "calendar" && (isAdmin ? <ContractCalendar authH={authH} /> : <AdminOnly />)}
-          {screen === "customers" && (isAdmin ? <BizCustomers authH={authH} /> : <AdminOnly />)}
           {screen === "contracts" && (isAdmin ? <BizContracts authH={authH} /> : <AdminOnly />)}
           {screen === "audit" && <AuditTab authH={authH} />}
           {screen === "leads" && <LeadsTab authH={authH} />}
@@ -208,7 +206,7 @@ export default function BizApp() {
   function goTab(t: Tab) {
     const map: Record<Tab, string> = {
       dashboard: "dash", listings: "diary", ledger: "ledger", match: "match",
-      calendar: "calendar", customers: "customers",
+      calendar: "calendar",
       contracts: "contracts", audit: "audit", office: "office", requests: "requests",
       edit: "edit", leads: "leads", homepage: "homepage", staff: "staff",
     };
@@ -286,7 +284,7 @@ function AdminOnly() {
     <div className="bzc-card" style={{ textAlign: "center", padding: "28px 16px" }}>
       <div style={{ fontSize: 14, fontWeight: 800, color: "#13294b", marginBottom: 6 }}>준비 중인 기능입니다</div>
       <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
-        계약캘린더·고객관리·계약관리는 현재 관리자 가오픈 단계입니다. 곧 열어드릴게요.
+        계약캘린더·계약관리는 현재 관리자 가오픈 단계입니다. 곧 열어드릴게요.
       </p>
       <Link to="/biz" className="chip" style={{ marginTop: 12, display: "inline-flex" }}>홈으로</Link>
     </div>
@@ -396,7 +394,6 @@ function BizHome({ office, authH, hasHomepage, role, staffName, onLogout }: {
           <BizBtn to="/biz/ledger" icon={<Users size={22} />} label="고객원장" desc="손님 요건·내놓은 물건" primary />
           <BizBtn to="/biz/match" icon={<Sparkles size={22} />} label="고객·물건매칭" desc="손님 조건에 맞는 매물 찾기" primary />
           {isAdmin && <BizBtn to="/biz/calendar" icon={<CalendarDays size={22} />} label="계약캘린더" desc="계약서 → 일정 (가오픈)" />}
-          {isAdmin && <BizBtn to="/biz/customers" icon={<Users size={22} />} label="고객관리" desc="임대인·임차인 고객DB (가오픈)" />}
           {isAdmin && <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="계약서·조건·당사자 (가오픈)" />}
           <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
           <BizBtn to="/biz/audit" icon={<ShieldCheck size={22} />} label="매물점검" desc="표시광고 자가점검" />

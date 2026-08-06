@@ -22,7 +22,7 @@ type Need = {
   complex_no?: string | null;
   status?: string; listing_id?: number | null; listing?: Listing | null; raw_text?: string | null;
 };
-/** 계약서에서 뽑아 둔 계약 — 고객관리에만 있던 것을 원장으로 끌어온다. 여기선 읽기만 한다. */
+/** 계약서에서 뽑아 둔 계약 — 여기선 읽기만 한다(고치는 곳은 계약관리). */
 type Contract = {
   id: number; role?: string; status?: string; contract_type?: string | null;
   title?: string; address?: string | null;

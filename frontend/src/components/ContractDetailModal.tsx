@@ -3,7 +3,7 @@ import { FileText, X, User, Download } from "lucide-react";
 import { areaLabel } from "../lib/area";
 
 // 계약 상세 모달 — 계약서 원본 사진/PDF + 당사자(임대인·임차인) + 계약조건.
-// 계약캘린더(일정 클릭)·계약관리(행 클릭)·고객관리(고객→계약 클릭)에서 공용으로 쓴다.
+// 계약캘린더(일정 클릭)·계약관리(행 클릭)·고객원장(계약 줄 클릭)에서 공용으로 쓴다.
 // 원본은 소유자 인증이 필요해 <img src>로 직접 못 부르고 blob으로 받아 띄운다.
 const API_BASE = import.meta.env.VITE_API_BASE;
 
