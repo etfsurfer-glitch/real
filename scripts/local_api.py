@@ -13708,6 +13708,11 @@ def _qa_parse(text: str) -> dict:
 # 사람이 부르는 단지명과 DB 이름은 다르다. '둔산동 한마루 아파트' 는 DB 에 '한마루럭키'·
 # '한마루삼성' 으로 있다. 완전일치만 보면 조용히 못 찾고 아무것도 못 채운다(실측).
 _QA_NAME_TAIL = ("아파트", "APT", "apt", "단지", "타운")
+# 단지가 없는 유형 — 상가·사무실·단독은 '단지'라는 개념이 없어 단지 DB·건축물대장을
+# 이름으로 뒤지면 안 된다('상가'라는 이름의 실제 단지가 있어 준공일까지 붙었다).
+_QA_NON_COMPLEX = ("상가", "사무실", "단독", "다가구", "토지", "공장", "빌딩", "창고", "지식산업센터")
+# 유형 이름 자체가 단지명 자리에 온 것 — 단지명이 아니다
+_QA_NOT_A_NAME = set(_QA_NON_COMPLEX) | {"아파트", "오피스텔", "빌라", "연립", "다세대", "원룸", "주택", "분양권"}
 
 
 def _qa_name_key(name: str) -> str:
@@ -13716,6 +13721,19 @@ def _qa_name_key(name: str) -> str:
         if len(k) > len(t) + 1 and k.endswith(t):
             k = k[: -len(t)]
     return k
+
+
+def _qa_name_variants(key: str) -> list:
+    """같은 단지의 다른 표기들. DB 는 '용산e-편한세상', 사람은 '용산이편한세상'이라 적는다.
+    구분자를 뺀 열과 맞대기 위해 키 쪽도 구분자를 빼고 영문↔한글 표기를 서로 바꿔 본다."""
+    base = key.replace("-", "").replace(".", "").replace("·", "")
+    out = [base]
+    for a, b in (("이편한", "e편한"), ("e편한", "이편한"), ("더샵", "thesharp"), ("thesharp", "더샵"),
+                 ("아이파크", "ipark"), ("ipark", "아이파크")):
+        v = base.replace(a, b)
+        if v != base:
+            out.append(v)
+    return out
 
 
 def _qa_match_complex(c, name: str, hint: str) -> tuple:
@@ -13737,6 +13755,10 @@ def _qa_match_complex(c, name: str, hint: str) -> tuple:
                 "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type IN ('sec','sigungu')").fetchall():
             if cname and len(cname) >= 2 and cname in hay:
                 prefixes.append(cno[:8] if len(cno) >= 10 else cno[:5])
+    # 이름에서 공백·하이픈·점을 뺀 열 — 표기 흔들림을 SQL 쪽에서도 흡수한다
+    NM = "REPLACE(REPLACE(REPLACE(REPLACE(complex_name,' ',''),'-',''),'.',''),'·','')"
+    keys = _qa_name_variants(key)
+    ph = ",".join("?" * len(keys))
     def _q(where, args, pfx=None):
         w, a = where, list(args)
         if pfx:
@@ -13745,10 +13767,10 @@ def _qa_match_complex(c, name: str, hint: str) -> tuple:
         return c.execute(f"SELECT {cols} FROM complexes WHERE {w} LIMIT 12", a).fetchall()
     for pfx in ([prefixes] if prefixes else []) + [None]:
         for where, args in (
-                ("REPLACE(complex_name,' ','')=?", (key,)),
-                ("REPLACE(complex_name,' ','') LIKE ?", (key + "%",)),
-                ("REPLACE(complex_name,' ','') LIKE ?", ("%" + key + "%",))):
-            rows = _q(where, args, pfx)
+                (f"{NM} IN ({ph})", tuple(keys)),
+                (" OR ".join([f"{NM} LIKE ?"] * len(keys)), tuple(k + "%" for k in keys)),
+                (" OR ".join([f"{NM} LIKE ?"] * len(keys)), tuple("%" + k + "%" for k in keys))):
+            rows = _q(f"({where})", args, pfx)
             if len(rows) == 1:
                 return rows[0], [], ""
             if len(rows) > 1:
@@ -13800,6 +13822,14 @@ def _qa_enrich_listing(row: dict) -> dict:
     name = (row.get("complex_name") or "").strip()
     if not name:
         return auto
+    # 유형 이름이 단지명 자리에 온 것은 단지명이 아니다. 지우고 나가야 엉뚱한 단지가 안 붙는다.
+    if _qa_name_key(name) in _QA_NOT_A_NAME:
+        row["complex_name"] = None
+        row["_note"] = f"'{name}' 은 단지명이 아니라 매물 유형이에요. 건물명이 있으면 적어 주세요."
+        return auto
+    # 상가·사무실·단독은 단지가 없다 — 주소로 다루고 단지 매칭은 하지 않는다
+    if (row.get("type") or "") in _QA_NON_COMPLEX:
+        return auto
     try:
         with _open_db() as c:
             hint = " ".join(str(row.get(k) or "") for k in ("address", "address_detail", "memo"))
@@ -13838,7 +13868,7 @@ def _qa_enrich_listing(row: dict) -> dict:
             if dong and ho and cx[1] and cx[2]:
                 led = _qa_expos(cx[1], cx[2], dong, ho)
                 if not led:
-                    row["_note"] = f"건축물대장에서 {dong} {ho}호를 못 찾았어요. 동·호를 확인해 주세요"
+                    row["_note"] = f"건축물대장에서 {dong} {ho} 를 못 찾았어요. 동·호를 확인해 주세요"
                 if led:
                     if led.get("area") and not row.get("area2_m2"):
                         row["area2_m2"] = led["area"]; auto["area2_m2"] = "건축물대장 전유부"
@@ -13920,9 +13950,10 @@ def _qa_norm_dong_ho(dong, ho):
     """
     d = str(dong or "").strip()
     h = str(ho or "").strip()
-    if d and not d.endswith("동"):
+    # 이미 단위가 붙어 있으면 그대로 둔다 — 파서가 자리를 바꿔 넣으면 '101호동'이 된다
+    if d and not d.endswith(("동", "호", "층", "관", "차")):
         d = d + "동"
-    if h and not h.endswith("호"):
+    if h and not h.endswith(("호", "동", "층")):
         h = h + "호"          # 사람이 읽는 표기로 통일한다. 대장 조회는 두 형태를 다 시도한다
     return (d or None), (h or None)
 
@@ -15841,8 +15872,12 @@ def lounge_complex_search(q: str, user: dict = Depends(current_user)):
 def _norm_search(s: str) -> str:
     """검색 정규화 — 소문자·공백/'아파트' 제거 + 브랜드 표기 통일(영문↔한글)."""
     s = (s or "").lower().replace(" ", "").replace("아파트", "")
+    # 구분자를 먼저 뺀다 — DB 는 'e-편한세상' 처럼 하이픈을 끼워 두는 곳이 있어
+    # 치환보다 뒤에 두면 브랜드 통일이 안 걸린다(실측: 용산e-편한세상)
+    for ch in "-.·_()":
+        s = s.replace(ch, "")
     # 'e편한세상' 처럼 영문/한글 혼용 표기를 한글로 통일(사용자가 '이편한'으로 쳐도 잡히게)
-    s = s.replace("e편한", "이편한").replace("thesharp", "더샵").replace("the-sharp", "더샵")
+    s = s.replace("e편한", "이편한").replace("thesharp", "더샵")
     return s
 
 
