@@ -18,6 +18,7 @@ type Need = {
   sigungu?: string | null; dong?: string | null; address?: string | null;
   area_min?: number | null; area_max?: number | null; settle_date?: string | null;
   bld_dong?: string | null; ho?: string | null; area_m2?: number | null; floor_info?: string | null;
+  complex_no?: string | null;
   status?: string; listing_id?: number | null; listing?: Listing | null; raw_text?: string | null;
 };
 type Customer = {
@@ -88,6 +89,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
       area_min: n.area_min, area_max: n.area_max,
       status: n.status, settle_date: n.settle_date,
       bld_dong: n.bld_dong, ho: n.ho, area_m2: n.area_m2, floor_info: n.floor_info,
+      complex_no: n.complex_no,
       listing_id: n.listing_id, _listing: n.listing,
     })),
   });

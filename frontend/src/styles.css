@@ -2087,6 +2087,27 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   font:inherit;font-size:11.5px;font-weight:700;color:var(--c-text-soft);cursor:pointer}
 .ced-cal-f button:hover{border-color:var(--c-primary);color:var(--c-primary)}
 .ced-cal-f .clr{color:var(--c-faint)}
+.ced-f.fixed{background:#f7faff;border-color:#cfe0f8}
+.ced-cxok{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;
+  border-radius:50%;background:#e8f6ee;color:#1a7f4b;flex:none}
+.ced-cxbtn{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--c-border);
+  background:#fff;border-radius:7px;padding:3px 8px;font:inherit;font-size:10.5px;font-weight:700;
+  color:var(--c-primary);cursor:pointer;flex:none}
+.ced-cxbtn:hover{border-color:var(--c-primary);background:var(--c-primary-tint)}
+.ced-cxfind{margin-top:8px;padding:9px;border:1px solid var(--c-border);border-radius:10px;background:#fbfcfe}
+.ced-cxin{display:flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--c-border);
+  border-radius:9px;padding:5px 6px 5px 11px}
+.ced-cxin svg{color:var(--c-faint);flex:none}
+.ced-cxin input{flex:1;min-width:0;border:none;outline:none;background:none;font:inherit;font-size:13px}
+.ced-cxin button{flex:none;border:none;background:var(--c-primary);color:#fff;font:inherit;font-size:12px;
+  font-weight:700;padding:6px 13px;border-radius:7px;cursor:pointer}
+.ced-cxin button:disabled{background:var(--c-border);color:var(--c-faint);cursor:default}
+.ced-cxlist{display:flex;flex-direction:column;gap:1px;margin-top:8px;max-height:190px;overflow-y:auto}
+.ced-cxlist button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;
+  border:none;background:#fff;border-radius:7px;padding:7px 10px;cursor:pointer;font:inherit}
+.ced-cxlist button:hover{background:var(--c-primary-tint)}
+.ced-cxlist b{font-size:12.5px;font-weight:700;color:#13294b}
+.ced-cxlist span{font-size:11px;color:var(--c-muted)}
 .ced-linked{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:0 0 9px;padding:7px 11px;
   background:var(--c-primary-soft);border-radius:9px;font-size:11.5px;color:var(--c-text-soft)}
 .ced-linked svg{color:var(--c-primary);flex:none}

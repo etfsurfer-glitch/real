@@ -14186,10 +14186,15 @@ def _match_ours(rc, rid: str, nd: dict, limit: int = 12, level: int = 0) -> list
     if nd.get("area_max"):
         where.append("CAST(area2_m2 AS REAL) <= ?")
         args.append(float(nd["area_max"]) * (1 + ex["area"]))
-    kw = _qa_name_key((nd.get("address") or "").strip()) or (nd.get("dong") or "").strip()
-    if kw and level == 0:      # 넓힐 땐 단지 이름에 매이지 않는다
-        where.append("(REPLACE(complex_name,' ','') LIKE ? OR address LIKE ? OR building_name LIKE ?)")
-        args += [f"%{kw}%"] * 3
+    cno = str(nd.get("complex_no") or "").strip()
+    if cno and level == 0:
+        where.append("(complex_no=? OR REPLACE(complex_name,' ','') LIKE ?)")
+        args += [cno, f"%{_qa_name_key((nd.get('address') or '').strip())}%"]
+    else:
+        kw = _qa_name_key((nd.get("address") or "").strip()) or (nd.get("dong") or "").strip()
+        if kw and level == 0:      # 넓힐 땐 단지 이름에 매이지 않는다
+            where.append("(REPLACE(complex_name,' ','') LIKE ? OR address LIKE ? OR building_name LIKE ?)")
+            args += [f"%{kw}%"] * 3
     rows = rc.execute(
         f"SELECT id, complex_name, building_name, address, dong, ho, trade_type, price, "
         f"       rent_price, area2_m2, area1_m2, floor_info, direction, settle_ymd, "
@@ -14307,14 +14312,26 @@ def _match_market(nd: dict, limit: int = 12, level: int = 0) -> list:
     # 찾으면 0건이 나온다(실측) — 뒤의 아파트·단지·타운을 떼고 부분일치로 본다.
     cxw, cxa = [], []
     nm = (nd.get("address") or "").strip()
-    if nm:
+    cno = str(nd.get("complex_no") or "").strip()
+    if cno:
+        # 코드가 있으면 이름을 다시 찾지 않는다 — '크로바' 는 전국 26곳이라
+        # 이름 매칭은 매번 다른 결과를 낸다(실측).
+        if ex["scope"] == "sigungu":
+            cxw.append("SUBSTR(cx.cortar_no,1,5) IN "
+                       "(SELECT SUBSTR(cortar_no,1,5) FROM complexes WHERE complex_no=?)")
+        else:
+            cxw.append("cx.complex_no = ?")
+        cxa.append(cno)
+    elif nm:
         key = _qa_name_key(nm)
         if len(key) >= 2:
             cxw.append("REPLACE(cx.complex_name,' ','') LIKE ?")
             cxa.append("%" + key + "%")
     cortar = (nd.get("_cortar") or "").strip()
-    dong = (nd.get("dong") or "").strip()
-    if cortar:
+    dong = "" if cno else (nd.get("dong") or "").strip()
+    if cno:
+        pass          # 단지가 특정됐으면 지역 조건은 필요 없다
+    elif cortar:
         # 코드가 있으면 이름 매칭을 쓰지 않는다 — 동명이가 다른 시도로 새는 걸 막는다
         if ex["scope"] == "sigungu":
             cxw.append("SUBSTR(cx.cortar_no,1,5) = ?"); cxa.append(cortar[:5])
@@ -14447,6 +14464,31 @@ def _match_criteria(nd: dict) -> dict:
     return {"used": used, "skipped": skipped, "unavailable": unavailable}
 
 
+def _need_resolve_complex(nd: dict) -> dict:
+    """요건의 단지명을 complex_no 로 확정한다.
+
+    이름만 들고 있으면 매칭 때마다 LIKE 로 다시 찾아야 하고, 그때그때 결과가 달라진다.
+    '크로바' 는 전국에 26곳, '한마루' 는 4곳이다 — 이름으로는 못 가른다(실측:
+    둔산동 한마루로 찾다가 대구 매물이 섞여 나왔다). 저장 시점에 한 번 코드로 못박는다.
+
+    반환: {"complex_no", "complex_name", "cands"(후보 여럿일 때), "note"}
+    확정하지 못하면 complex_no 는 None 이고 이름만 남는다 — 엉뚱한 단지를 찍지 않는다.
+    """
+    name = (nd.get("address") or "").strip()
+    if not name:
+        return {}
+    hint = " ".join(str(nd.get(k) or "") for k in ("dong", "sigungu", "sido"))
+    try:
+        with _open_db() as c:
+            hit, cands, why = _qa_match_complex(c, name, hint)
+    except Exception:  # noqa: BLE001
+        return {}
+    if hit:
+        return {"complex_no": str(hit[0]), "complex_name": hit[1]}
+    return {"cands": [{"complex_no": str(r[0]), "name": r[1], "region": r[3] or ""} for r in cands],
+            "note": why}
+
+
 _NEED_EDIT = ("kind", "trade", "role", "budget_min", "budget_max", "ask_price",
               "sido", "sigungu", "dong", "complex_no", "address", "area_min", "area_max",
               "status", "settle_date", "memo", "listing_id",
@@ -14489,6 +14531,14 @@ def lounge_need_update(nid: int, body: dict, user: dict = Depends(current_user))
                          (nid, rid)).fetchone()
         if not row:
             raise HTTPException(404, "요건을 찾을 수 없어요")
+        # 단지명이 바뀌었으면 코드를 다시 확정한다(사용자가 고른 complex_no 는 그대로 존중)
+        res = {}
+        if "address" in body and "complex_no" not in body:
+            res = _need_resolve_complex(body)
+            body = dict(body)
+            body["complex_no"] = res.get("complex_no")
+            if res.get("complex_name"):
+                body["address"] = res["complex_name"]      # DB 정식 명칭으로 맞춘다
         cols, vals = [], []
         for k in _NEED_EDIT:
             if k not in body:
@@ -14501,7 +14551,9 @@ def lounge_need_update(nid: int, body: dict, user: dict = Depends(current_user))
         if cols:
             rc.execute(f"UPDATE biz_needs SET {','.join(cols)}, updated_at=datetime('now') "
                        f"WHERE id=?", vals + [nid])
-    return {"ok": True}
+    return {"ok": True, "complex_no": res.get("complex_no"),
+            "complex_name": res.get("complex_name"),
+            "cands": res.get("cands") or [], "note": res.get("note")}
 
 
 @app.post("/lounge/needs")
@@ -14515,6 +14567,13 @@ def lounge_need_create(body: dict, user: dict = Depends(current_user)):
         if not rc.execute("SELECT id FROM biz_customers WHERE id=? AND realtor_id=?",
                           (cid, rid)).fetchone():
             raise HTTPException(404, "고객을 찾을 수 없어요")
+        res = {}
+        if body.get("address") and not body.get("complex_no"):
+            res = _need_resolve_complex(body)
+            body = dict(body)
+            if res.get("complex_no"):
+                body["complex_no"] = res["complex_no"]
+                body["address"] = res.get("complex_name") or body["address"]
         cols = ["user_id", "realtor_id", "customer_id"]
         vals = [user["id"], rid, cid]
         for k in _NEED_EDIT:
@@ -14528,7 +14587,8 @@ def lounge_need_create(body: dict, user: dict = Depends(current_user)):
         cur = rc.execute(f"INSERT INTO biz_needs({','.join(cols)}) "
                          f"VALUES({','.join('?' * len(cols))})", vals)
         nid = cur.lastrowid
-    return {"ok": True, "id": nid}
+    return {"ok": True, "id": nid, "complex_no": res.get("complex_no"),
+            "cands": res.get("cands") or [], "note": res.get("note")}
 
 
 @app.delete("/lounge/needs/{nid}")
@@ -14827,14 +14887,22 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
                 (user["id"], name or "(이름없음)", phone or "")).fetchone()
             cid = cid[0] if cid else None
             for nd in (it.get("요건") or []):
+                # 단지명은 저장 시점에 코드로 못박는다 — 나중에 이름으로 다시 찾지 않게
+                nd = dict(nd)
+                nd["address"] = nd.get("complex_name") or nd.get("address")
+                nd["dong"] = nd.get("region") or nd.get("dong")
+                _cx = _need_resolve_complex(nd)
+                if _cx.get("complex_no"):
+                    nd["complex_no"] = _cx["complex_no"]
+                    nd["address"] = _cx.get("complex_name") or nd["address"]
                 # 내놓은 요건이면 방금 저장한 매물에 건다(매물번호 = 매물 배열 인덱스)
                 lidx = nd.get("매물번호")
                 lid = listing_ids[lidx] if isinstance(lidx, int) and 0 <= lidx < len(listing_ids) else None
                 rc.execute(
                     "INSERT INTO biz_needs(client_uid, user_id, realtor_id, customer_id, kind, trade, "
                     "  role, budget_min, budget_max, ask_price, sigungu, dong, address, area_min, "
-                    "  area_max, settle_date, listing_id, raw_text) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                    "  area_max, settle_date, listing_id, complex_no, raw_text) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                     # client_uid 유니크 인덱스가 부분 인덱스(WHERE client_uid IS NOT NULL)라
                     # 충돌 대상에 같은 조건을 붙여야 매칭된다. 안 붙이면 실행 시점에 터진다.
                     "ON CONFLICT(client_uid) WHERE client_uid IS NOT NULL "
@@ -14842,9 +14910,10 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
                     (nd.get("client_uid"), user["id"], rid, cid,
                      nd.get("kind") or "구함", _TRADE_CODE.get(nd.get("trade") or "") or nd.get("trade"),
                      nd.get("role"), nd.get("budget_min"), nd.get("budget_max"), nd.get("ask_price"),
-                     None, nd.get("region"), nd.get("complex_name"),
+                     None, nd.get("dong"), nd.get("address"),
                      nd.get("area_min"), nd.get("area_max"),
                      nd.get("settle_date") or nd.get("move_date"), lid,
+                     nd.get("complex_no"),
                      (body.get("raw_text") or "")[:2000]))
             saved += 1
     return {"ok": True, "listings": len(listing_ids), "customers": saved}
