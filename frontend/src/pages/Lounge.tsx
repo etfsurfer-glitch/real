@@ -1531,6 +1531,7 @@ type MLItem = {
   total_floor?: number | null; settle_ymd?: string; move_in?: string;
   maintenance_fee?: number | null; deposit?: number | null; owner_name?: string;
   heating?: string; elevator?: string; options?: string; ho?: string;
+  ad_check?: { done: number; total: number; missing: { no: number; item: string }[] };
   direction: string; price_text: string; rent_price_text: string; price: number; confirm_ymd: string;
   building_name: string; tags: string[]; same_addr_cnt: number; same_addr_min: number; same_addr_max: number;
   price_change_state: string; feature_desc: string; naver_url: string; cp_name: string;
@@ -1740,9 +1741,10 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                 {l.area2_m2 ? <span>{areaLabel(l.area2_m2, { supply: l.area1_m2 })}</span> : null}
                 {l.area1_m2 ? <span>공급 {l.area1_m2}㎡</span> : null}
                 {l.area_name && <span>{l.area_name}</span>}
-                {l.floor_info && <span>{l.floor_info}층</span>}
+                {l.floor_info && <span>{l.floor_info}{l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : ""}층</span>}
                 {l.direction && <span>{l.direction}</span>}
                 {l.room_cnt ? <span>방 {l.room_cnt}{l.bath_cnt ? `/욕실 ${l.bath_cnt}` : ""}</span> : null}
+                {l.elevator && <span>승강기 {l.elevator}</span>}
                 {l.parking_per ? <span>주차 {l.parking_per}대</span> : null}
                 {l.approve_ymd && <span>{String(l.approve_ymd).slice(0, 4)}년 준공</span>}
                 {l.heating && <span>{l.heating}</span>}
@@ -1761,6 +1763,16 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               )}
               {l.tags?.length > 0 && <div className="mlj-tags">{l.tags.map((t, i) => <span key={i}>{t}</span>)}</div>}
               {l.feature_desc && <div className="mlj-feat">{l.feature_desc}</div>}
+              {/* 표시·광고 명시사항 — 빠지면 과태료 대상이라 매물장에서 미리 보인다 */}
+              {l.is_private && l.ad_check && (
+                <div className={"mlj-ad" + (l.ad_check.missing.length ? "" : " ok")}>
+                  <ShieldCheck size={12} />
+                  광고 필수항목 <b>{l.ad_check.done}/{l.ad_check.total}</b>
+                  {l.ad_check.missing.length > 0 && (
+                    <span>· 빠짐: {l.ad_check.missing.map((x) => x.item).join(" · ")}</span>
+                  )}
+                </div>
+              )}
               {/* 확인 화면에서 못 채우고 저장한 매물 — 나중에 되살리는 길 */}
               {l.is_private && !l.area2_m2 && (l.complex_name || l.building_name) && (
                 <FillInfo authH={authH} pid={l.private_id!} onDone={load} />
@@ -2185,6 +2197,11 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose }: {
           <Row k="유형" v={l.type} />
           <Row k="거래" v={l.trade_type === "월세" ? `월세 보증 ${l.price_text} / 월 ${l.rent_price_text}` : `${l.trade_type} ${l.price_text}`} />
           <Row k="잔금시기" v={l.extra?.settle_ymd as string} />
+          <Row k="총 층수" v={l.total_floor ? `${l.total_floor}층` : null} />
+          <Row k="방·욕실" v={l.room_cnt ? `방 ${l.room_cnt}${l.bath_cnt ? ` / 욕실 ${l.bath_cnt}` : ""}` : null} />
+          <Row k="관리비" v={l.maintenance_fee ? `${l.maintenance_fee.toLocaleString()}만원` : null} />
+          <Row k="입주가능" v={l.move_in as string} />
+          <Row k="승강기" v={l.elevator as string} />
           <Row k="공급면적" v={l.area1_m2 ? `${l.area1_m2}㎡` : null} />
           <Row k="전용면적" v={l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : null} />
           <Row k="평형" v={l.area_name} />

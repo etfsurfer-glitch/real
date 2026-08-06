@@ -13427,6 +13427,38 @@ def _pl_visible_sql(uid: str) -> tuple:
     return ("(visibility='office' OR created_by=?)", [uid])
 
 
+# 중개대상물 표시·광고 명시사항(공인중개사법 시행령 §17-2, 세부기준 고시).
+# 매물점검 엔진(collector/listing_audit.py)이 쓰는 13개 항목과 같은 목록을 쓴다 —
+# 매물장에서 미리 채워 두면 광고를 낼 때 점검에 걸리지 않는다.
+_AD_ITEMS = [
+    (1, "소재지·층", ("address", "dong", "floor_info")),
+    (2, "전용면적", ("area2_m2",)),
+    (3, "가격", ("price", "rent_price")),
+    (4, "중개대상물 종류", ("type",)),
+    (5, "거래형태", ("trade_type",)),
+    (6, "총 층수", ("total_floor",)),
+    (7, "입주가능일", ("move_in",)),
+    (8, "방·욕실 수", ("room_cnt",)),
+    (9, "사용승인일", ("approve_ymd",)),
+    (10, "주차", ("parking",)),
+    (11, "관리비", ("maintenance_fee",)),
+    (12, "방향", ("direction",)),
+]
+
+
+def _pl_ad_check(g) -> dict:
+    """이 매물이 표시·광고 명시사항을 몇 개나 갖췄는지.
+
+    광고를 내기 전에 무엇이 비었는지 이 화면에서 바로 보이게 하려는 것이다.
+    빠진 항목은 과태료 대상이라 '나중에 채우면 되는 것'이 아니다.
+    """
+    done, miss = [], []
+    for no, label, keys in _AD_ITEMS:
+        ok = any(str(g(k) or "").strip() not in ("", "0", "0.0") for k in keys)
+        (done if ok else miss).append({"no": no, "item": label})
+    return {"done": len(done), "total": len(_AD_ITEMS), "missing": miss}
+
+
 def _pl_auto_tags(g, num) -> list:
     """비공개매물 태그 — 저장된 값에서 그때그때 만든다.
 
@@ -13508,6 +13540,7 @@ def _pl_row_to_item(r) -> dict:
         "deposit": num("deposit"), "owner_name": g("owner_name") or "",
         "heating": g("heating") or "", "elevator": g("elevator") or "",
         "options": g("options") or "", "ho": g("ho") or "",
+        "ad_check": _pl_ad_check(g),
         # 비공개 전용 부가정보(상세에서 노출)
         "extra": {k: g(k) for k in ("ho", "room_cnt", "bath_cnt", "deposit", "maintenance_fee",
                                     "loan_amount", "move_in", "settle_ymd", "elevator", "pets", "heating",
@@ -13770,6 +13803,17 @@ def _qa_enrich_listing(row: dict) -> dict:
                     if led.get("floor") and not row.get("floor"):
                         row["floor"] = led["floor"]; auto["floor"] = "건축물대장 전유부"
                     row["dong"], row["ho"] = dong, ho
+                # 총 층수는 법정 명시사항인데 전유부에 없다 — 표제부에서 가져온다
+                if not row.get("total_floor"):
+                    ttl = _qa_title(cx[1], cx[2], dong)
+                    if ttl:
+                        if ttl.get("total_floor"):
+                            row["total_floor"] = ttl["total_floor"]; auto["total_floor"] = "건축물대장 표제부"
+                        if ttl.get("use_apr") and not row.get("approve_ymd"):
+                            row["approve_ymd"] = ttl["use_apr"]; auto["approve_ymd"] = "건축물대장 표제부"
+                        if ttl.get("elevator") and not row.get("elevator"):
+                            row["elevator"] = "있음" if ttl["elevator"] else ""
+                            auto["elevator"] = "건축물대장 표제부"
             # 전용면적이 정해지면 평형(방·욕실)을 역매칭한다.
             # 유일해가 아니다(전용 59.05 에 82C·82D·82B) — 방·욕실이 모두 같을 때만 채운다.
             a2 = row.get("area2_m2")
@@ -13839,6 +13883,58 @@ def _qa_norm_dong_ho(dong, ho):
     return (d or None), (h or None)
 
 
+def _qa_title(cortar_no: str, detail_address: str, dong: str) -> dict | None:
+    """건축물대장 표제부 — 그 동의 총 층수·사용승인·승강기.
+
+    총 층수는 표시·광고 법정 명시사항(⑥)이다. 전유부에는 없고 표제부에만 있다.
+    주건축물(mainAtchGbCd=0) 만 본다 — 안 그러면 지하주차장이 잡혀 '지상 0층'이 된다.
+    """
+    from collector.ondemand_ledger import _parse_jibun
+    import urllib.parse as _up, urllib.request as _ur
+    import xml.etree.ElementTree as _ET
+    parsed = _parse_jibun(cortar_no, detail_address)
+    key = (os.getenv("DATA_GO_KR_SERVICE_KEY") or "").split(",")[0].strip()
+    if not parsed or not key:
+        return None
+    sgg, plat, bun, ji, bjd = parsed
+    # dongNm 필터를 API 에 맡기면 엉뚱한 동이 온다 — '104동' 을 넣었더니 '지하주차장(삼성)'
+    # 이 돌아왔다(실측). 전부 받아서 동명을 직접 대조한다.
+    qs = _up.urlencode({"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
+                        "bun": bun, "ji": ji, "numOfRows": "100", "pageNo": "1",
+                        "_type": "xml"}, safe="%")
+    # pageNo 를 빼면 numOfRows 를 무시하고 1건만 준다(실측: total 36 인데 items 1).
+    url = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo?" + qs
+    for attempt in range(4):
+        try:
+            with _ur.urlopen(url, timeout=12) as r:
+                root = _ET.fromstring(r.read())
+            break
+        except Exception:  # noqa: BLE001
+            if attempt < 3:
+                import time as _t
+                _t.sleep(1.2 * (attempt + 1))     # 503 이 몰려 올 때가 있다 — 넉넉히 기다린다
+                continue
+            return None
+    g = lambda it, t: (it.findtext(t) or "").strip()   # noqa: E731
+    want = str(dong or "").replace(" ", "")
+    items = [it for it in root.findall(".//item")
+             if g(it, "dongNm").replace(" ", "") == want and g(it, "mainAtchGbCd") == "0"]
+    if not items:      # 동 표기가 안 맞으면 주건축물 중 가장 큰 동으로 (단동 건물)
+        items = [it for it in root.findall(".//item") if g(it, "mainAtchGbCd") == "0"]
+    if not items:
+        return None
+    it = max(items, key=lambda x: float(g(x, "totArea") or 0))
+    def _i(t):
+        v = g(it, t)
+        try:
+            return int(float(v)) if v else None
+        except ValueError:
+            return None
+    return {"total_floor": _i("grndFlrCnt"), "under_floor": _i("ugrndFlrCnt"),
+            "use_apr": g(it, "useAprDay"), "elevator": _i("rideUseElvtCnt"),
+            "households": _i("hhldCnt"), "struct": g(it, "strctCdNm")}
+
+
 def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
               want_bld: bool = False) -> dict | None:
     """건축물대장 전유부 — 동·호 단위 전용면적·층. 실패는 None(저장은 계속된다).
@@ -13863,15 +13959,15 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
     for hf in ho_forms:
         qs = _up.urlencode({"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd,
                             "platGbCd": plat, "bun": bun, "ji": ji, "dongNm": dong,
-                            "hoNm": hf, "numOfRows": "20", "_type": "xml"}, safe="%")
-        for attempt in range(3):
+                            "hoNm": hf, "numOfRows": "20", "pageNo": "1", "_type": "xml"}, safe="%")
+        for attempt in range(4):
             try:
-                with _ur.urlopen(base + qs, timeout=8) as r:
+                with _ur.urlopen(base + qs, timeout=12) as r:
                     root = _ET.fromstring(r.read())
             except Exception:  # noqa: BLE001
-                if attempt < 2:
+                if attempt < 3:
                     import time as _t
-                    _t.sleep(0.6 * (attempt + 1))
+                    _t.sleep(1.2 * (attempt + 1))
                     continue
                 root = None
             break
@@ -13915,11 +14011,12 @@ def lounge_private_enrich(pid: int, body: dict, user: dict = Depends(current_use
             raise HTTPException(404, "단지를 찾을 수 없어요")
         r["complex_name"] = nm[0]
         r["complex_no"] = cno
-    before = {k: r.get(k) for k in ("area1_m2", "area2_m2", "floor", "room_cnt", "bath_cnt",
-                                    "approve_ymd", "parking", "address")}
+    # 어떤 칸이 채워질지 미리 못 박으면(총 층수처럼) 새로 넣은 항목이 조용히 안 저장된다.
+    # 매물장 전체 필드를 대상으로 '전에 없다가 생긴 값' 만 고른다.
+    before = {k: r.get(k) for k in _PL_FIELDS}
     auto = _qa_enrich_listing(r)
     _qa_to_listing_units(r)
-    changed = {k: r.get(k) for k in list(before) + ["complex_no", "complex_name", "floor_info", "area_py"]
+    changed = {k: r.get(k) for k in _PL_FIELDS
                if r.get(k) not in (None, "") and str(r.get(k)) != str(before.get(k) or "")}
     if changed:
         sets = ", ".join(f"{k}=?" for k in changed)
