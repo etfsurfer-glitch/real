@@ -1918,7 +1918,12 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                 <div key={l.article_no} className="mjt-r child"
                   onClick={() => { setDetailOwner(""); setDetail(l); }}>
                   <span className="c-tr"><i className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</i></span>
-                  <span className="c-nm"><em className="c-sub"><i /></em><SrcIcon l={l} /></span>
+                  {/* 폴더 안이어도 단지명은 남긴다 — 행만 떼어 봐도 어느 단지인지 읽혀야 한다 */}
+                  <span className="c-nm">
+                    <em className="c-sub"><i /></em>
+                    <span className="c-dim">{l.complex_name || l.building_name || l.area_name || "매물"}</span>
+                    <SrcIcon l={l} />
+                  </span>
                   <ListingCells l={l} />
                 </div>
               ))),
