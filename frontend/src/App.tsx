@@ -154,15 +154,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/buy-calculator", label: "아파트매수계산기", icon: Calculator },
   { to: "/jeonse-check", label: "깡통전세지수", icon: ShieldAlert },
   { to: "/forum", label: "토론장", icon: MessagesSquare },
-  { to: "/lounge", label: "중개사라운지", icon: Building2, children: [
-    { to: "/lounge", label: "내 사무소 대시보드" },
-    { to: "/lounge?tab=listings", label: "내 매물장" },
-    { to: "/lounge?tab=audit", label: "매물점검 (표시·광고 자가점검)" },
-    { to: "/lounge?tab=leads", label: "상담신청" },
-    { to: "/lounge?tab=homepage", label: "사무소 홈페이지" },
-    { to: "/lounge?tab=staff", label: "직원관리" },
-    { to: "/lounge?tab=edit", label: "정보수정요청" },
-  ] },
+  // 하위메뉴 없음 — 라운지 안에 좌측 메뉴 레일이 생겨 상단에서 또 고르게 할 이유가 없다
+  { to: "/lounge", label: "중개사라운지", icon: Building2 },
 ];
 
 function TodayLayout() {
