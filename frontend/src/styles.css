@@ -3762,6 +3762,45 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .ops-due{color:var(--c-faint);font-size:11.5px}
 
 /* 중개사 라운지 매물장 */
+/* ── 매물장 필터 바 ──
+   모양이 여섯 가지(검은 알약·파란 채움·흰 알약·기본 목록·체크박스·테두리 버튼)로 흩어져
+   무엇이 켜졌는지 안 보였다. 세그먼트 하나로 통일하고 켜진 색은 파랑만 쓴다.
+   '포함/비공개만'은 원래 하나의 축이라 세 칸으로 합쳤고, 등록은 필터가 아니라 액션이라 뽑아냈다. */
+.mlj-tb{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mlj-tb2{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:9px 0 10px}
+.mlj-srch{flex:1 1 240px;min-width:0;display:flex;align-items:center;gap:8px;height:36px;
+  border:1px solid var(--c-border);border-radius:10px;padding:0 9px 0 11px;background:#fff}
+.mlj-srch:focus-within{border-color:var(--c-primary);box-shadow:0 0 0 3px var(--c-primary-tint)}
+.mlj-srch>svg{color:var(--c-faint)}
+.mlj-srch input{flex:1;min-width:40px;border:0;outline:0;background:none;font:inherit;font-size:13px}
+.mlj-srch kbd{font:inherit;font-size:10px;font-weight:700;color:var(--c-faint);cursor:pointer;
+  border:1px solid var(--c-border);border-radius:5px;padding:1px 5px;background:#fbfcfe}
+.mlj-srch kbd:hover{border-color:var(--c-primary);color:var(--c-primary)}
+.mlj-seg{display:inline-flex;align-items:center;background:#f1f4f8;border-radius:10px;padding:2px;
+  height:36px;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.mlj-seg::-webkit-scrollbar{display:none}
+.mlj-seg button{display:inline-flex;align-items:center;gap:5px;border:0;background:none;border-radius:8px;
+  padding:6px 12px;font:inherit;font-size:12.5px;font-weight:700;color:var(--c-muted);cursor:pointer;
+  white-space:nowrap}
+.mlj-seg button:hover{color:var(--c-text)}
+.mlj-seg button.on{background:#fff;color:var(--c-primary);box-shadow:0 1px 2px rgba(16,32,64,.14)}
+.mlj-gbtn{display:inline-flex;align-items:center;gap:6px;height:36px;flex:none;
+  border:1px solid var(--c-border);background:#fff;border-radius:10px;padding:0 13px;font:inherit;
+  font-size:12.5px;font-weight:700;color:var(--c-text-soft);cursor:pointer;white-space:nowrap}
+.mlj-gbtn:hover{border-color:#cbdcf5;color:var(--c-primary)}
+.mlj-gbtn.pri{background:var(--c-primary);border-color:var(--c-primary);color:#fff}
+.mlj-gbtn.pri:hover{background:var(--c-primary-strong);color:#fff}
+/* 목록은 브라우저가 그리지만 닫힌 모양은 나머지 버튼과 맞춘다 */
+.mlj-gsel{position:relative;display:inline-flex;align-items:center;flex:none}
+.mlj-gsel select{height:36px;border:1px solid var(--c-border);border-radius:10px;background:#fff;
+  padding:0 26px 0 12px;font:inherit;font-size:12.5px;font-weight:700;color:var(--c-text-soft);
+  cursor:pointer;-webkit-appearance:none;appearance:none;max-width:170px;
+  overflow:hidden;text-overflow:ellipsis}
+.mlj-gsel select:hover{border-color:#cbdcf5}
+.mlj-gsel select:focus{outline:none;border-color:var(--c-primary)}
+.mlj-gsel>svg{position:absolute;right:10px;color:var(--c-faint);pointer-events:none}
+.mlj-glab{font-size:10px;font-weight:800;color:var(--c-faint);letter-spacing:.4px;padding:0 2px}
+.mlj-div{width:1px;height:20px;background:var(--c-border);flex:none;margin:0 3px}
 .mlj-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
 .mlj-search{display:flex;align-items:center;gap:6px;border:1px solid var(--c-border);border-radius:var(--r-pill);padding:6px 8px 6px 12px;flex:1 1 220px;background:#fff}
 .mlj-search svg{color:var(--c-muted);flex:none}

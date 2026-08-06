@@ -8,7 +8,7 @@ import SupportLink from "../components/SupportLink";
 import { Loading } from "../components/Loading";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
-  ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles } from "lucide-react";
+  ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles, ChevronDown } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
@@ -1714,52 +1714,63 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
 
   return (
     <div className="mljang">
-      <div className="mlj-bar">
-        <div className="mlj-search">
+      {/* 필터는 전부 같은 세그먼트로, 켜진 색은 파랑 하나로 통일한다.
+          등록은 필터가 아니라 액션이라 오른쪽 끝으로 뽑아냈다. */}
+      <div className="mlj-tb">
+        <span className="mlj-srch">
           <Search size={15} aria-hidden />
-          <input placeholder="단지·건물·지역 또는 네이버 매물번호 검색" value={q} inputMode="text"
+          <input placeholder="단지·건물·지역 또는 네이버 매물번호" value={q} inputMode="text"
             onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
-          <button onClick={load}>검색</button>
-        </div>
-        <button className="mlj-mapbtn" onClick={() => setMapOpen(true)}>
-          <MapIcon size={14} /> 지도보기
-        </button>
-        <div className="mlj-search-hint">네이버 매물번호 검색 가능</div>
-        <div className="mlj-filters">
+          <kbd onClick={load}>Enter</kbd>
+        </span>
+        <span className="mlj-seg">
           {([["", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]] as const).map(([k, l]) => (
             <button key={k} className={trade === k ? "on" : ""} onClick={() => setTrade(k)}>{l}</button>
           ))}
-          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+        </span>
+        <span className="mlj-gsel">
+          <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="정렬">
             <option value="confirm">최신확인순</option>
             <option value="price_desc">가격↓</option>
             <option value="price_asc">가격↑</option>
           </select>
-        </div>
-      </div>
-      <div className="mlj-filters mlj-cats">
-        {ML_CATS.map((c) => (
-          <button key={c || "all"} className={cat === c ? "on" : ""} onClick={() => setCat(c)}>{c || "전체유형"}</button>
-        ))}
-      </div>
-      <div className="mlj-mgr-bar">
-        <span>담당자</span>
-        <select value={manager} onChange={(e) => setManager(e.target.value)}>
-          <option value="">전체</option>
-          <option value="미지정">미지정</option>
-          {managers.map((m) => <option key={m.name} value={m.name}>{m.name}{m.position === "대표" ? " (대표)" : ""}</option>)}
-        </select>
-        <label className="mlj-priv-chk" title="콕집에 직접 등록한 비공개매물을 목록에 함께 표시">
-          <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} />
-          비공개매물 포함
-        </label>
-        <button className={`mlj-priv-only${privOnly ? " on" : ""}`}
-          onClick={() => setPrivOnly((v) => !v)} title="비공개매물만 보기">
-          <Lock size={11} /> 비공개만
+          <ChevronDown size={11} aria-hidden />
+        </span>
+        <button className="mlj-gbtn" onClick={() => setMapOpen(true)}>
+          <MapIcon size={13} aria-hidden /> 지도
         </button>
-        <button className="mlj-priv-add" onClick={() => { setEditPL(null); setPlOpen(true); }}>
+        <button className="mlj-gbtn pri" onClick={() => { setEditPL(null); setPlOpen(true); }}>
           <Plus size={13} aria-hidden /> 비공개매물 등록
         </button>
-        <span className="mlj-mgr-hint">담당자를 고르면 그 사람 매물장만 보여요</span>
+      </div>
+      <div className="mlj-tb2">
+        <span className="mlj-seg">
+          {ML_CATS.map((c) => (
+            <button key={c || "all"} className={cat === c ? "on" : ""} onClick={() => setCat(c)}>
+              {c || "전체유형"}</button>
+          ))}
+        </span>
+        <i className="mlj-div" />
+        <span className="mlj-glab">담당자</span>
+        <span className="mlj-gsel" title="담당자를 고르면 그 사람 매물장만 보여요">
+          <select value={manager} onChange={(e) => setManager(e.target.value)} aria-label="담당자">
+            <option value="">전체</option>
+            <option value="미지정">미지정</option>
+            {managers.map((m) => <option key={m.name} value={m.name}>{m.name}{m.position === "대표" ? " (대표)" : ""}</option>)}
+          </select>
+          <ChevronDown size={11} aria-hidden />
+        </span>
+        {/* 포함/비공개만은 원래 하나의 축이다 — 셋 중 하나로 합친다 */}
+        <span className="mlj-glab">비공개</span>
+        <span className="mlj-seg">
+          <button className={!priv && !privOnly ? "on" : ""}
+            onClick={() => { setPriv(false); setPrivOnly(false); }}>제외</button>
+          <button className={priv && !privOnly ? "on" : ""}
+            onClick={() => { setPriv(true); setPrivOnly(false); }}>포함</button>
+          <button className={privOnly ? "on" : ""}
+            onClick={() => { setPriv(true); setPrivOnly(true); }}>
+            <Lock size={11} aria-hidden />비공개만</button>
+        </span>
       </div>
       {lookErr && <div className="mlj-foreign mlj-foreign-err">{lookErr}</div>}
       {foreign && (
