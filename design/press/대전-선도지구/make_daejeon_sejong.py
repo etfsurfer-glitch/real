@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """대전 선도지구 vs 세종 청사권 매물 추이 보도자료.
 수치는 2026-07-20 complex_daily_agg·transactions 실측.
-Run: python3 design/press/make_daejeon_sejong.py
- → design/press/대전선도지구_세종매물추이.docx / .pdf + data/daejeon_sejong_chart.png
+Run: python3 design/press/대전-선도지구/make_daejeon_sejong.py
+ → design/press/대전-선도지구/대전선도지구_세종매물추이.docx / .pdf + data/daejeon_sejong_chart.png
 발송 없음 — 파일 생성만.
 
 ※ 편집 방침: 기자가 제시한 각도(세종→대전 투심 이동)를 **반박하지 않되, 근거 없는 인과도 쓰지 않는다.**
@@ -12,8 +12,8 @@ Run: python3 design/press/make_daejeon_sejong.py
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 DATA.mkdir(exist_ok=True)
 CHART = DATA / "daejeon_sejong_chart.png"
 BLUE = (0x12 / 255, 0x68 / 255, 0xD3 / 255)

@@ -2,7 +2,7 @@
 """서울 아파트 매물 통계 '두 가지 기준(광고 수 vs 물건 수)' 보고서 (기자 배포용).
 급매물 1개월 보고서(make_gapmae_1month_report.py)와 동일 양식.
 데이터: design/press/data/서울매물_광고vs물건_0601-0708.csv (박스·아카이브 실측 산출물).
-Run: python3 design/press/make_offer_basis_report.py → design/press/서울매물_광고vs물건_보고서.pdf
+Run: python3 design/press/급매-매물동향/make_offer_basis_report.py → design/press/급매-매물동향/서울매물_광고vs물건_보고서.pdf
 """
 import csv
 import datetime as dt
@@ -17,8 +17,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 OUT = HERE / "서울매물_광고vs물건_보고서.pdf"
 CSVF = DATA / "서울매물_광고vs물건_0601-0708.csv"
 D0, D1 = "2026-06-01", "2026-07-08"

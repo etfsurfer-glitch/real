@@ -2,16 +2,16 @@
 """삼성 탕정 반도체벨트 배후 4개 주거지 대장아파트 — 84㎡ 실거래 추이 (취재 참고자료).
 서울경제 회신 대응: 반도체벨트 인구·집값 기사의 받침 박스용. 대장단지 위주 거래량·신고가·가격.
 수치는 2026-07-28 transactions·complex_daily_agg 실측(반기별). 신고 30일 지연으로 최근 구간 미완성.
-Run: python3 design/press/make_semibelt_flagship.py
- → design/press/반도체벨트_대장아파트.docx / .pdf + data/semibelt_flagship_chart.png
+Run: python3 design/press/반도체벨트/make_semibelt_flagship.py
+ → design/press/반도체벨트/반도체벨트_대장아파트.docx / .pdf + data/semibelt_flagship_chart.png
 
 ※ 보도자료가 아니라 취재 참고자료(보고서). 예측·단정 금지, 관측된 사실과 한계만.
 """
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 DATA.mkdir(exist_ok=True)
 CHART = DATA / "semibelt_flagship_chart.png"
 CHART2 = DATA / "semibelt_maemul_chart.png"

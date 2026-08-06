@@ -3,7 +3,7 @@
 아파트 매물급매보고서(make_maemul_report.py)와 동일 양식 — 빌라는 매물에 건물명이
 공개되지 않아 '급매 판정' 대신 ①중간 호가 vs 중간 실거래가(호가 프리미엄)
 ②실거래 급매율(국토부 같은 건물끼리, 아파트 보고서와 동일 기준)로 구성.
-Run: python3 design/press/make_villa_report.py → design/press/빌라매물보고서_특별시광역시.pdf
+Run: python3 design/press/빌라/make_villa_report.py → design/press/빌라/빌라매물보고서_특별시광역시.pdf
 """
 import csv
 from pathlib import Path
@@ -16,8 +16,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data" / "villa"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data" / "villa"
 OUT = HERE / "빌라매물보고서_특별시광역시.pdf"
 SNAP = "2026-07-13"
 

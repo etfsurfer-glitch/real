@@ -2,7 +2,7 @@
 """서울 빌라(연립·다세대) 최근 동향 보고서 (기자 배포용).
 기사 방향: 아파트 가격·전세 부담 고착 → 수요가 빌라 매매·전세로 이동.
 근거: 국토부 실거래 25개월(수요 이동) + 콕집 일별 매물 수집(데일리) + 광고배율 비교.
-Run: python3 design/press/make_seoul_villa_report.py → design/press/서울빌라_동향보고서.pdf
+Run: python3 design/press/빌라/make_seoul_villa_report.py → design/press/빌라/서울빌라_동향보고서.pdf
 """
 import csv
 from pathlib import Path
@@ -15,8 +15,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data" / "villa"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data" / "villa"
 OUT = HERE / "서울빌라_동향보고서.pdf"
 SNAP = "2026-07-13"
 

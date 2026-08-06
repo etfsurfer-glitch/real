@@ -5,15 +5,15 @@
 ①매물 잠김이 7/31 바닥(113건)을 찍고 멈췄고 ②호가가 실제로 올랐다(구성효과를 걷어낸
 고정가중 기준 +7.3%). 프레임이 바뀌는 지점이라 새 자료로 낸다.
 수치는 2026-08-06 complex_daily_agg·transactions 실측(단지 6곳).
-Run: python3 design/press/make_daejeon_seondo_0806.py
- → design/press/대전선도지구_보도자료_20260806.docx / .pdf
+Run: python3 design/press/대전-선도지구/make_daejeon_seondo_0806.py
+ → design/press/대전-선도지구/대전선도지구_보도자료_20260806.docx / .pdf
 발송 없음 — 파일 생성만.
 """
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 DATA.mkdir(exist_ok=True)
 CHART = DATA / "daejeon_seondo_chart_0806.png"
 BLUE = (0x12 / 255, 0x68 / 255, 0xD3 / 255)

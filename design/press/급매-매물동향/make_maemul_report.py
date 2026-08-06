@@ -2,7 +2,7 @@
 """특별시·광역시 아파트 매물(호가) '급매' 분석 보고서 (기자 배포용).
 실거래 급매 보고서(make_gapmae_report.py)와 동일 파라미터·양식의 매물 버전.
 수치는 design/press/data/의 CSV(박스 실측 산출물)를 그대로 읽어 조판.
-Run: python3 design/press/make_maemul_report.py  → design/press/매물급매보고서_특별시광역시.pdf
+Run: python3 design/press/급매-매물동향/make_maemul_report.py  → design/press/급매-매물동향/매물급매보고서_특별시광역시.pdf
 """
 import csv
 from pathlib import Path
@@ -15,8 +15,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 OUT = HERE / "매물급매보고서_특별시광역시.pdf"
 SNAP = "2026-07-08"
 

@@ -8,8 +8,8 @@
 ※ 검증(2026-07-24): 본문 2건 정정 — "순유입 상위 2곳=가격 하위 2곳"은 오류(화성은 가격 1위)라
   "순유입 1·6위(평택·이천)가 가격 7·8위"로, "상승률 높은 청주·아산"에서 아산(+4.6%, 6위)은
   공급 가설 반례로 정직하게 표기.
-Run: python3 design/press/make_semi_belt.py
- → design/press/반도체벨트_인구와집값.docx / .pdf + data/semi_belt_chart.png
+Run: python3 design/press/반도체벨트/make_semi_belt.py
+ → design/press/반도체벨트/반도체벨트_인구와집값.docx / .pdf + data/semi_belt_chart.png
 발송 없음 — 파일 생성만.
 
 ※ 당초 가설('양질의 일자리 → 인구유입 → 집값 상승')은 이 8개 지역에서 성립하지 않았다.
@@ -24,8 +24,8 @@ Run: python3 design/press/make_semi_belt.py
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 DATA.mkdir(exist_ok=True)
 CHART = DATA / "semi_belt_chart.png"
 BLUE = (0x12 / 255, 0x68 / 255, 0xD3 / 255)

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """보도자료 docx + pdf 생성 — python-docx / reportlab(Pretendard).
-Run: python3 design/press/make_press.py  → design/press/콕집_보도자료.docx/.pdf"""
+Run: python3 design/press/회사소개/make_press.py  → design/press/회사소개/콕집_보도자료.docx/.pdf"""
 import sys
 from pathlib import Path
 
@@ -8,8 +8,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from press_text import TITLE, SUBTITLE, LEAD, BODY, QUOTE, COMPANY  # noqa: E402
 
-FONTS = HERE.parent / "fonts"
-SHOT = HERE / "shots"
+FONTS = HERE.parent.parent / "fonts"
+SHOT = HERE.parent / "shots"
 BLUE = (0x12 / 255, 0x68 / 255, 0xD3 / 255)
 
 

@@ -2,7 +2,7 @@
 """서울 아파트 매물(호가) '급매물' 1개월 변화 보고서 (기자 배포용).
 매물 급매 보고서(make_maemul_report.py)와 동일 파라미터·양식.
 데이터: design/press/data/서울_급매물_1달변화_0608-0708.csv (박스 실측 산출물).
-Run: python3 design/press/make_gapmae_1month_report.py → design/press/서울급매물_1개월변화.pdf
+Run: python3 design/press/급매-매물동향/make_gapmae_1month_report.py → design/press/급매-매물동향/서울급매물_1개월변화.pdf
 """
 import csv
 import datetime as dt
@@ -18,8 +18,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 OUT = HERE / "서울급매물_1개월변화.pdf"
 CSVF = DATA / "서울_급매물_1달변화_0608-0708.csv"
 D0, D1 = "2026-06-08", "2026-07-08"

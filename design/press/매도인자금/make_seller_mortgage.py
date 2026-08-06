@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """매도인 자금 제공 매물 — 기자 전달용 데이터 분석 보고서.
 수치는 2026-07-21 listings_current 실측(설명 보유 1,754,823건 전수).
-Run: python3 design/press/make_seller_mortgage.py
- → design/press/매도인자금제공_분석보고서.docx / .pdf + data/seller_mortgage_chart.png
+Run: python3 design/press/매도인자금/make_seller_mortgage.py
+ → design/press/매도인자금/매도인자금제공_분석보고서.docx / .pdf + data/seller_mortgage_chart.png
 발송 없음 — 파일 생성만.
 
 ※ 보도자료가 아니라 **보고서**다. 차이를 지킨다:
@@ -18,8 +18,8 @@ Run: python3 design/press/make_seller_mortgage.py
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 DATA.mkdir(exist_ok=True)
 CHART = DATA / "seller_mortgage_chart.png"
 BLUE = (0x12 / 255, 0x68 / 255, 0xD3 / 255)

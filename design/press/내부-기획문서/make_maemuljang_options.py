@@ -3,7 +3,7 @@
 
 같은 내용의 웹 버전과 짝이다(아티팩트). 인쇄해서 놓고 고르라고 만든 것이라
 목업은 화면을 그대로 그리지 않고 '무엇이 어떻게 보이는지'가 전달되는 선까지만 그린다.
-Run: python3 design/press/make_maemuljang_options.py
+Run: python3 design/press/내부-기획문서/make_maemuljang_options.py
 """
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
+FONTS = HERE.parent.parent / "fonts"
 OUT = HERE / "매물장_개선안_4가지.pdf"
 
 for nm, fn in [("P", "Pretendard-Regular.ttf"), ("PM", "Pretendard-Medium.ttf"),

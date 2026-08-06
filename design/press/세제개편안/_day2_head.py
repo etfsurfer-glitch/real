@@ -3,8 +3,8 @@
 
 수치는 design/press/data/press_day2.csv · press_day2_top.csv · press_tiers.csv 를
 그대로 읽어 조판한다(박스 실측 산출물 — 여기서 숫자를 만들거나 손질하지 않는다).
-Run: python3 design/press/make_tax_reform_day2.py
-  → design/press/세제개편안_발표이틀째_매물시장반응.pdf
+Run: python3 design/press/세제개편안/make_tax_reform_day2.py
+  → design/press/세제개편안/세제개편안_발표이틀째_매물시장반응.pdf
 """
 import csv
 from pathlib import Path
@@ -19,8 +19,8 @@ from reportlab.platypus import (KeepTogether, PageBreak, Paragraph, SimpleDocTem
                                 Spacer, Table, TableStyle)
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 OUT = HERE / "세제개편안_발표이틀째_매물시장반응.pdf"
 
 for nm, fn in [("P", "Pretendard-Regular.ttf"), ("PM", "Pretendard-Medium.ttf"),

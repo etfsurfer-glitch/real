@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """대전 선도지구 발표 후 매물·호가 동향 — 기자 전달용 데이터 분석 보고서.
 수치는 2026-07-24 complex_daily_agg·transactions 실측.
-Run: python3 design/press/make_daejeon_seondo_report.py
- → design/press/대전선도지구_발표후동향.docx / .pdf + data/daejeon_seondo_chart.png
+Run: python3 design/press/대전-선도지구/make_daejeon_seondo_report.py
+ → design/press/대전-선도지구/대전선도지구_발표후동향.docx / .pdf + data/daejeon_seondo_chart.png
 발송 없음 — 파일 생성만.
 
 ※ 보도자료가 아니라 취재 참고자료(보고서)다.
@@ -13,8 +13,8 @@ Run: python3 design/press/make_daejeon_seondo_report.py
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 DATA.mkdir(exist_ok=True)
 CHART = DATA / "daejeon_seondo_chart.png"
 BLUE = (0x12 / 255, 0x68 / 255, 0xD3 / 255)

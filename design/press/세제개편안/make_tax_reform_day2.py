@@ -3,8 +3,8 @@
 
 수치는 design/press/data/press_2days.csv · press_top_2days.csv · press_tiers.csv 를
 그대로 읽어 조판한다(박스 실측 산출물 — 여기서 숫자를 만들거나 손질하지 않는다).
-Run: python3 design/press/make_tax_reform_day2.py
-  → design/press/세제개편안_발표이틀째_매물시장반응.pdf
+Run: python3 design/press/세제개편안/make_tax_reform_day2.py
+  → design/press/세제개편안/세제개편안_발표이틀째_매물시장반응.pdf
 """
 import csv
 from pathlib import Path
@@ -19,9 +19,9 @@ from reportlab.platypus import (KeepTogether, PageBreak, Paragraph, SimpleDocTem
                                 Spacer, Table, TableStyle)
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
-OUT = HERE / "세제개편안_발표이틀_종합보고서.pdf"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
+OUT = HERE / "세제개편안_발표이틀째_매물시장반응.pdf"
 
 for nm, fn in [("P", "Pretendard-Regular.ttf"), ("PM", "Pretendard-Medium.ttf"),
                ("PS", "Pretendard-SemiBold.ttf"), ("PB", "Pretendard-Bold.ttf"),
@@ -97,9 +97,6 @@ T = {(r["일차"], r["거래"], r["구분"]): r for r in RAW}
 TOPA = read("press_top_2days.csv")
 TOP = [r for r in TOPA if r["일차"] == "2일차"]
 TOP1 = {r["지역"]: r for r in TOPA if r["일차"] == "1일차"}
-SUM2 = {(r["거래"], r["구분"]): r for r in read("press_2sum.csv")}
-TIERS = read("press_tiers.csv")
-T2Q = {"1급지": "5분위", "2급지": "4분위", "3급지": "3분위", "4급지": "2분위", "5급지": "1분위"}
 # 평당가는 1일차 배포본 값을 그대로 쓴다. 그 뒤 실거래가 더 신고되면서 중위값이
 # 몇 만원씩 움직이는데, 두 보도자료의 같은 표에서 값이 달라지면 안 된다.
 PUB = {r["지역"]: r for r in read("press_top.csv")}
@@ -135,25 +132,23 @@ def box(html, bg=BOXBG, ln=LINE):
     return t
 
 
-G = '<br/><font size=6.1 color="#6B7684">'
 d1 = lambda t, q, f: T[(D1, t, q)][f]                          # noqa: E731
 d2 = lambda t, q, f: T[(D2, t, q)][f]                          # noqa: E731
 
 # ── 표지 ────────────────────────────────────────────────────────────────
 A(P("콕집 부동산 데이터 리포트", "tag"))
-A(P("세제개편안 발표 후 이틀, 고가 지역만 매물이 멈췄다", "title"))
+A(P("세제개편안 이틀째 — 고가만 더 얼어붙고, 중저가는 되살아났다", "title"))
 A(P(f"5분위 매매 소멸 {d1('매매','5분위','chg')}% → {d2('매매','5분위','chg')}% · "
     f"2분위 매매는 감소에서 증가로 전환 · 하루 만에 격차가 더 벌어졌다", "sub"))
-A(P("발표 2026. 8. 3.(월) 18:00　|　관측 2026. 8. 4.(화)·8. 5.(수) 이틀　|　"
-    "자료 콕집(koczip.com) 전국 아파트 매물 178만여 건 전수", "cap"))
+A(P("발표 2026. 8. 3.(월) 18:00　|　관측 2026. 8. 4.(화)~8. 5.(수)　|　"
+    "자료 콕집(koczip.com) 전국 아파트 매물 전수", "cap"))
 A(Spacer(1, 10))
 
 A(P(
-    "2026년 세제개편안이 발표된 뒤 이틀간 전국 아파트 매물 178만여 건을 전수 분석했다. "
-    "실제 거래·회수로 시장에서 사라진 매물이 발표 다음 날(8월 4일) 직전 3주 같은 요일 평균 대비 "
-    "매매 27.7%, 이튿날(8월 5일)에도 27.4% 적었다. 주목할 대목은 감소가 <b>가격대별로 "
-    "정반대 방향</b>으로 나타났고, 그 격차가 <b>하루 사이 더 벌어졌다</b>는 점이다. "
-    "고가 지역은 이틀째 더 깊이 멈췄고, 중저가 지역은 하루 만에 평소로 돌아왔다.", "lead"))
+    "세제개편안 발표 이튿날까지의 전국 아파트 매물 흐름을 확인했다. 발표 다음 날(8월 4일) "
+    "나타났던 <b>고가 지역의 매물 정지</b>는 이틀째에 <b>더 깊어졌고</b>, 반대로 중저가 "
+    "지역은 <b>하루 만에 평소 수준을 회복하거나 넘어섰다</b>. 같은 시장 안에서 가격대별 "
+    "방향이 하루 사이 더 벌어진 것이다.", "lead"))
 
 # ── 1 ───────────────────────────────────────────────────────────────────
 A(P("1. 하루 사이 5분위는 더 멈추고, 2분위는 돌아섰다", "h"))
@@ -162,136 +157,66 @@ A(P(
     "아래는 발표 1일차(8월 4일)와 2일차(8월 5일)의 <b>실질소멸</b>(거래·회수로 사라진 매물) "
     "증감과, <b>새로 올라온 매물</b>이 평소의 몇 %인지를 나란히 놓은 것이다."))
 
-def daytable(label, daylabel):
-    """배포본과 동일한 9열 구성. 1일차 표는 8월 4일자 보고서와 글자 하나까지 같다."""
-    rows = [hdr(["구분", "거래", "매물 수", "실질소멸<br/>직전 3주 평균",
-                 f"실질소멸<br/>{daylabel}", "증감", "신규 유입<br/>평소",
-                 f"신규 유입<br/>{daylabel}", "정상 대비"])]
-    hot, seps = [], []
-    for q in QS:
-        seps.append(len(rows))
-        for ti, tr in enumerate(TRS):
-            r = T[(label, tr, q)]
-            isq = q in ("5분위", "4분위")
-            if isq:
-                hot.append(len(rows))
-            nm = int(r["norm"])
-            rows.append([
-                P(f"<b>{q}</b>" if ti == 0 else "", "tdb"),
-                P(tr, "tdb" if isq else "td"), P(n(r["stock"]), "td"),
-                P(n(r["d3"]), "td"), P(n(r["d4"]), "tdb" if isq else "td"),
-                P(f'{pc(r["chg"])}{G}{sn(r["dchg"])}건</font>',
-                  "tdr" if isq and float(r["chg"]) < 0 else "td"),
-                P(f'{r["g3"]}%{G}{n(r["inc3"])}건</font>', "td"),
-                P(f'{r["g4"]}%{G}{n(r["inc4"])}건</font>', "tdb" if isq else "td"),
-                P(f'{nm}%{G}{n(r["inc4"])}/{n(conv3(r))}건</font>',
-                  "tdr" if nm < 90 else ("tdg" if nm > 110 else "td"))])
-    total_at = len(rows)
-    for ti, tr in enumerate(TRS):
-        r = T[(label, tr, "전국")]
-        rows.append([P("<b>전국</b>" if ti == 0 else "", "tdb"), P(tr, "tdb"),
-                     P(n(r["stock"]), "tdb"), P(n(r["d3"]), "tdb"), P(n(r["d4"]), "tdb"),
-                     P(f'{pc(r["chg"])}{G}{sn(r["dchg"])}건</font>', "tdb"),
-                     P(f'{r["g3"]}%{G}{n(r["inc3"])}건</font>', "tdb"),
-                     P(f'{r["g4"]}%{G}{n(r["inc4"])}건</font>', "tdb"),
-                     P(f'{r["norm"]}%{G}{n(r["inc4"])}/{n(conv3(r))}건</font>', "tdb")])
-    t = Table(rows, colWidths=[13 * mm, 11 * mm, 20 * mm, 21 * mm, 19 * mm, 19 * mm, 19 * mm,
-                               19 * mm, 27 * mm], repeatRows=1)
-    st = [("BACKGROUND", (0, 0), (-1, 0), BLUE),
-          ("GRID", (0, 0), (-1, -1), 0.4, LINE),
-          ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-          ("TOPPADDING", (0, 0), (-1, -1), 2.0), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.0),
-          ("BACKGROUND", (0, total_at), (-1, total_at + 2), ROWALT),
-          ("LINEABOVE", (0, total_at), (-1, total_at), 1.0, BLUE_DK)]
-    for r_ in hot:
-        st.append(("BACKGROUND", (0, r_), (-1, r_), HOTBG))
-    for k in seps[1:]:
-        st.append(("LINEABOVE", (0, k), (-1, k), 0.7, LINE))
-    t.setStyle(TableStyle(st))
-    return t
-
-
-FOOT = ("‘실질소멸’은 그날 사라진 매물에서 광고 기간만료분을 뺀 수다. ‘증감’은 직전 3주 같은 요일 "
-        "평균과의 차이. ‘신규 유입’은 그날 매물 수가 얼마나 늘었는지(<b>새로 올라온 매물 − 사라진 "
-        "매물</b>)이고, ‘정상 대비’는 이를 직전 3주 같은 요일쌍 평균으로 나눈 값으로 100%면 평소와 "
-        "같다(붉은색 90% 미만, 초록색 110% 초과). 각 비율 아래 작은 숫자는 해당 건수이며, 정상 대비 "
-        "분수는 ‘그날 유입 / 평소라면 들어왔을 유입’이다(평소 유입률을 그 주 재고에 적용해 환산).")
-
-A(P("<b>1일차 (8월 4일 화)</b> — 8월 3일 대비", "h"))
-A(daytable(D1, "8월 4일"))
-A(P(FOOT, "cap"))
-
-A(Spacer(1, 10))
-A(P("<b>2일차 (8월 5일 수)</b> — 8월 4일 대비", "h"))
-A(daytable(D2, "8월 5일"))
-A(P("표 구성은 1일차와 같다. 요일 효과를 없애려 직전 3주 수요일과 비교했으므로 "
-    "‘직전 3주 평균’ 값이 1일차와 다르다.", "cap"))
-
-# ── 이틀 누적 ───────────────────────────────────────────────────────────
-A(PageBreak())
-A(P("<b>이틀 합계 (8월 3일 → 8월 5일)</b> — 두 날을 한 번에", "h"))
-A(P("앞의 두 표를 이틀 창으로 합친 것이다. 실질소멸은 8월 4일·5일 이틀분을 더해 직전 3주 같은 "
-    "이틀(화·수) 평균과 비교했고, 매물 수 변화는 8월 3일 재고에서 8월 5일 재고까지의 증가를 "
-    "직전 3주 같은 구간과 비교했다."))
-rows = [hdr(["구분", "거래", "매물 수<br/>8월 3일 → 5일", "실질소멸<br/>직전 3주 평균",
-             "실질소멸<br/>이틀 합계", "증감", "매물 증가<br/>평소", "매물 증가<br/>이틀 합계",
-             "정상 대비"])]
+rows = [hdr(["구분", "거래", "실질소멸 증감<br/>1일차 → 2일차", "",
+             "매물 증가폭 정상 대비<br/>1일차 → 2일차", "", "매물 회전<br/>이틀째"])]
 hot, seps = [], []
 for q in QS:
     seps.append(len(rows))
     for ti, tr in enumerate(TRS):
-        r = SUM2[(tr, q)]
-        isq = q in ("5분위", "4분위")
+        a, b = T[(D1, tr, q)], T[(D2, tr, q)]
+        ca, cb = float(a["chg"]), float(b["chg"])
+        na, nb = int(a["norm"]), int(b["norm"])
+        deep = cb < ca - 1.5          # 소멸이 더 줄었다 = 더 멈췄다
+        back = cb > ca + 1.5
+        isq = q in ("5분위",)
         if isq:
             hot.append(len(rows))
-        nm = int(r["norm"])
+        arrow = ("더 멈춤" if deep else "되살아남" if back else "비슷")
         rows.append([
             P(f"<b>{q}</b>" if ti == 0 else "", "tdb"),
             P(tr, "tdb" if isq else "td"),
-            P(f'{n(r["stock0"])}{G}→ {n(r["stock"])}</font>', "td"),
-            P(n(r["d3"]), "td"), P(n(r["d4"]), "tdb" if isq else "td"),
-            P(f'{pc(r["chg"])}{G}{sn(r["dchg"])}건</font>',
-              "tdr" if isq and float(r["chg"]) < 0 else "td"),
-            P(f'{r["g3"]}%{G}{n(r["inc3"])}건</font>', "td"),
-            P(f'{r["g4"]}%{G}{n(r["inc4"])}건</font>', "tdb" if isq else "td"),
-            P(f'{nm}%{G}{n(r["inc4"])}/{n(conv3(r))}건</font>',
-              "tdr" if nm < 90 else ("tdg" if nm > 110 else "td"))])
-tot = len(rows)
+            P(f'{pc(ca)}<br/><font size=6.1 color="#6B7684">{sn(a["dchg"])}건</font>', "td"),
+            P(f'{pc(cb)}<br/><font size=6.1 color="#6B7684">{sn(b["dchg"])}건</font>',
+              "tdr" if cb < 0 and isq else "tdb" if isq else "td"),
+            P(f'{na}%<br/><font size=6.1 color="#6B7684">{n(a["inc4"])}/{n(conv3(a))}건</font>', "td"),
+            P(f'{nb}%<br/><font size=6.1 color="#6B7684">{n(b["inc4"])}/{n(conv3(b))}건</font>',
+              "tdr" if nb < 90 else ("tdg" if nb > 110 else "td")),
+            P(arrow, "tdr" if deep else ("tdg" if back else "td"))])
+total_at = len(rows)
 for ti, tr in enumerate(TRS):
-    r = SUM2[(tr, "전국")]
+    a, b = T[(D1, tr, "전국")], T[(D2, tr, "전국")]
     rows.append([P("<b>전국</b>" if ti == 0 else "", "tdb"), P(tr, "tdb"),
-                 P(f'{n(r["stock0"])}{G}→ {n(r["stock"])}</font>', "tdb"),
-                 P(n(r["d3"]), "tdb"), P(n(r["d4"]), "tdb"),
-                 P(f'{pc(r["chg"])}{G}{sn(r["dchg"])}건</font>', "tdb"),
-                 P(f'{r["g3"]}%{G}{n(r["inc3"])}건</font>', "tdb"),
-                 P(f'{r["g4"]}%{G}{n(r["inc4"])}건</font>', "tdb"),
-                 P(f'{r["norm"]}%{G}{n(r["inc4"])}/{n(conv3(r))}건</font>', "tdb")])
-t = Table(rows, colWidths=[13 * mm, 11 * mm, 24 * mm, 20 * mm, 19 * mm, 19 * mm, 19 * mm,
-                           19 * mm, 24 * mm], repeatRows=1)
-st = [("BACKGROUND", (0, 0), (-1, 0), BLUE), ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+                 P(f'{pc(a["chg"])}<br/><font size=6.1 color="#6B7684">{sn(a["dchg"])}건</font>', "tdb"),
+                 P(f'{pc(b["chg"])}<br/><font size=6.1 color="#6B7684">{sn(b["dchg"])}건</font>', "tdb"),
+                 P(f'{a["norm"]}%<br/><font size=6.1 color="#6B7684">{n(a["inc4"])}/{n(conv3(a))}건</font>', "tdb"),
+                 P(f'{b["norm"]}%<br/><font size=6.1 color="#6B7684">{n(b["inc4"])}/{n(conv3(b))}건</font>', "tdb"),
+                 P("유지", "tdb")])
+
+t = Table(rows, colWidths=[15 * mm, 12 * mm, 27 * mm, 27 * mm, 30 * mm, 30 * mm, 20 * mm],
+          repeatRows=1)
+st = [("BACKGROUND", (0, 0), (-1, 0), BLUE),
+      ("SPAN", (2, 0), (3, 0)), ("SPAN", (4, 0), (5, 0)),
+      ("GRID", (0, 0), (-1, -1), 0.4, LINE),
       ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
       ("TOPPADDING", (0, 0), (-1, -1), 2.0), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.0),
-      ("BACKGROUND", (0, tot), (-1, tot + 2), ROWALT),
-      ("LINEABOVE", (0, tot), (-1, tot), 1.0, BLUE_DK)]
-for r_ in hot:
-    st.append(("BACKGROUND", (0, r_), (-1, r_), HOTBG))
+      ("BACKGROUND", (0, total_at), (-1, total_at + 2), ROWALT),
+      ("LINEABOVE", (0, total_at), (-1, total_at), 1.0, BLUE_DK)]
+for r in hot:
+    st.append(("BACKGROUND", (0, r), (-1, r), HOTBG))
 for k in seps[1:]:
     st.append(("LINEABOVE", (0, k), (-1, k), 0.7, LINE))
 t.setStyle(TableStyle(st))
 A(t)
-A(P("이틀 합계는 두 날의 평균이 아니라 <b>실제 합산</b>이다. 하루씩 볼 때보다 표본이 두 배여서 "
-    "작은 분위의 진폭이 줄어든다. 기간만료로 자동 소멸한 매물(이틀간 매매 29,012건, 전세 2,140건, "
-    "월세 2,110건)은 모두 제외했다.", "cap"))
-
-A(Spacer(1, 8))
-A(box(
-    "<b>‘실질소멸’이란 — 광고 기간만료는 제외한 수치다</b><br/>"
-    "네이버 부동산 매물 광고는 확인일자로부터 <b>31일이 지나면 자동으로 내려간다.</b> "
-    "중개사가 갱신하지 않아 사라지는 이 물량은 시장 상황과 무관하게 매일 대량으로 발생한다"
-    "(8월 4일 매매 26,141건, 8월 5일 매매 2,871건 — 31일 전 확인일자 분포에 따라 날마다 다르다).<br/>"
-    "이 보고서의 <b>실질소멸은 기간만료분을 전부 걷어낸 뒤 남은 건수</b>다. 즉 "
-    "<b>거래가 성사됐거나 매도자·임대인이 매물을 거둬들인 경우</b>만 센다. 제외 기준을 "
-    "29일·25일로 바꿔 다시 계산해도 감소폭은 같았다."))
+A(P("<b>1일차 수치는 8월 4일자 첫 보고서와 동일하다.</b> 같은 산출 기준을 그대로 적용해 2일차를 "
+    "이어 붙였다.", "cap"))
+A(P("‘실질소멸 증감’은 그날 사라진 매물(광고 기간만료 제외)을 직전 3주 같은 요일 평균과 비교한 값이다. "
+    "‘매물 증가폭’은 그날 매물 수가 얼마나 늘었는지(새로 올라온 매물 − 사라진 매물)이며, "
+    "‘정상 대비’는 이를 직전 3주 같은 요일쌍 평균으로 나눈 값으로, "
+    "100%면 평소와 같다. 각 비율 아래 작은 숫자는 해당 건수이며, 정상 대비 분수는 "
+    "‘그날 유입 / 평소라면 들어왔을 유입’이다(평소 유입률을 그 주 재고에 적용해 환산). "
+    "1일차는 8월 3일 대비 4일, 2일차는 4일 대비 5일 기준이며 요일 효과를 없애려 같은 요일끼리 비교했다. "
+    "맨 오른쪽 ‘매물 회전’은 실질소멸 증감만 놓고 본 방향이다 — 증가폭과 방향이 다른 칸도 있다.<br/>"
+    "<b>매물이 덜 사라졌는데도 증가폭이 줄었다면, 새로 나오는 물건이 그보다 더 줄었다는 뜻이다.</b>", "cap"))
 
 A(Spacer(1, 8))
 A(box(
@@ -400,29 +325,8 @@ A(Spacer(1, 12))
 A(P("런투온라인 대표 황인찬　|　부동산 데이터 서비스 ‘콕집’　<font color='#1268D3'>koczip.com</font>", "small"))
 A(P("010-5942-8014　runtoonline@gmail.com", "small"))
 
-# ── 부록 ────────────────────────────────────────────────────────────────
-A(PageBreak())
-A(P("부록", "tag"))
-A(P("분위별 지역 구분", "title"))
-A(P("전국 219개 시군구를 최근 1년(2025년 8월~2026년 7월) 아파트 매매 실거래 평당가 "
-    "중위값 순으로 5등분했다. 5분위가 최고가이며, 각 분위 안에서는 평당가가 높은 순으로 "
-    "나열했다.", "sub"))
-rows = [hdr(["분위", "평당가 범위", "지역"])]
-for r in TIERS:
-    rows.append([P(f"<b>{T2Q[r['급지']]}</b>", "tdb"), P(r["평당가범위"], "td"),
-                 P(r["지역"], "tier")])
-t = Table(rows, colWidths=[16 * mm, 27 * mm, 125 * mm], repeatRows=1)
-t.setStyle(TableStyle([
-    ("BACKGROUND", (0, 0), (-1, 0), BLUE),
-    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ROWALT]),
-    ("GRID", (0, 0), (-1, -1), 0.4, LINE),
-    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
-A(t)
-A(P("실거래 100건 미만인 시군구는 평당가 신뢰도가 낮아 분위 산정에서 제외했다.", "cap"))
-
 doc = SimpleDocTemplate(str(OUT), pagesize=A4, leftMargin=21 * mm, rightMargin=21 * mm,
                         topMargin=18 * mm, bottomMargin=16 * mm,
-                        title="세제개편안 발표 후 이틀 매물 시장 반응", author="런투온라인 콕집")
+                        title="세제개편안 발표 이틀째 매물 시장 반응", author="런투온라인")
 doc.build(story)
 print(f"[done] {OUT}  ({OUT.stat().st_size // 1024} KB)")

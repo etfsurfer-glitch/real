@@ -5,15 +5,15 @@
   광고 227→135(-40.5%)·실매물 144→99(-31.3%, 발송본 기준값 — 7/24는 수집 진행일이라 하루 중 변동, DB 재조회 시 96),
   구역별 둔산13 -50.6%·14 -47.6%·송촌6 -19.7%, 호가는 통합 평균 보합(7.68→7.61억)·목련 구성효과,
   공작한양 발표 직후 신고가 6.7억(7/20).
-Run: python3 design/press/make_daejeon_seondo.py
- → design/press/대전선도지구_보도자료.docx / .pdf + data/daejeon_seondo_chart.png
+Run: python3 design/press/대전-선도지구/make_daejeon_seondo.py
+ → design/press/대전-선도지구/대전선도지구_보도자료.docx / .pdf + data/daejeon_seondo_chart.png
 발송 없음 — 파일 생성만.
 """
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 DATA.mkdir(exist_ok=True)
 CHART = DATA / "daejeon_seondo_chart.png"
 BLUE = (0x12 / 255, 0x68 / 255, 0xD3 / 255)

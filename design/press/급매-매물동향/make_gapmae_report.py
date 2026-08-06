@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """특별시·광역시 아파트 급매·거래유형 분석 보고서 (기자 배포용).
 수치는 /tmp/rpt.json (박스 실측 산출물)을 그대로 읽어 조판 — 전사 오류 없음.
-Run: python3 design/press/make_gapmae_report.py  → design/press/급매보고서_특별시광역시.pdf
+Run: python3 design/press/급매-매물동향/make_gapmae_report.py  → design/press/급매-매물동향/급매보고서_특별시광역시.pdf
 """
 import json
 from pathlib import Path
@@ -15,8 +15,8 @@ from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, Tab
                                 KeepTogether)
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-JSON = HERE / "data" / "rpt.json"
+FONTS = HERE.parent.parent / "fonts"
+JSON = HERE.parent / "data" / "rpt.json"
 OUT = HERE / "급매보고서_특별시광역시.pdf"
 
 for nm, fn in [("P", "Pretendard-Regular.ttf"), ("PM", "Pretendard-Medium.ttf"),

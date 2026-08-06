@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """노후계획도시 선도지구 3개 도시(분당·부산·대전) 궤적 비교 보도자료.
 수치는 2026-07-20 transactions·complex_daily_agg 실측.
-Run: python3 design/press/make_seondo_3city.py
- → design/press/선도지구_3도시비교.docx / .pdf + data/seondo_3city_chart.png
+Run: python3 design/press/대전-선도지구/make_seondo_3city.py
+ → design/press/대전-선도지구/선도지구_3도시비교.docx / .pdf + data/seondo_3city_chart.png
 발송 없음 — 파일 생성만.
 
 ※ 단지 특정 근거: 분당은 이름·세대수 역추적(시범 우성+현대=3,569세대, 양지 6단지=4,392세대가
@@ -14,8 +14,8 @@ Run: python3 design/press/make_seondo_3city.py
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FONTS = HERE.parent / "fonts"
-DATA = HERE / "data"
+FONTS = HERE.parent.parent / "fonts"
+DATA = HERE.parent / "data"
 DATA.mkdir(exist_ok=True)
 CHART = DATA / "seondo_3city_chart.png"
 BLUE = (0x12 / 255, 0x68 / 255, 0xD3 / 255)
