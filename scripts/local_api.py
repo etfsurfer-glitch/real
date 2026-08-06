@@ -14510,6 +14510,14 @@ def _need_resolve_complex(nd: dict) -> dict:
             "note": why}
 
 
+def _need_norm(body: dict) -> None:
+    """요건 저장 전 정규화 — 거래유형은 코드(A1·B1·B2)로 통일한다.
+    자연어 파서는 '전세'처럼 한글을 내놓는데 그대로 저장되면 매칭 비교에서 빠진다."""
+    t = body.get("trade")
+    if t:
+        body["trade"] = _TRADE_CODE.get(t, t)
+
+
 _NEED_EDIT = ("kind", "trade", "role", "budget_min", "budget_max", "ask_price",
               "sido", "sigungu", "dong", "complex_no", "address", "area_min", "area_max",
               "status", "settle_date", "memo", "listing_id",
@@ -14625,6 +14633,7 @@ def lounge_need_update(nid: int, body: dict, user: dict = Depends(current_user))
             body["complex_no"] = res.get("complex_no")
             if res.get("complex_name"):
                 body["address"] = res["complex_name"]      # DB 정식 명칭으로 맞춘다
+        _need_norm(body)
         cols, vals = [], []
         for k in _NEED_EDIT:
             if k not in body:
@@ -14665,6 +14674,7 @@ def lounge_need_create(body: dict, user: dict = Depends(current_user)):
             if res.get("complex_no"):
                 body["complex_no"] = res["complex_no"]
                 body["address"] = res.get("complex_name") or body["address"]
+        _need_norm(body)
         cols = ["user_id", "realtor_id", "customer_id"]
         vals = [user["id"], rid, cid]
         for k in _NEED_EDIT:
@@ -14793,7 +14803,8 @@ def lounge_match_listing(pid: int, user: dict = Depends(current_user), limit: in
             raise HTTPException(404, "매물을 찾을 수 없어요")
         price = (_to_f(l["price"]) or 0) * 10000          # 만원 → 원
         area = _to_f(l["area2_m2"])
-        tt = _TRADE_CODE.get(l["trade_type"] or "", "")
+        tt = _TRADE_CODE.get(l["trade_type"] or "", "")   # 'A1'|'B1'|'B2'
+
         rows = rc.execute(
             "SELECT n.*, c.name AS cname, c.phone AS cphone FROM biz_needs n "
             "LEFT JOIN biz_customers c ON c.id = n.customer_id "
@@ -14801,7 +14812,9 @@ def lounge_match_listing(pid: int, user: dict = Depends(current_user), limit: in
     out = []
     for r in rows:
         nd = dict(r)
-        if tt and nd.get("trade") and nd["trade"] != tt:
+        # 요건의 trade 는 코드('B1')일 수도 한글('전세')일 수도 있다 — 코드로 맞춰 비교한다
+        ndt = _TRADE_CODE.get(nd.get("trade") or "", nd.get("trade") or "")
+        if tt and ndt and ndt != tt:
             continue
         lo, hi = _match_price_range(nd)
         if price:
@@ -14891,7 +14904,8 @@ def lounge_customers(user: dict = Depends(current_user), q: str = "", limit: int
                 f"SELECT n.*, l.complex_name AS l_name, l.dong AS l_dong, l.ho AS l_ho, "
                 f"       l.trade_type AS l_trade, l.price AS l_price, l.deposit AS l_deposit, "
                 f"       l.rent_price AS l_rent, l.area2_m2 AS l_area "
-                f"FROM biz_needs n LEFT JOIN private_listings l ON l.id = n.listing_id "
+                f"FROM biz_needs n LEFT JOIN private_listings l "
+                f"  ON l.id = n.listing_id AND l.status='active' "
                 f"WHERE n.customer_id IN ({qs}) ORDER BY n.id", cids).fetchall():
                 d = dict(n)
                 lst = None
@@ -15421,7 +15435,9 @@ def lounge_nav_counts(user: dict = Depends(current_user)):
         one = lambda q, *a: (c.execute(q, a).fetchone() or [0])[0] or 0
         return {
             "leads": one("SELECT COUNT(*) FROM consultation_leads WHERE realtor_id=? AND status='new'", rid),
-            "listings": one("SELECT COUNT(*) FROM private_listings WHERE realtor_id=? AND status='active'", rid),
+            # 매물장 화면은 네이버 수집분 + 직접등록을 함께 보여 준다. 배지도 같은 수여야 한다
+            "listings": len(_collect_realtor_listings(rid, None, ""))
+                        + one("SELECT COUNT(*) FROM private_listings WHERE realtor_id=? AND status='active'", rid),
             "ledger": one("SELECT COUNT(*) FROM biz_customers WHERE realtor_id=?", rid),
         }
 

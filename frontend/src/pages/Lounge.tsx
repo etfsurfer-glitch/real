@@ -53,7 +53,9 @@ type EditReq = { id: number; content: string; status: string; admin_note: string
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
 export type Tab = "dashboard" | "listings" | "ledger" | "match" | "calendar" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
-export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "ledger", "match", "calendar", "contracts", "audit", "office", "edit", "leads", "homepage", "staff"];
+// 렌더되는 탭은 전부 여기 있어야 한다 — ?tab= 딥링크와 새로고침 복원이 이 목록으로 걸러진다
+export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "ledger", "match", "calendar", "contracts",
+  "requests", "audit", "office", "edit", "leads", "homepage", "staff"];
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
