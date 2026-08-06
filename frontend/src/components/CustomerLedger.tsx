@@ -134,11 +134,11 @@ export default function CustomerLedger({ authH, onGoListings }: {
       {shown.map((c) => (
         <div key={c.id} className="cled-row">
           <div className="cled-cust">
-            <span className="cled-av">{(c.name || "?").slice(0, 1)}</span>
             <span className="cled-nm">
               <b>{c.name || "이름 미상"}</b>
               {c.phone && <a href={`tel:${tel(c.phone)}`}><Phone size={11} /> {fmtTel(c.phone)}</a>}
             </span>
+            <span className="cled-cust-b">
             <span className={"cled-type t-" + (c.ctype === "양쪽" ? "both" : c.ctype === "내놓음" ? "sell" : "buy")}>
               {c.ctype}
             </span>
@@ -152,6 +152,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
                 status: n.status, settle_date: n.settle_date,
               })),
             })}><Pencil size={12} /> 수정</button>
+            </span>
           </div>
 
           <div className="cled-needs">
