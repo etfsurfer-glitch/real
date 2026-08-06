@@ -2156,10 +2156,10 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .ced-sel.k.sell{background:#1a7f4b;border-color:#1a7f4b}
 .ced-sel.pri{background:#f3efff;border-color:#e0d6fb;color:#6b39c9}
 .ced-sel.st{font-weight:800}
-.ced-sel.st.s0{background:var(--c-primary-soft);border-color:#cfe0f8;color:var(--c-primary)}   /* 탐색 */
-.ced-sel.st.s1,.ced-sel.st.s2{background:#fff4e2;border-color:#f6e0bd;color:#a35c00}          /* 비교·협상 */
-.ced-sel.st.s3,.ced-sel.st.s4{background:#e8f6ee;border-color:#c8e8d6;color:#1a7f4b}          /* 계약·완료 */
-.ced-sel.st.s5{background:var(--c-border-soft);color:var(--c-muted)}                          /* 보류 */
+.ced-sel.st.s0{background:var(--c-primary-soft);border-color:#cfe0f8;color:var(--c-primary)}  /* 문의 */
+.ced-sel.st.s1{background:#fff4e2;border-color:#f6e0bd;color:#a35c00}                         /* 미팅 */
+.ced-sel.st.s2{background:var(--c-border-soft);color:var(--c-muted)}                          /* 보류 */
+.ced-sel.st.s3{background:#e8f6ee;border-color:#c8e8d6;color:#1a7f4b}                         /* 완료 */
 .ced-need-sum{flex:1;min-width:0;font-size:12px;font-weight:700;color:var(--c-text-soft);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ced-need{border:1px solid var(--c-border);border-radius:12px;padding:11px 12px;margin-bottom:9px;

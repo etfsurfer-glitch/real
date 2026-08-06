@@ -34,7 +34,12 @@ export type EditCustomer = {
 
 const KINDS = ["구함", "내놓음"];
 const TRADES: [string, string][] = [["A1", "매매"], ["B1", "전세"], ["B2", "월세"]];
-const STATUS = ["탐색", "비교", "협상", "계약", "완료", "보류"];
+const STATUS = ["문의", "미팅", "보류", "완료"];
+// 예전 단계(탐색·비교·협상·계약)가 남아 있어도 새 단계로 읽는다
+const STATUS_OLD: Record<string, string> = {
+  탐색: "문의", 비교: "미팅", 협상: "미팅", 계약: "완료",
+};
+const stNow = (s?: string | null) => STATUS_OLD[s || ""] || s || "문의";
 const SETTLE_QUICK = ["즉시", "협의"];
 // 예전 값(주안·대안·보유)을 우선순위로 읽는다 — 기존 요건도 버튼이 켜져 보이게
 const ROLE_OLD: Record<string, string> = { 주안: "1안", 대안: "2안", 보유: "1안" };
@@ -150,7 +155,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
   const setN = (i: number, patch: Partial<EditNeed>) =>
     setNeeds((ns) => ns.map((n, j) => (i === j ? { ...n, ...patch } : n)));
   const addNeed = () =>
-    setNeeds((ns) => [...ns, { kind: "구함", trade: "A1", status: "탐색", _new: true }]);
+    setNeeds((ns) => [...ns, { kind: "구함", trade: "A1", status: "문의", _new: true }]);
   const delNeed = (i: number) =>
     setNeeds((ns) => ns.map((n, j) => (i === j ? { ...n, _del: true } : n)).filter((n) => !(n._del && n._new)));
 
@@ -170,7 +175,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
         budget_min: n.budget_min ?? null, budget_max: n.budget_max ?? null,
         ask_price: n.ask_price ?? null, dong: n.region || null, address: n.complex_name || null,
         area_min: n.area_min ?? null, area_max: n.area_max ?? null,
-        settle_date: n.settle_date || null, status: "탐색", _new: true,
+        settle_date: n.settle_date || null, status: "문의", _new: true,
       }));
       if (!got.length) { setErr("요건을 못 읽었어요. 조금 더 자세히 적어 주세요."); return; }
       setNeeds((ns) => [...ns, ...got]);
@@ -225,7 +230,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
   };
 
   const live = needs.filter((n) => !n._del);
-  const open = live.filter((n) => n.status && !["완료", "보류"].includes(n.status)).length;
+  const open = live.filter((n) => !["완료", "보류"].includes(stNow(n.status))).length;
   const tel = _digits(phone);
 
   return (
@@ -302,8 +307,8 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
               </select>
               {n._new && <em>새 요건</em>}
               <span className="ced-need-sum">{needSummary(n)}</span>
-              <select className={"ced-sel st s" + STATUS.indexOf(n.status || "탐색")}
-                value={n.status || "탐색"} onChange={(e) => setN(i, { status: e.target.value })}>
+              <select className={"ced-sel st s" + STATUS.indexOf(stNow(n.status))}
+                value={stNow(n.status)} onChange={(e) => setN(i, { status: e.target.value })}>
                 {STATUS.map((st) => <option key={st} value={st}>{st}</option>)}
               </select>
               <button className="ced-del" onClick={() => delNeed(i)} aria-label="삭제">

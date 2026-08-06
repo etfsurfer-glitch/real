@@ -11004,7 +11004,7 @@ def _init_reviews_db() -> None:
               area_m2      REAL,               -- 내놓음: 전용면적(하나). 구하는 쪽만 범위를 쓴다
               floor_info   TEXT,               -- 내놓음: 층
               area_min     REAL, area_max REAL,
-              status       TEXT NOT NULL DEFAULT '탐색',
+              status       TEXT NOT NULL DEFAULT '문의',   -- 문의|미팅|보류|완료
               settle_date  TEXT,               -- 잔금 시기. 구함·내놓음 양쪽에 공통인 축이다
                                                -- (파는 쪽에 '입주 희망'은 말이 안 된다)
               raw_text     TEXT,               -- 원문. 구조화가 실패해도 이건 남는다
@@ -14638,7 +14638,7 @@ def lounge_need_update(nid: int, body: dict, user: dict = Depends(current_user))
         new_st = body.get("status")
         if new_st and new_st != was.get("status") and was.get("customer_id"):
             _act_log(rc, user["id"], rid, was["customer_id"], "진행",
-                     f"{_need_line({**was, **body})} · {was.get('status') or '탐색'} → {new_st}", nid)
+                     f"{_need_line({**was, **body})} · {was.get('status') or '문의'} → {new_st}", nid)
     return {"ok": True, "complex_no": res.get("complex_no"),
             "complex_name": res.get("complex_name"),
             "cands": res.get("cands") or [], "note": res.get("note")}
@@ -14672,6 +14672,10 @@ def lounge_need_create(body: dict, user: dict = Depends(current_user)):
                 cols.append(k); vals.append(v)
         if "kind" not in cols:
             cols.append("kind"); vals.append("구함")
+        # 먼저 만들어진 테이블은 DEFAULT 가 옛 단계('탐색')로 굳어 있다(CREATE TABLE
+        # IF NOT EXISTS 는 no-op). 넣을 때 정해 주는 편이 확실하다.
+        if "status" not in cols:
+            cols.append("status"); vals.append("문의")
         cur = rc.execute(f"INSERT INTO biz_needs({','.join(cols)}) "
                          f"VALUES({','.join('?' * len(cols))})", vals)
         nid = cur.lastrowid
