@@ -2534,10 +2534,13 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mjt-r.cont{border-top:none}
 .mjt .c-gn{flex:none;font-style:normal;font-size:9.5px;font-weight:800;padding:1px 6px;
   border-radius:20px;background:var(--c-primary-soft);color:var(--c-primary)}
-.mjt .c-sub{display:inline-flex;align-items:center;gap:6px;margin-left:6px;font-style:normal;
+.mjt .c-sub{display:inline-flex;align-items:center;flex:none;margin-left:6px;font-style:normal;
   color:var(--c-faint)}
 .mjt .c-sub i{display:block;width:12px;height:12px;border-left:2px solid var(--c-border);
   border-bottom:2px solid var(--c-border);border-bottom-left-radius:4px;margin-top:-8px}
+/* 이어지는 행의 단지명 — 읽히되 첫 행보다 물러나게 */
+.mjt .c-dim{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-weight:600;color:var(--c-muted)}
 .mjt .c-ho,.mjt .c-ar,.mjt .c-fl,.mjt .c-st{color:var(--c-text-soft);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
 .mjt .c-pr{font-weight:800;color:var(--c-text);text-align:right;white-space:nowrap;

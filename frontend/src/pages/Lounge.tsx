@@ -1862,8 +1862,13 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                     <SrcIcon l={l} />
                   </>
                 ) : (
-                  // 같은 단지의 두 번째부터는 이름을 지우고 세로선으로 잇는다(고객원장과 같은 방식)
-                  <em className="c-sub"><i /><SrcIcon l={l} /></em>
+                  // 이어지는 행 — 세로선으로 묶음을 보이되 이름은 남긴다. 이름을 지웠더니
+                  // 어느 단지인지 읽히지 않았다. 대신 흐리게 해 첫 행과 구분한다.
+                  <>
+                    <em className="c-sub"><i /></em>
+                    <span className="c-dim">{l.complex_name || l.building_name || l.area_name || "매물"}</span>
+                    <SrcIcon l={l} />
+                  </>
                 )}
               </span>
               <span className="mjt-meta">
