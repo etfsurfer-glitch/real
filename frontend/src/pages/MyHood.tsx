@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import { Loading } from "../components/Loading";
 import RequestCta from "../components/RequestCta";
 import ShareBar from "../components/ShareBar";
-import FavDashLink from "../components/FavDashLink";
 import DealMiniMap from "../components/DealMiniMap";
 import { MapPin, TrendingUp, BadgePercent, BarChart3, Trophy, Flame, ChevronRight, Search, Building2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -247,7 +246,9 @@ export default function MyHood({ digestSlot }: { digestSlot?: ReactNode } = {}) 
         {!r.sido && <div className="hood-hint">동네를 고르면 다음에도 기억해서 바로 보여드려요</div>}
       </div>
 
-      <div className="hood-share"><FavDashLink /><ShareBar targetRef={shareRef} title={`${scope} 우리동네 실거래·급매`} fileName={`콕집_우리동네_${scope}`} /></div>
+      {/* 관심단지 칩은 뺐다 — 헤더 하트(FavDashLink variant="head")와 같은 자리로 가는 중복 입구였고,
+          히어로 바로 아래 떠 있어 어디에도 속하지 않아 보였다. */}
+      <div className="hood-share"><ShareBar targetRef={shareRef} title={`${scope} 우리동네 실거래·급매`} fileName={`콕집_우리동네_${scope}`} /></div>
 
       {data == null ? <div className="hood-loading"><Loading /></div> : (
         <>
@@ -302,8 +303,7 @@ export default function MyHood({ digestSlot }: { digestSlot?: ReactNode } = {}) 
 
           {/* 급매를 본 직후가 요청을 남기기에 가장 자연스러운 자리 */}
           <RequestCta
-            title={`${scope}에서 찾는 조건이 따로 있으세요?`}
-            sub="조건을 남기시면 그 동네 중개사무소가 맞는 매물을 찾아 연락드려요. 무료입니다."
+            title={`${scope}에서 원하는 조건만 남겨보세요`}
             sido={r.sido} sigungu={r.sigungu} dong={r.dong} asset={asset} />
 
           {digestSlot}

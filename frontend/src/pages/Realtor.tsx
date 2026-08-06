@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import FetchError from "../components/FetchError";
+import { areaLabel } from "../lib/area";
 import { MapPin, Phone, Smartphone, MessageSquare, Search, X } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { RealtorReviews, type ReviewSummary } from "../components/RealtorReviews";
@@ -74,6 +75,49 @@ type RealtorDetail = {
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
+// 소속 직원 명단 — V-World 부동산중개업 공시(공부상 공개정보)
+type StaffItem = { name: string; role: string | null; position: string | null; status: string | null };
+type StaffResp = { count: number; as_of: string | null; items: StaffItem[] };
+
+function StaffModal({ officeName, staff, onClose }: { officeName: string; staff: StaffResp | null; onClose: () => void }) {
+  const asOf = staff?.as_of ? staff.as_of.slice(0, 10) : null;
+  return (
+    <div className="dmodal-bg" onClick={onClose}>
+      <div className="dmodal" onClick={(e) => e.stopPropagation()}>
+        <div className="dmodal-head">
+          <h3>{officeName} 직원 명단{staff ? ` (${staff.count}명)` : ""}</h3>
+          <button className="dmodal-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
+        </div>
+        {!staff ? <Loading /> : (
+          <>
+            <div className="dmodal-list">
+              {staff.items.map((s, i) => (
+                <div key={s.name + i} className="drow" style={{ alignItems: "center" }}>
+                  <span className="drow-main">
+                    <span className="drow-name">
+                      {s.name}
+                      {s.position === "대표" && <b style={{ color: "#1268d3", marginLeft: 6, fontSize: 12 }}>대표</b>}
+                    </span>
+                    <span className="drow-metrics">
+                      {s.role && <span>{s.role}</span>}
+                      {s.position && s.position !== "대표" && <span>{s.position}</span>}
+                      {s.status && <span className="muted">{s.status}</span>}
+                    </span>
+                  </span>
+                </div>
+              ))}
+              {staff.items.length === 0 && <div className="muted" style={{ padding: 16 }}>공시된 직원 정보가 없습니다.</div>}
+            </div>
+            <div className="muted" style={{ fontSize: 11.5, padding: "8px 2px 0" }}>
+              출처: 국가공간정보포털(V-World) 부동산중개업 공시{asOf && ` · ${asOf} 기준`}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function telHref(s: string | null | undefined): string | null {
   if (!s) return null;
   const first = s.split(/\s+/)[0].replace(/[^\d]/g, "");
@@ -86,6 +130,17 @@ export default function Realtor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewSummary, setReviewSummary] = useState<ReviewSummary | null>(null);
+  const [staff, setStaff] = useState<StaffResp | null>(null);
+  const [staffOpen, setStaffOpen] = useState(false);
+
+  const openStaff = () => {
+    setStaffOpen(true);
+    if (staff || !realtorId || !API_BASE) return;
+    fetch(`${API_BASE}/realtor/${encodeURIComponent(realtorId)}/staff`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((j: StaffResp) => setStaff(j))
+      .catch(() => setStaff({ count: 0, as_of: null, items: [] }));
+  };
 
   const scrollToReviews = () => {
     document.getElementById("realtor-reviews")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -246,7 +301,10 @@ export default function Realtor() {
             <div className="stat-value">{emp.total}<span style={{ fontSize: 14 }}>명</span>
               {licPct != null && <span className="stat-lic">자격증 {licPct}%</span>}
             </div>
-            <div className="stat-sub">공인중개사 {emp.licensed}{emp.assistant > 0 && ` · 중개보조 ${emp.assistant}`}</div>
+            <div className="stat-sub">
+              공인중개사 {emp.licensed}{emp.assistant > 0 && ` · 중개보조 ${emp.assistant}`}
+              <button type="button" className="staff-more" onClick={openStaff}>더보기 ›</button>
+            </div>
           </div>
         )}
         {/* 4. 업력 */}
@@ -324,6 +382,12 @@ export default function Realtor() {
         {data.vworld?.match_type && ` · 매칭: ${data.vworld.match_type}`}
         {data.vworld?.registered_ymd && ` · 등록일 ${data.vworld.registered_ymd}`}
       </div>
+
+      {/* ── 소속 직원 명단 팝업 (V-World 공시) ── */}
+      {staffOpen && (
+        <StaffModal officeName={data.realtor_name ?? data.realtor_id} staff={staff}
+          onClose={() => setStaffOpen(false)} />
+      )}
     </>
   );
 }
@@ -437,7 +501,7 @@ function RealtorListings({ realtorId, breakdown }: { realtorId: string; breakdow
                   </div>
                   {l.address && <div className="rl-lc-addr"><MapPin size={11} aria-hidden /> {l.address}</div>}
                   <div className="rl-lc-meta">
-                    {[l.area2_m2 ? `전용 ${l.area2_m2}㎡` : "", l.floor_info ? `${l.floor_info}층` : "",
+                    {[l.area2_m2 ? areaLabel(l.area2_m2) : "", l.floor_info ? `${l.floor_info}층` : "",
                       l.direction, l.confirm_ymd ? `확인 ${rlFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ")}
                   </div>
                 </a>

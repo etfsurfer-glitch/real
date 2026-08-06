@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, Image as ImageIcon } from "lucide-react";
 import { CARD_BGS } from "../lib/cardBackgrounds";
+import { areaLabel } from "../lib/area";
 import { downloadCardPng } from "../lib/share";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -113,14 +114,14 @@ const REC_MODES: Mode[] = [
     defaultTitle: (r) => `${r} 타입별 신고가 경신 TOP`,
     url: (p) => `${API_BASE}/stats/tx-record-high?${p}`,
     rows: (d) => d.items ?? [],
-    name: (it) => it.complex_name, sub: (it) => `${it.region_name} · 전용 ${it.area_key}㎡`,
+    name: (it) => it.complex_name, sub: (it) => `${it.region_name} · ${areaLabel(it.area_key)}`,
     trades: true, period: true,
     orders: [{ key: "premium", label: "상승률순" }, { key: "price", label: "가격순" }, { key: "recent", label: "최신순" }],
     cols: [
       { key: "price", label: "신고가", get: (it) => eok(it.record_price), strong: true },
       { key: "premium", label: "상승률", get: (it) => pct(it.premium, true), strong: true },
       { key: "prev", label: "직전가", get: (it) => eok(it.prev_high) },
-      { key: "area", label: "전용㎡", get: (it) => `${it.area_key}㎡` },
+      { key: "area", label: "전용㎡", get: (it) => areaLabel(it.area_key) },
       { key: "floor", label: "층", get: (it) => (it.floor != null ? `${it.floor}층` : "-") },
       { key: "date", label: "경신일", get: (it) => (it.record_date || "").slice(2).replace(/-/g, ".") },
       { key: "gap", label: "경신간격", get: (it) => (it.months_since != null ? `${it.months_since.toFixed(0)}개월` : "-") },
@@ -149,7 +150,7 @@ const REC_MODES: Mode[] = [
       { key: "price", label: "신고가", get: (it) => eok(it.record_price), strong: true },
       { key: "premium", label: "상승률", get: (it) => pct(it.premium, true), strong: true },
       { key: "prev", label: "직전가", get: (it) => eok(it.prev_high) },
-      { key: "area", label: "전용㎡", get: (it) => `${it.area_key}㎡` },
+      { key: "area", label: "전용㎡", get: (it) => areaLabel(it.area_key) },
       { key: "floor", label: "층", get: (it) => (it.floor != null ? `${it.floor}층` : "-") },
       { key: "date", label: "경신일", get: (it) => (it.record_date || "").slice(2).replace(/-/g, ".") },
       { key: "hh", label: "세대수", get: (it) => (it.households ? it.households.toLocaleString() : "-") },
@@ -165,7 +166,7 @@ const REC_MODES: Mode[] = [
     trades: true, period: true,
     cols: [
       { key: "price", label: "거래가", get: (it) => eok(it.price), strong: true },
-      { key: "area", label: "전용㎡", get: (it) => (it.excl_use_ar ? `${Math.round(it.excl_use_ar)}㎡` : "-") },
+      { key: "area", label: "전용㎡", get: (it) => areaLabel(it.excl_use_ar) },
       { key: "floor", label: "층", get: (it) => (it.floor != null ? `${it.floor}층` : "-") },
       { key: "deal", label: "거래유형", get: (it) => dg(it.dealing_gbn) },
       { key: "yr", label: "준공", get: (it) => (it.build_year || "-") },
@@ -210,7 +211,7 @@ const SOURCES: Src[] = [
       { key: "realmin", label: "실거래최저", get: (it) => eok(it.min_real) },
       { key: "realmax", label: "실거래최고", get: (it) => eok(it.max_real) },
       { key: "area", label: "평형", get: (it) => it.area_name || "-" },
-      { key: "excl", label: "전용㎡", get: (it) => (it.avg_excl ? `${Math.round(it.avg_excl)}㎡` : "-") },
+      { key: "excl", label: "전용㎡", get: (it) => areaLabel(it.avg_excl) },
       { key: "n", label: "매물수", get: (it) => (it.n_listings ? `${it.n_listings}건` : "-") },
       { key: "nreal", label: "실매물수", get: (it) => (it.n_real ? `${it.n_real}건` : "-") },
       { key: "hh", label: "세대수", get: (it) => (it.households ? it.households.toLocaleString() : "-") },
@@ -222,14 +223,14 @@ const SOURCES: Src[] = [
     defaultTitle: (r) => `${r} 호가 vs 실거래 괴리 TOP`,
     url: (p) => `${API_BASE}/stats/tx-asking-vs-real?${p}`,
     rows: (d) => d.items ?? [],
-    name: (it) => it.complex_name, sub: (it) => `${it.region_name} · 전용 ${it.area_key}㎡`,
+    name: (it) => it.complex_name, sub: (it) => `${it.region_name} · ${areaLabel(it.area_key)}`,
     period: true, orderParam: "order", orderLabel: "관점",
     orders: [{ key: "desc", label: "호가 프리미엄(매도우위)" }, { key: "asc", label: "저평가 역전(호가<실거래)" }],
     cols: [
       { key: "gap", label: "괴리율", get: (it) => pct(it.gap_rate, true), strong: true },
       { key: "ask", label: "매물호가", get: (it) => eok(it.avg_asking), strong: true },
       { key: "real", label: "실거래가", get: (it) => eok(it.avg_real) },
-      { key: "area", label: "전용㎡", get: (it) => `${it.area_key}㎡` },
+      { key: "area", label: "전용㎡", get: (it) => areaLabel(it.area_key) },
       { key: "nask", label: "매물수", get: (it) => (it.n_asking ? `${it.n_asking}건` : "-") },
       { key: "nreal", label: "실거래수", get: (it) => (it.n_real ? `${it.n_real}건` : "-") },
     ],
@@ -246,7 +247,7 @@ const SOURCES: Src[] = [
     cols: [
       { key: "py", label: "평당가", get: (it) => eok(it.pyeong_price), strong: true },
       { key: "avg", label: "평균거래가", get: (it) => eok(it.avg_price), strong: true },
-      { key: "area", label: "전용㎡", get: (it) => `${it.area_key}㎡` },
+      { key: "area", label: "전용㎡", get: (it) => areaLabel(it.area_key) },
       { key: "n", label: "거래수", get: (it) => (it.n ? `${it.n}건` : "-") },
     ],
   },
@@ -287,7 +288,7 @@ const SOURCES: Src[] = [
       { key: "vp", label: "전고점比", get: (it) => (it.vp != null ? `${it.vp > 0 ? "+" : ""}${it.vp}%` : "-") },
       { key: "n12", label: "12개월거래", get: (it) => (it.n12 ? `${it.n12}건` : "-") },
       { key: "py", label: "평형", get: (it) => (it.py ? `${it.py}평` : "-") },
-      { key: "ea", label: "전용㎡", get: (it) => (it.ea != null ? `${it.ea}㎡` : "-") },
+      { key: "ea", label: "전용㎡", get: (it) => areaLabel(it.ea) },
       { key: "hh", label: "세대수", get: (it) => (it.hh ? it.hh.toLocaleString() : "-") },
       { key: "ah", label: "평형세대", get: (it) => (it.ah != null ? `${it.ah}세대` : "-") },
       { key: "age", label: "연식", get: (it) => (it.y ? `${new Date().getFullYear() - +String(it.y).slice(0, 4)}년` : "-") },
@@ -296,6 +297,31 @@ const SOURCES: Src[] = [
       { key: "an", label: "매물", get: (it) => (it.an > 0 ? `${it.an}/${it.au}` : "-") },
       { key: "sw", label: "지하철", get: (it) => (it.sw ? `${it.swm}분` : "-") },
       { key: "sc", label: "배정초", get: (it) => (it.scm != null ? `${it.scm}분` : "-") },
+    ],
+  },
+  {
+    // 매물 설명란에서 뽑은 특수조건(주인전세·세안고·주인대출). 조건 자체가 카드의 주제라
+    // trades/period 없이 orders 로 조건을 고르게 한다.
+    key: "special", label: "주인",
+    defaultTitle: (r) => `${r} 주인 (대출·전세·세안고)`,
+    url: (p) => `${API_BASE}/stats/special-deals?${p}`,
+    rows: (d) => d.items ?? [],
+    name: (it) => it.complex_name,
+    sub: (it) => `${it.region_name} · ${it.area_name}㎡`,
+    orderParam: "kind", orderLabel: "조건",
+    orders: [
+      { key: "owner", label: "주인전세" },
+      { key: "tenant", label: "세안고" },
+      { key: "loan", label: "주인대출" },
+    ],
+    cols: [
+      { key: "price", label: "호가", get: (it) => eok(it.price), strong: true },
+      { key: "matched", label: "조건", get: (it) => it.matched || "-", strong: true },
+      { key: "area", label: "전용㎡", get: (it) => (it.area_name ? `${it.area_name}㎡` : "-") },
+      { key: "floor", label: "층", get: (it) => it.floor_info || "-" },
+      { key: "dir", label: "향", get: (it) => it.direction || "-" },
+      { key: "realtor", label: "중개사", get: (it) => it.realtor_name || "-" },
+      { key: "ymd", label: "확인일", get: (it) => (it.confirm_ymd || "").slice(2).replace(/(\d{2})(\d{2})(\d{2})/, "$1.$2.$3") },
     ],
   },
   {

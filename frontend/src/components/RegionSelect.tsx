@@ -14,9 +14,26 @@ export function useRegionFilter() {
   const init = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const _ls = (k: string) => { try { return window.localStorage.getItem("koczip:region:" + k) || ""; } catch { return ""; } };
   const _save = (k: string, v: string) => { try { window.localStorage.setItem("koczip:region:" + k, v); } catch { /* ignore */ } };
+  // URL이 상위 지역을 지정했는데 하위가 URL에 없으면, LS 하위값은 그 상위에 속할 때만 복원.
+  // (다른 페이지에서 저장된 타지역 동이 붙어 '강남구+마포 동' 같은 불일치 조합이 되는 것 방지)
   const [sido, setSidoRaw] = useState(() => init.get("sido") || _ls("sido"));
-  const [sigungu, setSigunguRaw] = useState(() => init.get("sigungu") || _ls("sigungu"));
-  const [dong, setDongRaw] = useState(() => init.get("dong") || _ls("dong"));
+  const [sigungu, setSigunguRaw] = useState(() => {
+    const u = init.get("sigungu");
+    if (u) return u;
+    const uSido = init.get("sido");
+    const ls = _ls("sigungu");
+    return uSido && ls && !ls.startsWith(uSido.slice(0, 2)) ? "" : ls;
+  });
+  const [dong, setDongRaw] = useState(() => {
+    const u = init.get("dong");
+    if (u) return u;
+    const uSgg = init.get("sigungu");
+    const ls = _ls("dong");
+    if (uSgg && ls && !ls.startsWith(uSgg.slice(0, 5))) return "";
+    const uSido = init.get("sido");
+    if (uSido && ls && !ls.startsWith(uSido.slice(0, 2))) return "";
+    return ls;
+  });
 
   useEffect(() => {
     if (!API_BASE) return;

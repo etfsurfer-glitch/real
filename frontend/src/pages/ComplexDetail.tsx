@@ -334,8 +334,7 @@ export default function ComplexDetail() {
       </div>
 
       <RequestCta compact
-        title={`${complex.complex_name} 매물을 찾고 계신가요?`}
-        sub="원하는 층·향·예산을 남기시면 이 동네 중개사무소가 맞는 매물을 찾아 연락드려요."
+        title={`${complex.complex_name}, 원하는 층·향·예산만 남겨보세요`}
         q={`${complex.dong_name || ""} ${complex.complex_name}`.trim()} />
 
       {/* 소메뉴 탭 — 세로로 길던 섹션들을 탭으로 분리 */}

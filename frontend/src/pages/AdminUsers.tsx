@@ -81,40 +81,46 @@ export default function AdminUsers() {
         : users.length === 0 ? <div className="muted">아직 가입한 사용자가 없습니다.</div>
         : (
         <div style={{ overflowX: "auto" }}>
-          <table>
+          <table className="au-table">
             <thead>
               <tr>
-                <th>#</th><th>회원번호</th><th>회원</th><th>이메일</th><th>전화</th>
-                <th>가입경로</th><th>중개사무소</th><th>홈페이지</th><th>가입일</th><th>최근 로그인</th><th>포인트</th>
+                <th>#</th><th>회원</th><th>연락처</th><th>경로</th>
+                <th>중개사무소 · 홈페이지</th><th>가입 · 최근접속</th><th>포인트 · 관리</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u, i) => (
                 <tr key={u.id}>
                   <td style={{ color: "#999" }}>{i + 1}</td>
-                  <td style={{ fontSize: 12, fontFamily: "monospace", color: u.member_no ? "#1268d3" : "#bbb" }}>
-                    {u.member_no ? `#${u.member_no}` : "—"}
-                  </td>
+                  {/* 회원: 아바타 + 이름 + 회원번호 */}
                   <td>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                       {u.avatar
-                        ? <img src={u.avatar} alt="" width={24} height={24} style={{ borderRadius: "50%" }} />
-                        : <span style={{ width: 24, height: 24, borderRadius: "50%", background: "#e3e8ee", display: "inline-block" }} />}
-                      <b>{u.name ?? "회원"}</b>
+                        ? <img src={u.avatar} alt="" width={24} height={24} style={{ borderRadius: "50%", flexShrink: 0 }} />
+                        : <span style={{ width: 24, height: 24, borderRadius: "50%", background: "#e3e8ee", display: "inline-block", flexShrink: 0 }} />}
+                      <span style={{ minWidth: 0 }}>
+                        <b>{u.name ?? "회원"}</b>
+                        <span style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: u.member_no ? "#1268d3" : "#bbb" }}>
+                          {u.member_no ? `#${u.member_no}` : "—"}
+                        </span>
+                      </span>
                     </span>
                   </td>
-                  <td style={{ fontSize: 12 }}>{u.email ?? "-"}</td>
+                  {/* 연락처: 이메일 + 전화 */}
                   <td style={{ fontSize: 12 }}>
-                    {u.phone ?? "-"}
-                    {u.phone_verified && (
-                      <span className="ctx-badge" style={{ background: "#e6f7ed", color: "#1a7f4b", marginLeft: 5 }}>인증</span>
-                    )}
+                    <span style={{ display: "block", wordBreak: "break-all", color: "#33425a" }}>{u.email ?? "-"}</span>
+                    <span style={{ display: "block", color: "#5a6b80" }}>
+                      {u.phone ?? "-"}
+                      {u.phone_verified && (
+                        <span className="ctx-badge" style={{ background: "#e6f7ed", color: "#1a7f4b", marginLeft: 5 }}>인증</span>
+                      )}
+                    </span>
                   </td>
                   <td><span className="ctx-badge" style={{ background: "#fee500", color: "#3a1d1d" }}>{u.provider ?? "-"}</span></td>
-                  <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                  {/* 중개사무소 + 홈페이지 */}
+                  <td style={{ fontSize: 12 }}>
                     {u.realtor_id ? (
-                      <Link to={`/realtor/${encodeURIComponent(u.realtor_id)}`}
-                        style={{ color: "#1268d3", fontWeight: 600 }}>
+                      <Link to={`/realtor/${encodeURIComponent(u.realtor_id)}`} style={{ color: "#1268d3", fontWeight: 600 }}>
                         {u.realtor_name ?? u.realtor_id}
                         <span className="ctx-badge" style={{ marginLeft: 5,
                           background: u.realtor_status === "pending" ? "#fff3e0" : (u.realtor_role === "owner" ? "#e8f1fd" : "#f0e9ff"),
@@ -125,25 +131,26 @@ export default function AdminUsers() {
                         </span>
                       </Link>
                     ) : <span style={{ color: "#ccc" }}>-</span>}
-                  </td>
-                  <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-                    {u.homepage_slug ? (
+                    {u.homepage_slug && (
                       <a href={`https://real.koczip.com/${u.homepage_slug}`} target="_blank" rel="noreferrer"
-                        style={{ color: "#1268d3", fontWeight: 700, textDecoration: "none" }}>
+                        style={{ display: "block", color: "#1268d3", fontWeight: 700, textDecoration: "none", marginTop: 2 }}>
                         /{u.homepage_slug}
                         <span className="ctx-badge" style={{ marginLeft: 5, background: u.homepage_published ? "#e6f7ed" : "#f1f3f5", color: u.homepage_published ? "#1a7f4b" : "#999" }}>
                           {u.homepage_published ? "공개" : "비공개"}
                         </span>
                       </a>
-                    ) : <span style={{ color: "#ccc" }}>—</span>}
+                    )}
                   </td>
-                  <td className="num" style={{ fontSize: 12 }}>{fmt(u.created_at)}</td>
-                  <td className="num" style={{ fontSize: 12 }}>{fmt(u.last_sign_in_at)}</td>
+                  {/* 가입 · 최근접속 */}
+                  <td className="num" style={{ fontSize: 11.5, whiteSpace: "nowrap", color: "#5a6b80" }}>
+                    <span style={{ display: "block" }}>{fmt(u.created_at)}</span>
+                    <span style={{ display: "block", color: "#9aa7b8" }}>{fmt(u.last_sign_in_at)}</span>
+                  </td>
                   <td style={{ whiteSpace: "nowrap" }}>
                     <button className="contact-btn" style={{ background: "#eef5ff", color: "#1268d3", padding: "3px 9px", fontSize: 12 }}
                       onClick={() => grantPoints(u)}>지급/차감</button>
                     {u.phone_verified && (
-                      <button className="contact-btn" style={{ background: "#fff0f0", color: "#c0392b", padding: "3px 9px", fontSize: 12, marginLeft: 6 }}
+                      <button className="contact-btn" style={{ background: "#fff0f0", color: "#c0392b", padding: "3px 9px", fontSize: 12, marginTop: 5 }}
                         onClick={() => unverifyPhone(u)}>인증해제</button>
                     )}
                   </td>

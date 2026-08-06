@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { ShieldCheck, ShieldAlert, AlertTriangle, Search, Home, X, ExternalLink } from "lucide-react";
-import { loadKakao, geocodeRegion } from "../lib/kakaomap";
+import { loadKakao, geocodeRegion, attachMapControls } from "../lib/kakaomap";
 import { useRegionFilter } from "../components/RegionSelect";
 import { openListingPopup } from "../lib/listingPopup";
+import { areaLabel } from "../lib/area";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -80,6 +81,7 @@ export default function JeonseCheck() {
       if (disposed || !mapEl.current) return;
       const kakao = window.kakao;
       const map = new kakao.maps.Map(mapEl.current, { center: new kakao.maps.LatLng(37.5412, 126.8407), level: 4 });
+      attachMapControls(map, mapEl.current);
       mapRef.current = map;
       map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
       const clear = () => { overlays.current.forEach((o) => o.setMap(null)); overlays.current = []; };
@@ -203,7 +205,7 @@ export default function JeonseCheck() {
                   </div>
                   {unit && (
                     <div className="kkt-gongsi">
-                      <div className="jc-gongsi-row"><span>공시가격 (전용 {unit.area_m2}㎡)</span><b>{won(unit.gongsi)}</b></div>
+                      <div className="jc-gongsi-row"><span>공시가격 ({areaLabel(unit.area_m2)})</span><b>{won(unit.gongsi)}</b></div>
                       <div className="jc-gongsi-row hug"><span>HUG 보증한도 (공시가×126%)</span><b>{won(unit.hug_limit)}</b></div>
                       <div className="jc-depbox"><input type="number" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="전세 보증금 (만원)" autoFocus /></div>
                       {dep && <div className="muted" style={{ fontSize: 11.5 }}>{won(depWon)}</div>}
@@ -238,10 +240,10 @@ export default function JeonseCheck() {
                 <div className="kkt-label">이 건물 실거래</div>
                 <div className="kkt-deals">
                   {res.building_deals.sales.slice(0, 3).map((s, i) => (
-                    <div className="kkt-deal" key={"s" + i}><span className="t sale">매매</span><span className="d">{s.date}</span><span className="a">{s.area_m2}㎡{s.floor ? `·${s.floor}층` : ""}</span><b>{won(s.amount)}</b></div>
+                    <div className="kkt-deal" key={"s" + i}><span className="t sale">매매</span><span className="d">{s.date}</span><span className="a">{areaLabel(s.area_m2)}{s.floor ? `·${s.floor}층` : ""}</span><b>{won(s.amount)}</b></div>
                   ))}
                   {res.building_deals.rents.slice(0, 4).map((r, i) => (
-                    <div className="kkt-deal" key={"r" + i}><span className={`t ${r.monthly ? "wol" : "jeon"}`}>{r.monthly ? "월세" : "전세"}</span><span className="d">{r.date}</span><span className="a">{r.area_m2}㎡{r.floor ? `·${r.floor}층` : ""}</span><b>{won(r.deposit)}{r.monthly ? `/${won(r.monthly)}` : ""}</b></div>
+                    <div className="kkt-deal" key={"r" + i}><span className={`t ${r.monthly ? "wol" : "jeon"}`}>{r.monthly ? "월세" : "전세"}</span><span className="d">{r.date}</span><span className="a">{areaLabel(r.area_m2)}{r.floor ? `·${r.floor}층` : ""}</span><b>{won(r.deposit)}{r.monthly ? `/${won(r.monthly)}` : ""}</b></div>
                   ))}
                 </div>
               </>
@@ -255,7 +257,7 @@ export default function JeonseCheck() {
                   {res.building_listings.slice(0, 6).map((l) => (
                     <button className="kkt-listing" key={l.article_no} onClick={() => openListingPopup(l.naver_url)}>
                       <span className="kkt-l-t">{l.trade}</span>
-                      <span className="kkt-l-m">{l.area_m2}㎡{l.dup && l.dup > 1 ? ` · ${l.dup}곳` : ""}</span>
+                      <span className="kkt-l-m">{areaLabel(l.area_m2)}{l.dup && l.dup > 1 ? ` · ${l.dup}곳` : ""}</span>
                       {l.grade && GRADE[l.grade] && <span className="kkt-l-g" style={{ background: GRADE[l.grade].c + "1f", color: GRADE[l.grade].c }}>{l.grade} {l.ratio}%</span>}
                       <b>{won(l.price)}{l.trade === "월세" && l.rent ? `/${won(l.rent)}` : ""}</b>
                       <ExternalLink size={12} className="kkt-l-x" />

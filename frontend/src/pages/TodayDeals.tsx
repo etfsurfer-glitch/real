@@ -1,4 +1,6 @@
 import { useMemo, useRef, useState } from "react";
+import FavHeart from "../components/FavHeart";
+import { areaLabel } from "../lib/area";
 import { Link } from "react-router-dom";
 import ShareBar from "../components/ShareBar";
 import { Flame, TrendingUp } from "lucide-react";
@@ -83,11 +85,11 @@ function HighCard({ c, rank, color, monthly }: { c: Card; rank: number; color: s
     <Link to={`/complex/${c.complex_no}`} className="news-card">
       <div className="news-rank" style={{ background: color + "14", color }}>{rank}</div>
       <div className="news-body">
-        <div className="news-title"><span className="nm">{c.complex_name}</span></div>
+        <div className="news-title"><span className="nm">{c.complex_name}</span><FavHeart complexNo={String(c.complex_no)} complexName={c.complex_name} /></div>
         <div className="news-region">
           <span>{shortRegion(c.region)}</span>
           {c.floor ? <span className="news-chip">{c.floor}층</span> : null}
-          <span className="news-chip">전용 {c.area}㎡</span>
+          <span className="news-chip">{areaLabel(Number(c.area))}</span>
           <span className="news-date">{c.date}</span>
         </div>
         <div className="news-price">

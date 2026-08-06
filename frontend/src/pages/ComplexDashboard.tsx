@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { Loading } from "../components/Loading";
 import ShareBar from "../components/ShareBar";
 import SubwayModal from "../components/SubwayModal";
@@ -7,6 +8,7 @@ import { Trophy, TrendingUp, Home, BadgePercent, ChevronRight, Flame, Layers, Ma
 import { RentHistModal, SaleHistModal, fmtDot, type RentLike, type SaleLike } from "../lib/txhist";
 import ListingAnalysis from "./../components/ListingAnalysis";
 import { BarChart3 } from "lucide-react";
+import { areaLabel } from "../lib/area";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -70,6 +72,15 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
   const [schoolOpen, setSchoolOpen] = useState(false);
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const shareRef = useRef<HTMLDivElement>(null);
+  // 주상복합은 같은 건물이 아파트/오피스텔 두 단지로 갈린다(전국 8,023곳·86만 세대).
+  // 실거래·시세가 실제로 달라 합치면 안 되지만, 사용자는 한 건물로 인식하므로 오갈 길을 준다.
+  const [siblings, setSiblings] = useState<{ complex_no: string; complex_name: string; type_name: string; households: number }[]>([]);
+  useEffect(() => {
+    if (!API || !complexNo) { setSiblings([]); return; }
+    fetch(`${API}/complexes/${complexNo}/siblings`)
+      .then((r) => r.json()).then((j) => setSiblings(j.items ?? [])).catch(() => setSiblings([]));
+  }, [complexNo]);
+
   useEffect(() => {
     if (!API) return;
     fetch(`${API}/complex/${complexNo}/summary`).then((r) => r.json()).then(setS).catch(() => setS(null));
@@ -100,9 +111,19 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
     <div className="cdash share-target" ref={shareRef}>
       {subwayOpen && complexNo && <SubwayModal complexNo={complexNo} onClose={() => setSubwayOpen(false)} />}
       {schoolOpen && complexNo && <SchoolModal complexNo={complexNo} onClose={() => setSchoolOpen(false)} />}
-      <div className="cdash-share">
-        <ShareBar targetRef={shareRef} title={`${s.complex_name} 단지 종합`} fileName={`콕집_${s.complex_name}`} />
-      </div>
+      <ShareBar targetRef={shareRef} title={`${s.complex_name} 단지 종합`} fileName={`콕집_${s.complex_name}`} />
+      {siblings.length > 0 && (
+        <div className="cx-sibling">
+          <span className="cx-sibling-lb">같은 건물</span>
+          {siblings.map((sb) => (
+            <Link key={sb.complex_no} to={`/complex/${sb.complex_no}`}>
+              <span className={"hood-cx-ty ty-" + (sb.type_name === "아파트" ? "apt" : "etc")}>{sb.type_name}</span>
+              {sb.complex_name} {sb.households > 0 && `· ${sb.households.toLocaleString()}세대`}
+            </Link>
+          ))}
+          <span className="cx-sibling-lb">아파트와 오피스텔은 시세가 달라 따로 봅니다</span>
+        </div>
+      )}
       {/* 단지 정보 */}
       <div className="cdash-info">
         {(s.region || s.subway) && (
@@ -134,7 +155,7 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
       {/* 와우 스탯 */}
       <div className="cdash-stats">
         <Stat accent="gold" icon={<Trophy size={17} />} label="역대 최고가"
-          value={won(rec?.price)} sub={rec ? `전용 ${rec.area_key}㎡ · ${ymd(rec.date)}${prem != null ? ` · 직전 +${prem}%` : ""}` : "기록 없음"} />
+          value={won(rec?.price)} sub={rec ? `${areaLabel(rec.area_key)} · ${ymd(rec.date)}${prem != null ? ` · 직전 +${prem}%` : ""}` : "기록 없음"} />
         <Stat accent="red" icon={<TrendingUp size={17} />} label="최근 실거래가"
           value={won(latest?.price)} sub={latest ? `${ymd(latest.date)} 거래${latest.is_silv ? " · 분양권" : ""}` : "거래 없음"} onClick={() => onGo("tx")} />
         <Stat accent="blue" icon={<Home size={17} />} label="현재 매물"
@@ -161,7 +182,7 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
             {s.recent_tx.map((t, i) => (
               <div key={i} className="cdash-tx-row">
                 <span className="cdash-tx-date">{ymd(t.date)}</span>
-                <span className="cdash-tx-meta">전용 {t.area != null ? t.area.toFixed(2) : "-"}㎡ · {t.floor ?? "-"}층</span>
+                <span className="cdash-tx-meta">{areaLabel(t.area)} · {t.floor ?? "-"}층</span>
                 <span className="cdash-tx-price">{won(t.price)}</span>
               </div>
             ))}
@@ -199,7 +220,7 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
                     )}
                   </span>
                   <span className="txf-meta">
-                    {t.area != null ? `${Math.round(t.area)}㎡` : "-"}
+                    {areaLabel(t.area)}
                     {t.floor != null && ` · ${t.floor}층`}
                     {t.dong && ` · ${t.dong}${String(t.dong).endsWith("동") ? "" : "동"}`}
                   </span>
@@ -234,7 +255,7 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
             {topTypes.map((t) => (
               <div key={t.area_name} className="cdash-type">
                 <div className="cdash-type-name">{t.area_name} <span className="muted">매물 {t.sale_count + t.jeonse_count + t.rent_count}</span></div>
-                <div className="cdash-type-area">{t.exclusive_area ? `전용 ${t.exclusive_area}㎡` : ""}{t.supply_area ? ` · 공급 ${t.supply_area}㎡` : ""}{t.type_households ? ` · ${t.type_households}세대` : ""}</div>
+                <div className="cdash-type-area">{t.exclusive_area ? areaLabel(t.exclusive_area) : ""}{t.supply_area ? ` · 공급 ${t.supply_area}㎡` : ""}{t.type_households ? ` · ${t.type_households}세대` : ""}</div>
                 <div className="cdash-type-rows">
                   <div className="cdash-type-row"><span className="tag sale">매매</span>
                     <b>{t.sale_min ? `${won(t.sale_min)} ~ ${won(t.sale_max)}` : "—"}</b></div>
@@ -257,7 +278,7 @@ export default function ComplexDashboard({ complexNo, onGo, children, tx }: {
               return (
                 <div key={i} className="cdash-deal">
                   <div className="cdash-deal-top">
-                    <span className="cdash-deal-area">{ex ? `전용 ${ex}㎡` : (d.area_name || "-")}</span>
+                    <span className="cdash-deal-area">{ex ? areaLabel(ex) : (d.area_name || "-")}</span>
                     {pct != null && <span className="cdash-deal-disc"><Flame size={10} strokeWidth={2.6} /> {pct}%↓</span>}
                   </div>
                   <div className="cdash-deal-price">{won(d.price)}</div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Users } from "lucide-react";
 import { Loading } from "../components/Loading";
 import {
   Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -15,6 +16,8 @@ type Rg = {
   n12: number; turnover: number | null;
   listings: Record<string, { n: number; units: number | null; avg: number | null }>;
   listing_per_hh: number | null; jeonse_rate: number | null;
+  pop: { net: number; net_young: number; period: string; scope?: string; trend: { ym: string; net: number }[] } | null;
+  pop_pressure: number | null;
   monthly: { m: string; n: number; avg: number | null }[];
 };
 
@@ -61,18 +64,18 @@ function RegionPicker({ label, color, onCode }: {
   }, [sido, sgg, dong]); // eslint-disable-line
 
   return (
-    <div style={{ flex: "1 1 280px" }}>
-      <div style={{ fontSize: 12.5, fontWeight: 750, color, marginBottom: 4 }}>{label}</div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <select value={sido} onChange={(e) => setSido(e.target.value)}>
+    <div className="pair-side">
+      <div className={"pair-side-h " + (color === A_COLOR ? "a" : "b")}>{label}</div>
+      <div className="pair-selects">
+        <select className="fsel" value={sido} onChange={(e) => setSido(e.target.value)}>
           <option value="">시·도 선택</option>
           {sidos.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
         </select>
-        <select value={sgg} onChange={(e) => setSgg(e.target.value)} disabled={!sido}>
+        <select className="fsel" value={sgg} onChange={(e) => setSgg(e.target.value)} disabled={!sido}>
           <option value="">시·군·구 전체</option>
           {sggs.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
         </select>
-        <select value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sgg}>
+        <select className="fsel" value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sgg}>
           <option value="">읍·면·동 전체</option>
           {dongs.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
         </select>
@@ -80,6 +83,8 @@ function RegionPicker({ label, color, onCode }: {
     </div>
   );
 }
+
+const sn = (v: number) => `${v > 0 ? "+" : ""}${v.toLocaleString()}명`;
 
 export default function RegionCompare() {
   const [codeA, setCodeA] = useState<string | null>(null);
@@ -121,6 +126,10 @@ export default function RegionCompare() {
     ["평균 매매호가", (r) => won(r.listings.A1?.avg)],
     ["평균 전세호가", (r) => won(r.listings.B1?.avg)],
     ["전세가율 (호가)", (r) => r.jeonse_rate != null ? `${r.jeonse_rate}%` : "-"],
+    // ── 인구이동(행안부 주민등록) — 최근 12개월 ──
+    ["순유입 (최근 1년)", (r) => r.pop ? sn(r.pop.net) + (r.pop.scope === "parent" ? " *" : "") : "-"],
+    ["20·30대 순유입", (r) => r.pop ? sn(r.pop.net_young) : "-"],
+    ["유입압력 (순유입/세대)", (r) => r.pop_pressure != null ? `${r.pop_pressure > 0 ? "+" : ""}${r.pop_pressure}%` : "-"],
   ];
 
   return (
@@ -130,7 +139,7 @@ export default function RegionCompare() {
         지역비교 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>시·도, 시·군·구, 읍·면·동 어느 조합이든 두 지역을 비교</span>
       </div>
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14 }}>
+      <div className="pair" style={{ marginBottom: 16 }}>
         <RegionPicker label="지역 A" color={A_COLOR} onCode={setCodeA} />
         <RegionPicker label="지역 B" color={B_COLOR} onCode={setCodeB} />
       </div>
@@ -140,24 +149,64 @@ export default function RegionCompare() {
       ) : error ? <div className="muted">비교 데이터를 불러오지 못했습니다 — 잠시 후 다시 선택해 주세요.</div>
       : loading || !data ? <Loading /> : (
         <>
-          <table style={{ width: "100%" }}>
+          <div className="pane" style={{ padding: "4px 0", overflowX: "auto" }}>
+          <table className="cmp-tbl">
             <thead>
               <tr>
-                <th style={{ width: "34%" }}>지표</th>
-                <th style={{ color: A_COLOR }}>{data.a.name}</th>
-                <th style={{ color: B_COLOR }}>{data.b.name}</th>
+                <th style={{ width: "38%" }}>지표</th>
+                <th style={{ color: A_COLOR, textAlign: "right" }}>{data.a.name}</th>
+                <th style={{ color: B_COLOR, textAlign: "right" }}>{data.b.name}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map(([label, get]) => (
                 <tr key={label}>
                   <td className="muted">{label}</td>
-                  <td>{get(data.a)}</td>
-                  <td>{get(data.b)}</td>
+                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{get(data.a)}</td>
+                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{get(data.b)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
+
+          {/* 인구 해석 — 전체와 청년의 방향이 갈리는 지역이 실제로 있다(서울: 전체 -3.5만, 청년 +1.1만).
+              표의 숫자만으로는 이 대비가 잘 안 읽혀 문장으로 한 줄 덧붙인다. */}
+          {(data.a.pop || data.b.pop) && (
+            <div style={{
+              display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px",
+              marginTop: 12, fontSize: 13, lineHeight: 1.6,
+              background: "var(--c-primary-tint)", border: "1px solid var(--c-border)",
+              borderRadius: "var(--r-md)",
+            }}>
+              <Users size={15} style={{ color: "var(--c-primary)", flexShrink: 0, marginTop: 2 }} />
+              <div>
+                {[data.a, data.b].map((r) => r.pop && (
+                  <div key={r.code}>
+                    <b>{r.name}</b>{" "}
+                    {r.pop.net >= 0 ? "인구가 순유입" : "인구가 순유출"}({sn(r.pop.net)})
+                    {r.pop.net < 0 && r.pop.net_young > 0
+                      ? " 중이지만 20·30대는 오히려 들어오고 있습니다"
+                      : r.pop.net > 0 && r.pop.net_young < 0
+                        ? " 중이지만 20·30대는 빠져나가고 있습니다"
+                        : r.pop.net_young >= 0
+                          ? `, 그중 20·30대가 ${r.pop.net_young.toLocaleString()}명입니다`
+                          : `, 20·30대도 ${Math.abs(r.pop.net_young).toLocaleString()}명 줄었습니다`}
+                    .
+                  </div>
+                ))}
+                <div className="muted" style={{ marginTop: 4, fontSize: 11.5 }}>
+                  {(data.a.pop?.scope === "parent" || data.b.pop?.scope === "parent") && (
+                    <>* 분당·수지 같은 일반구는 2024년 7월부터 구 단위 인구이동 통계가 제공되지 않아
+                    상위 시(市) 전체 값입니다 · </>
+                  )}
+                  행정안전부 주민등록 인구이동 {data.a.pop?.period ?? data.b.pop?.period} 기준 ·
+                  유입압력은 순유입을 아파트 재고세대로 나눈 값으로, 지역 크기를 보정해 비교합니다 ·
+                  읍·면·동은 인구이동 통계가 제공되지 않습니다
+                </div>
+              </div>
+            </div>
+          )}
 
           {chart.length > 1 && (
             <>

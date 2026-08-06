@@ -54,10 +54,10 @@ function SearchBox({ label, color, sel, onSel }: {
     return () => clearTimeout(t);
   }, [q]); // eslint-disable-line
   return (
-    <div style={{ flex: "1 1 260px" }}>
-      <div style={{ fontSize: 12.5, fontWeight: 750, color, marginBottom: 4 }}>{label}</div>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="단지명 검색 (2자 이상)"
-        style={{ width: "100%", boxSizing: "border-box" }} />
+    <div className="pair-side">
+      <div className={"pair-side-h " + (color === A_COLOR ? "a" : "b")}>{label}</div>
+      <input className="csearch-input" value={q} onChange={(e) => setQ(e.target.value)}
+        placeholder="단지명 검색 (2자 이상)" />
       {results.length > 0 && (
         <div className="chip-row" style={{ marginTop: 5 }}>
           {results.slice(0, 6).map((c) => (
@@ -138,7 +138,7 @@ export default function ComplexCompare() {
         단지비교 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>두 단지의 시세·실거래·매물·입지를 한 표로</span>
       </div>
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14 }}>
+      <div className="pair" style={{ marginBottom: 16 }}>
         <SearchBox label="단지 A" color={A_COLOR} sel={selA} onSel={setSelA} />
         <SearchBox label="단지 B" color={B_COLOR} sel={selB} onSel={setSelB} />
       </div>
@@ -149,7 +149,7 @@ export default function ComplexCompare() {
             <label key={lbl} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700,
               color: lbl === "A" ? A_COLOR : B_COLOR }}>
               {c.name} 평형
-              <select value={val} onChange={(e) => set(e.target.value)} style={{ fontSize: 12.5 }}>
+              <select className="fsel" value={val} onChange={(e) => set(e.target.value)}>
                 <option value="">전체 평형</option>
                 {c.areas.map((ar) => (
                   <option key={ar.name} value={ar.name}>
@@ -167,29 +167,31 @@ export default function ComplexCompare() {
       ) : error ? <div className="muted">비교 데이터를 불러오지 못했습니다 — 잠시 후 다시 선택해 주세요.</div>
       : loading || !data ? <Loading /> : (
         <>
-          <table style={{ width: "100%" }}>
+          <div className="pane" style={{ padding: "4px 0", overflowX: "auto" }}>
+          <table className="cmp-tbl">
             <thead>
               <tr>
                 <th style={{ width: "34%" }}>지표</th>
-                <th style={{ color: A_COLOR }}>{data.a.name}{data.a.area ? ` · ${data.a.area}` : ""}</th>
-                <th style={{ color: B_COLOR }}>{data.b.name}{data.b.area ? ` · ${data.b.area}` : ""}</th>
+                <th style={{ color: A_COLOR, textAlign: "right" }}>{data.a.name}{data.a.area ? ` · ${data.a.area}` : ""}</th>
+                <th style={{ color: B_COLOR, textAlign: "right" }}>{data.b.name}{data.b.area ? ` · ${data.b.area}` : ""}</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td className="muted">위치</td>
-                <td style={{ fontSize: 12.5 }}>{data.a.region}</td>
-                <td style={{ fontSize: 12.5 }}>{data.b.region}</td>
+                <td style={{ fontSize: 12.5, textAlign: "right" }}>{data.a.region}</td>
+                <td style={{ fontSize: 12.5, textAlign: "right" }}>{data.b.region}</td>
               </tr>
               {rows.map(([label, get]) => (
                 <tr key={label}>
                   <td className="muted">{label}</td>
-                  <td>{get(data.a)}</td>
-                  <td>{get(data.b)}</td>
+                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{get(data.a)}</td>
+                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{get(data.b)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
 
           {chart.length > 1 && (
             <>

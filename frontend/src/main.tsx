@@ -24,6 +24,33 @@ window.addEventListener("vite:preloadError", () => {
   window.location.reload();
 });
 
+// 일부 인앱 WebView(카카오/TWA)에서 SW 캐시 손상으로 styles.css만 실패해 '무스타일'로 뜨는 현상 자가복구.
+// styles.css의 .koczip-css-probe(position:absolute)가 적용됐는지 확인 → 안 됐으면 SW·캐시 정리 후 1회 새로고침.
+window.addEventListener("load", () => {
+  setTimeout(async () => {
+    if (sessionStorage.getItem("koczip:cssHeal")) return;   // 세션당 1회(루프 방지)
+    const probe = document.createElement("div");
+    probe.className = "koczip-css-probe";
+    probe.setAttribute("aria-hidden", "true");
+    document.body.appendChild(probe);
+    const styled = getComputedStyle(probe).position === "absolute";
+    probe.remove();
+    if (styled) return;   // CSS 정상
+    sessionStorage.setItem("koczip:cssHeal", "1");
+    try {
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch { /* 무시 */ }
+    window.location.reload();
+  }, 1500);
+});
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>

@@ -1,15 +1,17 @@
 import { useRef, useState } from "react";
+import FavHeart from "../components/FavHeart";
 import { Link } from "react-router-dom";
 import { Flame, ExternalLink } from "lucide-react";
 import { useFetchJson } from "../hooks/useFetchJson";
 import ShareBar from "../components/ShareBar";
 import { openListingPopup } from "../lib/listingPopup";
+import { areaLabel } from "../lib/area";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
 type Deal = {
   article_no: string; complex_no: string; complex_name: string;
-  area_name: string; price: number; avg_real: number; discount: number;
+  area_name: string; area2_m2: number | null; price: number; avg_real: number; discount: number;
   floor_info: string | null; direction: string | null;
   realtor_name: string | null; region_name: string | null; naver_url: string;
 };
@@ -39,8 +41,8 @@ function DealCard({ d, monthly }: { d: Deal; monthly?: boolean }) {
       <div className="deal-badge">-{pct}%</div>
       <div className="news-body">
         <div className="news-title">
-          <Link to={`/complex/${d.complex_no}`}>{d.complex_name}</Link>
-          <span className="news-area"> {d.area_name}㎡</span>
+          <Link to={`/complex/${d.complex_no}`}>{d.complex_name}</Link><FavHeart complexNo={String(d.complex_no)} complexName={d.complex_name} />
+          <span className="news-area"> {d.area2_m2 ? areaLabel(d.area2_m2) : `${d.area_name}㎡`}</span>
         </div>
         <div className="news-region">
           {d.region_name ?? ""}{d.floor_info ? ` · ${d.floor_info}` : ""}{d.direction ? ` · ${d.direction}` : ""}

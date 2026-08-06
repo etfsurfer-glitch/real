@@ -240,7 +240,6 @@ export function RealtorByDong() {
                       </em>
                     )}
                   </span>
-                  <span className="dong-m">매물 {r.listings.toLocaleString()}</span>
                   <span className="dong-m">직원 {r.staff_count ?? "-"}</span>
                   <span className="dong-m">업력 {r.tenure_years ?? "-"}년</span>
                 </RealtorRowLink>
@@ -257,7 +256,7 @@ export function RealtorByDong() {
               {topL && <> · 매물 1위 <b>{topL.realtor_name}</b> <b className="hot">{topL.listings.toLocaleString()}개</b></>}
             </span>
           </div>
-          <div className="hood-share"><ShareBar targetRef={shareRef} title={`${scope} 우리동네 중개사`} fileName={`콕집_우리동네중개사_${scope}`} /></div>
+          <ShareBar targetRef={shareRef} title={`${scope} 우리동네 중개사`} fileName={`콕집_우리동네중개사_${scope}`} />
           <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>매물·직원·업력 세 기준을 나란히 · 매물 범위는 위에서 선택.</p>
           <div className="rank-wrap">
             <RealtorRankCard title="매물 많은 곳" sub="현재 보유" icon={<Building2 size={16} strokeWidth={2.3} />} accent="blue"
@@ -440,7 +439,7 @@ export default function RealtorRanks() {
           </div>
         </div>
       </div>
-      <div className="hood-share"><ShareBar targetRef={shareRef} title="중개사무소 매물 보유 순위" fileName="콕집_중개사무소랭킹" /></div>
+      <ShareBar targetRef={shareRef} title="중개사무소 매물 보유 순위" fileName="콕집_중개사무소랭킹" />
       {(searchInput.trim().length > 0 || searchResults !== null) && (
         <div style={{ marginBottom: 24 }}>
           {(searching || searchInput.trim() !== searchTerm) && (

@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
+import FavHeart from "../components/FavHeart";
 import FetchError from "../components/FetchError";
 import { Link } from "react-router-dom";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { useFetchJson } from "../hooks/useFetchJson";
+import { areaLabel } from "../lib/area";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -88,8 +90,8 @@ export default function TxRecovery() {
                 return (
                   <tr key={r.complex_no + r.pyeong}>
                     <td>
-                      <Link to={`/complex/${r.complex_no}`} style={{ fontSize: 13 }}>{r.complex_name}</Link>
-                      <span className="muted" style={{ fontSize: 12 }}> {r.pyeong}㎡</span>
+                      <Link to={`/complex/${r.complex_no}`} style={{ fontSize: 13 }}>{r.complex_name}</Link><FavHeart complexNo={String(r.complex_no)} complexName={r.complex_name} />
+                      <span className="muted" style={{ fontSize: 12 }}> {Number.isNaN(Number(r.pyeong)) ? `${r.pyeong}㎡` : areaLabel(Number(r.pyeong))}</span>
                     </td>
                     <td style={{ fontSize: 12, color: "#555", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {r.region_name ?? "—"}

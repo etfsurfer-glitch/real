@@ -71,9 +71,9 @@ export function acquisitionTax(i: CalcInput): number {
 
 export const localEducationTax = (acq: number) => Math.floor(acq * 0.1);
 
-export function ruralSpecialTax(i: CalcInput, acq: number): number {
-  return i.houseCount <= 1 && !i.isOver85m2 && i.salePrice <= 6e8
-    ? 0 : Math.floor(acq * 0.1);
+export function ruralSpecialTax(i: CalcInput): number {
+  // 농어촌특별세 — 전용 85㎡ 초과 주택만 과세(취득가액의 0.2% = 표준세율 2%×10%). 85㎡ 이하는 비과세.
+  return i.isOver85m2 ? Math.floor(i.salePrice * 0.002) : 0;
 }
 
 export const registrationTax = (standardPrice: number) => Math.floor(standardPrice * 0.002);
@@ -99,11 +99,17 @@ export function nationalHousingBond(standardPrice: number, isCity: boolean): num
   return Math.floor(Math.floor(e * r) * 0.12);
 }
 
-// ---- 정부 대출규제 (2025.6.27·10.15 대책 기준 — 정책 변경 시 이 블록만 수정) ----
-//  · 수도권·규제지역: 2주택 이상 추가구입, 1주택 유지 추가구입 → 주담대 금지
-//  · 규제지역 LTV 50% (무주택·처분조건부, 생애최초 포함) / 수도권 비규제 70%
-//  · 비규제 지방: 무주택 70%, 생애최초 80%, 1주택 유지·다주택 60%
-//  · 수도권·규제지역 주담대 총액 캡: 15억↓ 6억 / 15~25억 4억 / 25억↑ 2억
+// ---- 정부 대출규제 (2025.10.15 주택시장 안정화 대책, 시행 10.16 기준) ----------
+//  검증(2026-07 웹 확인, 금융위·정책브리핑):
+//  · 규제지역 = 서울 25개구 전역 + 경기 12곳(과천·광명·하남·의왕·수원 영통/장안/팔달·
+//    성남 분당/수정/중원·안양 동안·용인 수지)
+//  · 규제지역 LTV 40%(무주택·처분조건부 1주택), 생애최초는 예외 70%(하향 미적용)
+//  · 규제지역 주담대 총액 캡: 15억↓ 6억 / 15~25억 4억 / 25억↑ 2억
+//    → 생애최초도 이 가격대별 캡은 동일 적용(LTV만 70% 우대). 예) 20억 생애최초=LTV14억이나 캡 4억.
+//  · 수도권 비규제: 실수요 LTV 70%, 총액 캡 6억(6.27 대책 유지)
+//  · 비규제 지방: 무주택 70%, 생애최초 80%, 1주택 유지·다주택 60%, 총액 캡 없음
+//  · 수도권·규제지역 다주택·1주택 유지(비처분) 추가구입 → 주담대 금지(6.27)
+//  ※ 정책 변경 시 이 블록만 수정. 실제 한도는 DSR·소득에 따라 더 낮을 수 있음(안내 별도).
 export type LoanReg = {
   banned: boolean; reason: string;
   ltv: number; ltvAmt: number; cap: number | null; maxLoan: number;
@@ -112,7 +118,7 @@ export type LoanReg = {
 
 export function loanRegulation(i: Pick<CalcInput,
   "salePrice" | "loanRegion" | "houseCount" | "isTempTwoHouse" | "isFirstTime">): LoanReg {
-  const capitalOrReg = i.loanRegion !== "other";
+  const capitalOrReg = i.loanRegion !== "other";   // 수도권(규제+비규제)
   const buyer =
     i.houseCount === 0 ? "무주택"
     : i.isTempTwoHouse ? "처분조건부(일시적 2주택)"
@@ -121,20 +127,26 @@ export function loanRegulation(i: Pick<CalcInput,
 
   if (capitalOrReg && (buyer === "다주택" || buyer === "1주택 유지")) {
     return { banned: true, buyerLabel: buyer,
-      reason: `수도권·규제지역 ${buyer} 추가 구입은 주담대가 금지됩니다 (2025.6.27 대책)`,
+      reason: `수도권·규제지역 ${buyer} 추가 구입은 주택담보대출이 금지됩니다 (6.27 대책)`,
       ltv: 0, ltvAmt: 0, cap: null, maxLoan: 0 };
   }
+
+  // LTV — 규제지역 40%(생애최초 예외 70%) / 수도권 비규제 70% / 지방 70%(생초 80%, 다주택·1주택 60%)
   let ltv: number;
-  if (i.loanRegion === "regulated") ltv = 0.5;
+  if (i.loanRegion === "regulated") ltv = i.isFirstTime ? 0.7 : 0.4;
   else if (i.loanRegion === "capital") ltv = 0.7;
   else if (buyer === "1주택 유지" || buyer === "다주택") ltv = 0.6;
   else ltv = i.isFirstTime ? 0.8 : 0.7;
-
   const ltvAmt = Math.floor(i.salePrice * ltv);
+
+  // 총액 캡 — 규제지역만 가격별 차등(생애최초는 6억 특례), 수도권 비규제는 6억 정액, 지방은 없음
   let cap: number | null = null;
-  if (capitalOrReg) {
+  if (i.loanRegion === "regulated") {
+    // 가격대별 총액 캡은 생애최초 포함 동일 적용 — 생애최초는 LTV(70%)만 우대
     cap = i.salePrice <= 1_500_000_000 ? 600_000_000
       : i.salePrice <= 2_500_000_000 ? 400_000_000 : 200_000_000;
+  } else if (i.loanRegion === "capital") {
+    cap = 600_000_000;
   }
   return { banned: false, buyerLabel: buyer, reason: "",
     ltv, ltvAmt, cap, maxLoan: Math.min(ltvAmt, cap ?? Infinity) };
@@ -149,18 +161,21 @@ export function defenseFundAmount(t: RegionalType): number {
   }
 }
 
+// 주택 매매·교환 중개보수 상한요율표(현행, 2021.10 개정 · 서울 조례 기준). 미만(<) 경계.
+// permille(‰) 정수연산으로 부동소수점 오차 없이 계산 → floor 이므로 법정 상한을 절대 초과하지 않음.
 const BROKERAGE = [
-  { max: 5e7, rate: 0.006, limit: 25e4 },
-  { max: 2e8, rate: 0.005, limit: null },
-  { max: 6e8, rate: 0.004, limit: null },
-  { max: 9e8, rate: 0.005, limit: null },
-  { max: Infinity, rate: 0.009, limit: null },
+  { max: 5e7, permille: 6, limit: 25e4 },    // 5천만 미만 0.6%(한도 25만)
+  { max: 2e8, permille: 5, limit: 80e4 },    // 5천만~2억 0.5%(한도 80만)
+  { max: 9e8, permille: 4, limit: null },    // 2억~9억 0.4%
+  { max: 12e8, permille: 5, limit: null },   // 9억~12억 0.5%
+  { max: 15e8, permille: 6, limit: null },   // 12억~15억 0.6%
+  { max: Infinity, permille: 7, limit: null }, // 15억 이상 0.7%
 ] as const;
 
 export function brokerageFee(price: number): number {
   for (const b of BROKERAGE) {
-    if (price <= b.max) {
-      const f = Math.floor(price * b.rate);
+    if (price < b.max) {
+      const f = Math.floor((price * b.permille) / 1000);  // 정수연산: 상한 초과·부동소수점 오차 없음
       return b.limit ? Math.min(f, b.limit) : f;
     }
   }
@@ -220,7 +235,7 @@ export function calculate(i: CalcInput): CalcResult {
     amount: acq, note: "주택 수·지역·면적·생애최초 기준 자동 계산" });
   items.push({ id: "edu", stage: "balance", category: "public", label: "지방교육세",
     amount: localEducationTax(acq), formula: "취득세 × 10%" });
-  const rural = ruralSpecialTax(i, acq);
+  const rural = ruralSpecialTax(i);
   items.push({ id: "rural", stage: "balance", category: "public", label: "농어촌특별세",
     amount: rural, note: rural === 0 ? "면제 조건 충족" : undefined });
   items.push({ id: "regi", stage: "registration", category: "public", label: "등록면허세",
@@ -233,15 +248,15 @@ export function calculate(i: CalcInput): CalcResult {
     label: "국민주택채권 실부담액", amount: nationalHousingBond(i.standardPrice, isCity),
     note: "즉시 매각(할인율 12%) 기준" });
 
-  items.push({ id: "broker", stage: "contract", category: "practical", label: "중개보수(복비)",
+  items.push({ id: "broker", stage: "contract", category: "practical", label: "중개보수",
     amount: i.brokerageFeePreset === "manual" ? i.manualBrokerageFee : brokerageFee(i.salePrice),
     note: i.brokerageFeePreset === "manual" ? "직접 입력" : "법정 상한 요율 기준" });
   items.push({ id: "lawyer", stage: "registration", category: "practical", label: "법무사 비용",
     amount: i.lawyerFeePreset === "manual" ? i.manualLawyerFee : lawyerFee(i.salePrice),
     note: "실제 견적은 법무사마다 차이" });
   if (i.managementDeposit > 0)
-    items.push({ id: "mgmt", stage: "move", category: "practical", label: "관리비예치금",
-      amount: i.managementDeposit, note: "단지마다 다름" });
+    items.push({ id: "mgmt", stage: "move", category: "practical", label: "선수관리비",
+      amount: i.managementDeposit, note: "세대마다 다름" });
 
   const clean = i.cleaningFeePreset === "manual" ? i.manualCleaningFee
     : CLEANING[i.cleaningFeePreset as keyof typeof CLEANING] ?? 0;

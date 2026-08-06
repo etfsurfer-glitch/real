@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import FavHeart from "../components/FavHeart";
 import { Link } from "react-router-dom";
 import { AREA_CLASSES, AreaClass, Select } from "./TxStats";
 import { Loading } from "../components/Loading";
 import { useFetchJson } from "../hooks/useFetchJson";
 import { RegionSelect, useRegionFilter } from "../components/RegionSelect";
 import { useDeferredUrl, ApplyButton } from "../hooks/useDeferredUrl";
+import { areaLabel } from "../lib/area";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -27,7 +29,7 @@ function formatWon(v: number | null | undefined): string {
 }
 
 function ComplexCell({ no, name, region }: { no: string | null; name: string | null; region?: string | null }) {
-  const inner = no ? <Link to={`/complex/${no}`}>{name ?? no}</Link> : <span>{name ?? "—"}</span>;
+  const inner = no ? <><Link to={`/complex/${no}`}>{name ?? no}</Link><FavHeart complexNo={no} complexName={name ?? undefined} /></> : <span>{name ?? "—"}</span>;
   return (
     <>
       {inner}
@@ -72,7 +74,7 @@ export function TxGapRank() {
           <tr key={`${it.complex_no}-${it.area_key}-${i}`}>
             <td style={{ color: "#999" }}>{i + 1}</td>
             <td><ComplexCell no={it.complex_no} name={it.complex_name} region={it.region_name} /></td>
-            <td>{it.area_key}㎡</td>
+            <td>{areaLabel(it.area_key)}</td>
             <td className="num">{formatWon(it.avg_sale)}</td>
             <td className="num">{formatWon(it.avg_jeonse)}</td>
             <td className="num" style={{ fontWeight: 600 }}>{formatWon(it.gap)}</td>
@@ -117,7 +119,7 @@ export function TxJeonseRate() {
           <tr key={`${it.complex_no}-${it.area_key}-${i}`}>
             <td style={{ color: "#999" }}>{i + 1}</td>
             <td><ComplexCell no={it.complex_no} name={it.complex_name} region={it.region_name} /></td>
-            <td>{it.area_key}㎡</td>
+            <td>{areaLabel(it.area_key)}</td>
             <td className="num">{formatWon(it.avg_sale)}</td>
             <td className="num">{formatWon(it.avg_jeonse)}</td>
             <td className="num" style={{ fontWeight: 600, color: "#1268d3" }}>
@@ -168,7 +170,7 @@ export function TxPriceChange() {
           <tr key={`${it.complex_no}-${it.area_key}-${i}`}>
             <td style={{ color: "#999" }}>{i + 1}</td>
             <td><ComplexCell no={it.complex_no} name={it.complex_name} region={it.region_name} /></td>
-            <td>{it.area_key}㎡</td>
+            <td>{areaLabel(it.area_key)}</td>
             <td className="num">{formatWon(it.recent_avg)}</td>
             <td className="num" style={{ color: "#888" }}>{formatWon(it.prev_avg)}</td>
             <td className="num" style={{ fontWeight: 600,
@@ -217,7 +219,7 @@ export function TxPyeongPrice() {
           <tr key={`${it.complex_no}-${it.area_key}-${i}`}>
             <td style={{ color: "#999" }}>{i + 1}</td>
             <td><ComplexCell no={it.complex_no} name={it.complex_name} region={it.region_name} /></td>
-            <td>{it.area_key}㎡</td>
+            <td>{areaLabel(it.area_key)}</td>
             <td className="num">{formatWon(it.avg_price)}</td>
             <td className="num" style={{ fontWeight: 600, color: "#1268d3" }}>{formatWon(it.pyeong_price)}/평</td>
             <td className="num">{it.n}</td>
@@ -322,7 +324,7 @@ export function TxYield() {
                 <div className="muted" style={{ fontSize: 11 }}>{it.region_name}</div>
               )}
             </td>
-            <td>{it.area_key}㎡</td>
+            <td>{areaLabel(it.area_key)}</td>
             <td className="num">{it.households != null ? it.households.toLocaleString() : "-"}</td>
             <td className="num">{formatWon(it.avg_sale)}</td>
             <td className="num">{formatWon(it.avg_deposit)}</td>
@@ -408,7 +410,7 @@ export function TxRecordHigh() {
                 <div className="muted" style={{ fontSize: 11 }}>{it.region_name}</div>
               )}
             </td>
-            <td>{it.area_key}㎡<span style={{ color: "#aaa", fontSize: 11 }}> ({Math.round(it.area_key / 3.3058)}평)</span></td>
+            <td>{areaLabel(it.area_key)}</td>
             <td className="num" style={{ fontWeight: 600, color: "#c0392b" }}>
               {formatWon(toWon(it.record_price))}
               {it.floor != null && <span style={{ fontSize: 11, fontWeight: 400, color: "#999" }}> {it.floor}층</span>}
@@ -464,7 +466,7 @@ export function TxAskingVsReal() {
           <tr key={`${it.complex_no}-${it.area_key}-${i}`}>
             <td style={{ color: "#999" }}>{i + 1}</td>
             <td><ComplexCell no={it.complex_no} name={it.complex_name} region={it.region_name} /></td>
-            <td>{it.area_key}㎡</td>
+            <td>{areaLabel(it.area_key)}</td>
             <td className="num">{formatWon(it.avg_asking)}</td>
             <td className="num">{formatWon(it.avg_real)}</td>
             <td className="num" style={{ fontWeight: 600,

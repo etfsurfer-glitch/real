@@ -29,6 +29,7 @@ type Stats = {
   };
 };
 type Trend = { date: string; visitors: number; pageviews: number; signups: number };
+type Src = { source: string; views: number; visitors: number };
 type Page = { label: string; views: number; visitors: number };
 
 export default function AdminTodayStats() {
@@ -36,6 +37,8 @@ export default function AdminTodayStats() {
   const [d, setD] = useState<Stats | null>(null);
   const [trends, setTrends] = useState<Trend[]>([]);
   const [pages, setPages] = useState<Page[]>([]);
+  const [sources, setSources] = useState<Src[]>([]);
+  const [srcCov, setSrcCov] = useState<{ tracked: number; total: number } | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -47,8 +50,11 @@ export default function AdminTodayStats() {
       fetch(`${API}/admin/today-stats`, h).then((r) => { if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "관리자 권한이 필요해요" : `오류 ${r.status}`); return r.json(); }),
       fetch(`${API}/admin/trends?days=30`, h).then((r) => r.json()).catch(() => ({ days: [] })),
       fetch(`${API}/admin/top-pages?days=7`, h).then((r) => r.json()).catch(() => ({ pages: [] })),
-    ]).then(([s, t, p]) => { setD(s); setTrends(t.days || []); setPages(p.pages || []); })
-      .catch((e) => setErr(e.message)).finally(() => setLoading(false));
+      fetch(`${API}/admin/traffic-sources?days=7`, h).then((r) => r.json()).catch(() => ({ items: [] })),
+    ]).then(([s, t, p, src]) => {
+      setD(s); setTrends(t.days || []); setPages(p.pages || []);
+      setSources(src.items || []); setSrcCov(src.coverage || null);
+    }).catch((e) => setErr(e.message)).finally(() => setLoading(false));
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
@@ -169,6 +175,21 @@ export default function AdminTodayStats() {
           <div key={i} className="ats-path"><span className="ats-path-r">{i + 1}</span><span className="ats-path-p">{p.label}</span><span className="ats-path-n">{p.n.toLocaleString()}</span></div>
         ))}
       </div>
+      <div className="ats-section">유입경로 <span style={{ fontWeight: 400, color: "#9aa7b8", fontSize: 11 }}>최근 7일 · 접속 IP 기준{srcCov && srcCov.total ? ` · 기록 ${Math.round(srcCov.tracked / srcCov.total * 100)}%(배포 이후분)` : ""}</span></div>
+      {sources.length ? (
+        <div className="ats-paths">
+          {(() => { const tot = sources.reduce((s, x) => s + x.visitors, 0) || 1;
+            return sources.slice(0, 12).map((s, i) => (
+              <div key={s.source} className="ats-path" title={`조회 ${s.views.toLocaleString()}`}>
+                <span className="ats-path-r">{i + 1}</span>
+                <span className="ats-path-p">{s.source}</span>
+                <span className="ats-path-n">{s.visitors.toLocaleString()} <span style={{ color: "#9aa7b8", fontWeight: 400 }}>({Math.round(s.visitors / tot * 100)}%)</span></span>
+              </div>
+            )); })()}
+        </div>
+      ) : (
+        <div className="muted" style={{ fontSize: 12, padding: "2px 2px 8px" }}>아직 유입경로 데이터가 쌓이는 중입니다(배포 직후부터 기록).</div>
+      )}
       {!!(d.top_complex_today && d.top_complex_today.length) && (
         <>
           <div className="ats-section">오늘 인기 단지 <span style={{ fontWeight: 400, color: "#9aa7b8", fontSize: 11 }}>단지 상세 조회수</span></div>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import FavHeart from "../components/FavHeart";
 import { Link } from "react-router-dom";
 import { Search, MapPin, Building2, Home, TrendingUp, BadgePercent, ChevronRight, X, Clock } from "lucide-react";
 
@@ -62,7 +63,7 @@ export default function MyComplex() {
             : items.map((it) => (
               <Link key={it.complex_no} className="mc-card" to={`/complex/${it.complex_no}`} onClick={() => remember(it)}>
                 <div className="mc-card-main">
-                  <div className="mc-name">{it.complex_name}</div>
+                  <div className="mc-name">{it.complex_name}<FavHeart complexNo={String(it.complex_no)} complexName={it.complex_name} /></div>
                   <div className="mc-meta"><MapPin size={12} strokeWidth={2.2} /> {it.region || "-"}</div>
                   <div className="mc-badges">
                     {it.households ? <span className="mc-badge"><Building2 size={11} /> {it.households.toLocaleString()}세대</span> : null}

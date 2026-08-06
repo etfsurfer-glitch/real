@@ -198,3 +198,29 @@ export async function shareKakao(title: string, url: string, desc?: string): Pro
     return true;
   } catch { return false; }
 }
+
+// 카드뉴스 전용 — 카드 요소(자연폭 1080px)를 그대로 PNG 다운로드(워터마크 미부착: 카드에 이미 브랜딩 포함).
+// 카드가 CSS transform(scale)으로 축소 미리보기 중이어도, 캡처 시 잠시 원본 크기로 되돌려 정확히 1080px로 저장.
+export async function downloadCardPng(el: HTMLElement, name: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const html2canvas = (await loadScript(H2C_SRC, "html2canvas")) as any;
+  const wrap = el.parentElement;
+  const savedT = wrap?.style.transform ?? "";
+  if (wrap) wrap.style.transform = "none";     // 미리보기 축소 해제 → 원본 1080px 캡처
+  void el.offsetWidth;
+  try {
+    const canvas = await html2canvas(el, {
+      scale: 1, useCORS: true, logging: false,
+      width: el.offsetWidth, height: el.offsetHeight,
+      windowWidth: Math.max(document.documentElement.clientWidth, el.offsetWidth),
+    });
+    const blob: Blob = await new Promise((res) => canvas.toBlob((b: Blob) => res(b), "image/png"));
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${name}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } finally {
+    if (wrap) wrap.style.transform = savedT;    // 미리보기 복원
+  }
+}

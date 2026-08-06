@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Building2, Store, Home, Warehouse, AlertTriangle } from "lucide-react";
+import { areaLabel } from "../lib/area";
 import { Loading } from "../components/Loading";
 import { useRegionFilter } from "../components/RegionSelect";
 
@@ -141,7 +142,7 @@ export default function NonResi() {
               <div className="nr-risky-h"><AlertTriangle size={13} /> 전세가율 높은 건물 (전세 ≥ 매매가의 80%)</div>
               {jeonse.risky.slice(0, 8).map((r, i) => (
                 <div className="nr-risky-row" key={i}>
-                  <span className="nr-risky-b">{r.umd} {r.building} <em>{r.area_m2}㎡</em></span>
+                  <span className="nr-risky-b">{r.umd} {r.building} <em>{areaLabel(r.area_m2)}</em></span>
                   <span className="nr-risky-d">매매 {won(r.sale)} · 전세 {won(r.jeonse)}</span>
                   <span className={`nr-risky-r ${r.ratio >= 100 ? "danger" : ""}`}>{r.ratio}%</span>
                 </div>
@@ -175,7 +176,7 @@ export default function NonResi() {
             <div className="nr-deal-l">
               <div className="nr-deal-b">{d.umd} {d.building}{d.house_type ? ` (${d.house_type})` : ""}</div>
               <div className="nr-deal-s">
-                {d.date} · {d.area_m2}㎡{d.floor ? ` · ${d.floor}층` : ""}{d.build_year ? ` · ${d.build_year}년` : ""}
+                {d.date} · {areaLabel(d.area_m2)}{d.floor ? ` · ${d.floor}층` : ""}{d.build_year ? ` · ${d.build_year}년` : ""}
                 {d.use ? ` · ${d.use}` : ""}
               </div>
             </div>

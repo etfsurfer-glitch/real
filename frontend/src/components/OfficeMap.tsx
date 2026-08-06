@@ -2,7 +2,7 @@
 // 한 화면에 찍고, 지도 위 오버레이 버튼으로 즉시 걸러 본다(목록으로 돌아갈 필요 없음).
 // 좌표가 없는 매물(직접 등록 후 지오코딩 실패 등)은 지도에서만 빠지고 목록에는 남는다.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadKakao } from "../lib/kakaomap";
+import { loadKakao, attachMapControls } from "../lib/kakaomap";
 import { X, Lock, MapPin } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -67,6 +67,7 @@ export default function OfficeMap({ authH, officeName, onClose }: {
       const map = new kakao.maps.Map(mapEl.current, {
         center: new kakao.maps.LatLng(37.4979, 127.0276), level: 6,
       });
+      attachMapControls(map, mapEl.current);
       map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
       mapRef.current = map;
       setItems((v) => (v ? [...v] : v));   // 지도 준비 후 마커 그리기 트리거

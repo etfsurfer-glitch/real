@@ -1,5 +1,6 @@
 // 실거래 히스토리 공용 — 단지상세 실거래 탭·종합 탭이 함께 사용 (2026-07-04)
 // 전월세 계약 연쇄(같은 평형·층·종전금액)와 팝업 렌더를 한 곳에 모아 중복 방지.
+import { areaLabel } from "./area";
 
 export type RentLike = {
   deal_ymd: string; deposit: number; monthly_rent: number;
@@ -52,7 +53,7 @@ export function RentHistModal({ r, all, kind, onClose }: {
           <button className="phone-banner-x" aria-label="닫기" onClick={onClose}>✕</button>
         </div>
         <div className="muted" style={{ fontSize: 12, margin: "2px 0 10px" }}>
-          {r.excl_use_ar != null && `전용 ${Math.round(r.excl_use_ar)}㎡`}
+          {r.excl_use_ar != null && areaLabel(r.excl_use_ar)}
           {r.floor != null && ` · ${r.floor}층`} — 같은 조건(평형·층·종전금액)으로 추적한 이력입니다
         </div>
         <div style={{ display: "grid", gap: 0 }}>
@@ -88,17 +89,22 @@ export function SaleHistModal({ r, all, onClose }: {
     .filter((x) => x.excl_use_ar != null && r.excl_use_ar != null && Math.abs(x.excl_use_ar - r.excl_use_ar) <= 1.5)
     .sort((a, b) => b.deal_ymd.localeCompare(a.deal_ymd))
     .slice(0, 10);
-  // 신고가: 시간순으로 최고가 경신 거래 표시
-  const best = new Set<SaleLike>();
-  let max = 0;
+  // 신고가 2종: 타입(이 평형 내 최고가 경신) + 단지(전체 평형 통틀어 최고가 경신).
+  const typeHigh = new Set<SaleLike>();
+  let maxType = 0;
   for (const x of [...rows].sort((a, b) => a.deal_ymd.localeCompare(b.deal_ymd))) {
-    if (!x.silv_kind && x.deal_amount > max) { max = x.deal_amount; best.add(x); }
+    if (!x.silv_kind && x.deal_amount > maxType) { maxType = x.deal_amount; typeHigh.add(x); }
+  }
+  const complexHigh = new Set<SaleLike>();
+  let maxCx = 0;
+  for (const x of [...all].filter((y) => !y.silv_kind && y.deal_amount).sort((a, b) => a.deal_ymd.localeCompare(b.deal_ymd))) {
+    if (x.deal_amount > maxCx) { maxCx = x.deal_amount; complexHigh.add(x); }
   }
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
         <div className="modal-head">
-          <span className="modal-title">전용 {r.excl_use_ar != null ? Math.round(r.excl_use_ar) : "-"}㎡ 매매 이력</span>
+          <span className="modal-title">{areaLabel(r.excl_use_ar)} 매매 이력</span>
           <button className="phone-banner-x" aria-label="닫기" onClick={onClose}>✕</button>
         </div>
         <div style={{ display: "grid", gap: 0 }}>
@@ -108,7 +114,8 @@ export function SaleHistModal({ r, all, onClose }: {
               background: h === r ? "#f6faff" : undefined }}>
               <span style={{ fontSize: 12.5, color: "#64748b", fontVariantNumeric: "tabular-nums", width: 68 }}>{fmtDot(h.deal_ymd)}</span>
               <b style={{ fontSize: 15, color: "#1268d3", whiteSpace: "nowrap" }}>{wonKr(h.deal_amount)}</b>
-              {best.has(h) && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>신고가</span>}
+              {complexHigh.has(h) && <span className="txf-b" style={{ background: "#d23b3b", color: "#fff", fontWeight: 700 }}>단지 신고가</span>}
+              {typeHigh.has(h) && <span className="txf-b" style={{ background: "#fef2f2", color: "#d23b3b" }}>타입 신고가</span>}
               {h.silv_kind && <span className="txf-b" style={{ background: "#f0e9ff", color: "#6b39c9" }}>{h.silv_kind}</span>}
               {h.dealing_gbn === "직거래" && <span className="txf-b" style={{ background: "#fff7ea", color: "#c4791a" }}>직거래</span>}
               {h.registered && <span className="txf-b" style={{ background: "#eefaf2", color: "#1f9d63" }}>등기</span>}

@@ -183,8 +183,8 @@ export default function QuickDeals() {
           <div className="muted">조건에 맞는 단지·면적이 없습니다.</div>
           {/* 결과가 없을 때가 요청을 남기기에 가장 좋은 자리다 — 헛걸음으로 끝내지 않는다 */}
           <RequestCta
-            title="지금은 조건에 맞는 급매가 없네요"
-            sub="조건을 남겨 두시면 매물이 나올 때 그 동네 중개사무소가 연락드려요. 무료입니다."
+            title="지금은 조건에 맞는 급매가 없어요"
+            sub="조건을 남겨 두시면 매물이 나올 때 이 동네 중개사무소가 찾아 제안합니다."
             sido={region.sido} sigungu={region.sigungu} dong={region.dong}
             asset={asset} trade={tradeType} />
         </>
@@ -210,6 +210,13 @@ export default function QuickDeals() {
                 document.getElementById(`qd-${cno}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
               }} />
           )}
+          {/* 지도 바로 아래 — 목록을 훑기 전에 '조건을 남기는 길'을 먼저 보여준다.
+              표 아래에 두면 긴 목록을 끝까지 내린 사람만 만나게 된다. */}
+          <RequestCta
+            title="찾는 조건이 따로 있으세요?"
+            sub="조건을 남기시면 아직 안 올라온 매물까지 이 동네 중개사무소가 찾아 제안합니다."
+            sido={region.sido} sigungu={region.sigungu} dong={region.dong}
+            asset={asset} trade={tradeType} />
           <table>
             <thead>
               <tr>
@@ -278,12 +285,6 @@ export default function QuickDeals() {
           <div className="muted" style={{ marginTop: 12, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5 }}>
             <AlertTriangle size={12} strokeWidth={2.2} aria-hidden /> 같은 면적이라도 층·향·상태에 따라 호가 차이가 날수 있습니다.
           </div>
-          {/* 급매를 훑어본 뒤 — 마음에 드는 게 없을 때 남길 곳 */}
-          <RequestCta
-            title="마음에 드는 매물이 없으세요?"
-            sub="원하는 조건을 남기시면 그 동네 중개사무소가 찾아서 연락드려요. 아직 안 올라온 매물도 있습니다."
-            sido={region.sido} sigungu={region.sigungu} dong={region.dong}
-            asset={asset} trade={tradeType} />
         </>
       )}
     </div>

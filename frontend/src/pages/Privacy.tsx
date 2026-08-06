@@ -3,7 +3,7 @@ export default function Privacy() {
   return (
     <div className="legal">
       <h1>콕집 개인정보처리방침</h1>
-      <p className="legal-meta">시행일: 2026년 7월 23일 · 버전 2026-07-23 (이전 버전: 2026-07-09)</p>
+      <p className="legal-meta">시행일: 2026년 7월 31일 · 버전 2026-07-31 (이전 버전: 2026-07-23)</p>
       <p>
         콕집(koczip, 이하 “회사”)은 「개인정보 보호법」 등 관련 법령을 준수하며, 이용자의 개인정보를 보호하기
         위해 다음과 같이 개인정보처리방침을 수립·공개합니다.
@@ -22,7 +22,8 @@ export default function Privacy() {
         </li>
         <li>
           <b>서비스 이용 과정에서 자동 수집:</b> 접속 IP주소, 쿠키 및 로컬 저장소 정보, 기기·브라우저 정보
-          (User-Agent), 서비스 이용기록(조회한 페이지, AI 질문·답변 내용, 작성한 게시물·리뷰), 접속 일시
+          (User-Agent), 서비스 이용기록(조회한 페이지, AI 질문·답변 내용, 작성한 게시물·리뷰), 접속 일시,
+          웹 분석도구(Google Tag Manager·Google Analytics)를 통한 페이지 방문·이동 경로 및 분석용 쿠키 식별자
         </li>
         <li><b>선택 항목:</b> 입주민 인증 자료(제출 시 서류 이미지), 마케팅·혜택 알림 수신 동의 여부</li>
       </ul>
@@ -90,6 +91,11 @@ export default function Privacy() {
           휴대전화번호·이메일 등 계정정보는 전송하지 않습니다.
         </li>
         <li>
+          <b>Google LLC</b> — 웹 이용 행태 분석(Google Tag Manager·Google Analytics). 위탁 항목: 접속
+          IP주소, 기기·브라우저 정보, 페이지 방문·이동 기록, 분석용 쿠키 식별자. 이름·전화번호·이메일 등
+          이용자를 직접 식별하는 정보는 전송하지 않습니다.
+        </li>
+        <li>
           <b>Cloudflare, Inc.</b> — 콘텐츠 전송(CDN) 및 트래픽 보안. 접속 IP·기기정보 등 트래픽 메타데이터가
           전 세계 엣지 네트워크를 경유할 수 있습니다.
         </li>
@@ -104,6 +110,12 @@ export default function Privacy() {
           이전 항목: 이용자가 입력한 AI 질문 내용, 중개사회원이 업로드한 계약서류 이미지 / 이전 일시·방법:
           이용자가 AI 기능 이용 시 정보통신망(HTTPS)을 통해 전송 / 이용 목적: 생성형 AI 응답 생성·문서 인식 /
           보유·이용 기간: 응답 생성에 필요한 기간.
+        </li>
+        <li>
+          <b>Google LLC</b> (privacy.google.com, googlekrsupport@google.com) — 이전 국가: 미국 /
+          이전 항목: 접속 IP·기기/브라우저 정보·페이지 방문 및 이동 기록·분석용 쿠키 식별자 / 이전 일시·방법:
+          서비스 접속 시 정보통신망(HTTPS)을 통해 실시간 전송 / 이용 목적: 이용 통계 분석 및 서비스 개선 /
+          보유·이용 기간: Google Analytics 데이터 보관 정책에 따른 기간(최대 14개월).
         </li>
         <li>
           <b>Cloudflare, Inc.</b> (cloudflare.com/trust-hub, privacyquestions@cloudflare.com) — 이전 국가:
@@ -142,8 +154,10 @@ export default function Privacy() {
 
       <h2>9. 쿠키 등 자동 수집 장치</h2>
       <p>
-        회사는 로그인 세션 유지 및 서비스 개선을 위해 쿠키·로컬 저장소를 사용합니다. 이용자는 브라우저 설정을
-        통해 저장을 거부할 수 있으나, 이 경우 로그인 등 일부 기능이 제한될 수 있습니다.
+        회사는 로그인 세션 유지 및 서비스 개선을 위해 쿠키·로컬 저장소를 사용하며, 이용 통계 분석을 위해
+        Google Tag Manager·Google Analytics의 분석용 쿠키를 사용합니다. 이용자는 브라우저 설정을 통해
+        저장을 거부할 수 있고(이 경우 로그인 등 일부 기능이 제한될 수 있습니다), 분석용 쿠키만 별도로
+        차단하려면 Google 애널리틱스 차단 부가기능(tools.google.com/dlpage/gaoptout)을 이용할 수 있습니다.
       </p>
 
       <h2>10. 만 14세 미만 아동</h2>

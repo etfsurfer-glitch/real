@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { loadKakao, wonShort, escapeHtml } from "../lib/kakaomap";
+import { loadKakao, wonShort, escapeHtml, attachMapControls } from "../lib/kakaomap";
 import MapRegionPicker from "../components/MapRegionPicker";
 import { Flame } from "lucide-react";
 
@@ -110,6 +110,7 @@ export default function MapView() {
         center: new kakao.maps.LatLng(hasInit ? initLat : 37.4979, hasInit ? initLng : 127.0276),
         level: hasInit ? 4 : 5,
       });
+      attachMapControls(map, mapEl.current);
       mapRef.current = map;
       map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
 

@@ -16,6 +16,7 @@ export default function NicknameModal() {
   const [err, setErr] = useState("");
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [agreePrivacy, setAgreePrivacy] = useState(false);
+  const [agreeAge, setAgreeAge] = useState(false);
   const [marketing, setMarketing] = useState(false);
   const timer = useRef<number | null>(null);
 
@@ -44,13 +45,13 @@ export default function NicknameModal() {
 
   if (!open) return null;
 
-  const allAgreed = agreeTerms && agreePrivacy;
+  const allAgreed = agreeTerms && agreePrivacy && agreeAge;
   const canSubmit =
     (!needConsent || allAgreed) &&
     (!needNick || state === "ok") &&
     !busy;
 
-  const setAll = (v: boolean) => { setAgreeTerms(v); setAgreePrivacy(v); setMarketing(v); };
+  const setAll = (v: boolean) => { setAgreeTerms(v); setAgreePrivacy(v); setAgreeAge(v); setMarketing(v); };
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -61,7 +62,7 @@ export default function NicknameModal() {
         const r = await fetch(`${API}/me/consent`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ agree_terms: agreeTerms, agree_privacy: agreePrivacy, marketing }),
+          body: JSON.stringify({ agree_terms: agreeTerms, agree_privacy: agreePrivacy, age14: agreeAge, marketing }),
         });
         if (!r.ok) {
           const d = await r.json().catch(() => ({}));
@@ -101,6 +102,10 @@ export default function NicknameModal() {
             <label className="consent-row">
               <input type="checkbox" checked={agreePrivacy} onChange={(e) => setAgreePrivacy(e.target.checked)} />
               <span><em>[필수]</em> <a href="/privacy" target="_blank" rel="noopener">개인정보 수집·이용</a>에 동의합니다</span>
+            </label>
+            <label className="consent-row">
+              <input type="checkbox" checked={agreeAge} onChange={(e) => setAgreeAge(e.target.checked)} />
+              <span><em>[필수]</em> 만 14세 이상입니다</span>
             </label>
             <label className="consent-row">
               <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} />

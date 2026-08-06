@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import FavHeart from "../components/FavHeart";
 import FetchError from "../components/FetchError";
 import { Loading } from "../components/Loading";
 import ShareBar from "../components/ShareBar";
@@ -42,7 +43,9 @@ type TopListings = {
   snapshot_date: string | null;
   A1: TopComplex[]; B1: TopComplex[]; B2: TopComplex[];
 };
-type TrendPoint = { snapshot_date: string; A1: number; B1: number; B2: number };
+type TrendPoint = { snapshot_date: string; A1: number; B1: number; B2: number;
+  // 실매물(같은 집 중복 광고를 1건으로 합침) — 과거 결측일은 키 없음
+  A1_u?: number; B1_u?: number; B2_u?: number };
 type ListingTrend = { days: number; series: TrendPoint[] };
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -139,6 +142,8 @@ export default function Overview() {
   const [showSeries, setShowSeries] = useState<Record<"A1" | "B1" | "B2", boolean>>({
     A1: true, B1: true, B2: true,
   });
+  // 실매물(중복 광고 합침) 점선 오버레이
+  const [showUnits, setShowUnits] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -349,9 +354,9 @@ export default function Overview() {
                       }}>
                         <span style={{ color: "#999", marginRight: 4 }}>{i + 1}</span>
                         {c.complex_no ? (
-                          <Link to={`/complex/${c.complex_no}`} style={{ color: "#1268d3" }}>
+                          <><Link to={`/complex/${c.complex_no}`} style={{ color: "#1268d3" }}>
                             {c.complex_name ?? c.complex_no}
-                          </Link>
+                          </Link><FavHeart complexNo={String(c.complex_no)} complexName={c.complex_name} /></>
                         ) : (
                           <span>{c.complex_name ?? "—"}</span>
                         )}
@@ -399,6 +404,24 @@ export default function Overview() {
                 </button>
               );
             })}
+            {listingTrend.series.some((p) => p.A1_u != null) && (
+              <button
+                onClick={() => setShowUnits((v) => !v)}
+                title="같은 집을 여러 중개업소가 올린 중복 광고를 1건으로 합친 수"
+                style={{
+                  padding: "3px 10px",
+                  border: `1px dashed ${showUnits ? "#33425a" : "#ccc"}`,
+                  borderRadius: 14,
+                  background: showUnits ? "#33425a" : "white",
+                  color: showUnits ? "white" : "#888",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
+                실매물(중복 합침)
+              </button>
+            )}
           </div>
           <div style={{ width: "100%", height: 240 }}>
             <ResponsiveContainer>
@@ -456,9 +479,25 @@ export default function Overview() {
                 {showSeries.B2 && (
                   <Line yAxisId="rent" type="monotone" dataKey="B2" name="월세(우)" stroke="#27ae60" strokeWidth={2} dot={{ r: 3 }} />
                 )}
+                {/* 실매물(중복 광고 합침) — 같은 색 점선, 결측일은 이어그림 */}
+                {showUnits && showSeries.A1 && (
+                  <Line yAxisId="sale" type="monotone" dataKey="A1_u" name="매매 실매물(좌)" stroke="#c0392b" strokeWidth={1.6} strokeDasharray="5 4" dot={false} connectNulls />
+                )}
+                {showUnits && showSeries.B1 && (
+                  <Line yAxisId="rent" type="monotone" dataKey="B1_u" name="전세 실매물(우)" stroke="#1268d3" strokeWidth={1.6} strokeDasharray="5 4" dot={false} connectNulls />
+                )}
+                {showUnits && showSeries.B2 && (
+                  <Line yAxisId="rent" type="monotone" dataKey="B2_u" name="월세 실매물(우)" stroke="#27ae60" strokeWidth={1.6} strokeDasharray="5 4" dot={false} connectNulls />
+                )}
               </LineChart>
             </ResponsiveContainer>
           </div>
+          {showUnits && (
+            <p className="muted" style={{ fontSize: 11.5, margin: "2px 0 0" }}>
+              ※ 점선(실매물) = 같은 집을 여러 중개업소가 올린 <b>중복 광고를 1건으로 합쳐</b> 계산한 수.
+              실선(매물)은 노출 중인 광고 전체 기준입니다.
+            </p>
+          )}
         </>
       )}
 
@@ -491,9 +530,9 @@ export default function Overview() {
                         }}>
                           <span style={{ color: "#999", marginRight: 4 }}>{i + 1}</span>
                           {c.complex_no ? (
-                            <Link to={`/complex/${c.complex_no}`} style={{ color: "#1268d3" }}>
+                            <><Link to={`/complex/${c.complex_no}`} style={{ color: "#1268d3" }}>
                               {c.complex_name ?? c.complex_no}
-                            </Link>
+                            </Link><FavHeart complexNo={String(c.complex_no)} complexName={c.complex_name} /></>
                           ) : (
                             <span>{c.complex_name ?? "—"}</span>
                           )}
@@ -613,7 +652,7 @@ function ComplexList({ items }: { items: ComplexHit[] }) {
       <tbody>
         {items.map((c) => (
           <tr key={c.complex_no}>
-            <td><Link to={`/complex/${c.complex_no}`}>{c.complex_name}</Link></td>
+            <td><Link to={`/complex/${c.complex_no}`}>{c.complex_name}</Link><FavHeart complexNo={String(c.complex_no)} complexName={c.complex_name} /></td>
             <td className="num">{c.total_household_count?.toLocaleString() ?? "-"}</td>
             <td className="num">{c.use_approve_ymd?.slice(0, 4) ?? "-"}</td>
           </tr>

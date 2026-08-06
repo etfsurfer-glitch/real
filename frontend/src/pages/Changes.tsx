@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import FavHeart from "../components/FavHeart";
 import FetchError from "../components/FetchError";
 import { useStickyState } from "../hooks/useStickyState";
 import ShareBar from "../components/ShareBar";
+import FavDashLink from "../components/FavDashLink";
 import { Link, Outlet, useOutletContext, useLocation } from "react-router-dom";
 import { SubNav } from "../components/SubNav";
 import { ApplyButton } from "../hooks/useDeferredUrl";
@@ -40,6 +42,8 @@ function pct(r: number): string {
 type TradeStat = {
   count: number; prev: number; delta: number;
   avg_price: number | null; avg_prev: number | null; avg_change: number | null;
+  // 실매물 — 같은 집을 여러 중개업소가 올린 중복 광고를 1건으로 합친 수
+  units?: number | null;
   // B2 한정: 월세 평균 (보증금=avg_price와 별개).
   rent_avg?: number | null;
   rent_prev?: number | null;
@@ -51,6 +55,7 @@ type Summary = {
   prev_is_yesterday?: boolean;
   complex_count: number;
   total: number;
+  total_units?: number | null;
   trades: Record<string, TradeStat>;
   event_date: string | null;
   events_up: number;
@@ -65,6 +70,7 @@ type RankItem = {
   change: number | null;
   listings: number;
   complexes: number;
+  units?: number | null;   // 실매물(중복 광고 합침)
 };
 type MoverItem = {
   complex_no: string | null;
@@ -90,52 +96,79 @@ function Section({ title, desc, children }: {
 }
 
 // ───────────────────────── 요약 카드 + 추이 ─────────────────────────
+const CHG_ACCENT: Record<string, string> = {
+  total: "#13294b", A1: "#c0392b", B1: "#1268d3", B2D: "#27ae60", B2R: "#d97706",
+};
+
 function SummaryCards({ s, regionLabel }: { s: Summary; regionLabel: string }) {
   const b2 = s.trades.B2;
   const rentCh = b2?.rent_change ?? null;
+  const prevLabel = s.prev_is_yesterday === false ? "직전" : "전일";
   type CardSpec = {
     key: string;
     label: string;
     price: number | null | undefined;
     change: number | null | undefined;
     count: number;
+    units?: number | null;   // 실매물(중복 광고 합침) — B2R 카드는 B2D와 중복이라 생략
   };
   const cards: CardSpec[] = [
     { key: "A1", label: "매매 평균가",
       price: s.trades.A1?.avg_price, change: s.trades.A1?.avg_change,
-      count: s.trades.A1?.count ?? 0 },
+      count: s.trades.A1?.count ?? 0, units: s.trades.A1?.units },
     { key: "B1", label: "전세 평균가",
       price: s.trades.B1?.avg_price, change: s.trades.B1?.avg_change,
-      count: s.trades.B1?.count ?? 0 },
+      count: s.trades.B1?.count ?? 0, units: s.trades.B1?.units },
     { key: "B2D", label: "월세 보증금 평균",
       price: b2?.avg_price, change: b2?.avg_change,
-      count: b2?.count ?? 0 },
+      count: b2?.count ?? 0, units: b2?.units },
     { key: "B2R", label: "월세 평균",
       price: b2?.rent_avg, change: rentCh,
       count: b2?.count ?? 0 },
   ];
+  const hasUnits = s.total_units != null && s.total_units > 0;
   return (
-    <div className="cards">
-      <div className="card">
-        <div className="label">{regionLabel} 매물 수</div>
-        <div className="num">{s.total.toLocaleString()}</div>
-        <div className="sub">단지 {s.complex_count.toLocaleString()}개</div>
+    <>
+    <div className="chg-cards">
+      <div className="chg-card" style={{ ["--ac" as string]: CHG_ACCENT.total }}>
+        <div className="chg-label"><span className="chg-dot" />{regionLabel} 매물 수</div>
+        <div className="chg-num">{s.total.toLocaleString()}</div>
+        <div className="chg-sub">단지 {s.complex_count.toLocaleString()}개</div>
+        <div className="chg-meta">
+          <span>매물 광고 <b>{s.total.toLocaleString()}</b></span>
+          {hasUnits && <span>실매물 <b>{s.total_units!.toLocaleString()}</b></span>}
+        </div>
       </div>
       {cards.map((c) => (
-        <div className="card" key={c.key}>
-          <div className="label">{c.label}</div>
-          <div className="num">{formatWon(c.price ?? null)}</div>
-          <div className="sub">
+        <div className="chg-card" key={c.key} style={{ ["--ac" as string]: CHG_ACCENT[c.key] }}>
+          <div className="chg-label"><span className="chg-dot" />{c.label}</div>
+          <div className="chg-num">{formatWon(c.price ?? null)}</div>
+          <div className="chg-sub">
             {c.change != null ? (
-              <span style={{ color: c.change >= 0 ? UP : DOWN, fontWeight: 600 }}>
-                {s.prev_is_yesterday === false ? "직전" : "전일"} {pct(c.change)}
+              <span className={`chg-delta ${c.change >= 0 ? "up" : "down"}`}>
+                {c.change >= 0 ? "▲" : "▼"} {pct(c.change).replace("+", "").replace("-", "")} <em>{prevLabel}</em>
               </span>
-            ) : <span>{s.prev_is_yesterday === false ? "직전" : "전일"} 대비 –</span>}
-            {" · 매물 "}{c.count.toLocaleString()}
+            ) : <span className="chg-delta flat">{prevLabel} 대비 –</span>}
+          </div>
+          <div className="chg-meta">
+            <span>매물 <b>{c.count.toLocaleString()}</b></span>
+            {c.units != null && c.units > 0 && c.count > 0 && (
+              <>
+                <span>실매물 <b>{c.units.toLocaleString()}</b></span>
+                <span>1채당 광고 <b>{(c.count / c.units).toFixed(1)}</b></span>
+              </>
+            )}
           </div>
         </div>
       ))}
     </div>
+    {hasUnits && (
+      <p className="muted" style={{ fontSize: 11.5, margin: "-14px 0 14px" }}>
+        ※ 실매물 = 같은 집을 여러 중개업소가 올린 <b>중복 광고를 1건으로 합쳐</b> 계산한 수.
+        ‘매물’은 노출 중인 광고 전체 기준입니다. ‘1채당 광고’가 높을수록 한 집이 여러 곳에 나와 있다는 뜻입니다.
+      </p>
+    )}
+    </>
   );
 }
 
@@ -240,9 +273,9 @@ function AvgPriceChart({ region, regionLabel, asset }: { region: RegionFilter; r
                 display: "inline-flex", alignItems: "center", gap: 6,
                 padding: "4px 12px", borderRadius: 16, cursor: "pointer",
                 fontSize: 13, fontWeight: 600,
-                border: `1px solid ${on ? l.color : "#ccc"}`,
-                background: on ? l.color : "white",
-                color: on ? "white" : "#999",
+                border: `1px solid ${on ? l.color : "var(--c-border)"}`,
+                background: on ? l.color : "var(--c-card)",
+                color: on ? "#fff" : "var(--c-muted)",
               }}
             >
               <span style={{
@@ -370,7 +403,9 @@ function RegionRank({ region, asset, trade }: { region: RegionFilter; asset: str
           <tr>
             <th style={{ width: 40 }}>#</th><th>지역</th>
             <th className="num">평균 호가</th><th className="num">{cmpLabel}</th>
-            <th className="num">매물</th><th className="num">단지</th>
+            <th className="num">매물</th><th className="num">실매물</th>
+            <th className="num" title="매물(광고) ÷ 실매물 — 높을수록 한 집이 여러 중개업소에 나와 있음">집 1채당<br />광고</th>
+            <th className="num">단지</th>
           </tr>
         </thead>
         <tbody>
@@ -391,11 +426,19 @@ function RegionRank({ region, asset, trade }: { region: RegionFilter; asset: str
                 {it.change == null ? "–" : pct(it.change)}
               </td>
               <td className="num">{it.listings.toLocaleString()}</td>
+              <td className="num">{it.units != null ? it.units.toLocaleString() : "–"}</td>
+              <td className="num" style={{ fontWeight: 600, color: "#33425a" }}>
+                {it.units ? (it.listings / it.units).toFixed(2) : "–"}
+              </td>
               <td className="num">{it.complexes.toLocaleString()}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+        ※ 실매물 = 같은 집을 여러 중개업소가 올린 <b>중복 광고를 1건으로 합쳐</b> 계산한 수.
+        ‘집 1채당 광고’가 높은 지역일수록 한 집이 여러 중개업소에 나와 있어 매도 경쟁이 치열하다는 신호입니다.
+      </p>
     </Section>
   );
 }
@@ -419,7 +462,7 @@ function MoverTable({ title, items, color }: {
             <tr key={`${it.complex_no}-${it.area_name}-${i}`}>
               <td>
                 {it.complex_no
-                  ? <Link to={`/complex/${it.complex_no}`}>{it.complex_name ?? it.complex_no}</Link>
+                  ? <><Link to={`/complex/${it.complex_no}`}>{it.complex_name ?? it.complex_no}</Link><FavHeart complexNo={String(it.complex_no)} complexName={it.complex_name ?? undefined} /></>
                   : (it.complex_name ?? "—")}
                 <div className="muted" style={{ fontSize: 11 }}>
                   {it.region_name ?? ""}{it.complex_listings ? ` · 매물 ${it.complex_listings.toLocaleString()}건` : ""}
@@ -436,19 +479,35 @@ function MoverTable({ title, items, color }: {
   );
 }
 
+const MOVER_PERIODS = [
+  { value: "7", label: "1주일" },
+  { value: "14", label: "2주일" },
+  { value: "30", label: "1개월" },
+] as const;
+
 function Movers({ region, asset, trade }: { region: RegionFilter; asset: string; trade: string }) {
+  const [days, setDays] = useState("7");   // 기본 1주일 — 장기비교는 매물 구성 변화로 과장됨
   const regionQ = region.sigungu
     ? `&sigungu=${region.sigungu}`
     : region.sido ? `&sido=${region.sido}` : "";
   const url = API_BASE
-    ? `${API_BASE}/stats/changes/movers?trade=${trade}&asset=${asset}${regionQ}&min_listings=2&limit=5`
+    ? `${API_BASE}/stats/changes/movers?trade=${trade}&asset=${asset}${regionQ}&days=${days}&min_listings=5&limit=5`
     : null;
-  const { data, loading } = useFetchJson<{ up: MoverItem[]; down: MoverItem[] }>(url);
+  const { data, loading } = useFetchJson<{
+    up: MoverItem[]; down: MoverItem[]; from_date?: string | null; to_date?: string | null;
+  }>(url);
   const up = data?.up ?? [];
   const down = data?.down ?? [];
+  const period = data?.from_date && data?.to_date
+    ? `${data.from_date.slice(5).replace("-", ".")} → ${data.to_date.slice(5).replace("-", ".")} 매물 평균가 비교`
+    : "";
   return (
     <Section title="가격 변동 Top — 상승 / 하락"
-      desc="최근 매물 가격이 많이 오르거나 내린 단지.">
+      desc={`선택한 기간의 단지·평형별 매물 평균가 변동. ${period ? period + " · " : ""}매물 구성(들어오고 나간 매물)이 바뀌어도 평균이 움직일 수 있어 참고용입니다.`}>
+      <div className="filter-bar" style={{ marginBottom: 10 }}>
+        <Select label="기간" value={days} onChange={setDays}
+          options={MOVER_PERIODS.map((p) => ({ value: p.value, label: p.label }))} />
+      </div>
       {loading && <Loading />}
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
         <MoverTable title="▲ 상승 Top 5" items={up} color={UP} />
@@ -465,6 +524,14 @@ const ASSET_OPTS = [
 ] as const;
 
 type ChangesCtx = { region: RegionFilter; regionLabel: string; asset: string; trade: string };
+
+// 매물호가 하위 탭의 단일 원본 — 헤더 드롭다운(App.tsx)·레이아웃 서브탭·매물수 페이지가 공유.
+export const CHANGES_TABS: { to: string; label: string }[] = [
+  { to: "/changes/trend", label: "가격 추이" },
+  { to: "/changes/region", label: "지역별 순위" },
+  { to: "/changes/movers", label: "상승·하락" },
+  { to: "/changes/counts", label: "지역별 매물수" },
+];
 
 export function ChangesLayout() {
   const shareRef = useRef<HTMLDivElement>(null);
@@ -526,48 +593,39 @@ export function ChangesLayout() {
 
   return (
     <div ref={shareRef} className="share-target">
-      <h2 style={{ margin: "0 0 4px" }}>매물가격추이</h2>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 4px" }}>
+        <h2 style={{ margin: 0 }}>매물 호가 추이</h2>
+        <FavDashLink />
+      </div>
       <div className="muted" style={{ marginBottom: 12 }}>
         {regionLabel} {assetLabel} 매물 가격 · 기준 {summary.latest_date}
       </div>
       <ShareBar targetRef={shareRef} title="매물 가격 변화" fileName="콕집_가격변화" />
 
-      <SubNav tabs={[
-        { to: "/changes/trend", label: "가격 추이" },
-        { to: "/changes/region", label: "지역별 순위" },
-        { to: "/changes/movers", label: "상승·하락" },
-      ]} />
+      <SubNav tabs={CHANGES_TABS} />
 
-      <div className="filter-bar" style={{ marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="filter-bar">
         {showTrade && (
-          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span className="muted" style={{ fontSize: 12 }}>거래</span>
-            <select value={trade} onChange={(e) => setTrade(e.target.value)}>
-              {TRADE_OPTS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </label>
+          <Select label="거래" value={trade} onChange={setTrade}
+            options={TRADE_OPTS.map((t) => ({ value: t.value as string, label: t.label }))} />
         )}
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span className="muted" style={{ fontSize: 12 }}>시도</span>
+        <label className="filter-select">
+          <span>시도</span>
           <select value={sido} onChange={(e) => setSido(e.target.value)}>
             <option value="">전국</option>
             {sidos.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
           </select>
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span className="muted" style={{ fontSize: 12 }}>시군구</span>
+        <label className="filter-select">
+          <span>시군구</span>
           <select value={sigungu} onChange={(e) => setSigungu(e.target.value)} disabled={!sido}>
             <option value="">{sido ? "전체" : "(시도 선택)"}</option>
             {sigungus.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
           </select>
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span className="muted" style={{ fontSize: 12 }}>유형</span>
-          <select value={asset} onChange={(e) => setAsset(e.target.value)}>
-            {ASSET_OPTS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
-          </select>
-        </label>
-        {fetching && <span className="muted" style={{ fontSize: 12, color: "#1268d3" }}>불러오는 중…</span>}
+        <Select label="유형" value={asset} onChange={setAsset}
+          options={ASSET_OPTS.map((a) => ({ value: a.value as string, label: a.label }))} />
+        {fetching && <span className="muted" style={{ fontSize: 12, color: "var(--c-primary)" }}>불러오는 중…</span>}
         <ApplyButton dirty={dirty} onApply={apply} />
       </div>
 

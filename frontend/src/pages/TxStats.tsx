@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useStickyState } from "../hooks/useStickyState";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { Loading } from "../components/Loading";
+import { areaLabel } from "../lib/area";
 import ShareBar from "../components/ShareBar";
 import { useFetchJson } from "../hooks/useFetchJson";
 import { RegionSelect, useRegionFilter } from "../components/RegionSelect";
@@ -152,6 +153,7 @@ export const TX_GROUPS: { title: string; items: { to: string; label: string; sub
       { to: "/tx-stats/volume/yearly", label: "연도별" },
     ] },
       { to: "/tx-stats/timemachine", label: "부동산타임머신" },
+    { to: "/tx-stats/map", label: "실거래 지도" },
     { to: "/tx-stats/top-volume", label: "단지별 거래량" },
     { to: "/tx-stats/turnover", label: "거래회전율" },
   ] },
@@ -260,7 +262,7 @@ export function TxTopPrice() {
                   }}>{it.dealing_gbn ?? "-"}</span>
                 </td>
               )}
-              <td>{it.excl_use_ar ? `${it.excl_use_ar.toFixed(1)}㎡` : "-"}</td>
+              <td>{it.excl_use_ar ? areaLabel(it.excl_use_ar) : "-"}</td>
               <td>{it.floor ?? "-"}</td>
               <td>{it.build_year ?? "-"}</td>
               <td className="num" style={{ fontWeight: 600 }}>
@@ -364,7 +366,7 @@ export function TxLowPrice() {
                   fontWeight: it.dealing_gbn === "직거래" ? 600 : 400,
                 }}>{it.dealing_gbn ?? "-"}</span>
               </td>
-              <td>{it.excl_use_ar ? `${it.excl_use_ar.toFixed(1)}㎡` : "-"}</td>
+              <td>{it.excl_use_ar ? areaLabel(it.excl_use_ar) : "-"}</td>
               <td>{it.floor ?? "-"}</td>
               <td className="num" style={{ fontWeight: 600, color: "#c0392b" }}>{formatWon(it.deal_amount)}</td>
               <td className="num" style={{ color: "#666" }}>{formatWon(it.avg_price)}</td>

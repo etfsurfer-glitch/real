@@ -52,19 +52,21 @@ export default function AccountMenu() {
 
   return (
     <div className="acct" ref={wrapRef}>
-      <button className="acct-trigger" onClick={() => setOpen((v) => !v)}>
+      {/* 트리거는 아바타만(닉네임·인증 배지는 팝업 안으로) — 헤더 한 줄 공간 확보 */}
+      <button className="acct-trigger" onClick={() => setOpen((v) => !v)} aria-label={`${user.nickname || user.name} 계정 메뉴`}>
         {user.avatar
           ? <img className="auth-avatar" src={user.avatar} alt="" />
           : <span className="auth-avatar acct-avatar-ph" />}
-        <span className="auth-name">{user.nickname || user.name}</span>
-        {verified && <BadgeCheck size={14} className="acct-verified-ic" aria-label="인증 회원" />}
         <ChevronDown size={14} strokeWidth={2.2} />
       </button>
 
       {open && (
         <div className="acct-pop">
           <div className="acct-head">
-            <div className="acct-name">{user.nickname || user.name}</div>
+            <div className="acct-name">
+              {user.nickname || user.name}
+              {verified && <BadgeCheck size={14} className="acct-verified-ic" aria-label="인증 회원" style={{ marginLeft: 4, verticalAlign: -2 }} />}
+            </div>
             {user.nickname && <div className="acct-email">{user.name}{user.email ? ` · ${user.email}` : ""}</div>}
             {!user.nickname && user.email && <div className="acct-email">{user.email}</div>}
             {user.memberNo != null && (

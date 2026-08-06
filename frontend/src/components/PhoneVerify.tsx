@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ShieldCheck, Phone, X } from "lucide-react";
 import { useAuth, getReferral, clearReferral } from "../auth";
+import SupportLink from "./SupportLink";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -206,6 +207,7 @@ export function PhoneModal({ token, onClose, onDone }: { token: string; onClose:
           <div className="modal-devcode">개발 모드 — 인증번호: <b>{devCode}</b></div>
         )}
         {msg && <div className="modal-msg">{msg}</div>}
+        {msg && <SupportLink variant="banner" sub="번호 인증이 계속 안 되시나요?" label="고객센터" context="phone-verify" />}
       </div>
     </div>,
     document.body,

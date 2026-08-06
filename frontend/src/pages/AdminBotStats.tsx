@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loading } from "../components/Loading";
-import { supabase } from "../supabase";
+import { useAuth } from "../auth";
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -28,24 +28,18 @@ const kstTime = (ts: string) => {
 };
 
 export default function AdminBotStats() {
+  const { token } = useAuth();
   const [data, setData] = useState<BotStats | null>(null);
   const [days, setDays] = useState(7);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      setData(null); setErr(false);
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess.session?.access_token;
-      try {
-        const r = await fetch(`${API_BASE}/admin/bot-stats?days=${days}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!r.ok) throw new Error(String(r.status));
-        setData(await r.json());
-      } catch { setErr(true); }
-    })();
-  }, [days]);
+    if (!token || !API_BASE) return;
+    setData(null); setErr(false);
+    fetch(`${API_BASE}/admin/bot-stats?days=${days}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then(setData).catch(() => setErr(true));
+  }, [days, token]);
 
   if (err) return <div className="muted">봇 통계를 불러오지 못했습니다.</div>;
   if (!data) return <Loading />;

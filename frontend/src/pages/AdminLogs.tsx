@@ -1,9 +1,18 @@
 import { useEffect, useState, useCallback, Fragment } from "react";
 import { Link } from "react-router-dom";
-import { ScrollText, MessageSquare, LogIn, Users, Eye } from "lucide-react";
+import { ScrollText, MessageSquare, LogIn, Users, Eye, BarChart3 } from "lucide-react";
 import { useAuth } from "../auth";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
+
+type PageRow = { key?: string; label: string; views: number; visitors: number; users: number };
+type PageAnalytics = {
+  days: number; has_data: boolean;
+  summary: { views: number; visitors: number; users: number };
+  pages: PageRow[];
+  trend: { day: string; views: number; visitors: number }[];
+  top_complex: { ref: string; visits: number; visitors: number }[];
+};
 
 type Ev = {
   id: number; ts: string; kind: string; user_id: string | null;
@@ -22,11 +31,11 @@ type Stats = {
 };
 
 const KIND_LABEL: Record<string, string> = {
-  login: "로그인", view_complex: "단지 조회", view_realtor: "중개사 조회",
-  view: "페이지 조회", ai_ask: "AI 질문", admin: "관리자", account: "계정", ai_region: "지역추정", api: "API",
+  page: "페이지뷰", login: "로그인", view_complex: "단지 API", view_realtor: "중개사 API",
+  view: "API 조회", ai_ask: "AI 질문", admin: "관리자", account: "계정", ai_region: "지역추정", api: "API",
 };
 const KIND_COLOR: Record<string, string> = {
-  login: "#1a7f4b", ai_ask: "#7c3aed", view_complex: "#1268d3", view_realtor: "#0891b2",
+  page: "#1268d3", login: "#1a7f4b", ai_ask: "#7c3aed", view_complex: "#5b8def", view_realtor: "#0891b2",
   admin: "#c0392b", account: "#8a5a00", view: "#64748b", ai_region: "#64748b", api: "#94a3b8",
 };
 
@@ -45,6 +54,8 @@ export default function AdminLogs() {
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
+  const [pa, setPa] = useState<PageAnalytics | null>(null);
+  const [paDays, setPaDays] = useState(7);
   const auth = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
   useEffect(() => {
@@ -52,6 +63,12 @@ export default function AdminLogs() {
     fetch(`${API_BASE}/admin/logs/stats?days=7`, { headers: auth() })
       .then((r) => r.json()).then(setStats).catch(() => {});
   }, [token, auth]);
+
+  useEffect(() => {
+    if (!token || !API_BASE) return;
+    fetch(`${API_BASE}/admin/page-analytics?days=${paDays}`, { headers: auth() })
+      .then((r) => r.json()).then(setPa).catch(() => {});
+  }, [token, auth, paDays]);
 
   const load = useCallback(() => {
     if (!token || !API_BASE) return;
@@ -91,6 +108,66 @@ export default function AdminLogs() {
   return (
     <>
       <div className="section-title" style={{ marginTop: 4 }}>
+        <BarChart3 size={15} strokeWidth={2.2} aria-hidden /> 페이지별 분석
+        <span style={{ marginLeft: "auto", display: "inline-flex", gap: 4 }}>
+          {[1, 7, 30].map((d) => (
+            <button key={d} onClick={() => setPaDays(d)}
+              className="ctx-badge" style={{
+                cursor: "pointer", border: "none",
+                background: paDays === d ? "#1268d3" : "#e8eef7",
+                color: paDays === d ? "#fff" : "#5a6b80", fontSize: 12 }}>
+              {d === 1 ? "오늘" : `${d}일`}
+            </button>
+          ))}
+        </span>
+      </div>
+
+      {pa && !pa.has_data && (
+        <div className="muted" style={{ fontSize: 13, padding: "8px 0 14px" }}>
+          페이지뷰 집계는 방금 도입돼 오늘부터 쌓입니다 — 방문이 생기면 여기에 페이지별로 표시됩니다.
+        </div>
+      )}
+      {pa && pa.has_data && (
+        <>
+          <div className="log-cards">
+            <Stat ic={<Eye size={16} />} label="페이지뷰" v={pa.summary.views} c="#1268d3" />
+            <Stat ic={<Users size={16} />} label="방문자(IP)" v={pa.summary.visitors} c="#0891b2" />
+            <Stat ic={<LogIn size={16} />} label="로그인 사용자" v={pa.summary.users} c="#1a7f4b" />
+          </div>
+          <div className="log-grid2" style={{ marginTop: 12 }}>
+            <div className="log-panel">
+              <div className="log-panel-t">페이지별 (조회 · 방문자 · 로그인)</div>
+              <table style={{ width: "100%", fontSize: 12.5 }}>
+                <thead><tr style={{ color: "#8a99ad", textAlign: "left" }}>
+                  <th>페이지</th><th className="num">조회</th><th className="num">방문자</th><th className="num">로그인</th>
+                </tr></thead>
+                <tbody>
+                  {pa.pages.map((p) => (
+                    <tr key={p.label}>
+                      <td style={{ padding: "3px 0" }}>{p.label}</td>
+                      <td className="num"><b>{p.views.toLocaleString()}</b></td>
+                      <td className="num">{p.visitors.toLocaleString()}</td>
+                      <td className="num" style={{ color: "#1a7f4b" }}>{p.users.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="log-panel">
+              <div className="log-panel-t">인기 단지 (실제 방문 수)</div>
+              {pa.top_complex.length === 0 && <div className="muted" style={{ fontSize: 13 }}>아직 없음</div>}
+              {pa.top_complex.map((t) => (
+                <div key={t.ref} className="log-row">
+                  <Link to={`/complex/${t.ref}`} style={{ fontSize: 13 }}>단지 {t.ref}</Link>
+                  <span><b>{t.visits}</b> <span className="muted" style={{ fontSize: 11 }}>· {t.visitors}명</span></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="section-title" style={{ marginTop: 22 }}>
         <ScrollText size={15} strokeWidth={2.2} aria-hidden /> 활동 로그 (관리자)
         <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>최근 7일 기준</span>
       </div>

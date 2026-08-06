@@ -3,9 +3,9 @@
 // 중개사는 칸을 채우는 사람이 아니라 말로 조건을 듣는 사람이다. 그래서
 // ① 문장을 붙여넣으면 요건이 만들어지고 ② 금액은 '24억'처럼 쓰던 대로 적고
 // ③ 면적은 평으로 넣게 한다(㎡ 는 우리가 바꾼다). 손이 가장 덜 가는 길로.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Plus, Trash2, Loader2, Check, Sparkles, UserRound, Building2,
-  CalendarDays, ChevronLeft, ChevronRight, Search } from "lucide-react";
+  CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -22,6 +22,8 @@ export type EditNeed = {
     area2_m2?: any; trade_type?: string } | null;
   _new?: boolean; _del?: boolean;
 };
+type CxHit = { complex_no: string; complex_name: string; region?: string;
+  households?: number; sigungu?: string | null; dong?: string | null };
 export type EditCustomer = {
   id: number; name?: string; phone?: string; memo?: string; needs: EditNeed[];
 };
@@ -140,21 +142,6 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
   const [paste, setPaste] = useState("");
   const [parsing, setParsing] = useState(false);
   const [calOpen, setCalOpen] = useState<number | null>(null);   // 달력을 연 요건
-  // 단지 확정 — 이름만 두면 매칭이 매번 다른 단지를 찾는다('크로바'는 전국 26곳)
-  const [cxOpen, setCxOpen] = useState<number | null>(null);
-  const [cxQ, setCxQ] = useState("");
-  const [cxHits, setCxHits] = useState<{ complex_no: string; complex_name: string; region?: string; households?: number }[]>([]);
-  const [cxBusy, setCxBusy] = useState(false);
-  const searchCx = async (q: string) => {
-    if (q.trim().length < 2 || cxBusy) return;
-    setCxBusy(true);
-    try {
-      const r = await fetch(`${API_BASE}/lounge/complex-search?q=${encodeURIComponent(q)}`, { headers: authH() });
-      const j = await r.json();
-      setCxHits(j.items ?? []);
-    } catch { setCxHits([]); } finally { setCxBusy(false); }
-  };
-
   const setN = (i: number, patch: Partial<EditNeed>) =>
     setNeeds((ns) => ns.map((n, j) => (i === j ? { ...n, ...patch } : n)));
   const addNeed = () =>
@@ -313,8 +300,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
                 <>
                   {/* 내놓은 것은 특정 물건이다 — 범위가 아니라 그 집의 값이 들어간다 */}
                   <Money label="내놓은 가격" v={n.ask_price} on={(x) => setN(i, { ask_price: x })} />
-                  <CxField n={n} i={i} setN={setN} open={cxOpen === i}
-                    onOpen={() => { setCxOpen(cxOpen === i ? null : i); setCxQ(n.address || ""); setCxHits([]); }} />
+                  <CxField n={n} i={i} setN={setN} authH={authH} />
                   <label className="ced-f"><span>지역(동)</span>
                     <input value={n.dong || ""} placeholder="고덕동"
                       onChange={(e) => setN(i, { dong: e.target.value || null })} /></label>
@@ -340,8 +326,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
                   <label className="ced-f"><span>지역(동)</span>
                     <input value={n.dong || ""} placeholder="고덕동"
                       onChange={(e) => setN(i, { dong: e.target.value || null })} /></label>
-                  <CxField n={n} i={i} setN={setN} open={cxOpen === i}
-                    onOpen={() => { setCxOpen(cxOpen === i ? null : i); setCxQ(n.address || ""); setCxHits([]); }} />
+                  <CxField n={n} i={i} setN={setN} authH={authH} />
                   <label className="ced-f"><span>면적 최소</span>
                     <input value={toPy(n.area_min)} inputMode="decimal" placeholder="25"
                       onChange={(e) => setN(i, { area_min: fromPy(e.target.value) })} />
@@ -354,32 +339,6 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
               )}
             </div>
 
-            {cxOpen === i && (
-              <div className="ced-cxfind">
-                <span className="ced-cxin">
-                  <Search size={14} />
-                  <input value={cxQ} autoFocus placeholder="단지명 두 글자 이상"
-                    onChange={(e) => setCxQ(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchCx(cxQ); } }} />
-                  <button type="button" onClick={() => searchCx(cxQ)}
-                    disabled={cxBusy || cxQ.trim().length < 2}>
-                    {cxBusy ? <Loader2 size={12} className="txm-spin" /> : "찾기"}</button>
-                </span>
-                {cxHits.length > 0 && (
-                  <div className="ced-cxlist">
-                    {cxHits.map((h) => (
-                      <button key={h.complex_no} type="button" onClick={() => {
-                        setN(i, { address: h.complex_name, complex_no: h.complex_no });
-                        setCxOpen(null); setCxHits([]);
-                      }}>
-                        <b>{h.complex_name}</b>
-                        <span>{h.region}{h.households ? ` · ${h.households.toLocaleString()}세대` : ""}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
             <div className="ced-row2">
               <label className="ced-f wide"><span>잔금시기</span>
                 <input value={n.settle_date || ""} placeholder="달력에서 고르거나 직접 입력"
@@ -421,23 +380,73 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
   );
 }
 
-/** 단지 칸 — 이름만 두면 매칭이 흔들린다. 확정되면 자물쇠, 아니면 '단지 찾기'.
+/** 단지 칸 — 이름만 두면 매칭이 흔들린다('크로바'는 전국 26곳). 그래서 적는 즉시 찾아
+ *  단지를 확정하고, 확정되면 그 단지의 동으로 지역칸까지 채운다. 후보가 여럿일 때만 고르게 한다.
  *  이름을 직접 고치면 확정이 풀린다(다른 단지를 가리키게 되므로). */
-function CxField({ n, i, setN, open, onOpen }: {
+function CxField({ n, i, setN, authH }: {
   n: EditNeed; i: number; setN: (i: number, p: Partial<EditNeed>) => void;
-  open: boolean; onOpen: () => void;
+  authH: () => Record<string, string>;
 }) {
+  const [hits, setHits] = useState<CxHit[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [pick, setPick] = useState(false);      // 후보 목록을 펼친 상태
   const fixed = !!n.complex_no;
+  const name = n.address || "";
+  const dong = n.dong || "";
+  const take = (h: CxHit) => {
+    // 단지가 곧 지역이다 — 동·시군구는 고른 단지 것으로 덮는다
+    setN(i, { address: h.complex_name, complex_no: h.complex_no,
+              dong: h.dong || null, sigungu: h.sigungu || null });
+    setHits([]); setPick(false);
+  };
+
+  useEffect(() => {
+    if (fixed || name.trim().length < 2) { setHits([]); return; }
+    let dead = false;
+    const t = setTimeout(async () => {
+      setBusy(true);
+      try {
+        const r = await fetch(`${API_BASE}/lounge/complex-search?q=${encodeURIComponent(name.trim())}`,
+                              { headers: authH() });
+        const j = await r.json();
+        if (dead) return;
+        const got: CxHit[] = j.items ?? [];
+        // 동을 이미 적어 뒀다면 그 동의 단지를 먼저 본다 — 동명이 단지를 가른다
+        const near = dong ? got.filter((h) => (h.dong || "") === dong) : [];
+        const one = got.length === 1 ? got[0] : near.length === 1 ? near[0] : null;
+        if (one) take(one);
+        else { setHits(near.length > 1 ? near : got); setPick(false); }
+      } catch { if (!dead) setHits([]); } finally { if (!dead) setBusy(false); }
+    }, 350);
+    return () => { dead = true; clearTimeout(t); };
+  }, [name, dong, fixed]);
+
+  const list = pick ? hits : hits.slice(0, 6);
   return (
-    <label className={"ced-f" + (fixed ? " fixed" : "")}>
+    <label className={"ced-f ced-cx" + (fixed ? " fixed" : "")}>
       <span>단지</span>
-      <input value={n.address || ""} placeholder="고덕그라시움"
+      <input value={name} placeholder="고덕그라시움"
         onChange={(e) => setN(i, { address: e.target.value || null, complex_no: null })} />
       {fixed
         ? <i className="ced-cxok" title="단지가 확정됐어요"><Check size={11} /></i>
-        : <button type="button" className="ced-cxbtn" title="단지 찾기"
-            onClick={(e) => { e.preventDefault(); onOpen(); }}>
-            <Search size={13} />{open ? "" : " 찾기"}</button>}
+        : busy ? <i className="ced-cxok busy"><Loader2 size={11} className="txm-spin" /></i>
+        : hits.length > 0 ? <i className="ced-cxn" title="후보가 여럿이에요">{hits.length}</i>
+        : null}
+      {!fixed && hits.length > 0 && (
+        <div className="ced-cxdrop" onMouseDown={(e) => e.preventDefault()}>
+          <p>어느 단지인가요?</p>
+          {list.map((h) => (
+            <button key={h.complex_no} type="button" onClick={() => take(h)}>
+              <b>{h.complex_name}</b>
+              <span>{h.region}{h.households ? ` · ${h.households.toLocaleString()}세대` : ""}</span>
+            </button>
+          ))}
+          {!pick && hits.length > list.length && (
+            <button type="button" className="more"
+              onClick={() => setPick(true)}>후보 {hits.length}곳 모두 보기</button>
+          )}
+        </div>
+      )}
     </label>
   );
 }

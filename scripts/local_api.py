@@ -15633,8 +15633,10 @@ def lounge_complex_search(q: str, user: dict = Depends(current_user)):
     items = []
     for r in rows:
         region = " ".join(x for x in [_SIDO_SHORT.get(r[3], r[3]), r[4], r[5]] if x)
+        # 시군구·동을 따로도 준다 — 단지를 고르면 고객 요건의 지역칸을 그대로 채우기 위함
         items.append({"complex_no": r[0], "complex_name": r[1],
-                      "households": r[2], "region": region})
+                      "households": r[2], "region": region,
+                      "sido": r[3], "sigungu": r[4], "dong": r[5]})
     return {"items": items}
 
 

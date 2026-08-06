@@ -4,7 +4,8 @@ import { Phone, MessageCircle, MapPin, Building2 } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { useAuth } from "../auth";
 import { openListingPopup } from "../lib/listingPopup";
-import { loadKakao, geocodeRegion } from "../lib/kakaomap";
+import { areaLabel } from "../lib/area";
+import { loadKakao, geocodeRegion, attachMapControls } from "../lib/kakaomap";
 
 // 거래유형 → 네이버 코드. 매물 클릭 시 네이버 단지 매물을 작은 팝업창으로.
 const TRADE_CODE: Record<string, string> = { "매매": "A1", "전세": "B1", "월세": "B2" };
@@ -235,7 +236,7 @@ function ListingsSection({ listings }: { listings: Listing[] }) {
           const price = l.trade_type === "월세" && l.rent_price_text
             ? `${l.price_text || won(l.price)}/${l.rent_price_text}`
             : (l.price_text || won(l.price));
-          const meta = [l.excl_use_ar ? `전용 ${l.excl_use_ar}㎡` : "", l.floor_info ? `${l.floor_info}층` : "",
+          const meta = [l.excl_use_ar ? areaLabel(l.excl_use_ar) : "", l.floor_info ? `${l.floor_info}층` : "",
             l.direction, l.confirm_ymd ? `확인 ${rhFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ");
           return (
             <a key={l.article_no || i} className="rl-lcard" href={url || "#"} target="_blank" rel="noreferrer"
@@ -280,6 +281,7 @@ function OfficeMap({ lat, lng, address, name }: {
         const kakao = window.kakao;
         const pos = new kakao.maps.LatLng(c.lat, c.lng);
         const map = new kakao.maps.Map(ref.current, { center: pos, level: 4 });
+        attachMapControls(map, ref.current, { locate: false });
         map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
         new kakao.maps.Marker({ position: pos, map });
         if (name) {
@@ -323,6 +325,11 @@ function LeadModal({ slug, name, onClose }: { slug: string; name: string; onClos
             <input className="ai-input" placeholder="이름" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             <input className="ai-input" placeholder="연락처 (예: 010-0000-0000)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             <textarea className="ai-input" rows={3} placeholder="문의 내용 (선택)" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
+            {/* 개인정보 제3자 제공 고지 — 신청하기 = 제공 동의(개인정보처리방침 4조와 연동) */}
+            <p style={{ fontSize: 11.5, color: "#7a8aa0", margin: "2px 0 0", lineHeight: 1.5 }}>
+              입력하신 성명·연락처·문의내용은 상담 응대를 위해 <b>{name}</b>에 전달되며, 신청하기를 누르면
+              제공에 동의한 것으로 봅니다. (보유기간: 상담 목적 달성 시까지)
+            </p>
             <button className="rh-btn rh-btn-consult" disabled={busy} onClick={submit}>신청하기</button>
           </>
         )}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Flame } from "lucide-react";
-import { loadKakao, wonShort, escapeHtml } from "../lib/kakaomap";
+import { loadKakao, wonShort, escapeHtml, attachMapControls } from "../lib/kakaomap";
 import MapRegionPicker from "../components/MapRegionPicker";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -83,6 +83,7 @@ export default function DealMap() {
       const map = new kakao.maps.Map(mapEl.current, {
         center: new kakao.maps.LatLng(37.4979, 127.0276), level: 5,
       });
+      attachMapControls(map, mapEl.current);
       mapRef.current = map;
       map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
 

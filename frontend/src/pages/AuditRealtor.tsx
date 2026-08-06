@@ -9,7 +9,7 @@ const PRIMARY = "#1268d3";
 const BORDER = "#e4e9f0";
 const SPIN: React.CSSProperties = { animation: "hp-spin .8s linear infinite" };
 
-type Realtor = { realtor_id: string; realtor_name: string; count: number; address: string | null };
+type Realtor = { realtor_id: string; realtor_name: string; count: number; address: string | null; location?: string | null };
 
 export default function AuditRealtor() {
   const { token } = useAuth();
@@ -61,7 +61,7 @@ export default function AuditRealtor() {
             <button key={rt.realtor_id} onClick={() => { setRealtor(rt); setRealtors([]); }}
               style={{ width: "100%", textAlign: "left", padding: "10px 12px", background: "#fff", border: "none", borderTop: `1px solid #f1f5f9`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rt.realtor_name}
-                {rt.address && <span className="muted" style={{ fontWeight: 400, fontSize: 12, marginLeft: 8 }}>{rt.address}</span>}</span>
+                {(rt.address || rt.location) && <span className="muted" style={{ fontWeight: 400, fontSize: 12, marginLeft: 8 }}>{rt.address || rt.location}</span>}</span>
               <span className="muted" style={{ fontSize: 12, flexShrink: 0 }}>매물 {rt.count.toLocaleString()}</span>
             </button>
           ))}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import FavHeart from "../components/FavHeart";
 import FetchError from "../components/FetchError";
 import { useStickyState } from "../hooks/useStickyState";
+import { areaLabel } from "../lib/area";
 import { Link } from "react-router-dom";
 import { Loading } from "../components/Loading";
 import { ApplyButton } from "../hooks/useDeferredUrl";
@@ -26,10 +28,11 @@ type Summary = { total: number; n_bunyang: number; n_ipju: number; avg_amount: n
 const SIDO: { code: string; name: string }[] = [
   { code: "", name: "전국" },
   { code: "11", name: "서울" }, { code: "41", name: "경기" }, { code: "28", name: "인천" },
-  { code: "26", name: "부산" }, { code: "27", name: "대구" }, { code: "29", name: "광주" },
+  { code: "26", name: "부산" }, { code: "27", name: "대구" },
+  { code: "29", name: "전남광주(광주)" }, { code: "46", name: "전남광주(전남)" },
   { code: "30", name: "대전" }, { code: "31", name: "울산" }, { code: "36", name: "세종" },
   { code: "43", name: "충북" }, { code: "44", name: "충남" }, { code: "52", name: "전북" },
-  { code: "46", name: "전남" }, { code: "47", name: "경북" }, { code: "48", name: "경남" },
+  { code: "47", name: "경북" }, { code: "48", name: "경남" },
   { code: "51", name: "강원" }, { code: "50", name: "제주" },
 ];
 
@@ -127,8 +130,7 @@ export default function PresaleTx() {
           ))}
         </div>
         <span className="dm-sep" />
-        <select value={sido} onChange={(e) => setSido(e.target.value)}
-                style={{ fontSize: 13, padding: "4px 8px", borderRadius: 8, border: "1px solid var(--c-border)" }}>
+        <select value={sido} onChange={(e) => setSido(e.target.value)} className="fsel">
           {SIDO.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
         </select>
         <ApplyButton dirty={dirty} onApply={apply} />
@@ -161,10 +163,9 @@ export default function PresaleTx() {
                         ? { background: "#fff3e0", color: "#b25d00" }
                         : { background: "#e8f0fe", color: "#1268d3" }}>{r.kind}</span>
                     </td>
-                    <td>{r.complex_no ? <Link to={`/complex/${r.complex_no}`}>{r.name}</Link> : r.name}</td>
+                    <td>{r.complex_no ? <><Link to={`/complex/${r.complex_no}`}>{r.name}</Link><FavHeart complexNo={String(r.complex_no)} complexName={r.name} /></> : r.name}</td>
                     <td className="muted" style={{ fontSize: 12 }}>{r.region}</td>
-                    <td className="num">{r.excl_use_ar != null ? `${r.excl_use_ar}㎡` : "-"}<br />
-                      <span className="muted" style={{ fontSize: 11 }}>{r.pyeong != null ? `${r.pyeong}평` : ""}</span></td>
+                    <td className="num">{r.excl_use_ar != null ? areaLabel(r.excl_use_ar) : "-"}</td>
                     <td className="num">{r.floor ?? "-"}</td>
                     <td className="num" style={{ fontWeight: 600 }}>{formatWon(r.deal_amount)}</td>
                     <td>
