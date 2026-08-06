@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Sparkles, Loader2, Building2, Globe, UserRound, Phone, RefreshCw, ChevronRight, Search,
+  Sparkles, Loader2, Building2, UserRound, Phone, RefreshCw, ChevronRight, Search,
   Handshake,
 } from "lucide-react";
 
@@ -113,15 +113,15 @@ export default function MatchBoard({ authH, onGoLedger }: {
         <span className="mtb-kpi">
           <b>구하는 손님 {(items || []).length}</b>
           <i>우리 매물 {totalOurs}</i>
-          <i>전국 매물 {totalMkt}</i>
+          <i>공동중개 {totalMkt}</i>
         </span>
         <button className="cled-refresh" onClick={load} disabled={busy} aria-label="다시 찾기">
           {busy ? <Loader2 size={14} className="txm-spin" /> : <RefreshCw size={14} />}
         </button>
       </div>
       <p className="mtb-lead">
-        고객원장의 <b>구함</b> 요건으로 우리 매물장을 먼저 찾고, 없거나 부족하면 전국 매물에서
-        같은 조건을 찾아 드립니다. 전국 매물은 공동중개로 붙일 수 있는 후보입니다.
+        고객원장의 <b>구함</b> 요건으로 우리 매물장을 먼저 찾고, 없거나 부족하면 다른 사무소
+        매물에서 같은 조건을 찾아 드립니다. <b>공동중개</b>로 붙일 수 있는 후보입니다.
       </p>
 
       {err && <p className="cled-empty">{err}</p>}
@@ -158,7 +158,7 @@ export default function MatchBoard({ authH, onGoLedger }: {
               </span>
               <span className="mtb-cnt">
                 {it.n_ours > 0 && <b className="ours">우리 {it.n_ours}</b>}
-                {it.n_market > 0 && <b className="mkt">전국 {it.n_market}</b>}
+                {it.n_market > 0 && <b className="mkt">공동 {it.n_market}</b>}
                 {total === 0 && <b className="zero">맞는 매물 없음</b>}
                 <ChevronRight size={14} className={opened ? "rot" : ""} />
               </span>
@@ -185,8 +185,8 @@ export default function MatchBoard({ authH, onGoLedger }: {
                 )}
                 {it.market.length > 0 && (
                   <>
-                    <div className="mtb-sec mkt"><Globe size={12} /> 전국 매물 {it.market.length}건
-                      <span>공동중개 후보</span></div>
+                    <div className="mtb-sec mkt"><Handshake size={12} /> 공동중개 {it.market.length}건
+                      <span>다른 사무소 매물</span></div>
                     {it.market.map((h) => <HitRow key={`m${h.id}`} h={h} />)}
                   </>
                 )}
@@ -219,20 +219,20 @@ function ExpandBox({ nid, state, busy, onRun }: {
       {state && (
         <>
           <div className="mtb-sec exp">
-            <Handshake size={12} /> 공동가능매물 {state.items.length}건
+            <Handshake size={12} /> 공동중개 확대 {state.items.length}건
             <span>{state.label}</span>
           </div>
           {state.items.length === 0 && (
             <p className="mtb-empty">이 범위에도 맞는 매물이 없어요.</p>
           )}
-          {state.items.map((h, i) => <HitRow key={`e${h.id}-${i}`} h={h} coop />)}
+          {state.items.map((h, i) => <HitRow key={`e${h.id}-${i}`} h={h} />)}
         </>
       )}
       <button className="mtb-more" disabled={busy}
         onClick={() => onRun(nid, state ? Math.min(state.level + 1, 2) : 1)}>
         {busy ? <Loader2 size={13} className="txm-spin" /> : <Handshake size={13} />}
         {busy ? "찾는 중…"
-          : !state ? "공동가능매물 확대 검색"
+          : !state ? "공동중개 범위 넓혀 찾기"
             : state.has_more ? "더 넓게 찾기" : "가장 넓은 범위입니다"}
       </button>
     </div>
@@ -241,7 +241,7 @@ function ExpandBox({ nid, state, busy, onRun }: {
 
 const FIT_MARK: Record<FitStatus, string> = { ok: "✓", near: "≈", miss: "✕", unknown: "?" };
 
-function HitRow({ h, coop }: { h: Hit; coop?: boolean }) {
+function HitRow({ h }: { h: Hit }) {
   const price = h.trade === "월세"
     ? `${eok(h.price_man)}${h.rent_man ? ` / ${Math.round(h.rent_man).toLocaleString()}만` : ""}`
     : eok(h.price_man);
@@ -273,8 +273,8 @@ function HitRow({ h, coop }: { h: Hit; coop?: boolean }) {
   const body = (
     <>
       <div className="mtb-hit-top">
-        <span className={"mtb-src " + (coop ? "coop" : h.src)}>
-          {coop ? "공동" : h.src === "ours" ? "우리" : "전국"}</span>
+        <span className={"mtb-src " + (h.src === "ours" ? "ours" : "coop")}>
+          {h.src === "ours" ? "우리" : "공동"}</span>
         <b className="mtb-nm">{h.name}</b>
         <span className="mtb-price">{price}</span>
         {h.src === "market" && h.complex_no && <Search size={12} />}

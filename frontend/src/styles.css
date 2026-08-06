@@ -2197,14 +2197,14 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mtb-cnt{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto}
 .mtb-cnt b{font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px}
 .mtb-cnt b.ours{background:#e8f6ee;color:#1a7f4b}
-.mtb-cnt b.mkt{background:var(--c-primary-soft);color:var(--c-primary)}
+.mtb-cnt b.mkt{background:#f0e9fb;color:#6b39c9}
 .mtb-cnt b.zero{background:#f1f5f9;color:#94a3b8;font-weight:600}
 .mtb-cnt svg{color:var(--c-faint);transition:transform .15s}
 .mtb-cnt svg.rot{transform:rotate(90deg)}
 .mtb-hits{border-top:1px solid var(--c-border-soft);background:#fbfcfe}
 .mtb-sec{display:flex;align-items:center;gap:6px;padding:7px 13px 5px;font-size:11.5px;font-weight:800;
   color:#1a7f4b}
-.mtb-sec.mkt{color:var(--c-primary)}
+.mtb-sec.mkt{color:#6b39c9}
 .mtb-sec span{font-weight:500;color:var(--c-faint);font-size:11px}
 .mtb-hit{display:block;padding:9px 13px;font-size:12.5px;
   border-top:1px solid var(--c-border-soft);text-decoration:none;color:inherit}
@@ -2212,7 +2212,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mtb-hit:hover{background:var(--c-primary-tint)}
 .mtb-src{flex:none;font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px}
 .mtb-src.ours{background:#e8f6ee;color:#1a7f4b}
-.mtb-src.market{background:var(--c-primary-soft);color:var(--c-primary)}
+.mtb-src.market,.mtb-src.coop{background:#f0e9fb;color:#6b39c9}
 .mtb-nm{font-weight:800;color:#13294b;flex:1;min-width:0;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .mtb-price{flex:none;font-weight:800;color:var(--c-sale);font-variant-numeric:tabular-nums}
