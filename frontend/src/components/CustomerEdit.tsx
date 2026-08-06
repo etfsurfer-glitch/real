@@ -178,12 +178,24 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
     setSaving(true); setErr("");
     try {
       const h = { ...authH(), "Content-Type": "application/json" };
-      await fetch(`${API_BASE}/lounge/customers/${cust.id}`, {
-        method: "PATCH", headers: h, body: JSON.stringify({ name, phone, memo }),
-      }).then((r) => { if (!r.ok) throw new Error("고객 저장 실패"); });
+      const send = async (url: string, method: string, body?: any) => {
+        let res: Response;
+        try {
+          res = await fetch(url, { method, headers: h, body: body && JSON.stringify(body) });
+        } catch {
+          // 네트워크 단계 실패 — 'Failed to fetch' 는 사용자에게 아무 뜻이 없다
+          throw new Error("서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.");
+        }
+        if (!res.ok) {
+          const j = await res.json().catch(() => null);
+          throw new Error(j?.detail || `저장 실패 (${res.status})`);
+        }
+        return res;
+      };
+      await send(`${API_BASE}/lounge/customers/${cust.id}`, "PATCH", { name, phone, memo });
       for (const n of needs) {
         if (n._del && n.id) {
-          await fetch(`${API_BASE}/lounge/needs/${n.id}`, { method: "DELETE", headers: h });
+          await send(`${API_BASE}/lounge/needs/${n.id}`, "DELETE");
           continue;
         }
         if (n._del) continue;
@@ -194,11 +206,9 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
           body[k] = (n as any)[k] ?? null;
         }
         if (n.id) {
-          await fetch(`${API_BASE}/lounge/needs/${n.id}`, { method: "PUT", headers: h, body: JSON.stringify(body) });
+          await send(`${API_BASE}/lounge/needs/${n.id}`, "PUT", body);
         } else {
-          await fetch(`${API_BASE}/lounge/needs`, {
-            method: "POST", headers: h, body: JSON.stringify({ ...body, customer_id: cust.id }),
-          });
+          await send(`${API_BASE}/lounge/needs`, "POST", { ...body, customer_id: cust.id });
         }
       }
       onSaved(); onClose();
