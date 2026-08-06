@@ -13333,7 +13333,10 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
     for it in items:
         m, ct, mg = notes.get(it["article_no"], ("", "", ""))
         it["memo"], it["contact"], it["manager"] = m or "", ct or "", mg or ""
-    items += priv          # 비공개매물은 자체 memo/contact/manager 를 이미 갖고 있다
+    # 비공개매물을 앞에 둔다 — 아래 정렬이 안정 정렬이라 확인일이 같으면 이쪽이 먼저 온다.
+    # 방금 등록한 물건이 오늘 확인된 네이버 매물 수백 건 뒤로 밀려 안 보이던 문제.
+    # (비공개매물은 자체 memo/contact/manager 를 이미 갖고 있어 위 결합을 타지 않는다)
+    items = priv + items
     if q.strip():
         ql = q.strip()
         # 네이버 매물번호도 검색 대상(중개사가 번호로 바로 자기 물건을 찾는 흐름)
