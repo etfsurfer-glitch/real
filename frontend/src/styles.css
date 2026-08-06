@@ -1995,6 +1995,64 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   .dash-top-r{position:static}
 }
 
+/* ── 고객·물건 매칭 ── */
+.mtb{max-width:1240px}
+.mtb-h{display:flex;align-items:center;gap:12px;margin:2px 2px 6px;flex-wrap:wrap}
+.mtb-h h3{margin:0;display:flex;align-items:center;gap:7px;font-size:17px;font-weight:800;color:#13294b}
+.mtb-h h3 svg{color:var(--c-primary)}
+.mtb-kpi{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--c-muted)}
+.mtb-kpi b{font-weight:800;color:#13294b;background:var(--c-primary-soft);padding:3px 10px;border-radius:999px}
+.mtb-kpi i{font-style:normal;background:#eef2f7;padding:3px 10px;border-radius:999px;font-weight:600}
+.mtb-lead{margin:0 2px 12px;font-size:12.5px;color:var(--c-muted);line-height:1.6;max-width:76ch}
+.mtb-link{border:none;background:none;color:var(--c-primary);font:inherit;font-weight:700;
+  cursor:pointer;text-decoration:underline;padding:0}
+.mtb-card{background:#fff;border:1px solid var(--c-border);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.mtb-card.none{opacity:.72}
+.mtb-need{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:none;background:none;
+  cursor:pointer;font:inherit;padding:11px 13px}
+.mtb-need:hover{background:var(--c-row-hover)}
+.mtb-av{width:24px;height:24px;border-radius:50%;background:var(--c-primary-soft);color:var(--c-primary);
+  display:flex;align-items:center;justify-content:center;flex:none}
+.mtb-who{display:flex;flex-direction:column;gap:1px;flex:none;min-width:88px}
+.mtb-who b{font-size:13px;font-weight:800;color:#13294b}
+.mtb-who a{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--c-primary);
+  text-decoration:none;font-variant-numeric:tabular-nums}
+.mtb-cond{display:flex;align-items:center;flex-wrap:wrap;gap:7px;flex:1;min-width:0;font-size:12.5px;
+  font-weight:700;color:#13294b}
+.mtb-cond em{font-style:normal;background:var(--c-primary);color:#fff;font-size:10.5px;font-weight:700;
+  padding:2px 8px;border-radius:6px;flex:none}
+.mtb-cond i{font-style:normal;font-weight:500;color:var(--c-muted);font-size:11.5px}
+.mtb-cnt{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto}
+.mtb-cnt b{font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px}
+.mtb-cnt b.ours{background:#e8f6ee;color:#1a7f4b}
+.mtb-cnt b.mkt{background:var(--c-primary-soft);color:var(--c-primary)}
+.mtb-cnt b.zero{background:#f1f5f9;color:#94a3b8;font-weight:600}
+.mtb-cnt svg{color:var(--c-faint);transition:transform .15s}
+.mtb-cnt svg.rot{transform:rotate(90deg)}
+.mtb-hits{border-top:1px solid var(--c-border-soft);background:#fbfcfe}
+.mtb-sec{display:flex;align-items:center;gap:6px;padding:7px 13px 5px;font-size:11.5px;font-weight:800;
+  color:#1a7f4b}
+.mtb-sec.mkt{color:var(--c-primary)}
+.mtb-sec span{font-weight:500;color:var(--c-faint);font-size:11px}
+.mtb-hit{display:flex;align-items:center;gap:8px;padding:7px 13px;font-size:12.5px;
+  border-top:1px solid var(--c-border-soft);text-decoration:none;color:inherit}
+.mtb-hit:hover{background:var(--c-primary-tint)}
+.mtb-src{flex:none;font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px}
+.mtb-src.ours{background:#e8f6ee;color:#1a7f4b}
+.mtb-src.market{background:var(--c-primary-soft);color:var(--c-primary)}
+.mtb-nm{font-weight:800;color:#13294b;flex:none;max-width:190px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.mtb-meta{flex:1;min-width:0;color:var(--c-muted);font-size:11.5px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.mtb-price{flex:none;font-weight:800;color:var(--c-sale);font-variant-numeric:tabular-nums}
+.mtb-hit svg{color:var(--c-faint);flex:none}
+.mtb-empty{margin:0;padding:14px 13px;font-size:12.5px;color:var(--c-muted)}
+@media(max-width:720px){
+  .mtb-need{flex-wrap:wrap}
+  .mtb-cnt{margin-left:0;width:100%}
+  .mtb-nm{max-width:130px}
+}
+
 /* ── 고객 원장 ── */
 .cled{max-width:1240px}
 .cled-h{display:flex;align-items:center;gap:12px;margin:2px 2px 12px;flex-wrap:wrap}

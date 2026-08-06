@@ -14062,6 +14062,191 @@ def lounge_quick_enrich(body: dict, user: dict = Depends(current_user)):
     return {"row": row}
 
 
+# ── 고객 ↔ 물건 매칭 ────────────────────────────────────────────
+# 요건(biz_needs)의 조건으로 ① 우리 사무소 매물장 ② 전국 매물(네이버 수집분)을 찾는다.
+# 우리 것만 보여 주면 "우리 물건이 없다"로 끝나지만, 전국을 같이 보면 공동중개로
+# 손님을 붙일 수 있다 — 중개사가 실제로 하는 일이 그것이다.
+
+def _match_price_range(nd) -> tuple:
+    """요건에서 (최소, 최대) 원 단위. 한쪽만 있으면 ±25% 로 벌려 후보를 놓치지 않는다."""
+    lo = nd.get("budget_min") or None
+    hi = nd.get("budget_max") or None
+    if lo and not hi:
+        hi = int(lo * 1.25)
+    if hi and not lo:
+        lo = int(hi * 0.75)
+    return lo, hi
+
+
+def _match_ours(rc, rid: str, nd: dict, limit: int = 12) -> list:
+    """우리 사무소 매물장에서 찾기. 금액은 만원 단위로 저장돼 있다."""
+    _ensure_private_listings(rc)
+    rc.row_factory = sqlite3.Row
+    tt = _TRADE_KOR.get(nd.get("trade") or "", nd.get("trade") or "")
+    where = ["realtor_id=?", "status='active'"]
+    args: list = [rid]
+    if tt:
+        where.append("trade_type=?"); args.append(tt)
+    lo, hi = _match_price_range(nd)
+    if lo:
+        where.append("CAST(price AS REAL)*10000 >= ?"); args.append(lo * 0.9)
+    if hi:
+        where.append("CAST(price AS REAL)*10000 <= ?"); args.append(hi * 1.1)
+    if nd.get("area_min"):
+        where.append("CAST(area2_m2 AS REAL) >= ?"); args.append(float(nd["area_min"]) * 0.92)
+    if nd.get("area_max"):
+        where.append("CAST(area2_m2 AS REAL) <= ?"); args.append(float(nd["area_max"]) * 1.08)
+    kw = (nd.get("address") or "").strip() or (nd.get("dong") or "").strip()
+    if kw:
+        where.append("(complex_name LIKE ? OR address LIKE ? OR building_name LIKE ?)")
+        args += [f"%{kw}%"] * 3
+    rows = rc.execute(
+        f"SELECT id, complex_name, building_name, address, dong, ho, trade_type, price, "
+        f"       rent_price, area2_m2, area1_m2, floor_info, direction, settle_ymd "
+        f"FROM private_listings WHERE {' AND '.join(where)} "
+        f"ORDER BY CAST(price AS REAL) LIMIT ?", args + [limit]).fetchall()
+    out = []
+    for r in rows:
+        out.append({"src": "ours", "id": r["id"],
+                    "name": r["complex_name"] or r["building_name"] or r["address"] or "매물",
+                    "where": " ".join(x for x in [r["address"], r["dong"], r["ho"]] if x),
+                    "trade": r["trade_type"], "price_man": _to_f(r["price"]),
+                    "rent_man": _to_f(r["rent_price"]), "area": _to_f(r["area2_m2"]),
+                    "supply": _to_f(r["area1_m2"]), "floor": r["floor_info"] or "",
+                    "direction": r["direction"] or "", "settle": r["settle_ymd"] or ""})
+    return out
+
+
+def _to_f(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _match_market(nd: dict, limit: int = 12) -> list:
+    """전국 매물에서 찾기(단지형). 단지당 최저가 1건씩만 올려 목록이 한 단지로 덮이지 않게."""
+    tt = (nd.get("trade") or "A1")
+    if tt not in ("A1", "B1", "B2"):
+        tt = _TRADE_CODE.get(tt, "A1")
+    where = ["l.trade_type=?", "l.deal_or_warrant_price > 0", "l.area2_m2 IS NOT NULL"]
+    args: list = [tt]
+    if tt in ("A1", "B1"):
+        where.append("l.deal_or_warrant_price >= 30000000")     # 자릿수 오타 방어
+    lo, hi = _match_price_range(nd)
+    if lo:
+        where.append("l.deal_or_warrant_price >= ?"); args.append(lo * 0.9)
+    if hi:
+        where.append("l.deal_or_warrant_price <= ?"); args.append(hi * 1.1)
+    if nd.get("area_min"):
+        where.append("l.area2_m2 >= ?"); args.append(float(nd["area_min"]) * 0.92)
+    if nd.get("area_max"):
+        where.append("l.area2_m2 <= ?"); args.append(float(nd["area_max"]) * 1.08)
+    # 지역 — 단지명이 있으면 그 단지, 없으면 동·시군구 이름으로 좁힌다
+    cxw, cxa = [], []
+    if (nd.get("address") or "").strip():
+        cxw.append("REPLACE(cx.complex_name,' ','') LIKE ?")
+        cxa.append("%" + nd["address"].replace(" ", "") + "%")
+    dong = (nd.get("dong") or "").strip()
+    if dong:
+        cxw.append("cx.cortar_no IN (SELECT cortar_no FROM regions WHERE cortar_name=?)")
+        cxa.append(dong)
+    if cxw:
+        where.append("(" + " OR ".join(cxw) + ")")
+        args += cxa
+    elif not (nd.get("sigungu") or "").strip():
+        return []          # 지역 단서가 하나도 없으면 전국을 통째로 뒤지지 않는다
+    sql = f"""
+        WITH base AS (
+          SELECT l.complex_no, cx.complex_name, l.area2_m2 AS excl, l.area_name,
+                 l.deal_or_warrant_price AS price, l.rent_price AS rent, l.floor_info,
+                 l.direction, cx.cortar_no,
+                 ROW_NUMBER() OVER (PARTITION BY l.complex_no ORDER BY l.deal_or_warrant_price) AS rn,
+                 COUNT(*) OVER (PARTITION BY l.complex_no) AS n
+          FROM listings_current l JOIN complexes cx ON cx.complex_no = l.complex_no
+          WHERE {' AND '.join(where)}
+        )
+        SELECT * FROM base WHERE rn = 1 ORDER BY price LIMIT ?
+    """
+    out = []
+    with _open_db() as c:
+        for r in c.execute(sql, args + [limit]).fetchall():
+            out.append({"src": "market", "id": r["complex_no"], "name": r["complex_name"],
+                        "where": "", "trade": _TRADE_KOR.get(tt, tt),
+                        "price_man": (r["price"] or 0) / 10000.0,
+                        "rent_man": (r["rent"] or 0) / 10000.0 or None,
+                        "area": r["excl"], "supply": None, "floor": r["floor_info"] or "",
+                        "direction": r["direction"] or "", "settle": "",
+                        "n_in_complex": r["n"], "complex_no": r["complex_no"]})
+    return out
+
+
+@app.get("/lounge/match")
+def lounge_match(user: dict = Depends(current_user), need_id: int = 0, limit: int = 10):
+    """고객 요건 → 맞는 매물(우리 + 전국). need_id 를 주면 그 요건만."""
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.row_factory = sqlite3.Row
+        q = ("SELECT n.*, c.name AS cname, c.phone AS cphone FROM biz_needs n "
+             "LEFT JOIN biz_customers c ON c.id = n.customer_id "
+             "WHERE n.realtor_id=? AND n.kind='구함'")
+        args = [rid]
+        if need_id:
+            q += " AND n.id=?"; args.append(need_id)
+        needs = [dict(r) for r in rc.execute(q + " ORDER BY n.updated_at DESC LIMIT 60", args)]
+        items = []
+        for nd in needs:
+            ours = _match_ours(rc, rid, nd, limit)
+            try:
+                market = _match_market(nd, limit)
+            except Exception:  # noqa: BLE001
+                market = []    # 전국 조회가 실패해도 우리 매물은 보여 준다
+            items.append({"need": nd, "ours": ours, "market": market,
+                          "n_ours": len(ours), "n_market": len(market)})
+    return {"items": items}
+
+
+@app.get("/lounge/match/listing/{pid}")
+def lounge_match_listing(pid: int, user: dict = Depends(current_user), limit: int = 20):
+    """우리 매물 → 이 물건을 찾을 만한 손님(구함 요건). 반대 방향."""
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.row_factory = sqlite3.Row
+        _ensure_private_listings(rc)
+        l = rc.execute("SELECT * FROM private_listings WHERE id=? AND realtor_id=?",
+                       (pid, rid)).fetchone()
+        if not l:
+            raise HTTPException(404, "매물을 찾을 수 없어요")
+        price = (_to_f(l["price"]) or 0) * 10000          # 만원 → 원
+        area = _to_f(l["area2_m2"])
+        tt = _TRADE_CODE.get(l["trade_type"] or "", "")
+        rows = rc.execute(
+            "SELECT n.*, c.name AS cname, c.phone AS cphone FROM biz_needs n "
+            "LEFT JOIN biz_customers c ON c.id = n.customer_id "
+            "WHERE n.realtor_id=? AND n.kind='구함'", (rid,)).fetchall()
+    out = []
+    for r in rows:
+        nd = dict(r)
+        if tt and nd.get("trade") and nd["trade"] != tt:
+            continue
+        lo, hi = _match_price_range(nd)
+        if price:
+            if lo and price < lo * 0.9:
+                continue
+            if hi and price > hi * 1.1:
+                continue
+        if area:
+            if nd.get("area_min") and area < float(nd["area_min"]) * 0.92:
+                continue
+            if nd.get("area_max") and area > float(nd["area_max"]) * 1.08:
+                continue
+        out.append(nd)
+    return {"listing": {"id": pid, "name": l["complex_name"] or l["address"],
+                        "trade": l["trade_type"], "price_man": _to_f(l["price"]),
+                        "area": area},
+            "needs": out[:limit]}
+
+
 @app.get("/lounge/customers")
 def lounge_customers(user: dict = Depends(current_user), q: str = "", limit: int = 300):
     """고객 원장 — 고객 + 요건 + 그 요건이 가리키는 우리 매물.

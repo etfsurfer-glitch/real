@@ -15,6 +15,7 @@ import ContractCalendar from "../components/ContractCalendar";
 import LoungeCalendarPanel from "../components/LoungeCalendarPanel";
 import QuickAdd from "../components/QuickAdd";
 import CustomerLedger from "../components/CustomerLedger";
+import MatchBoard from "../components/MatchBoard";
 import BizCustomers from "../components/BizCustomers";
 import BizContracts from "../components/BizContracts";
 
@@ -51,8 +52,8 @@ export type Status = {
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-export type Tab = "dashboard" | "listings" | "ledger" | "calendar" | "customers" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
-export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "ledger", "calendar", "customers", "contracts", "audit", "office", "edit", "leads", "homepage", "staff"];
+export type Tab = "dashboard" | "listings" | "ledger" | "match" | "calendar" | "customers" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
+export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "ledger", "match", "calendar", "customers", "contracts", "audit", "office", "edit", "leads", "homepage", "staff"];
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -212,6 +213,7 @@ export default function Lounge() {
               ["dashboard", "대시보드", LayoutDashboard],
               ["listings", "매물장", ClipboardList],
               ["ledger", "고객원장", Users],
+              ["match", "고객·물건매칭", Sparkles],
               ...((isAdmin ? [["calendar", "계약캘린더", CalendarDays],
                               ["customers", "고객관리", Users],
                               ["contracts", "계약관리", FileText]] : []) as [Tab, string, typeof Users][]),
@@ -232,6 +234,7 @@ export default function Lounge() {
           {tab === "dashboard" && <DashboardTab authH={authH} office={st.office} onGoTab={setTab} />}
           {tab === "listings" && <ListingsTab authH={authH} office={st.office} />}
           {tab === "ledger" && <CustomerLedger authH={authH} onGoListings={() => setTab("listings")} />}
+          {tab === "match" && <MatchBoard authH={authH} onGoLedger={() => setTab("ledger")} />}
           {tab === "calendar" && isAdmin && <ContractCalendar authH={authH} />}
           {tab === "customers" && isAdmin && <BizCustomers authH={authH} />}
           {tab === "contracts" && isAdmin && <BizContracts authH={authH} />}
