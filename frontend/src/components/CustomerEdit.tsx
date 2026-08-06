@@ -4,7 +4,8 @@
 // ① 문장을 붙여넣으면 요건이 만들어지고 ② 금액은 '24억'처럼 쓰던 대로 적고
 // ③ 면적은 평으로 넣게 한다(㎡ 는 우리가 바꾼다). 손이 가장 덜 가는 길로.
 import { useState } from "react";
-import { X, Plus, Trash2, Loader2, Check, Sparkles, UserRound, Building2 } from "lucide-react";
+import { X, Plus, Trash2, Loader2, Check, Sparkles, UserRound, Building2,
+  CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -22,9 +23,11 @@ export type EditCustomer = {
 
 const KINDS = ["구함", "내놓음"];
 const TRADES: [string, string][] = [["A1", "매매"], ["B1", "전세"], ["B2", "월세"]];
-const ROLES = ["주안", "대안", "보유"];
 const STATUS = ["탐색", "비교", "협상", "계약", "완료", "보류"];
-const SETTLE_QUICK = ["즉시", "협의", "9월", "10월", "11월", "12월"];
+const SETTLE_QUICK = ["즉시", "협의"];
+// 예전 값(주안·대안·보유)을 우선순위로 읽는다 — 기존 요건도 버튼이 켜져 보이게
+const ROLE_OLD: Record<string, string> = { 주안: "1안", 대안: "2안", 보유: "1안" };
+const roleNum = (r?: string | null) => ROLE_OLD[r || ""] || r || "";
 
 /** '24억' '3억5천' '1,000만' → 원. 숫자만 있으면 억으로 본다(중개사는 억으로 말한다). */
 export function parseMoney(raw: string): number | null {
@@ -56,6 +59,69 @@ const fromPy = (py: string) => {
   return isNaN(v) || !v ? null : Math.round(v * 3.3058 * 10) / 10;
 };
 
+/** 잔금시기 달력 — 날짜까지 잡힌 건 일로, 아직 '10월쯤'이면 월로 고른다.
+ *  둘 다 실제로 쓰이므로 한 달력 안에서 둘 다 되게 한다. */
+function SettlePicker({ value, onPick, onClose }: {
+  value?: string | null; onPick: (v: string) => void; onClose: () => void;
+}) {
+  const base = (() => {
+    const m = (value || "").match(/(\d{4})-(\d{2})/);
+    if (m) return { y: +m[1], m: +m[2] - 1 };
+    const n = new Date();
+    return { y: n.getFullYear(), m: n.getMonth() };
+  })();
+  const [cur, setCur] = useState(base);
+  const pad = (v: number) => String(v).padStart(2, "0");
+  const grid = (() => {
+    const first = new Date(cur.y, cur.m, 1);
+    const start = new Date(first);
+    start.setDate(1 - first.getDay());
+    return Array.from({ length: 42 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return { d, iso: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+        inM: d.getMonth() === cur.m };
+    });
+  })();
+  const today = new Date();
+  const todayIso = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  const monthIso = `${cur.y}-${pad(cur.m + 1)}`;
+  return (
+    <div className="ced-cal" onClick={(e) => e.stopPropagation()}>
+      <div className="ced-cal-h">
+        <button onClick={() => setCur((c) => {
+          const d = new Date(c.y, c.m - 1, 1); return { y: d.getFullYear(), m: d.getMonth() };
+        })} aria-label="이전"><ChevronLeft size={15} /></button>
+        {/* 헤더를 누르면 '그 달 전체'로 잡힌다 — 날짜가 아직 안 정해진 손님이 대부분이다 */}
+        <button className="ced-cal-m" onClick={() => { onPick(monthIso); onClose(); }}>
+          {cur.y}년 {cur.m + 1}월 <em>이 달로</em>
+        </button>
+        <button onClick={() => setCur((c) => {
+          const d = new Date(c.y, c.m + 1, 1); return { y: d.getFullYear(), m: d.getMonth() };
+        })} aria-label="다음"><ChevronRight size={15} /></button>
+      </div>
+      <div className="ced-cal-g">
+        {["일", "월", "화", "수", "목", "금", "토"].map((w, i) => (
+          <span key={w} className={"dw" + (i === 0 ? " sun" : i === 6 ? " sat" : "")}>{w}</span>
+        ))}
+        {grid.map((g) => (
+          <button key={g.iso}
+            className={"dd" + (g.inM ? "" : " out") + (g.iso === todayIso ? " today" : "")
+              + (g.iso === value ? " on" : "")}
+            onClick={() => { onPick(g.iso); onClose(); }}>{g.d.getDate()}</button>
+        ))}
+      </div>
+      <div className="ced-cal-f">
+        {SETTLE_QUICK.map((q) => (
+          <button key={q} onClick={() => { onPick(q); onClose(); }}>{q}</button>
+        ))}
+        <button className="clr" onClick={() => { onPick(""); onClose(); }}>지우기</button>
+      </div>
+    </div>
+  );
+}
+
+
 export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
   authH: () => Record<string, string>; cust: EditCustomer;
   onClose: () => void; onSaved: () => void;
@@ -68,11 +134,12 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
   const [err, setErr] = useState("");
   const [paste, setPaste] = useState("");
   const [parsing, setParsing] = useState(false);
+  const [calOpen, setCalOpen] = useState<number | null>(null);   // 달력을 연 요건
 
   const setN = (i: number, patch: Partial<EditNeed>) =>
     setNeeds((ns) => ns.map((n, j) => (i === j ? { ...n, ...patch } : n)));
   const addNeed = () =>
-    setNeeds((ns) => [...ns, { kind: "구함", trade: "A1", role: "주안", status: "탐색", _new: true }]);
+    setNeeds((ns) => [...ns, { kind: "구함", trade: "A1", status: "탐색", _new: true }]);
   const delNeed = (i: number) =>
     setNeeds((ns) => ns.map((n, j) => (i === j ? { ...n, _del: true } : n)).filter((n) => !(n._del && n._new)));
 
@@ -88,7 +155,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
       const j = await r.json();
       if (!r.ok) throw new Error(j?.detail || `오류 ${r.status}`);
       const got: EditNeed[] = (j.needs || []).map((n: any) => ({
-        kind: n.kind || "구함", trade: n.trade || "A1", role: n.role || "주안",
+        kind: n.kind || "구함", trade: n.trade || "A1", role: roleNum(n.role),
         budget_min: n.budget_min ?? null, budget_max: n.budget_max ?? null,
         ask_price: n.ask_price ?? null, dong: n.region || null, address: n.complex_name || null,
         area_min: n.area_min ?? null, area_max: n.area_max ?? null,
@@ -192,10 +259,14 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
                   onClick={() => setN(i, { trade: v })}>{l}</button>
               ))}
               <i />
-              {ROLES.map((r) => (
-                <button key={r} className={n.role === r ? "on" : ""}
-                  onClick={() => setN(i, { role: r })}>{r}</button>
-              ))}
+              {/* 우선순위 — 같은 구분(구함·내놓음) 요건 수만큼. '2안이 뭐였죠'가 바로 보인다 */}
+              <span className="ced-pri">
+                {Array.from({ length: Math.max(1, live.filter((x) => x.kind === n.kind).length) },
+                  (_, k) => `${k + 1}안`).map((r) => (
+                    <button key={r} className={roleNum(n.role) === r ? "on" : ""}
+                      onClick={() => setN(i, { role: roleNum(n.role) === r ? null as any : r })}>{r}</button>
+                  ))}
+              </span>
             </div>
 
             <div className="ced-grid3">
@@ -225,13 +296,19 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
 
             <div className="ced-row2">
               <label className="ced-f wide"><span>잔금시기</span>
-                <input value={n.settle_date || ""} placeholder="10월 / 2026-10-15"
-                  onChange={(e) => setN(i, { settle_date: e.target.value || null })} /></label>
-              <span className="ced-quick">
-                {SETTLE_QUICK.map((q) => (
-                  <button key={q} onClick={() => setN(i, { settle_date: q })}>{q}</button>
-                ))}
-              </span>
+                <input value={n.settle_date || ""} placeholder="달력에서 고르거나 직접 입력"
+                  onChange={(e) => setN(i, { settle_date: e.target.value || null })} />
+                <button type="button" className="ced-calbtn"
+                  onClick={(e) => { e.preventDefault(); setCalOpen(calOpen === i ? null : i); }}
+                  aria-label="달력">
+                  <CalendarDays size={14} />
+                </button>
+              </label>
+              {calOpen === i && (
+                <SettlePicker value={n.settle_date}
+                  onPick={(v) => setN(i, { settle_date: v || null })}
+                  onClose={() => setCalOpen(null)} />
+              )}
             </div>
 
             <div className="ced-row2">
