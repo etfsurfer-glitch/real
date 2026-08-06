@@ -1550,6 +1550,14 @@ type MLItem = {
 type Manager = { name: string; position: string; role: string };
 // 매물번호 조회 결과 — mine=false면 다른 사무소 물건(확인 후 열람)
 type ForeignHit = { mine: boolean; article_no: string; realtor_id: string; realtor_name: string; listing: MLItem | null };
+/** 전화 버튼에 넣을 번호. 하이픈만 정리하고 그대로 보여 준다(PC 는 폭이 넉넉하다). */
+function fmtTelShort(p?: string): string {
+  const d = (p || "").replace(/[^0-9]/g, "");
+  if (d.length === 11) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+  return p || "";
+}
+
 function fmtYmd(s: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : s; }
 function eok(v: number) {
   if (!v) return "-";
@@ -1577,7 +1585,6 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   const [lookErr, setLookErr] = useState("");
   const [priv, setPriv] = useState(false);            // 비공개매물 포함 검색
   const [privOnly, setPrivOnly] = useState(false);   // 비공개매물만 보기
-  const [privPick, setPrivPick] = useState("");      // 카드에서 보관 중인 매물번호
   const [mapOpen, setMapOpen] = useState(false);     // 사무소 매물 지도
   const [privMsg, setPrivMsg] = useState<Record<string, string>>({});
   const [plOpen, setPlOpen] = useState(false);        // 비공개매물 등록 모달
@@ -1630,7 +1637,6 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   };
   // 네이버 매물 → 비공개매물장 보관(목록에서 바로)
   const toPrivate = async (l: MLItem, visibility: "office" | "me") => {
-    setPrivPick("");
     try {
       const r = await fetch(`${API_BASE}/lounge/private-listings/from-naver`, {
         method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
@@ -1728,90 +1734,65 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       ) : items.length === 0 ? (
         <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 매물장에 나옵니다.</div>
       ) : (
-        <div className="mlj-list">
+        <div className="mjt">
+          {/* 표 머리 — 좁아지면 사라진다. 행 안의 배치만 바뀌고 데이터·상태는 하나다. */}
+          <div className="mjt-head">
+            <span />
+            <span>단지</span>
+            <span className="h-ho">동·호·주소</span>
+            <span className="h-ar">전용</span>
+            <span className="h-fl">층</span>
+            <span className="h-st">잔금</span>
+            <span className="h-ct">연락처</span>
+            <span style={{ textAlign: "right" }}>가격</span>
+          </div>
           {items.map((l) => (
-            <div key={l.article_no} className="mlj-card">
-              <div className="mlj-head" onClick={() => { setDetailOwner(""); setDetail(l); }} style={{ cursor: "pointer" }}>
-                <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
-                {l.type && <span className="mlj-type">{l.type}</span>}
-                {l.is_private && <span className="mlj-priv-badge" title={l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}><Lock size={10} />{l.visibility === "me" ? "나만" : "비공개"}</span>}
-                <b className="mlj-title">{l.complex_name || l.building_name || l.area_name || "매물"} <ChevronRight size={13} style={{ verticalAlign: "-2px", color: "#bbb" }} /></b>
-                <span className="mlj-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
-              </div>
-              {l.address && <div className="mlj-addr"><MapPin size={12} aria-hidden /> {l.address}{l.building_name && l.complex_name && l.building_name !== l.complex_name ? ` · ${l.building_name}` : ""}</div>}
-              {/* ① 물건 스펙 — 광고 문안의 앞부분이 여기서 다 나온다 */}
-              <div className="mlj-meta">
-                {l.area2_m2 ? <span>{areaLabel(l.area2_m2, { supply: l.area1_m2 })}</span> : null}
-                {l.area1_m2 ? <span>공급 {l.area1_m2}㎡</span> : null}
-                {l.area_name && <span>{l.area_name}</span>}
-                {l.floor_info && <span>{l.floor_info}{l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : ""}층</span>}
-                {l.direction && <span>{l.direction}</span>}
-                {l.room_cnt ? <span>방 {l.room_cnt}{l.bath_cnt ? `/욕실 ${l.bath_cnt}` : ""}</span> : null}
-                {l.elevator && <span>승강기 {l.elevator}</span>}
-                {l.parking_per ? <span>주차 {l.parking_per}대</span> : null}
-                {l.approve_ymd && <span>{String(l.approve_ymd).slice(0, 4)}년 준공</span>}
-                {l.heating && <span>{l.heating}</span>}
-                {l.confirm_ymd && <span>확인 {fmtYmd(l.confirm_ymd)}</span>}
-                {l.verification_type && <span className="mlj-vf">{l.verification_type}</span>}
-              </div>
-              {/* ② 거래 조건 — 손님에게 바로 답해야 하는 값들 */}
-              {(l.settle_ymd || l.move_in || l.maintenance_fee || (l.trade_type === "월세" && l.deposit) || l.owner_name) && (
-                <div className="mlj-terms">
-                  {l.settle_ymd && <span><i>잔금</i>{l.settle_ymd}</span>}
-                  {l.move_in && <span><i>입주</i>{l.move_in}</span>}
-                  {l.maintenance_fee ? <span><i>관리비</i>{l.maintenance_fee.toLocaleString()}만</span> : null}
-                  {l.owner_name && <span><i>{l.trade_type === "매매" ? "매도인" : "임대인"}</i>{l.owner_name}</span>}
-                  {l.ho && !String(l.address || "").includes(String(l.ho)) && <span><i>호</i>{l.ho}</span>}
-                </div>
-              )}
-              {l.tags?.length > 0 && <div className="mlj-tags">{l.tags.map((t, i) => <span key={i}>{t}</span>)}</div>}
-              {l.feature_desc && <div className="mlj-feat">{l.feature_desc}</div>}
-              {/* 표시·광고 명시사항 — 빠지면 과태료 대상이라 매물장에서 미리 보인다 */}
-              {l.is_private && l.ad_check && (
-                <div className={"mlj-ad" + (l.ad_check.missing.length ? "" : " ok")}>
-                  <ShieldCheck size={12} />
-                  광고 필수항목 <b>{l.ad_check.done}/{l.ad_check.total}</b>
-                </div>
-              )}
-              {/* 확인 화면에서 못 채우고 저장한 매물 — 나중에 되살리는 길 */}
-              {l.is_private && !l.area2_m2 && (l.complex_name || l.building_name) && (
-                <FillInfo authH={authH} pid={l.private_id!} onDone={load} />
-              )}
-              {(l.same_addr_min || l.same_addr_max) ? (
-                <div className="mlj-same">동일주소 {l.same_addr_cnt}건 · {eokWon(l.same_addr_min)} ~ {eokWon(l.same_addr_max)}</div>
-              ) : null}
-              <div className="mlj-actions">
-                <select className="mlj-assign" value={l.manager} onChange={(e) => assignManager(l, e.target.value)}>
-                  <option value="">담당자 미지정</option>
-                  {managers.map((m) => <option key={m.name} value={m.name}>{m.name}{m.position === "대표" ? " (대표)" : ""}</option>)}
-                </select>
-                <input className="mlj-contact" placeholder="연락처(집주인·세입자 등)" value={l.contact}
-                  onChange={(e) => patch(l.article_no, "contact", e.target.value)} />
-                {l.contact && <a className="mlj-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}><Phone size={13} /> 전화</a>}
-                {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={13} /> 네이버</a>}
-                {!l.is_private && (privMsg[l.article_no]
-                  ? <span className="mlj-keep-ok">{privMsg[l.article_no]}</span>
-                  : <button className="mlj-keep" onClick={() => setPrivPick(privPick === l.article_no ? "" : l.article_no)}>
-                      <Lock size={12} /> 보관</button>)}
-              </div>
-              {privPick === l.article_no && (
-                <div className="mlj-keep-pick">
-                  <span>어디에 보이게 할까요?</span>
-                  <button onClick={() => toPrivate(l, "office")}>사무실 전체</button>
-                  <button onClick={() => toPrivate(l, "me")}>나만 보기</button>
-                  <button className="x" onClick={() => setPrivPick("")}>취소</button>
-                </div>
-              )}
-              <div className="mlj-memo">
-                <textarea placeholder="메모 (사무소 공유)" value={l.memo} rows={1}
-                  onChange={(e) => patch(l.article_no, "memo", e.target.value)} />
-                <button onClick={() => saveNote(l)} className={saved[l.article_no] ? "ok" : ""}>{saved[l.article_no] ? "저장됨" : "저장"}</button>
-              </div>
+            <div key={l.article_no} className="mjt-r"
+              onClick={() => { setDetailOwner(""); setDetail(l); }}>
+              <span className="c-tr">
+                <i className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</i>
+              </span>
+              <span className="c-nm">
+                {l.complex_name || l.building_name || l.area_name || "매물"}
+                {l.is_private && <em className="c-priv" title={l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}><Lock size={9} /></em>}
+                {l.is_private && l.ad_check && l.ad_check.missing.length > 0 && (
+                  <em className="c-adw" title={`광고 필수항목 ${l.ad_check.done}/${l.ad_check.total}`}>
+                    <ShieldCheck size={9} />{l.ad_check.done}/{l.ad_check.total}</em>
+                )}
+              </span>
+              <span className="mjt-meta">
+                <span className="c-ho">{[l.dong, l.ho].filter(Boolean).join(" ") || l.address || "-"}</span>
+                <span className="c-ar">{l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : "-"}</span>
+                <span className="c-fl">{l.floor_info
+                  ? `${l.floor_info}${l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : ""}층`
+                  : "-"}</span>
+                <span className="c-st">{l.settle_ymd ? <><em className="lb">잔금</em>{l.settle_ymd}</> : null}</span>
+              </span>
+              {/* 전화 — PC 는 번호까지 보이고, 폰은 아이콘만. 누르면 바로 걸린다 */}
+              <span className="c-ct" onClick={(e) => e.stopPropagation()}>
+                {l.contact ? (
+                  <a className="mjt-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}
+                    title={`${l.contact} 로 전화`}>
+                    <Phone size={12} /><b>{fmtTelShort(l.contact)}</b>
+                  </a>
+                ) : <span className="mjt-nocall">-</span>}
+              </span>
+              <span className="c-pr">
+                {l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}
+              </span>
             </div>
           ))}
         </div>
       )}
       {detail && <ListingDetail l={detail} owner={detailOwner} authH={authH}
+        managers={managers}
+        onPatch={(k, v) => { patch(detail.article_no, k, v); setDetail({ ...detail, [k]: v } as MLItem); }}
+        onSaveNote={() => saveNote(detail)}
+        saved={!!saved[detail.article_no]}
+        onAssign={(v) => { assignManager(detail, v); setDetail({ ...detail, manager: v }); }}
+        onToPrivate={(vis) => toPrivate(detail, vis)}
+        privMsg={privMsg[detail.article_no]}
+        onFilled={load}
         onSavedPrivate={() => { setPriv(true); load(); }}
         onClose={() => { setDetail(null); setDetailOwner(""); }} />}
       {mapOpen && <OfficeMap authH={authH} officeName={office.realtor_name} onClose={() => setMapOpen(false)} />}
@@ -2152,10 +2133,18 @@ function FillInfo({ authH, pid, onDone }: {
   );
 }
 
-function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose }: {
+function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
+  managers = [], onPatch, onSaveNote, saved, onAssign, onToPrivate, privMsg, onFilled }: {
   l: MLItem; owner?: string; authH?: () => Record<string, string>;
   onSavedPrivate?: () => void; onClose: () => void;
+  managers?: { name: string; position?: string }[];
+  onPatch?: (k: "contact" | "memo", v: string) => void;
+  onSaveNote?: () => void; saved?: boolean;
+  onAssign?: (v: string) => void;
+  onToPrivate?: (vis: "office" | "me") => void;
+  privMsg?: string; onFilled?: () => void;
 }) {
+  const [keepPick, setKeepPick] = useState(false);
   // 네이버 연동매물 → 비공개매물장 보관. 네이버에서 내려가도 사무소가 계속 관리할 수 있게
   // 현재 값을 그대로 떠서 저장한다(복사). 내 사무소 매물에만 노출.
   const [savePick, setSavePick] = useState(false);
@@ -2221,7 +2210,54 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose }: {
         </div>
         {l.tags?.length > 0 && <div className="mlj-tags" style={{ marginTop: 10 }}>{l.tags.map((t, i) => <span key={i}>{t}</span>)}</div>}
         {l.feature_desc && <div className="mld-feat">{l.feature_desc}</div>}
-        {l.memo && <div className="mld-memo"><b>메모</b> {l.memo}</div>}
+
+        {/* 담당자·연락처·메모 — 목록에서 뺀 것들이 여기 모인다.
+            훑을 땐 안 보이고, 한 건을 볼 땐 다 보이게. */}
+        {onPatch && (
+          <div className="mld-edit">
+            <div className="mld-edit-r">
+              <select className="mlj-assign" value={l.manager || ""}
+                onChange={(e) => onAssign?.(e.target.value)}>
+                <option value="">담당자 미지정</option>
+                {managers.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name}{m.position === "대표" ? " (대표)" : ""}</option>
+                ))}
+              </select>
+              <input className="mlj-contact" placeholder="연락처(집주인·세입자 등)"
+                value={l.contact || ""} inputMode="tel"
+                onChange={(e) => onPatch("contact", e.target.value)} />
+              {l.contact && (
+                <a className="mlj-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}>
+                  <Phone size={13} /> 전화</a>
+              )}
+            </div>
+            <div className="mld-edit-r">
+              <textarea className="mlj-memo" rows={2} placeholder="메모 (사무소 공유)"
+                value={l.memo || ""} onChange={(e) => onPatch("memo", e.target.value)} />
+              <button className={"mld-memo-save" + (saved ? " ok" : "")} onClick={onSaveNote}>
+                {saved ? "저장됨" : "저장"}</button>
+            </div>
+            {l.is_private && !l.area2_m2 && (l.complex_name || l.building_name) && authH && (
+              <FillInfo authH={authH} pid={l.private_id!} onDone={() => onFilled?.()} />
+            )}
+            {!l.is_private && onToPrivate && (
+              privMsg ? <span className="mlj-keep-ok">{privMsg}</span> : (
+                <div className="mlj-fill">
+                  <button onClick={() => setKeepPick((v) => !v)}>
+                    <Lock size={12} /> 비공개매물장에 보관</button>
+                  {keepPick && (
+                    <>
+                      <button className="cand" onClick={() => onToPrivate("office")}>사무실 전체</button>
+                      <button className="cand" onClick={() => onToPrivate("me")}>나만</button>
+                    </>
+                  )}
+                </div>
+              )
+            )}
+          </div>
+        )}
+
         <div className="mld-actions">
           {l.contact && <a className="mlj-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}><Phone size={14} /> 전화</a>}
           {kakao && <a className="mlj-naver" href={kakao} target="_blank" rel="noreferrer"><MapIcon size={14} /> 지도</a>}
