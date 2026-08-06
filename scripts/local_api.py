@@ -14136,8 +14136,13 @@ def _fit(nd: dict, hit: dict) -> list:
     return out
 
 
-def _match_ours(rc, rid: str, nd: dict, limit: int = 12) -> list:
-    """우리 사무소 매물장에서 찾기. 금액은 만원 단위로 저장돼 있다."""
+def _match_ours(rc, rid: str, nd: dict, limit: int = 12, level: int = 0) -> list:
+    """우리 사무소 매물장에서 찾기. 금액은 만원 단위로 저장돼 있다.
+
+    level 을 올리면 예산·면적 여유가 커진다 — 확대 검색이 남의 물건만 넓히면
+    정작 우리 6억짜리를 두고 밖에서 찾는 일이 생긴다.
+    """
+    ex = _EXPAND[max(0, min(level, len(_EXPAND) - 1))]
     _ensure_private_listings(rc)
     rc.row_factory = sqlite3.Row
     tt = _TRADE_KOR.get(nd.get("trade") or "", nd.get("trade") or "")
@@ -14147,16 +14152,18 @@ def _match_ours(rc, rid: str, nd: dict, limit: int = 12) -> list:
         where.append("trade_type=?"); args.append(tt)
     lo, hi = _match_price_range(nd)
     if lo:
-        where.append("CAST(price AS REAL)*10000 >= ?"); args.append(lo * 0.9)
+        where.append("CAST(price AS REAL)*10000 >= ?"); args.append(lo * (1 - ex["price"]))
     if hi:
-        where.append("CAST(price AS REAL)*10000 <= ?"); args.append(hi * 1.1)
+        where.append("CAST(price AS REAL)*10000 <= ?"); args.append(hi * (1 + ex["price"]))
     if nd.get("area_min"):
-        where.append("CAST(area2_m2 AS REAL) >= ?"); args.append(float(nd["area_min"]) * 0.92)
+        where.append("CAST(area2_m2 AS REAL) >= ?")
+        args.append(float(nd["area_min"]) * (1 - ex["area"]))
     if nd.get("area_max"):
-        where.append("CAST(area2_m2 AS REAL) <= ?"); args.append(float(nd["area_max"]) * 1.08)
-    kw = (nd.get("address") or "").strip() or (nd.get("dong") or "").strip()
-    if kw:
-        where.append("(complex_name LIKE ? OR address LIKE ? OR building_name LIKE ?)")
+        where.append("CAST(area2_m2 AS REAL) <= ?")
+        args.append(float(nd["area_max"]) * (1 + ex["area"]))
+    kw = _qa_name_key((nd.get("address") or "").strip()) or (nd.get("dong") or "").strip()
+    if kw and level == 0:      # 넓힐 땐 단지 이름에 매이지 않는다
+        where.append("(REPLACE(complex_name,' ','') LIKE ? OR address LIKE ? OR building_name LIKE ?)")
         args += [f"%{kw}%"] * 3
     rows = rc.execute(
         f"SELECT id, complex_name, building_name, address, dong, ho, trade_type, price, "
@@ -14201,6 +14208,56 @@ _EXPAND = [
 ]
 
 
+def _need_region_hint(rc, rid: str, nd: dict) -> dict:
+    """요건에 지역이 없으면 우리 매물장의 같은 단지 매물에서 지역을 빌린다.
+
+    손님이 '한마루 아파트'라고만 말하면 그게 어느 동네인지 요건만으론 모른다.
+    우리가 그 단지 매물을 갖고 있으면 거기 주소가 답이다.
+    """
+    if (nd.get("dong") or "").strip() or (nd.get("sigungu") or "").strip():
+        return nd
+    key = _qa_name_key((nd.get("address") or "").strip())
+    if len(key) < 2:
+        return nd
+    try:
+        _ensure_private_listings(rc)
+        row = rc.execute(
+            "SELECT address, complex_no FROM private_listings "
+            "WHERE realtor_id=? AND REPLACE(complex_name,' ','') LIKE ? "
+            "  AND address IS NOT NULL AND address <> '' LIMIT 1",
+            (rid, f"%{key}%")).fetchone()
+    except Exception:  # noqa: BLE001
+        return nd
+    if not row:
+        return nd
+    out = dict(nd)
+    tok = str(row[0]).split()[0]
+    if tok.endswith(("동", "읍", "면", "리")):
+        out["dong"] = tok
+    # 동 이름은 전국에 여럿이다('둔산동'이 대전에도 대구에도 있다). 우리 매물에 단지
+    # 번호가 있으면 그 단지의 법정동 코드로 지역을 못박는다 — 이름보다 코드가 정확하다.
+    try:
+        with _open_db() as c1:
+            cr = None
+            if row[1]:
+                cr = c1.execute("SELECT cortar_no FROM complexes WHERE complex_no=?",
+                                (str(row[1]),)).fetchone()
+            if not cr and out.get("dong"):
+                # 단지번호가 없어도 '이름 + 그 동' 이면 단지가 하나로 좁혀진다
+                rs = c1.execute(
+                    "SELECT DISTINCT cortar_no FROM complexes "
+                    "WHERE REPLACE(complex_name,' ','') LIKE ? "
+                    "  AND cortar_no IN (SELECT cortar_no FROM regions WHERE cortar_name=?) LIMIT 3",
+                    (f"%{key}%", out["dong"])).fetchall()
+                if len(rs) == 1:
+                    cr = rs[0]
+            if cr and cr[0]:
+                out["_cortar"] = str(cr[0])
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
 def _match_market(nd: dict, limit: int = 12, level: int = 0) -> list:
     """전국 매물에서 찾기(단지형). 단지당 상위 N건만 올려 목록이 한 단지로 덮이지 않게."""
     ex = _EXPAND[max(0, min(level, len(_EXPAND) - 1))]
@@ -14220,20 +14277,53 @@ def _match_market(nd: dict, limit: int = 12, level: int = 0) -> list:
         where.append("l.area2_m2 >= ?"); args.append(float(nd["area_min"]) * (1 - ex["area"]))
     if nd.get("area_max"):
         where.append("l.area2_m2 <= ?"); args.append(float(nd["area_max"]) * (1 + ex["area"]))
-    # 지역 — 단지명이 있으면 그 단지, 없으면 동(확대 시 시군구)으로 좁힌다
+    # 지역 — 단지명이 있으면 그 단지, 없으면 동(확대 시 시군구)으로 좁힌다.
+    # 손님이 부르는 이름과 DB 이름이 다르다('한마루 아파트' ↔ '한마루럭키'). 완전일치로
+    # 찾으면 0건이 나온다(실측) — 뒤의 아파트·단지·타운을 떼고 부분일치로 본다.
     cxw, cxa = [], []
-    if (nd.get("address") or "").strip():
-        cxw.append("REPLACE(cx.complex_name,' ','') LIKE ?")
-        cxa.append("%" + nd["address"].replace(" ", "") + "%")
+    nm = (nd.get("address") or "").strip()
+    if nm:
+        key = _qa_name_key(nm)
+        if len(key) >= 2:
+            cxw.append("REPLACE(cx.complex_name,' ','') LIKE ?")
+            cxa.append("%" + key + "%")
+    cortar = (nd.get("_cortar") or "").strip()
     dong = (nd.get("dong") or "").strip()
-    if dong:
+    if cortar:
+        # 코드가 있으면 이름 매칭을 쓰지 않는다 — 동명이가 다른 시도로 새는 걸 막는다
         if ex["scope"] == "sigungu":
-            # 그 동이 속한 시군구 전체로 넓힌다 — 옆 동네까지 봐야 공동중개 후보가 생긴다
+            cxw.append("SUBSTR(cx.cortar_no,1,5) = ?"); cxa.append(cortar[:5])
+        else:
+            cxw.append("cx.cortar_no = ?"); cxa.append(cortar)
+    elif dong:
+        # 같은 동 이름이 여러 시군구에 있다('둔산동'은 대전 서구에도 대구 동구에도 있다).
+        # 그 상태로 시군구를 넓히면 다른 시도 매물이 쏟아진다(실측) — 동 단위로 묶어 둔다.
+        ambiguous = False
+        if ex["scope"] == "sigungu":
+            with _open_db() as c0:
+                sgg_n = c0.execute(
+                    "SELECT COUNT(DISTINCT SUBSTR(cortar_no,1,5)) FROM regions WHERE cortar_name=?",
+                    (dong,)).fetchone()[0]
+            ambiguous = (sgg_n or 0) > 1
+        if ex["scope"] == "sigungu" and not ambiguous:
             cxw.append("SUBSTR(cx.cortar_no,1,5) IN "
                        "(SELECT SUBSTR(cortar_no,1,5) FROM regions WHERE cortar_name=?)")
         else:
             cxw.append("cx.cortar_no IN (SELECT cortar_no FROM regions WHERE cortar_name=?)")
         cxa.append(dong)
+    # 확대 단계에서 단지명만 있으면 그 단지가 있는 시군구로 넓힌다.
+    # 다만 같은 이름 단지가 여러 지역에 있으면(한마루럭키 대전 · 한마루타운 김포)
+    # 넓히는 순간 엉뚱한 지역이 쏟아진다 — 시군구가 2곳 이하일 때만 넓힌다.
+    if nm and ex["scope"] == "sigungu":
+        key = _qa_name_key(nm)
+        if len(key) >= 2:
+            with _open_db() as c0:
+                sggs = [r[0] for r in c0.execute(
+                    "SELECT DISTINCT SUBSTR(cortar_no,1,5) FROM complexes "
+                    "WHERE REPLACE(complex_name,' ','') LIKE ? LIMIT 6", ("%" + key + "%",))]
+            if 1 <= len(sggs) <= 2:
+                cxw.append("SUBSTR(cx.cortar_no,1,5) IN (" + ",".join("?" * len(sggs)) + ")")
+                cxa += sggs
     if cxw:
         where.append("(" + " OR ".join(cxw) + ")")
         args += cxa
@@ -14348,8 +14438,9 @@ def lounge_match(user: dict = Depends(current_user), need_id: int = 0, limit: in
         items = []
         for nd in needs:
             ours = _match_ours(rc, rid, nd, limit)
+            nd_m = _need_region_hint(rc, rid, nd)
             try:
-                market = _match_market(nd, limit)
+                market = _match_market(nd_m, limit)
             except Exception:  # noqa: BLE001
                 market = []    # 전국 조회가 실패해도 우리 매물은 보여 준다
             for h in ours + market:
@@ -14379,14 +14470,20 @@ def lounge_match_expand(need_id: int, level: int = 1, limit: int = 20,
         if not r:
             raise HTTPException(404, "요건을 찾을 수 없어요")
         nd = dict(r)
+    # 우리 매물장도 같은 폭으로 다시 본다 — 기본 조건에서 살짝 벗어난 우리 물건을
+    # 두고 밖에서 찾는 일이 없게. 이미 기본 목록에 나온 건 뺀다.
+    with _reviews_db() as rc2:
+        base_ids = {x["id"] for x in _match_ours(rc2, rid, nd, 50, level=0)}
+        ours = [x for x in _match_ours(rc2, rid, nd, limit, level=lv) if x["id"] not in base_ids]
+        nd = _need_region_hint(rc2, rid, nd)
     try:
         hits = _match_market(nd, limit, level=lv)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"매물 조회에 실패했어요 ({type(e).__name__})")
-    for h in hits:
+    for h in ours + hits:
         h["fit"] = _fit(nd, h)
-    return {"level": lv, "label": _EXPAND[lv]["label"], "items": hits,
-            "has_more": lv < len(_EXPAND) - 1}
+    return {"level": lv, "label": _EXPAND[lv]["label"], "items": ours + hits,
+            "n_ours": len(ours), "has_more": lv < len(_EXPAND) - 1}
 
 
 @app.get("/lounge/match/listing/{pid}")
