@@ -13835,7 +13835,7 @@ def _qa_enrich_listing(row: dict) -> dict:
     return auto
 
 
-def _qa_to_listing_units(r: dict) -> None:
+def _qa_to_listing_units(r: dict, money: bool = True) -> None:
     """파서가 낸 값(원 단위)을 매물장 규약으로 옮긴다.
 
     매물장은 네이버 매물과 같은 형태를 쓴다 — 금액은 **만원 단위**이고,
@@ -13849,13 +13849,15 @@ def _qa_to_listing_units(r: dict) -> None:
             return None
         return None if not f else int(round(f / 10000)) if f >= 10000 else int(f)
 
-    for k in ("price", "deposit", "rent_price", "maintenance_fee", "loan_amount"):
-        if r.get(k) not in (None, ""):
-            r[k] = man(r[k])
-    # 전세·월세는 보증금이 price 자리에 온다. 매매는 price 가 매매가다.
-    if (r.get("trade_type") or "") in ("전세", "월세", "B1", "B2") and not r.get("price"):
-        if r.get("deposit"):
-            r["price"] = r["deposit"]
+    # money=False 는 이미 매물장 단위(만원)인 행 — 또 나누면 12억이 12만원이 된다(실측).
+    if money:
+        for k in ("price", "deposit", "rent_price", "maintenance_fee", "loan_amount"):
+            if r.get(k) not in (None, ""):
+                r[k] = man(r[k])
+        # 전세·월세는 보증금이 price 자리에 온다. 매매는 price 가 매매가다.
+        if (r.get("trade_type") or "") in ("전세", "월세", "B1", "B2") and not r.get("price"):
+            if r.get("deposit"):
+                r["price"] = r["deposit"]
     # 층 표기(11/25층)와 평 — 카드가 이 값들을 그대로 읽는다
     if r.get("floor") and not (r.get("floor_info") or "").strip():
         tf = r.get("total_floor")
@@ -14015,7 +14017,7 @@ def lounge_private_enrich(pid: int, body: dict, user: dict = Depends(current_use
     # 매물장 전체 필드를 대상으로 '전에 없다가 생긴 값' 만 고른다.
     before = {k: r.get(k) for k in _PL_FIELDS}
     auto = _qa_enrich_listing(r)
-    _qa_to_listing_units(r)
+    _qa_to_listing_units(r, money=False)      # DB 행은 이미 만원 단위다
     changed = {k: r.get(k) for k in _PL_FIELDS
                if r.get(k) not in (None, "") and str(r.get(k)) != str(before.get(k) or "")}
     if changed:

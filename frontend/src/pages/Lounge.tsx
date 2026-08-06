@@ -1768,9 +1768,6 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                 <div className={"mlj-ad" + (l.ad_check.missing.length ? "" : " ok")}>
                   <ShieldCheck size={12} />
                   광고 필수항목 <b>{l.ad_check.done}/{l.ad_check.total}</b>
-                  {l.ad_check.missing.length > 0 && (
-                    <span>· 빠짐: {l.ad_check.missing.map((x) => x.item).join(" · ")}</span>
-                  )}
                 </div>
               )}
               {/* 확인 화면에서 못 채우고 저장한 매물 — 나중에 되살리는 길 */}
