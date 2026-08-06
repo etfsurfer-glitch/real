@@ -14814,6 +14814,53 @@ def lounge_match_listing(pid: int, user: dict = Depends(current_user), limit: in
             "needs": out[:limit]}
 
 
+def _cust_contracts(rc, rid: str, uid: str, cids: list) -> dict:
+    """고객 → 그 사람이 당사자로 들어간 계약들. 원장·수정팝업이 함께 쓴다.
+
+    계약은 올린 사람(user_id) 기준으로 쌓이는데 원장은 사무소(realtor_id) 기준이라
+    둘 다 받아 준다 — 예전 계약에는 realtor_id 가 안 붙어 있다.
+    """
+    if not cids:
+        return {}
+    qs = ",".join("?" * len(cids))
+    rows = rc.execute(
+        f"SELECT cp.customer_id, cp.role, bc.id, bc.parsed_json, bc.status, bc.created_at "
+        f"FROM biz_contract_parties cp JOIN biz_contracts bc ON bc.id = cp.contract_id "
+        f"WHERE cp.customer_id IN ({qs}) AND (bc.realtor_id=? OR bc.user_id=?) "
+        f"ORDER BY bc.id DESC", (*cids, rid, uid)).fetchall()
+    out: dict = {}
+    for r in rows:
+        try:
+            p = _json.loads(r[3]) if r[3] else {}
+        except (ValueError, TypeError):
+            p = {}
+        pr = p.get("price") or {}
+        # 물건명이 없는 계약이 흔하다(상가 표준계약서엔 단지명이 없다). 그때 호수만 남기면
+        # '2층 전체'처럼 어디인지 알 수 없으니 지번 끝 두 토막을 붙인다.
+        addr = p.get("property_address") or ""
+        head = p.get("property_name") or " ".join(addr.split()[-2:])
+        out.setdefault(r[0], []).append({
+            "id": r[2], "role": r[1], "status": r[4], "created_at": r[5],
+            "contract_type": p.get("contract_type"), "property_kind": p.get("property_kind"),
+            "title": " ".join(x for x in [head, p.get("unit")] if x) or addr or "계약",
+            "address": p.get("property_address"),
+            "sale": pr.get("sale"), "deposit": pr.get("deposit"), "monthly_rent": pr.get("monthly_rent"),
+            "contract_date": p.get("contract_date"), "balance_date": p.get("balance_date"),
+        })
+    return out
+
+
+@app.get("/lounge/customers/{cid}/contracts")
+def lounge_customer_contracts(cid: int, user: dict = Depends(current_user)):
+    """고객 한 명의 계약 — 수정 팝업에서 쓴다(원장 목록은 통째로 실려 온다)."""
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        if not rc.execute("SELECT id FROM biz_customers WHERE id=? AND realtor_id=?",
+                          (cid, rid)).fetchone():
+            raise HTTPException(404, "고객을 찾을 수 없어요")
+        return {"items": _cust_contracts(rc, rid, user["id"], [cid]).get(cid, [])}
+
+
 @app.get("/lounge/customers")
 def lounge_customers(user: dict = Depends(current_user), q: str = "", limit: int = 300):
     """고객 원장 — 고객 + 요건 + 그 요건이 가리키는 우리 매물.
@@ -14850,12 +14897,16 @@ def lounge_customers(user: dict = Depends(current_user), q: str = "", limit: int
                         d.pop(k)
                 d["listing"] = lst
                 needs.setdefault(d["customer_id"], []).append(d)
+        # 계약서에서 뽑아 둔 당사자와 원장의 고객은 같은 biz_customers 행이다.
+        # 그런데 계약은 고객관리에만 보여서, 원장에서는 이 손님과 계약을 했는지조차 안 보였다.
+        contracts = _cust_contracts(rc, rid, user["id"], cids)
 
     items = []
     ql = (q or "").strip()
     for c in cust:
         row = dict(c)
         row["needs"] = needs.get(c["id"], [])
+        row["contracts"] = contracts.get(c["id"], [])
         kinds = {n.get("kind") for n in row["needs"]}
         # 유형은 요건에서 계산한다 — 손으로 고르게 하면 실제와 어긋난다
         row["ctype"] = ("양쪽" if {"구함", "내놓음"} <= kinds

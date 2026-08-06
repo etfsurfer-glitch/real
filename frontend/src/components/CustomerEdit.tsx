@@ -5,7 +5,7 @@
 // ③ 면적은 평으로 넣게 한다(㎡ 는 우리가 바꾼다). 손이 가장 덜 가는 길로.
 import { useEffect, useState } from "react";
 import { X, Plus, Trash2, Loader2, Check, Sparkles, UserRound, Building2,
-  CalendarDays, ChevronLeft, ChevronRight, Phone, MessageSquare } from "lucide-react";
+  CalendarDays, ChevronLeft, ChevronRight, Phone, MessageSquare, FileText } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -22,6 +22,9 @@ export type EditNeed = {
     area2_m2?: any; trade_type?: string } | null;
   _new?: boolean; _del?: boolean;
 };
+type Ctr = { id: number; role?: string; contract_type?: string | null; title?: string;
+  address?: string | null; sale?: number | null; deposit?: number | null;
+  monthly_rent?: number | null; contract_date?: string | null; balance_date?: string | null };
 type Act = { id: number; kind: string; body: string; auto: boolean; created_at: string };
 type CxHit = { complex_no: string; complex_name: string; region?: string;
   households?: number; sigungu?: string | null; dong?: string | null };
@@ -254,6 +257,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
             <p className="ced-sec2">메모</p>
             <textarea className="ced-memo" value={memo} rows={3}
               placeholder="소개 경로·특이사항" onChange={(e) => setMemo(e.target.value)} />
+            <ContractList authH={authH} cid={cust.id} />
             <ActivityLog authH={authH} cid={cust.id} />
           </aside>
 
@@ -406,6 +410,49 @@ function needSummary(n: EditNeed): string {
          ? `${moneyText(n.budget_min)}~${moneyText(n.budget_max)}`.replace(/^~|~$/, "") : "",
        n.area_min || n.area_max ? `${py(n.area_min)}~${py(n.area_max)}`.replace(/^~|~$/, "") : ""];
   return parts.filter(Boolean).join(" · ");
+}
+
+/** 계약 — 계약서에서 뽑아 둔 것이라 여기서는 읽기만 한다(고치는 곳은 계약관리).
+ *  요건·활동과 나란히 놓아야 '이 손님과 어디까지 갔는가'가 한 화면에 남는다. */
+function ContractList({ authH, cid }: { authH: () => Record<string, string>; cid: number }) {
+  const [items, setItems] = useState<Ctr[]>([]);
+  useEffect(() => {
+    let dead = false;
+    fetch(`${API_BASE}/lounge/customers/${cid}/contracts`, { headers: authH() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j && !dead) setItems(j.items ?? []); })
+      .catch(() => { /* 계약이 없어도 수정은 되어야 한다 */ });
+    return () => { dead = true; };
+  }, [cid]);
+  if (!items.length) return null;
+
+  const price = (c: Ctr) => {
+    if (c.sale) return moneyText(c.sale);
+    const d = moneyText(c.deposit);
+    const m = c.monthly_rent ? `${Math.round(Number(c.monthly_rent) / 1e4).toLocaleString()}만` : "";
+    return d && m ? `${d} / ${m}` : d || m || "";
+  };
+  return (
+    <>
+      <p className="ced-sec2">계약 {items.length}건</p>
+      <ul className="ced-ctr">
+        {items.map((c) => (
+          <li key={c.id}>
+            <span className="t">
+              <FileText size={11} />
+              <b>{c.title || c.address || "계약"}</b>
+              {c.role && <i>{c.role}</i>}
+            </span>
+            <span className="m">
+              {[c.contract_type, price(c),
+                c.balance_date ? `잔금 ${c.balance_date}` : c.contract_date]
+                .filter(Boolean).join(" · ")}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
 }
 
 /** 활동 기록 — 요건(무엇을 원하는가)만으로는 '이 손님 어디까지 얘기했더라'가 안 남는다.

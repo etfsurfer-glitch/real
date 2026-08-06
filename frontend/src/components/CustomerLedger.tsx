@@ -3,7 +3,7 @@
 //
 // 매물장과 따로 놀지 않게, 내놓은 요건은 우리 매물장 행을 그대로 물고 온다.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { UserRound, Search, Loader2, Building2, Link2, Phone, RefreshCw, Pencil } from "lucide-react";
+import { UserRound, Search, Loader2, Building2, Link2, Phone, RefreshCw, Pencil, FileText } from "lucide-react";
 import CustomerEdit, { type EditCustomer } from "./CustomerEdit";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -21,9 +21,16 @@ type Need = {
   complex_no?: string | null;
   status?: string; listing_id?: number | null; listing?: Listing | null; raw_text?: string | null;
 };
+/** 계약서에서 뽑아 둔 계약 — 고객관리에만 있던 것을 원장으로 끌어온다. 여기선 읽기만 한다. */
+type Contract = {
+  id: number; role?: string; status?: string; contract_type?: string | null;
+  title?: string; address?: string | null;
+  sale?: number | null; deposit?: number | null; monthly_rent?: number | null;
+  contract_date?: string | null; balance_date?: string | null;
+};
 type Customer = {
   id: number; name?: string; phone?: string; memo?: string; updated_at?: string;
-  ctype: string; needs: Need[];
+  ctype: string; needs: Need[]; contracts?: Contract[];
 };
 
 const TRADE_KOR: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세", B3: "단기임대" };
@@ -50,6 +57,13 @@ function priceOf(n: Need): string {
   const lo = won(n.budget_min), hi = won(n.budget_max);
   if (lo && hi) return `${lo} ~ ${hi}`;
   return lo || hi ? `${lo || ""}${hi ? `~ ${hi}` : " 이상"}` : "-";
+}
+/** 계약 금액 — 매매면 매매가, 임대면 보증금(월세면 '/'로 붙인다). */
+function ctPrice(c: Contract): string {
+  if (c.sale) return won(c.sale);
+  const d = won(c.deposit);
+  const m = c.monthly_rent ? `${Math.round(Number(c.monthly_rent) / 1e4).toLocaleString()}만` : "";
+  return d && m ? `${d} / ${m}` : d || m || "-";
 }
 function whereOf(n: Need): string {
   // 내놓은 물건은 특정 호실이다 — 동·호까지 보여야 어느 집인지 안다
@@ -110,7 +124,8 @@ export default function CustomerLedger({ authH, onGoListings }: {
       if (ct && c.ctype !== ct) return false;
       if (!ql) return true;
       const hay = [c.name, c.phone, c.memo,
-        ...c.needs.map((n) => [whereOf(n), n.listing?.complex_name].join(" "))].join(" ");
+        ...c.needs.map((n) => [whereOf(n), n.listing?.complex_name].join(" ")),
+        ...(c.contracts ?? []).map((x) => [x.title, x.address, x.role].join(" "))].join(" ");
       return hay.includes(ql);
     });
   }, [items, q, ct]);
@@ -170,9 +185,16 @@ export default function CustomerLedger({ authH, onGoListings }: {
             <span className="h-ct">연락처</span>
           </div>
           {shown.flatMap((c) => {
-            const rows = c.needs.length ? c.needs : [null];
-            return rows.map((n, i) => (
-              <div key={`${c.id}-${n?.id ?? "x"}`} className={"cldt-r" + (i ? " cont" : "")}
+            // 요건 다음에 계약을 이어 붙인다 — 이 손님과 우리가 한 일이 한 덩어리로 보이게
+            const cts = c.contracts ?? [];
+            const rows: ({ n: Need | null; ct: null } | { n: null; ct: Contract })[] = [
+              ...(c.needs.length ? c.needs.map((n) => ({ n, ct: null as null }))
+                                 : cts.length ? [] : [{ n: null, ct: null as null }]),
+              ...cts.map((ct) => ({ n: null as null, ct })),
+            ];
+            return rows.map(({ n, ct }, i) => (
+              <div key={`${c.id}-${ct ? `c${ct.id}` : n?.id ?? "x"}`}
+                className={"cldt-r" + (i ? " cont" : "") + (ct ? " done" : "")}
                 onClick={() => openEdit(c)}>
                 <span className="c-nm">
                   {i === 0 ? (
@@ -183,21 +205,27 @@ export default function CustomerLedger({ authH, onGoListings }: {
                       <Pencil size={11} className="c-pen" />
                     </>
                   ) : (
-                    // 이어지는 요건 — 종속선에 몇 번째 안인지를 얹는다
-                    <em className="c-sub"><i />{planLabel(n, i)}</em>
+                    // 이어지는 줄 — 종속선에 몇 번째 안인지(계약이면 역할)를 얹는다
+                    <em className="c-sub"><i />{ct ? (ct.role || "계약") : planLabel(n, i)}</em>
                   )}
                 </span>
                 <span className="cldt-meta">
                   <span className="c-kd">
-                    {n ? <em className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind || "요건"}</em>
+                    {ct ? <em className="cled-k ctr">계약</em>
+                      : n ? <em className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind || "요건"}</em>
                       : <em className="c-none">요건 없음</em>}
                   </span>
-                  <span className="c-tr">{n ? (TRADE_KOR[n.trade || ""] || n.trade || "-") : ""}</span>
-                  <span className="c-pr">{n ? priceOf(n) : ""}</span>
-                  <span className="c-rg">{n ? whereOf(n) : ""}</span>
-                  <span className="c-st">{n?.settle_date
-                    ? <><em className="lb">잔금</em>{n.settle_date}</> : ""}</span>
-                  <span className="c-lk">{n?.listing ? (
+                  <span className="c-tr">{ct ? (ct.contract_type || "-")
+                    : n ? (TRADE_KOR[n.trade || ""] || n.trade || "-") : ""}</span>
+                  <span className="c-pr">{ct ? ctPrice(ct) : n ? priceOf(n) : ""}</span>
+                  <span className="c-rg">{ct ? (ct.title || ct.address || "-") : n ? whereOf(n) : ""}</span>
+                  <span className="c-st">{(ct ? ct.balance_date : n?.settle_date)
+                    ? <><em className="lb">잔금</em>{ct ? ct.balance_date : n?.settle_date}</> : ""}</span>
+                  <span className="c-lk">{ct ? (
+                    <em className="cled-link" title="계약서에서 읽어 온 계약입니다">
+                      <FileText size={10} />계약서 {ct.contract_date || ""}
+                    </em>
+                  ) : n?.listing ? (
                     <em className="cled-link" title="우리 매물장의 물건입니다">
                       <Link2 size={10} />
                       {n.listing.complex_name}{n.listing.dong ? ` ${n.listing.dong}` : ""}
