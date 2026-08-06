@@ -2087,6 +2087,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   font:inherit;font-size:11.5px;font-weight:700;color:var(--c-text-soft);cursor:pointer}
 .ced-cal-f button:hover{border-color:var(--c-primary);color:var(--c-primary)}
 .ced-cal-f .clr{color:var(--c-faint)}
+.ced-linked{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:0 0 9px;padding:7px 11px;
+  background:var(--c-primary-soft);border-radius:9px;font-size:11.5px;color:var(--c-text-soft)}
+.ced-linked svg{color:var(--c-primary);flex:none}
+.ced-linked b{font-weight:800;color:#13294b}
+.ced-linked em{margin-left:auto;font-style:normal;font-size:11px;color:var(--c-muted)}
 .ced-empty{margin:0 0 10px;padding:14px;border:1px dashed var(--c-border);border-radius:10px;
   font-size:12.5px;color:var(--c-muted);text-align:center}
 .ced-err{margin:10px 2px 0;font-size:12.5px;font-weight:600;color:var(--c-sale)}

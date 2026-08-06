@@ -10999,6 +10999,10 @@ def _init_reviews_db() -> None:
               ask_price    INTEGER,
               sido TEXT, sigungu TEXT, dong TEXT, complex_no TEXT, address TEXT,
               listing_id   INTEGER,            -- 내놓은 요건이 가리키는 우리 매물장 행
+              bld_dong     TEXT,               -- 내놓음: 건물 동(지역 동과 다르다)
+              ho           TEXT,               -- 내놓음: 호
+              area_m2      REAL,               -- 내놓음: 전용면적(하나). 구하는 쪽만 범위를 쓴다
+              floor_info   TEXT,               -- 내놓음: 층
               area_min     REAL, area_max REAL,
               status       TEXT NOT NULL DEFAULT '탐색',
               settle_date  TEXT,               -- 잔금 시기. 구함·내놓음 양쪽에 공통인 축이다
@@ -11078,6 +11082,10 @@ def _init_reviews_db() -> None:
             # 테이블에 no-op 이라 새 컬럼은 여기서 붙여야 한다.
             "ALTER TABLE biz_needs ADD COLUMN listing_id INTEGER",
             "ALTER TABLE biz_needs ADD COLUMN settle_date TEXT",
+            "ALTER TABLE biz_needs ADD COLUMN bld_dong TEXT",
+            "ALTER TABLE biz_needs ADD COLUMN ho TEXT",
+            "ALTER TABLE biz_needs ADD COLUMN area_m2 REAL",
+            "ALTER TABLE biz_needs ADD COLUMN floor_info TEXT",
             # doc_hash 보강 뒤에 인덱스(컬럼 생성 전에 만들면 실패) — 재업로드 조회용
             "CREATE INDEX IF NOT EXISTS bzc_hash_idx ON biz_contracts(user_id, doc_hash)",
             "ALTER TABLE user_profiles ADD COLUMN member_no INTEGER",
@@ -14157,6 +14165,10 @@ def _match_ours(rc, rid: str, nd: dict, limit: int = 12, level: int = 0) -> list
         where.append("CAST(price AS REAL)*10000 >= ?"); args.append(lo * (1 - ex["price"]))
     if hi:
         where.append("CAST(price AS REAL)*10000 <= ?"); args.append(hi * (1 + ex["price"]))
+    if nd.get("area_m2") and not (nd.get("area_min") or nd.get("area_max")):
+        # 내놓은 물건은 면적이 하나다 — 그 값을 중심으로 본다
+        where.append("CAST(area2_m2 AS REAL) BETWEEN ? AND ?")
+        args += [float(nd["area_m2"]) * 0.92, float(nd["area_m2"]) * 1.08]
     if nd.get("area_min"):
         where.append("CAST(area2_m2 AS REAL) >= ?")
         args.append(float(nd["area_min"]) * (1 - ex["area"]))
@@ -14426,7 +14438,8 @@ def _match_criteria(nd: dict) -> dict:
 
 _NEED_EDIT = ("kind", "trade", "role", "budget_min", "budget_max", "ask_price",
               "sido", "sigungu", "dong", "complex_no", "address", "area_min", "area_max",
-              "status", "settle_date", "memo", "listing_id")
+              "status", "settle_date", "memo", "listing_id",
+              "bld_dong", "ho", "area_m2", "floor_info")
 
 
 @app.patch("/lounge/customers/{cid}")

@@ -15,6 +15,10 @@ export type EditNeed = {
   sigungu?: string | null; dong?: string | null; address?: string | null;
   area_min?: number | null; area_max?: number | null;
   status?: string; settle_date?: string | null; memo?: string | null;
+  // 내놓음 — 특정 물건이라 동·호·전용·층이 있다(구하는 쪽은 범위를 쓴다)
+  bld_dong?: string | null; ho?: string | null; area_m2?: number | null; floor_info?: string | null;
+  listing_id?: number | null; _listing?: { complex_name?: string; dong?: string; ho?: string;
+    area2_m2?: any; trade_type?: string } | null;
   _new?: boolean; _del?: boolean;
 };
 export type EditCustomer = {
@@ -185,7 +189,8 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
         if (n._del) continue;
         const body: Record<string, any> = {};
         for (const k of ["kind", "trade", "role", "budget_min", "budget_max", "ask_price",
-          "sigungu", "dong", "address", "area_min", "area_max", "status", "settle_date", "memo"]) {
+          "sigungu", "dong", "address", "area_min", "area_max", "status", "settle_date", "memo",
+          "bld_dong", "ho", "area_m2", "floor_info"]) {
           body[k] = (n as any)[k] ?? null;
         }
         if (n.id) {
@@ -269,29 +274,61 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
               </span>
             </div>
 
+            {n.listing_id && n._listing && (
+              <p className="ced-linked">
+                <Building2 size={12} /> 매물장에 등록된 물건입니다 —
+                <b>{n._listing.complex_name}</b>
+                {n._listing.dong ? ` ${n._listing.dong}` : ""}{n._listing.ho ? ` ${n._listing.ho}` : ""}
+                {n._listing.area2_m2 ? ` · 전용 ${Math.round(Number(n._listing.area2_m2))}㎡` : ""}
+                <em>물건 정보는 매물장에서 고치세요</em>
+              </p>
+            )}
             <div className="ced-grid3">
               {n.kind === "내놓음" ? (
-                <Money label="내놓은 가격" v={n.ask_price} on={(x) => setN(i, { ask_price: x })} />
+                <>
+                  {/* 내놓은 것은 특정 물건이다 — 범위가 아니라 그 집의 값이 들어간다 */}
+                  <Money label="내놓은 가격" v={n.ask_price} on={(x) => setN(i, { ask_price: x })} />
+                  <label className="ced-f"><span>단지·주소</span>
+                    <input value={n.address || ""} placeholder="고덕그라시움"
+                      onChange={(e) => setN(i, { address: e.target.value || null })} /></label>
+                  <label className="ced-f"><span>지역(동)</span>
+                    <input value={n.dong || ""} placeholder="고덕동"
+                      onChange={(e) => setN(i, { dong: e.target.value || null })} /></label>
+                  <label className="ced-f"><span>동</span>
+                    <input value={n.bld_dong || ""} placeholder="104동"
+                      onChange={(e) => setN(i, { bld_dong: e.target.value || null })} /></label>
+                  <label className="ced-f"><span>호</span>
+                    <input value={n.ho || ""} placeholder="1003호"
+                      onChange={(e) => setN(i, { ho: e.target.value || null })} /></label>
+                  <label className="ced-f"><span>전용</span>
+                    <input value={toPy(n.area_m2)} inputMode="decimal" placeholder="34"
+                      onChange={(e) => setN(i, { area_m2: fromPy(e.target.value) })} />
+                    <i>평</i></label>
+                  <label className="ced-f"><span>층</span>
+                    <input value={n.floor_info || ""} placeholder="10/15"
+                      onChange={(e) => setN(i, { floor_info: e.target.value || null })} />
+                    <i>층</i></label>
+                </>
               ) : (
                 <>
                   <Money label="예산 최소" v={n.budget_min} on={(x) => setN(i, { budget_min: x })} />
                   <Money label="예산 최대" v={n.budget_max} on={(x) => setN(i, { budget_max: x })} />
+                  <label className="ced-f"><span>지역(동)</span>
+                    <input value={n.dong || ""} placeholder="고덕동"
+                      onChange={(e) => setN(i, { dong: e.target.value || null })} /></label>
+                  <label className="ced-f"><span>단지·주소</span>
+                    <input value={n.address || ""} placeholder="고덕그라시움"
+                      onChange={(e) => setN(i, { address: e.target.value || null })} /></label>
+                  <label className="ced-f"><span>면적 최소</span>
+                    <input value={toPy(n.area_min)} inputMode="decimal" placeholder="25"
+                      onChange={(e) => setN(i, { area_min: fromPy(e.target.value) })} />
+                    <i>평</i></label>
+                  <label className="ced-f"><span>면적 최대</span>
+                    <input value={toPy(n.area_max)} inputMode="decimal" placeholder="34"
+                      onChange={(e) => setN(i, { area_max: fromPy(e.target.value) })} />
+                    <i>평</i></label>
                 </>
               )}
-              <label className="ced-f"><span>지역(동)</span>
-                <input value={n.dong || ""} placeholder="고덕동"
-                  onChange={(e) => setN(i, { dong: e.target.value || null })} /></label>
-              <label className="ced-f"><span>단지·주소</span>
-                <input value={n.address || ""} placeholder="고덕그라시움"
-                  onChange={(e) => setN(i, { address: e.target.value || null })} /></label>
-              <label className="ced-f"><span>면적 최소</span>
-                <input value={toPy(n.area_min)} inputMode="decimal" placeholder="25"
-                  onChange={(e) => setN(i, { area_min: fromPy(e.target.value) })} />
-                <i>평</i></label>
-              <label className="ced-f"><span>면적 최대</span>
-                <input value={toPy(n.area_max)} inputMode="decimal" placeholder="34"
-                  onChange={(e) => setN(i, { area_max: fromPy(e.target.value) })} />
-                <i>평</i></label>
             </div>
 
             <div className="ced-row2">

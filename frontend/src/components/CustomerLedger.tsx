@@ -17,6 +17,7 @@ type Need = {
   budget_min?: number | null; budget_max?: number | null; ask_price?: number | null;
   sigungu?: string | null; dong?: string | null; address?: string | null;
   area_min?: number | null; area_max?: number | null; settle_date?: string | null;
+  bld_dong?: string | null; ho?: string | null; area_m2?: number | null; floor_info?: string | null;
   status?: string; listing_id?: number | null; listing?: Listing | null; raw_text?: string | null;
 };
 type Customer = {
@@ -50,7 +51,10 @@ function priceOf(n: Need): string {
   return lo || hi ? `${lo || ""}${hi ? `~ ${hi}` : " 이상"}` : "-";
 }
 function whereOf(n: Need): string {
-  return [n.sigungu, n.dong, n.address].filter(Boolean).join(" ") || "-";
+  // 내놓은 물건은 특정 호실이다 — 동·호까지 보여야 어느 집인지 안다
+  const base = [n.sigungu, n.dong, n.address].filter(Boolean).join(" ");
+  const unit = [n.bld_dong, n.ho].filter(Boolean).join(" ");
+  return [base, unit].filter(Boolean).join(" · ") || "-";
 }
 
 // role 은 우선순위다. 예전 값(주안·대안·보유)이 남아 있어도 번호로 읽는다
@@ -83,6 +87,8 @@ export default function CustomerLedger({ authH, onGoListings }: {
       sigungu: n.sigungu, dong: n.dong, address: n.address,
       area_min: n.area_min, area_max: n.area_max,
       status: n.status, settle_date: n.settle_date,
+      bld_dong: n.bld_dong, ho: n.ho, area_m2: n.area_m2, floor_info: n.floor_info,
+      listing_id: n.listing_id, _listing: n.listing,
     })),
   });
 
