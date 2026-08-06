@@ -5,7 +5,7 @@
 // ③ 면적은 평으로 넣게 한다(㎡ 는 우리가 바꾼다). 손이 가장 덜 가는 길로.
 import { useEffect, useState } from "react";
 import { X, Plus, Trash2, Loader2, Check, Sparkles, UserRound, Building2,
-  CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+  CalendarDays, ChevronLeft, ChevronRight, Phone, MessageSquare } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -22,6 +22,7 @@ export type EditNeed = {
     area2_m2?: any; trade_type?: string } | null;
   _new?: boolean; _del?: boolean;
 };
+type Act = { id: number; kind: string; body: string; auto: boolean; created_at: string };
 type CxHit = { complex_no: string; complex_name: string; region?: string;
   households?: number; sigungu?: string | null; dong?: string | null };
 export type EditCustomer = {
@@ -60,6 +61,7 @@ export function moneyText(won?: number | null): string {
   if (e) return m ? `${e}억 ${m.toLocaleString()}` : `${e}억`;
   return `${Math.round(won / 1e4).toLocaleString()}만`;
 }
+const _digits = (s: string) => (s || "").replace(/[^\d]/g, "");
 const toPy = (m2?: number | null) => (m2 ? String(Math.round(Number(m2) / 3.3058)) : "");
 const fromPy = (py: string) => {
   const v = parseFloat((py || "").replace(/[^\d.]/g, ""));
@@ -220,70 +222,90 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
   };
 
   const live = needs.filter((n) => !n._del);
+  const open = live.filter((n) => n.status && !["완료", "보류"].includes(n.status)).length;
+  const tel = _digits(phone);
 
   return (
     <div className="ced-ov" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="ced">
-        <button className="ced-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
-        <h3 className="ced-t"><UserRound size={16} /> 고객 정보 수정</h3>
-
-        <div className="ced-grid3">
-          <label className="ced-f"><span>이름</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} autoFocus /></label>
-          <label className="ced-f"><span>연락처</span>
-            <input value={phone} inputMode="tel" placeholder="010-0000-0000"
-              onChange={(e) => setPhone(e.target.value)} /></label>
-          <label className="ced-f"><span>메모</span>
-            <input value={memo} placeholder="소개 경로·특이사항"
-              onChange={(e) => setMemo(e.target.value)} /></label>
+        <div className="ced-hd">
+          <UserRound size={16} />
+          <h3>{name || "고객"}<em> · 고객 정보 수정</em></h3>
+          <button className="ced-x" onClick={onClose} aria-label="닫기"><X size={17} /></button>
         </div>
 
-        <div className="ced-sec">
-          <h4><Building2 size={13} /> 요건 {live.length}건</h4>
-          <button className="ced-add" onClick={addNeed}><Plus size={13} /> 빈 요건 추가</button>
-        </div>
+        <div className="ced-body">
+          {/* 왼쪽에 손님을 고정한다 — 전화를 받으며 여는 화면이라 누구인지가 스크롤 밖으로 나가면 안 된다 */}
+          <aside className="ced-rail">
+            <div className="ced-av">{(name || "·").trim().slice(0, 1)}</div>
+            <input className="ced-nm" value={name} placeholder="이름" autoFocus
+              onChange={(e) => setName(e.target.value)} />
+            <input className="ced-ph" value={phone} inputMode="tel" placeholder="010-0000-0000"
+              onChange={(e) => setPhone(e.target.value)} />
+            <div className="ced-acts">
+              <a className={tel ? "" : "off"} href={tel ? `tel:${tel}` : undefined}>
+                <Phone size={12} />전화</a>
+              <a className={tel ? "" : "off"} href={tel ? `sms:${tel}` : undefined}>
+                <MessageSquare size={12} />문자</a>
+            </div>
+            <div className="ced-stat">
+              <div><b>{live.length}</b><span>요건</span></div>
+              <div><b>{open}</b><span>진행 중</span></div>
+            </div>
+            <p className="ced-sec2">메모</p>
+            <textarea className="ced-memo" value={memo} rows={3}
+              placeholder="소개 경로·특이사항" onChange={(e) => setMemo(e.target.value)} />
+            <ActivityLog authH={authH} cid={cust.id} />
+          </aside>
 
-        <div className="ced-paste">
-          <Sparkles size={14} />
-          <input value={paste} placeholder="문장으로 넣기 — 예: 고덕동 34평 매매 24~27억 10월 잔금"
-            onChange={(e) => setPaste(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") runPaste(); }} />
-          <button onClick={runPaste} disabled={parsing || paste.trim().length < 2}>
-            {parsing ? <Loader2 size={13} className="txm-spin" /> : "읽기"}
-          </button>
-        </div>
+          <div className="ced-main">
+            <div className="ced-sec">
+              <h4><Building2 size={13} /> 요건 {live.length}건</h4>
+              <button className="ced-add" onClick={addNeed}><Plus size={13} /> 요건 추가</button>
+            </div>
+
+            <div className="ced-paste">
+              <Sparkles size={14} />
+              <input value={paste} placeholder="문장으로 넣기 — 예: 고덕동 34평 매매 24~27억 10월 잔금"
+                onChange={(e) => setPaste(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") runPaste(); }} />
+              <button onClick={runPaste} disabled={parsing || paste.trim().length < 2}>
+                {parsing ? <Loader2 size={13} className="txm-spin" /> : "읽기"}
+              </button>
+            </div>
 
         {live.length === 0 && <p className="ced-empty">요건이 없습니다. 위에서 문장으로 넣거나 빈 요건을 추가하세요.</p>}
 
         {needs.map((n, i) => n._del ? null : (
           <div key={n.id ?? `new${i}`} className="ced-need">
+            {/* 머리 한 줄에 구분·거래·우선순위·진행을 모두 담는다. 버튼 15개가 칸을 먹던 자리다 */}
             <div className="ced-need-h">
-              <span className={"ced-kind" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind}</span>
+              <select className={"ced-sel k" + (n.kind === "내놓음" ? " sell" : "")}
+                value={n.kind || "구함"} onChange={(e) => setN(i, { kind: e.target.value })}>
+                {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+              </select>
+              <select className="ced-sel" value={n.trade || "A1"}
+                onChange={(e) => setN(i, { trade: e.target.value })}>
+                {TRADES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              {/* 우선순위 — 이 고객의 요건 수만큼. 구분과 무관하게 '몇 번째 안'이다
+                  (구함 1건 + 내놓음 1건이면 1안·2안이 나와야 한다) */}
+              <select className="ced-sel pri" value={roleNum(n.role) || ""}
+                onChange={(e) => setN(i, { role: e.target.value || null as any })}>
+                <option value="">순위</option>
+                {Array.from({ length: Math.max(1, live.length) }, (_, k) => `${k + 1}안`).map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
               {n._new && <em>새 요건</em>}
+              <span className="ced-need-sum">{needSummary(n)}</span>
+              <select className={"ced-sel st s" + STATUS.indexOf(n.status || "탐색")}
+                value={n.status || "탐색"} onChange={(e) => setN(i, { status: e.target.value })}>
+                {STATUS.map((st) => <option key={st} value={st}>{st}</option>)}
+              </select>
               <button className="ced-del" onClick={() => delNeed(i)} aria-label="삭제">
                 <Trash2 size={13} />
               </button>
-            </div>
-
-            <div className="ced-chips">
-              {KINDS.map((k) => (
-                <button key={k} className={n.kind === k ? "on" : ""}
-                  onClick={() => setN(i, { kind: k })}>{k}</button>
-              ))}
-              <i />
-              {TRADES.map(([v, l]) => (
-                <button key={v} className={n.trade === v ? "on" : ""}
-                  onClick={() => setN(i, { trade: v })}>{l}</button>
-              ))}
-              <i />
-              {/* 우선순위 — 이 고객의 요건 수만큼. 구분과 무관하게 '몇 번째 안'이다
-                  (구함 1건 + 내놓음 1건이면 1안·2안이 나와야 한다) */}
-              <span className="ced-pri">
-                {Array.from({ length: Math.max(1, live.length) }, (_, k) => `${k + 1}안`).map((r) => (
-                  <button key={r} className={roleNum(n.role) === r ? "on" : ""}
-                    onClick={() => setN(i, { role: roleNum(n.role) === r ? null as any : r })}>{r}</button>
-                ))}
-              </span>
             </div>
 
             {n.listing_id && n._listing && (
@@ -295,7 +317,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
                 <em>물건 정보는 매물장에서 고치세요</em>
               </p>
             )}
-            <div className="ced-grid3">
+            <div className="ced-grid2">
               {n.kind === "내놓음" ? (
                 <>
                   {/* 내놓은 것은 특정 물건이다 — 범위가 아니라 그 집의 값이 들어간다 */}
@@ -340,7 +362,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
             </div>
 
             <div className="ced-row2">
-              <label className="ced-f wide"><span>잔금시기</span>
+              <label className="ced-f wide"><span>잔금</span>
                 <input value={n.settle_date || ""} placeholder="달력에서 고르거나 직접 입력"
                   onChange={(e) => setN(i, { settle_date: e.target.value || null })} />
                 <button type="button" className="ced-calbtn"
@@ -355,17 +377,10 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
                   onClose={() => setCalOpen(null)} />
               )}
             </div>
-
-            <div className="ced-row2">
-              <span className="ced-quick lbl">진행
-                {STATUS.map((st) => (
-                  <button key={st} className={n.status === st ? "on" : ""}
-                    onClick={() => setN(i, { status: st })}>{st}</button>
-                ))}
-              </span>
-            </div>
           </div>
         ))}
+          </div>
+        </div>
 
         {err && <p className="ced-err">{err}</p>}
         <div className="ced-foot">
@@ -377,6 +392,88 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
         </div>
       </div>
     </div>
+  );
+}
+
+/** 요건 한 줄 요약 — 칸을 다 읽지 않아도 뭘 찾는 손님인지 보이게. */
+function needSummary(n: EditNeed): string {
+  const tr = TRADES.find(([v]) => v === (n.trade || "A1"))?.[1] || "";
+  const py = (m2?: number | null) => (m2 ? `${Math.round(Number(m2) / 3.3058)}평` : "");
+  const parts = n.kind === "내놓음"
+    ? [n.address, [n.bld_dong, n.ho].filter(Boolean).join(" "), tr,
+       moneyText(n.ask_price), py(n.area_m2)]
+    : [n.address || n.dong, tr,
+       n.budget_min || n.budget_max
+         ? `${moneyText(n.budget_min)}~${moneyText(n.budget_max)}`.replace(/^~|~$/, "") : "",
+       n.area_min || n.area_max ? `${py(n.area_min)}~${py(n.area_max)}`.replace(/^~|~$/, "") : ""];
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** 활동 기록 — 요건(무엇을 원하는가)만으로는 '이 손님 어디까지 얘기했더라'가 안 남는다.
+ *  통화·문자·방문·메모는 사람이 적고, 요건 등록·진행 변경은 서버가 알아서 남긴다. */
+function ActivityLog({ authH, cid }: { authH: () => Record<string, string>; cid: number }) {
+  const [items, setItems] = useState<Act[]>([]);
+  const [kind, setKind] = useState("통화");
+  const [txt, setTxt] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await fetch(`${API_BASE}/lounge/customers/${cid}/activities?limit=40`,
+                            { headers: authH() });
+      const j = await r.json();
+      setItems(j.items ?? []);
+    } catch { /* 기록을 못 읽는 것이 수정 자체를 막을 이유는 없다 */ }
+  };
+  useEffect(() => { load(); }, [cid]);
+
+  const add = async () => {
+    if (!txt.trim() || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}/lounge/customers/${cid}/activities`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, body: txt.trim() }),
+      });
+      if (r.ok) { setTxt(""); await load(); }
+    } catch { /* noop */ } finally { setBusy(false); }
+  };
+  const drop = async (id: number) => {
+    setItems((xs) => xs.filter((x) => x.id !== id));
+    try {
+      await fetch(`${API_BASE}/lounge/activities/${id}`, { method: "DELETE", headers: authH() });
+    } catch { /* noop */ }
+  };
+
+  return (
+    <>
+      <p className="ced-sec2">활동 기록</p>
+      <div className="ced-actadd">
+        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          {["통화", "문자", "방문", "메모"].map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <input value={txt} placeholder="무슨 얘기를 했나요"
+          onChange={(e) => setTxt(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
+        <button onClick={add} disabled={busy || !txt.trim()} aria-label="기록 추가">
+          {busy ? <Loader2 size={12} className="txm-spin" /> : <Plus size={13} />}
+        </button>
+      </div>
+      {items.length === 0
+        ? <p className="ced-actnone">아직 기록이 없어요.</p>
+        : <ul className="ced-log">
+            {items.map((a) => (
+              <li key={a.id}>
+                <time>{(a.created_at || "").slice(5, 10).replace("-", "/")}</time>
+                <span className={"k" + (a.auto ? " auto" : "")}>{a.kind}</span>
+                <b>{a.body}</b>
+                {!a.auto && (
+                  <button onClick={() => drop(a.id)} aria-label="지우기"><X size={11} /></button>
+                )}
+              </li>
+            ))}
+          </ul>}
+    </>
   );
 }
 

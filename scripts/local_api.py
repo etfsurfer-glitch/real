@@ -11073,6 +11073,24 @@ def _init_reviews_db() -> None:
               PRIMARY KEY (contract_id, customer_id, role)
             );
             CREATE INDEX IF NOT EXISTS bzcp_cust_idx ON biz_contract_parties(customer_id);
+
+            -- 고객 활동 기록 — 언제 통화했고 뭘 보냈는지. 요건(무엇을 원하는가)만으로는
+            -- '이 손님 어디까지 얘기했더라'가 안 남아서, 중개사가 결국 수첩을 따로 쓴다.
+            -- 사람이 적는 것(통화·문자·방문·메모)과 시스템이 남기는 것(요건 등록·진행 변경)을
+            -- auto 로만 구분해 한 줄기로 쌓는다.
+            CREATE TABLE IF NOT EXISTS biz_activities (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id      TEXT NOT NULL,
+              realtor_id   TEXT,
+              customer_id  INTEGER NOT NULL,
+              need_id      INTEGER,           -- 특정 요건에 걸린 일이면
+              kind         TEXT NOT NULL,     -- 통화|문자|방문|메모|발송|요건|진행
+              body         TEXT,
+              auto         INTEGER NOT NULL DEFAULT 0,
+              created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS bza_cust_idx ON biz_activities(customer_id, id DESC);
+            CREATE INDEX IF NOT EXISTS bza_rid_idx ON biz_activities(realtor_id, id DESC);
             """
         )
         # 기존 테이블에 신규 컬럼 보강(있으면 무시) — 전화번호=유니크 비즈니스키, 회원번호=내부키
@@ -14495,6 +14513,70 @@ _NEED_EDIT = ("kind", "trade", "role", "budget_min", "budget_max", "ask_price",
               "bld_dong", "ho", "area_m2", "floor_info")
 
 
+_ACT_KINDS = ("통화", "문자", "방문", "메모", "발송", "요건", "진행")
+
+
+def _act_log(rc, user_id, rid, cid, kind, body, need_id=None, auto=1):
+    """활동 한 줄 기록. 기록 실패가 본 작업을 깨뜨리면 안 되므로 조용히 넘긴다."""
+    try:
+        rc.execute("INSERT INTO biz_activities(user_id, realtor_id, customer_id, need_id, "
+                   "kind, body, auto) VALUES(?,?,?,?,?,?,?)",
+                   (user_id, rid, cid, need_id, kind, (body or "")[:300], 1 if auto else 0))
+    except Exception:
+        pass
+
+
+def _need_line(n: dict) -> str:
+    """요건 한 줄 요약 — 활동 기록에 '무엇에 대한 일인지' 남기려면 이게 필요하다."""
+    tr = {"A1": "매매", "B1": "전세", "B2": "월세"}.get(n.get("trade") or "", "")
+    won = lambda v: (f"{v / 1e8:.9g}억" if v and v >= 1e8 else f"{int(v) // 10000:,}만" if v else "")
+    lo, hi = won(n.get("budget_min")), won(n.get("budget_max"))
+    money = won(n.get("ask_price")) or (f"{lo}~{hi}" if lo and hi else lo or hi)
+    return " ".join(x for x in [n.get("address") or n.get("dong"), tr, money] if x) or "요건"
+
+
+@app.get("/lounge/customers/{cid}/activities")
+def lounge_activities(cid: int, limit: int = 40, user: dict = Depends(current_user)):
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        if not rc.execute("SELECT id FROM biz_customers WHERE id=? AND realtor_id=?",
+                          (cid, rid)).fetchone():
+            raise HTTPException(404, "고객을 찾을 수 없어요")
+        rows = rc.execute(
+            "SELECT id, kind, body, auto, need_id, created_at FROM biz_activities "
+            "WHERE customer_id=? AND realtor_id=? ORDER BY id DESC LIMIT ?",
+            (cid, rid, max(1, min(200, limit)))).fetchall()
+    return {"items": [{"id": r[0], "kind": r[1], "body": r[2], "auto": bool(r[3]),
+                       "need_id": r[4], "created_at": r[5]} for r in rows]}
+
+
+@app.post("/lounge/customers/{cid}/activities")
+def lounge_activity_add(cid: int, body: dict, user: dict = Depends(current_user)):
+    """중개사가 직접 남기는 기록 — 통화·문자·방문·메모."""
+    kind = (body.get("kind") or "메모").strip()
+    if kind not in _ACT_KINDS:
+        raise HTTPException(400, "알 수 없는 종류예요")
+    txt = (body.get("body") or "").strip()
+    if not txt:
+        raise HTTPException(400, "내용을 적어 주세요")
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        if not rc.execute("SELECT id FROM biz_customers WHERE id=? AND realtor_id=?",
+                          (cid, rid)).fetchone():
+            raise HTTPException(404, "고객을 찾을 수 없어요")
+        _act_log(rc, user["id"], rid, cid, kind, txt, body.get("need_id"), auto=0)
+        rc.execute("UPDATE biz_customers SET updated_at=datetime('now') WHERE id=?", (cid,))
+    return {"ok": True}
+
+
+@app.delete("/lounge/activities/{aid}")
+def lounge_activity_delete(aid: int, user: dict = Depends(current_user)):
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.execute("DELETE FROM biz_activities WHERE id=? AND realtor_id=?", (aid, rid))
+    return {"ok": True}
+
+
 @app.patch("/lounge/customers/{cid}")
 def lounge_customer_update(cid: int, body: dict, user: dict = Depends(current_user)):
     """고객 정보 수정. 이름·전화·메모만."""
@@ -14527,10 +14609,11 @@ def lounge_need_update(nid: int, body: dict, user: dict = Depends(current_user))
     """요건 수정."""
     with _reviews_db() as rc:
         rid = _require_member(rc, user["id"])
-        row = rc.execute("SELECT id FROM biz_needs WHERE id=? AND realtor_id=?",
+        row = rc.execute("SELECT * FROM biz_needs WHERE id=? AND realtor_id=?",
                          (nid, rid)).fetchone()
         if not row:
             raise HTTPException(404, "요건을 찾을 수 없어요")
+        was = dict(row)
         # 단지명이 바뀌었으면 코드를 다시 확정한다(사용자가 고른 complex_no 는 그대로 존중)
         res = {}
         if "address" in body and "complex_no" not in body:
@@ -14551,6 +14634,11 @@ def lounge_need_update(nid: int, body: dict, user: dict = Depends(current_user))
         if cols:
             rc.execute(f"UPDATE biz_needs SET {','.join(cols)}, updated_at=datetime('now') "
                        f"WHERE id=?", vals + [nid])
+        # 진행 단계가 움직인 것은 손님과의 사이에 무슨 일이 있었다는 뜻이다 — 기록에 남긴다
+        new_st = body.get("status")
+        if new_st and new_st != was.get("status") and was.get("customer_id"):
+            _act_log(rc, user["id"], rid, was["customer_id"], "진행",
+                     f"{_need_line({**was, **body})} · {was.get('status') or '탐색'} → {new_st}", nid)
     return {"ok": True, "complex_no": res.get("complex_no"),
             "complex_name": res.get("complex_name"),
             "cands": res.get("cands") or [], "note": res.get("note")}
@@ -14587,6 +14675,8 @@ def lounge_need_create(body: dict, user: dict = Depends(current_user)):
         cur = rc.execute(f"INSERT INTO biz_needs({','.join(cols)}) "
                          f"VALUES({','.join('?' * len(cols))})", vals)
         nid = cur.lastrowid
+        _act_log(rc, user["id"], rid, cid, "요건",
+                 f"{body.get('kind') or '구함'} — {_need_line(body)}", nid)
     return {"ok": True, "id": nid, "complex_no": res.get("complex_no"),
             "cands": res.get("cands") or [], "note": res.get("note")}
 
