@@ -1775,6 +1775,21 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     return order.map((k) => by.get(k)!);
   }, [items]);
 
+  // 직접등록 매물 삭제 — 되돌릴 수 없으니 무엇을 지우는지 이름으로 확인받는다.
+  // 서버는 status='closed' 로만 바꾼다(행은 남아 복구할 수 있다).
+  const delPrivate = async (l: MLItem) => {
+    const what = [l.complex_name || l.building_name || "이 매물", dongHo(l)].filter(Boolean).join(" ");
+    if (!window.confirm(`${what}\n\n매물장에서 지웁니다. 계속할까요?`)) return;
+    try {
+      const r = await fetch(`${API_BASE}/lounge/private-listings/${l.private_id}`,
+                            { method: "DELETE", headers: authH() });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(d?.detail || `삭제 실패 (${r.status})`);
+      setDetail(null);
+      load();
+    } catch (e: any) { alert(e?.message || "삭제하지 못했어요"); }
+  };
+
   // 담당자 즉시 배정(저장까지)
   const assignManager = async (l: MLItem, v: string) => {
     patch(l.article_no, "manager", v);
@@ -1940,6 +1955,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
         onToPrivate={(vis) => toPrivate(detail, vis)}
         privMsg={privMsg[detail.article_no]}
         onFilled={load}
+        onEditPrivate={() => { setEditPL(detail); setPlOpen(true); setDetail(null); }}
+        onDeletePrivate={() => delPrivate(detail)}
         onSavedPrivate={() => { setPriv(true); load(); }}
         onClose={() => { setDetail(null); setDetailOwner(""); }} />}
       {mapOpen && <OfficeMap authH={authH} officeName={office.realtor_name} onClose={() => setMapOpen(false)} />}
@@ -2431,7 +2448,8 @@ function FillInfo({ authH, pid, onDone }: {
 }
 
 function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
-  managers = [], onPatch, onSaveNote, saved, onAssign, onToPrivate, privMsg, onFilled }: {
+  managers = [], onPatch, onSaveNote, saved, onAssign, onToPrivate, privMsg, onFilled,
+  onEditPrivate, onDeletePrivate }: {
   l: MLItem; owner?: string; authH?: () => Record<string, string>;
   onSavedPrivate?: () => void; onClose: () => void;
   managers?: { name: string; position?: string }[];
@@ -2440,6 +2458,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
   onAssign?: (v: string) => void;
   onToPrivate?: (vis: "office" | "me") => void;
   privMsg?: string; onFilled?: () => void;
+  onEditPrivate?: () => void; onDeletePrivate?: () => void;
 }) {
   const [keepPick, setKeepPick] = useState(false);
   // 네이버 연동매물 → 비공개매물장 보관. 네이버에서 내려가도 사무소가 계속 관리할 수 있게
@@ -2562,6 +2581,13 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
           {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> 네이버 매물</a>}
           {canSave && <button className="mlj-topriv" onClick={() => setSavePick((v) => !v)}>
             <Lock size={14} /> 비공개매물장에 보관</button>}
+          {/* 직접등록한 물건만 고치고 지울 수 있다. 네이버 매물은 수집분이라 우리가 못 지운다 */}
+          {l.is_private && onEditPrivate && (
+            <button className="mlj-naver" onClick={onEditPrivate}><Pencil size={14} /> 수정</button>
+          )}
+          {l.is_private && onDeletePrivate && (
+            <button className="mld-del" onClick={onDeletePrivate}><Trash2 size={14} /> 삭제</button>
+          )}
         </div>
         {savePick && (
           <div className="mld-topriv-pick">

@@ -4521,6 +4521,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 /* 네이버 매물 → 비공개매물장 보관 */
 .mlj-topriv{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c-primary);background:#fff;color:var(--c-primary);border-radius:var(--r-pill);padding:7px 13px;font-size:13px;font-weight:700;cursor:pointer}
 .mlj-topriv:hover{background:var(--c-primary);color:#fff}
+/* 삭제 — 다른 액션 옆에 두되 먼저 눈에 띄지는 않게(테두리만 붉게) */
+.mld-del{display:inline-flex;align-items:center;gap:5px;margin-left:auto;border:1px solid var(--c-border);
+  background:#fff;color:var(--c-muted);border-radius:var(--r-pill);padding:7px 13px;font:inherit;
+  font-size:13px;font-weight:700;cursor:pointer}
+.mld-del:hover{border-color:#e2a3a3;color:#c33;background:#fff6f6}
 .mld-topriv-pick{margin-top:10px;border:1px solid var(--c-border);border-left:3px solid var(--c-primary);background:#f7f9fc;border-radius:var(--r-sm);padding:12px}
 .mld-topriv-t{font-size:13px;font-weight:800;margin-bottom:8px}
 .mld-topriv-n{margin-top:8px;font-size:11.5px;color:var(--c-muted);line-height:1.45}
