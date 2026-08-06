@@ -2028,6 +2028,63 @@ function PhotoMaskEditor({ authH, name, onClose, onDone }: {
   );
 }
 
+/** 매물장 금액은 만원 단위다. 사람은 '10억'이라 적고 우리는 100,000 으로 저장한다.
+ *  → 억·천·만을 읽어 만원으로 바꾸고, 화면에는 천단위 쉼표로 보여 준다. */
+export function parseMan(raw: string): number | null {
+  const t = (raw || "").replace(/[\s,]/g, "");
+  if (!t) return null;
+  if (/^\d+(\.\d+)?$/.test(t)) return Math.round(parseFloat(t));   // 숫자만 = 이미 만원
+  let v = 0, hit = false;
+  const e = t.match(/(\d+(?:\.\d+)?)억/);
+  if (e) { v += parseFloat(e[1]) * 10000; hit = true; }
+  const ch = t.match(/억(\d+(?:\.\d+)?)천/) || (!e && t.match(/(\d+(?:\.\d+)?)천/));
+  if (ch) { v += parseFloat(ch[1]) * 1000; hit = true; }
+  const m = t.match(/(\d+(?:\.\d+)?)만/);
+  if (m && !ch) { v += parseFloat(m[1]); hit = true; }
+  else if (e && !ch) {
+    const rest = t.slice(t.indexOf("억") + 1).match(/^(\d+)$/);
+    if (rest) { v += Number(rest[1]); hit = true; }      // '10억5000' → 5,000만
+  }
+  return hit ? Math.round(v) : null;
+}
+const manText = (v: any) => {
+  const n = Number(v);
+  return !v || isNaN(n) ? "" : n.toLocaleString();
+};
+/** 억 단위 되읽기 — 100,000 이 얼마인지 눈으로 확인시켜 준다 */
+const manHint = (v: any) => {
+  const n = Number(v);
+  if (!n || isNaN(n)) return "";
+  if (n >= 10000) {
+    const e = Math.floor(n / 10000), r = n % 10000;
+    return r ? `${e}억 ${r.toLocaleString()}만` : `${e}억`;
+  }
+  return `${n.toLocaleString()}만`;
+};
+
+/** 입력 칸 — 모듈 레벨에 둔다. 컴포넌트 안에서 만들면 렌더마다 새 타입이 되어
+ *  글자를 한 자 칠 때마다 다시 그려지고 포커스가 빠진다. */
+function T({ f, set, k, label, ...rest }: any) {
+  return (
+    <label className="pl-f"><span>{label}</span>
+      <input className="ai-input" value={f[k] ?? ""} onChange={set(k)} {...rest} /></label>
+  );
+}
+
+function PLMoney({ f, setF, k, label }: any) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft !== null ? draft : manText(f[k]);
+  const hint = draft === null ? manHint(f[k]) : "";
+  return (
+    <label className="pl-f pl-money"><span>{label}<i>만원</i></span>
+      <input className="ai-input" value={shown} inputMode="numeric" placeholder="10억 / 100000"
+        onChange={(e) => { setDraft(e.target.value); setF((s: any) => ({ ...s, [k]: parseMan(e.target.value) })); }}
+        onBlur={() => setDraft(null)} />
+      {hint && <b>{hint}</b>}
+    </label>
+  );
+}
+
 function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
   authH: () => Record<string, string>; init: MLItem | null; managers: Manager[];
   onClose: () => void; onSaved: () => void;
@@ -2063,11 +2120,16 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
       if (!r.ok) throw new Error(d?.detail || "인식 실패");
       const got = (d["매물"] || [])[0];
       if (!got) throw new Error("매물을 못 읽었어요. 단지·동호·가격을 넣어 보세요.");
+      // 파서는 원 단위로 낸다. 매물장은 만원 단위라 여기서 옮긴다 —
+      // 안 하면 10억이 1000000000(만원)으로 들어간다.
+      const MONEY = ["price", "rent_price", "deposit", "maintenance_fee", "loan_amount"];
       setF((s) => {
         const n = { ...s };
         for (const [k, v] of Object.entries(got)) {
           if (k.startsWith("_") || v === null || v === "") continue;
-          if (n[k] === undefined || n[k] === null || n[k] === "" ) n[k] = v;
+          const val = MONEY.includes(k) && Number(v) >= 10000
+            ? Math.round(Number(v) / 10000) : v;
+          if (n[k] === undefined || n[k] === null || n[k] === "") n[k] = val;
         }
         return n;
       });
@@ -2078,24 +2140,35 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
     finally { setNlBusy(false); }
   };
 
-  // 단지+동+호 → 건축물대장. 이미 적힌 값은 그대로 두고 빈 칸만 채운다.
-  const fillLedger = async () => {
-    if (fillBusy) return;
-    setFillBusy(true); setPlMsg(""); setPlMsgBad(false);
-    try {
-      const r = await fetch(`${API_BASE}/lounge/listing-enrich`, {
-        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
-        body: JSON.stringify(f),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d?.detail || "조회 실패");
-      setF((s) => ({ ...s, ...d.listing }));
-      const n = (d.filled || []).length;
-      setPlMsg(n ? `대장에서 ${n}개 항목을 채웠어요` : "대장에서 더 채울 항목이 없었어요");
-      setPlMsgBad(!n);
-    } catch (e: any) { setPlMsg(e.message || "조회 실패"); setPlMsgBad(true); }
-    finally { setFillBusy(false); }
-  };
+  // 단지+동+호가 갖춰지면 건축물대장에서 알아서 채운다 — 눌러야 하는 기능이 아니다.
+  // 같은 조합은 한 번만 조회한다(칸을 고칠 때마다 다시 부르지 않게).
+  const enriched = useRef("");
+  useEffect(() => {
+    const key = [f.complex_name, f.dong, f.ho].map((x) => (x || "").trim()).join("|");
+    if (!f.complex_name || !f.dong || !f.ho || enriched.current === key) return;
+    let dead = false;
+    const t = setTimeout(async () => {
+      enriched.current = key;
+      setFillBusy(true); setPlMsg(""); setPlMsgBad(false);
+      try {
+        const r = await fetch(`${API_BASE}/lounge/listing-enrich`, {
+          method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+          body: JSON.stringify(f),
+        });
+        const d = await r.json();
+        if (dead) return;
+        if (!r.ok) throw new Error(d?.detail || "조회 실패");
+        // 사람이 적은 값은 덮지 않는다 — 서버가 빈 칸만 채워 돌려준다
+        setF((s) => ({ ...s, ...d.listing }));
+        const n = (d.filled || []).length;
+        setPlMsg(n ? `건축물대장에서 ${n}개 항목을 채웠어요` : "건축물대장에 더 채울 항목이 없었어요");
+        setPlMsgBad(!n);
+      } catch (e: any) {
+        if (!dead) { setPlMsg(e.message || "건축물대장 조회 실패"); setPlMsgBad(true); }
+      } finally { if (!dead) setFillBusy(false); }
+    }, 800);
+    return () => { dead = true; clearTimeout(t); };
+  }, [f.complex_name, f.dong, f.ho]);
 
   const upload = async (file: File) => {
     setUpBusy(true); setMsg("");
@@ -2126,10 +2199,6 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
     finally { setBusy(false); }
   };
 
-  const T = ({ k, label, ...rest }: any) => (
-    <label className="pl-f"><span>{label}</span>
-      <input className="ai-input" value={f[k] ?? ""} onChange={set(k)} {...rest} /></label>
-  );
 
   return (
     // 보정 모달은 이 오버레이 **밖**(형제)에 둔다 — 안에 중첩하면 부모의 backdrop-filter 가
@@ -2150,13 +2219,13 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
           <button onClick={readNl} disabled={nlBusy || nl.trim().length < 2}>
             {nlBusy ? <Loader2 size={13} className="txm-spin" /> : "읽기"}</button>
         </div>
-        <div className="pl-quick2">
-          <button onClick={fillLedger} disabled={fillBusy || !(f.complex_name || "").trim()}>
-            {fillBusy ? <Loader2 size={12} className="txm-spin" /> : <ShieldCheck size={12} />}
-            건축물대장에서 채우기
-          </button>
-          {plMsg && <span className={"pl-qmsg" + (plMsgBad ? " bad" : "")}>{plMsg}</span>}
-        </div>
+        {(fillBusy || plMsg) && (
+          <div className="pl-quick2">
+            {fillBusy
+              ? <span className="pl-qmsg"><Loader2 size={11} className="txm-spin" /> 건축물대장 확인 중…</span>
+              : <span className={"pl-qmsg" + (plMsgBad ? " bad" : "")}>{plMsg}</span>}
+          </div>
+        )}
 
         <div className="pl-sec">공개 범위</div>
         <div className="pl-vis">
@@ -2181,12 +2250,12 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
               <option value="">선택 안 함</option>
               {PL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select></label>
-          <T k="complex_name" label="단지·건물명" placeholder="예: 헬리오시티" />
-          <T k="dong" label="동" placeholder="104" />
-          <T k="ho" label="호" placeholder="1103" />
-          <T k="price" label="매매가·보증금(만원)" inputMode="numeric" placeholder="85000" />
-          <T k="rent_price" label="월세(만원)" inputMode="numeric" />
-          <T k="contact" label="연락처" inputMode="tel" placeholder="010-0000-0000" />
+          <T f={f} set={set} k="complex_name" label="단지·건물명" placeholder="예: 헬리오시티" />
+          <T f={f} set={set} k="dong" label="동" placeholder="104" />
+          <T f={f} set={set} k="ho" label="호" placeholder="1103" />
+          <PLMoney f={f} setF={setF} k="price" label="매매가·보증금" />
+          <PLMoney f={f} setF={setF} k="rent_price" label="월세" />
+          <T f={f} set={set} k="contact" label="연락처" inputMode="tel" placeholder="010-0000-0000" />
         </div>
 
         {/* 나머지는 대장이 채워 주거나 나중에 보태는 것들이다 — 처음부터 다 보이면 겁먹는다 */}
@@ -2197,39 +2266,39 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
         {more && (<>
         <div className="pl-sec">주소</div>
         <div className="pl-grid">
-          <T k="building_name" label="동 이름" placeholder="예: 101동" />
-          <T k="address" label="주소" placeholder="서울 강남구 역삼동 222" />
-          <T k="address_detail" label="상세주소" />
+          <T f={f} set={set} k="building_name" label="동 이름" placeholder="예: 101동" />
+          <T f={f} set={set} k="address" label="주소" placeholder="서울 강남구 역삼동 222" />
+          <T f={f} set={set} k="address_detail" label="상세주소" />
         </div>
 
         <div className="pl-sec">가격</div>
         <div className="pl-grid">
-          <T k="maintenance_fee" label="관리비(만원)" inputMode="numeric" />
-          <T k="loan_amount" label="융자금(만원)" inputMode="numeric" />
+          <PLMoney f={f} setF={setF} k="maintenance_fee" label="관리비" />
+          <PLMoney f={f} setF={setF} k="loan_amount" label="융자금" />
         </div>
 
         <div className="pl-sec">면적·구조</div>
         <div className="pl-grid">
-          <T k="area1_m2" label="공급면적(㎡)" inputMode="decimal" />
-          <T k="area2_m2" label="전용면적(㎡)" inputMode="decimal" />
-          <T k="area_name" label="평형" placeholder="84A" />
-          <T k="floor_info" label="층 정보" placeholder="15/20" />
-          <T k="room_cnt" label="방 수" inputMode="numeric" />
-          <T k="bath_cnt" label="욕실 수" inputMode="numeric" />
-          <T k="direction" label="방향" placeholder="남향" />
-          <T k="heating" label="난방" placeholder="개별난방" />
-          <T k="parking" label="주차(대)" inputMode="numeric" />
-          <T k="elevator" label="엘리베이터" placeholder="있음" />
-          <T k="settle_ymd" label="잔금시기" placeholder="11월 / 2026-11-20" />
-          <T k="move_in" label="입주가능일" placeholder="즉시 / 2026-09-01" />
-          <T k="approve_ymd" label="준공" placeholder="2019.05" />
+          <T f={f} set={set} k="area1_m2" label="공급면적(㎡)" inputMode="decimal" />
+          <T f={f} set={set} k="area2_m2" label="전용면적(㎡)" inputMode="decimal" />
+          <T f={f} set={set} k="area_name" label="평형" placeholder="84A" />
+          <T f={f} set={set} k="floor_info" label="층 정보" placeholder="15/20" />
+          <T f={f} set={set} k="room_cnt" label="방 수" inputMode="numeric" />
+          <T f={f} set={set} k="bath_cnt" label="욕실 수" inputMode="numeric" />
+          <T f={f} set={set} k="direction" label="방향" placeholder="남향" />
+          <T f={f} set={set} k="heating" label="난방" placeholder="개별난방" />
+          <T f={f} set={set} k="parking" label="주차(대)" inputMode="numeric" />
+          <T f={f} set={set} k="elevator" label="엘리베이터" placeholder="있음" />
+          <T f={f} set={set} k="settle_ymd" label="잔금시기" placeholder="11월 / 2026-11-20" />
+          <T f={f} set={set} k="move_in" label="입주가능일" placeholder="즉시 / 2026-09-01" />
+          <T f={f} set={set} k="approve_ymd" label="준공" placeholder="2019.05" />
         </div>
         </>)}
 
         <div className="pl-sec">소유자·담당</div>
         <div className="pl-grid">
-          <T k="owner_name" label="소유자" />
-          <T k="owner_tel" label="소유자 연락처" inputMode="tel" />
+          <T f={f} set={set} k="owner_name" label="소유자" />
+          <T f={f} set={set} k="owner_tel" label="소유자 연락처" inputMode="tel" />
           <label className="pl-f"><span>담당자</span>
             <select className="ai-input" value={f.manager ?? ""} onChange={set("manager")}>
               <option value="">미지정</option>

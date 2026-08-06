@@ -3844,14 +3844,16 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   padding:7px 15px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;
   display:inline-flex;align-items:center;gap:5px}
 .pl-quick button:disabled{background:var(--c-border);color:var(--c-faint);cursor:default}
-.pl-quick2{display:flex;align-items:center;gap:9px;margin:8px 0 2px;flex-wrap:wrap}
-.pl-quick2>button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c-border);
-  background:#fff;border-radius:9px;padding:6px 12px;font:inherit;font-size:12px;font-weight:700;
-  color:var(--c-text-soft);cursor:pointer}
-.pl-quick2>button:hover:not(:disabled){border-color:var(--c-primary);color:var(--c-primary)}
-.pl-quick2>button:disabled{color:var(--c-faint);cursor:default}
-.pl-qmsg{font-size:11.5px;font-weight:700;color:#1a7f4b}
+.pl-quick2{display:flex;align-items:center;gap:9px;margin:7px 0 0;flex-wrap:wrap}
+.pl-qmsg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:#1a7f4b}
 .pl-qmsg.bad{color:var(--c-muted)}
+/* 금액 — 만원 단위임을 라벨에 붙이고, 옆에 억 단위로 되읽어 준다 */
+.pl-money{position:relative}
+.pl-money>span i{font-style:normal;font-size:10px;font-weight:700;color:var(--c-faint);
+  background:var(--c-border-soft);border-radius:4px;padding:1px 5px;margin-left:5px}
+.pl-money>b{position:absolute;right:11px;bottom:9px;font-size:11px;font-weight:700;
+  color:var(--c-primary);pointer-events:none}
+.pl-money input{padding-right:88px;font-variant-numeric:tabular-nums}
 .pl-more{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:14px;
   border:1px dashed var(--c-border);background:#fff;border-radius:10px;padding:9px;font:inherit;
   font-size:12.5px;font-weight:700;color:var(--c-primary);cursor:pointer}
