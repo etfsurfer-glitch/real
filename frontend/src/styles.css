@@ -2121,9 +2121,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cldt .c-pen{color:var(--c-faint);flex:none}
 .cldt-r:hover .c-pen{color:var(--c-primary)}
-/* 같은 고객의 이어지는 요건 — 세로 선으로 묶여 있음을 보인다 */
-.cldt .c-cont{display:block;width:2px;height:16px;margin-left:6px;border-radius:2px;
-  background:var(--c-border)}
+/* 같은 고객의 이어지는 요건 — 종속선에 몇 번째 안인지를 얹는다 */
+.cldt .c-sub{display:inline-flex;align-items:center;gap:6px;margin-left:6px;font-style:normal;
+  font-size:11px;font-weight:800;color:#6b39c9}
+.cldt .c-sub i{display:block;width:12px;height:12px;border-left:2px solid var(--c-border);
+  border-bottom:2px solid var(--c-border);border-bottom-left-radius:4px;margin-top:-8px}
 .cldt .c-tp{flex:none;font-style:normal;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:4px}
 .cldt .c-tp.t-buy{background:#e7f0ff;color:#1259b8}
 .cldt .c-tp.t-sell{background:#e8f6ee;color:#1a7f4b}
@@ -2132,8 +2134,6 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .cldt .cled-k{font-style:normal;background:var(--c-primary);color:#fff;font-size:10px;font-weight:700;
   padding:1.5px 7px;border-radius:5px;white-space:nowrap}
 .cldt .cled-k.sell{background:#1a7f4b}
-.cldt .c-pri{font-style:normal;font-size:9.5px;font-weight:800;color:#6b39c9;background:#f0e9fb;
-  padding:1px 5px;border-radius:4px}
 .cldt .c-none{font-style:normal;font-size:11px;color:var(--c-faint)}
 .cldt .c-tr{text-align:center;font-weight:700;color:var(--c-text)}
 .cldt .c-pr{text-align:center;font-weight:800;color:var(--c-sale);white-space:nowrap;

@@ -56,6 +56,10 @@ function whereOf(n: Need): string {
 // role 은 우선순위다. 예전 값(주안·대안·보유)이 남아 있어도 번호로 읽는다
 const ROLE_OLD: Record<string, string> = { 주안: "1안", 대안: "2안", 보유: "1안" };
 const roleLabel = (r?: string | null) => ROLE_OLD[r || ""] || r || "";
+/** 몇 번째 안인지. 저장된 값이 있으면 그걸, 없으면 순서로 매긴다. */
+function planLabel(n: Need | null, i: number): string {
+  return (n && roleLabel(n.role)) || `${i + 1}안`;
+}
 
 const FILTERS = [
   { v: "", label: "전체" }, { v: "구함", label: "구함" },
@@ -170,16 +174,15 @@ export default function CustomerLedger({ authH, onGoListings }: {
                         {c.ctype}</em>
                       <Pencil size={11} className="c-pen" />
                     </>
-                  ) : <i className="c-cont" />}
+                  ) : (
+                    // 이어지는 요건 — 종속선에 몇 번째 안인지를 얹는다
+                    <em className="c-sub"><i />{planLabel(n, i)}</em>
+                  )}
                 </span>
                 <span className="cldt-meta">
                   <span className="c-kd">
-                    {n ? (
-                      <>
-                        <em className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind || "요건"}</em>
-                        {n.role && <em className="c-pri">{roleLabel(n.role)}</em>}
-                      </>
-                    ) : <em className="c-none">요건 없음</em>}
+                    {n ? <em className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind || "요건"}</em>
+                      : <em className="c-none">요건 없음</em>}
                   </span>
                   <span className="c-tr">{n ? (TRADE_KOR[n.trade || ""] || n.trade || "-") : ""}</span>
                   <span className="c-pr">{n ? priceOf(n) : ""}</span>
