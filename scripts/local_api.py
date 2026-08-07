@@ -13475,17 +13475,25 @@ _AD_ITEMS = [
 ]
 
 
+# 비주거는 방·욕실·방향을 적을 이유가 없다. 주택 기준으로 세면 상가가 늘 '빠진 항목'이 된다.
+_AD_SKIP_NONRESI = {8, 12}
+_NONRESI_TYPES = {"상가", "사무실", "공장", "토지", "건물", "빌딩", "창고", "지식산업센터"}
+
+
 def _pl_ad_check(g) -> dict:
     """이 매물이 표시·광고 명시사항을 몇 개나 갖췄는지.
 
     광고를 내기 전에 무엇이 비었는지 이 화면에서 바로 보이게 하려는 것이다.
     빠진 항목은 과태료 대상이라 '나중에 채우면 되는 것'이 아니다.
+    항목은 유형에 따라 다르다 — 상가에 방 수를 요구하면 영영 채워지지 않는다.
     """
+    nonresi = str(g("type") or "").strip() in _NONRESI_TYPES
+    items = [x for x in _AD_ITEMS if not (nonresi and x[0] in _AD_SKIP_NONRESI)]
     done, miss = [], []
-    for no, label, keys in _AD_ITEMS:
+    for no, label, keys in items:
         ok = any(str(g(k) or "").strip() not in ("", "0", "0.0") for k in keys)
         (done if ok else miss).append({"no": no, "item": label})
-    return {"done": len(done), "total": len(_AD_ITEMS), "missing": miss}
+    return {"done": len(done), "total": len(items), "missing": miss}
 
 
 def _pl_auto_tags(g, num) -> list:
@@ -14101,14 +14109,18 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
     실패해도 조용히 넘어간다. 보강이 안 되는 것과 저장이 안 되는 것은 다른 문제다.
     """
     auto: dict = {}
+    _qa_clean_dong(row)
     name = (row.get("complex_name") or "").strip()
     if not name:
-        return auto
+        # 빌라·상가는 건물명 없이 지번만 적는 것이 보통이다 — 그것만으로도 대장을 본다
+        return _enrich_by_jibun(row, auto)
     # 유형 이름이 단지명 자리에 온 것은 단지명이 아니다. 지우고 나가야 엉뚱한 단지가 안 붙는다.
     if _qa_name_key(name) in _QA_NOT_A_NAME:
         row["complex_name"] = None
-        row["_note"] = f"'{name}' 은 단지명이 아니라 매물 유형이에요. 건물명이 있으면 적어 주세요."
-        return auto
+        # 유형만 적힌 것은 흔한 일이다. 주소가 있으면 그것으로 계속 간다.
+        if not (row.get("address") or "").strip():
+            row["_note"] = f"'{name}' 은 매물 유형이에요. 건물명이나 지번을 적어 주세요."
+        return _enrich_by_jibun(row, auto)
     # 상가·사무실·단독은 단지가 없다 — 지번으로 대장을 본다
     if (row.get("type") or "") in _QA_NON_COMPLEX:
         return _enrich_by_jibun(row, auto)
@@ -14246,6 +14258,27 @@ def _qa_to_listing_units(r: dict, money: bool = True) -> None:
             r["area_py"] = round(float(r["area2_m2"]) / 3.3058, 1)
         except (TypeError, ValueError):
             pass
+
+
+def _qa_clean_dong(row: dict) -> None:
+    """동(棟) 칸을 청소한다. 파서가 층이나 법정동을 여기에 넣는 일이 잦다.
+
+    '1층' → 층으로 옮기고 동은 비운다. '부평동'(법정동)은 주소에 이미 있으니 지운다.
+    이대로 두면 대장 조회에 dongNm='1층'/'부평동' 이 들어가 0건이 온다(실측).
+    """
+    d = str(row.get("dong") or "").strip()
+    if not d:
+        return
+    m = _re.fullmatch(r"(지하\s*)?(B?\d+)\s*층", d)
+    if m:
+        if not row.get("floor"):
+            row["floor"] = ("-" if m.group(1) else "") + m.group(2).lstrip("B")
+        row["dong"] = None
+        return
+    # 주소 끝에 붙은 법정동과 같으면 동이 아니라 지역이다
+    addr = str(row.get("address") or "")
+    if d.endswith(("동", "읍", "면", "리", "가")) and d in addr and not _re.match(r"^\d", d):
+        row["dong"] = None
 
 
 def _qa_norm_dong_ho(dong, ho):

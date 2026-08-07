@@ -2194,7 +2194,8 @@ function PLAddr({ f, setF, authH }: any) {
               className={f.ho === u.ho && (!u.dong || f.dong === u.dong) ? "on" : ""}
               onClick={() => pick(u)}>
               <b>{[u.dong, u.ho].filter(Boolean).join(" ")}</b>
-              <span>{[u.area_m2 ? `${u.area_m2}㎡` : null, u.floor].filter(Boolean).join(" · ")}</span>
+              <span>{[u.area_m2 ? `${u.area_m2}㎡` : null, u.floor,
+                      u.purpose].filter(Boolean).join(" · ")}</span>
             </button>
           ))}
         </div>
