@@ -1666,9 +1666,32 @@ function shortAddr(addr?: string | null): string {
   // '역삼동 산 12-3' 처럼 산번지는 세 토막이라야 동을 안 잃는다
   return t.slice(t[t.length - 2] === "산" ? -3 : -2).join(" ");
 }
+/** 비단지 매물의 building_name 은 이름이 아니라 유형 딱지다 — 실측한 값이 전부
+ *  그랬다(일반상가·단지내상가 / 중소형사무실 / 대·전·답·임야 / 상가주택·빌딩…).
+ *  반면 지번으로 등록한 물건은 건축물대장 건물명이 단지명 칸에 들어온다('휴먼빌파크').
+ *  그런 진짜 이름만 골라 내려고 딱지 목록을 둔다 — 목록에 없으면 이름으로 본다. */
+const ML_GENERIC_BLD = new Set([
+  "일반상가", "단지내상가", "복합상가", "상가", "상가건물", "상가주택", "상업시설", "점포",
+  "중소형사무실", "대형사무실", "일반사무실", "사무실", "오피스",
+  "빌라", "연립", "다세대", "기타", "아파트", "오피스텔",
+  "단독", "다가구", "전원주택", "일반원룸", "원룸", "고시원",
+  "대", "전", "답", "임야", "잡종지", "과수원", "공장용지", "목장용지", "도로", "하천",
+  "구거", "유지", "제방", "묘지", "주차장", "창고용지", "학교용지", "체육용지", "공원",
+  "종교용지", "사적지", "양어장", "염전", "광천지", "수도용지", "주유소용지", "철도용지",
+  "공장", "창고", "지식산업센터", "빌딩", "여관/모텔", "펜션", "콘도", "재개발",
+]);
+// 빌라 원천에는 '1동'·'가동'·'A동' 처럼 동 표기가 이름 칸에 들어온다 — 이름이 아니다
+const ML_DONG_ONLY = /^(?:\d+|[A-Za-z]|[가-힣])동$/;
+function realName(l: MLItem): string {
+  const n = (l.complex_name || l.building_name || "").trim();
+  return !n || ML_GENERIC_BLD.has(n) || ML_DONG_ONLY.test(n) ? "" : n;
+}
 function mlName(l: MLItem): string {
-  if (isAddrFirst(l) && l.address) return shortAddr(l.address);
-  return l.complex_name || l.building_name || l.area_name || "매물";
+  if (!isAddrFirst(l)) return l.complex_name || l.building_name || l.area_name || "매물";
+  // 이름을 알면 이름이 먼저다 — '휴먼빌파크 (송도동 8-3)'. 주소만으로는 어느 건물인지
+  // 중개사도 손님도 바로 못 떠올린다. 이름이 없을 때만 주소가 홀로 선다.
+  const a = shortAddr(l.address), n = realName(l);
+  return n && a ? `${n} (${a})` : a || n || l.area_name || "매물";
 }
 /** 동·호 칸. 단지 없는 물건은 주소를 이름 칸에 세웠으니 여기서 법정동을 또 쓰지 않는다. */
 function unitOf(l: MLItem): string {
