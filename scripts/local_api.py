@@ -13766,6 +13766,43 @@ _QA_PROMPT = (
     "  문자·카톡이면 중개사 본인 발화('나')는 근거에서 뺀다.\n" + _QA_COMMON)
 
 
+def _qa_thin(out: dict, text: str) -> bool:
+    """읽다 만 결과인가 — 글에 거래유형이 적혀 있는데 매물에 비어 있으면 그렇다.
+
+    파싱이 성공해도 모델이 항목을 흘릴 때가 있다. 같은 글·temperature=0 인데도
+    한 번은 다 읽고 한 번은 비운다(실측). 값이 빈 채로 저장되는 것보다 다시 부르는 편이 낫다.
+    """
+    rows = (out or {}).get("매물") or []
+    if len(rows) != 1:
+        return False
+    if not _re.search(r"매매|전세|월세|임대|반전세|세놓", text or ""):
+        return False
+    r = rows[0]
+    if (r.get("trade_type") or "").strip():
+        return False
+    return True
+
+
+def _won_ko(t: str):
+    """'450만'·'1억5천'·'3,000만'·'12억' → 원. 못 읽으면 None."""
+    t = str(t or "").replace(",", "").replace(" ", "")
+    if not t:
+        return None
+    v, hit = 0, False
+    m = _re.search(r"(\d+(?:\.\d+)?)억", t)
+    if m:
+        v += float(m.group(1)) * 1e8; hit = True
+    m2 = _re.search(r"억(\d+(?:\.\d+)?)천", t) or (None if m else _re.search(r"(\d+(?:\.\d+)?)천", t))
+    if m2:
+        v += float(m2.group(1)) * 1e7; hit = True
+    m3 = _re.search(r"(\d+(?:\.\d+)?)만", t)
+    if m3 and not m2:
+        v += float(m3.group(1)) * 1e4; hit = True
+    if not hit and _re.fullmatch(r"\d+(?:\.\d+)?", t):
+        return int(float(t) * 1e4)          # 숫자만 = 만원 단위로 말한 것
+    return int(round(v)) if hit else None
+
+
 def _qa_tidy(out: dict, text: str = "") -> dict:
     """파싱 결과 손질 — 특징란에 같은 말이 되풀이되면 한 번만 남기고 짧게 자른다.
 
@@ -13781,6 +13818,37 @@ def _qa_tidy(out: dict, text: str = "") -> dict:
             hm = _re.search(r"(?<![\d\-])(\d{1,4})\s*호(?![\w])", text)
             if hm:
                 r0["ho"] = hm.group(1) + "호"
+        # 재시도까지 했는데도 거래유형을 못 내면 원문에서 정한다. 금액이 붙은 낱말이
+        # 진짜 거래유형이다 — '월세합계 450만 … 매매 12억' 은 매매 물건이다.
+        if not (r0.get("trade_type") or "").strip():
+            for kor, pat in (("매매", r"매매\s*(?:가|가격)?\s*[:은는]?\s*\d"),
+                             ("전세", r"전세\s*(?:가|보증금)?\s*[:은는]?\s*\d"),
+                             ("월세", r"(?:월세|반전세|임대)\s*[:은는]?\s*\d")):
+                if _re.search(pat, text):
+                    r0["trade_type"] = kor
+                    break
+        # 거래유형 낱말 바로 뒤의 금액도 되찾는다 — '매매 12억' 을 흘리는 일이 있다.
+        # 낱말과 붙어 있을 때만 본다(그냥 떠도는 숫자를 값으로 삼지 않기 위해).
+        _MONEY = r"([\d][\d,]*(?:\.\d+)?\s*(?:억|천|만)?(?:\s*\d[\d,]*\s*(?:천|만))?)"
+        for col, pat, cond in (
+                ("price", r"매매\s*(?:가|가격)?\s*[:은는]?\s*" + _MONEY, "매매"),
+                ("deposit", r"전세\s*(?:가|보증금)?\s*[:은는]?\s*" + _MONEY, "전세")):
+            if not r0.get(col) and (r0.get("trade_type") or "") == cond:
+                mm = _re.search(pat, text)
+                if mm:
+                    w = _won_ko(mm.group(1))
+                    if w and w >= 1_000_000:      # 100만 원 미만은 금액이 아니라 다른 숫자다
+                        r0[col] = w
+        # 수익형은 '월세합계 450만' 처럼 딱 적어 주는데도 모델이 통째로 흘릴 때가 있다.
+        # 낱말이 분명하니 원문에서 결정적으로 되찾는다(실행마다 흔들리던 실패의 정체).
+        for col, pat in (("rent_income", r"월\s*(?:세|임대료)?\s*합계\s*[:은는]?\s*([\d,억천만.]+)"),
+                         ("deposit_sum", r"보증금\s*합계\s*[:은는]?\s*([\d,억천만.]+)")):
+            if not r0.get(col):
+                mm = _re.search(pat, text)
+                if mm:
+                    w = _won_ko(mm.group(1))
+                    if w:
+                        r0[col] = w
         if not str(r0.get("tenant_until") or "").strip():
             tm = _re.search(r"(?:임차인|세입자)\s*만기\s*[:은는]?\s*"
                             r"([0-9]{4}[-./년]\s*[0-9]{1,2}\s*월?|[0-9]{1,2}\s*월)", text)
@@ -13846,11 +13914,11 @@ def _qa_parse(text: str) -> dict:
     prompt, schema = _QA_PROMPT, _QA_SCHEMA
     import datetime as _dtm
     today = (_dtm.datetime.utcnow() + _dtm.timedelta(hours=9)).strftime("%Y-%m-%d")
-    last = None
+    last, nudge = None, ""
     for attempt in range(3):
         resp = client.models.generate_content(
             model=os.getenv("GEMINI_PARSE_MODEL", "gemini-2.5-flash"),
-            contents=f"{prompt}\n오늘은 {today}.\n\n{text[:6000]}",
+            contents=f"{prompt}\n오늘은 {today}.{nudge}\n\n{text[:6000]}",
             config=_gt.GenerateContentConfig(
                 temperature=0 if attempt == 0 else 0.2,
                 # 추출에는 생각할 틈을 준다. 0 으로 두면 항목이 많은 문장에서 칸을 채우지
@@ -13863,7 +13931,18 @@ def _qa_parse(text: str) -> dict:
         )
         raw = (resp.text or "").strip()
         try:
-            return _qa_tidy(_json.loads(raw), text)
+            got = _qa_tidy(_json.loads(raw), text)
+            # 파싱이 됐다고 다 읽은 것은 아니다. 긴 글에서 거래유형·금액을 통째로 흘리는
+            # 일이 있는데(실행마다 흔들림) 그대로 넘기면 빈 매물이 저장된다.
+            # 글에 분명히 있는 것이 비어 있으면 한 번 더 부른다.
+            if attempt < 2 and _qa_thin(got, text):
+                # 무엇을 흘렸는지 짚어 준다. 같은 요청을 그대로 다시 보내면 같은 것을 또 흘린다.
+                nudge = ("\n[다시] 앞의 시도에서 trade_type 과 금액을 비웠다. 글에 '매매'·'전세'·"
+                         "'월세' 가 적혀 있으면 trade_type 을 반드시 채우고, 그 옆 금액을 "
+                         "price(매매) 또는 deposit(전세·월세 보증금) 에 넣어라.")
+                last = ValueError("핵심 항목 누락")
+                continue
+            return got
         except ValueError as e:
             last = e
             fixed = _json_repair(raw)      # 끊긴 응답은 마지막 성한 곳까지 살려 본다
