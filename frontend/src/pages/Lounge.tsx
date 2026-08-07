@@ -2210,9 +2210,13 @@ function PLAddr({ f, setF, authH }: any) {
         setF((s: any) => ({ ...s,
           total_floor: s.total_floor || d.building?.total_floor || null,
           approve_ymd: s.approve_ymd || d.building?.use_apr || null }));
+        // 건물명을 알면 지번보다 그게 먼저다 — '휴먼빌파크 (송도동 8-3)'
+        const bn = (d.building?.bld_name || d.units?.[0]?.bld_name || "").trim();
+        setF((s: any) => ({ ...s, complex_name: s.complex_name || bn || null }));
         setMsg((d.units || []).length
-          ? `건축물대장에서 ${d.units.length}개 호를 찾았어요. 해당 호를 고르세요.`
-          : "이 지번에는 등기된 호가 없어요(단독·다가구일 수 있어요). 나머지는 직접 적어 주세요.");
+          ? `${bn ? `${bn} — ` : ""}건축물대장에서 ${d.units.length}개 호를 찾았어요. 해당 호를 고르세요.`
+          : bn ? `${bn} — 등기된 호가 없어요(단독·다가구일 수 있어요). 나머지는 직접 적어 주세요.`
+               : "이 지번에는 등기된 호가 없어요(단독·다가구일 수 있어요). 나머지는 직접 적어 주세요.");
       } catch (e: any) {
         if (!dead) { setUnits([]); setBld(null); setMsg(e.message || "조회 실패"); }
       } finally { if (!dead) setBusy(false); }
@@ -2234,7 +2238,7 @@ function PLAddr({ f, setF, authH }: any) {
         {busy && <i className="pl-cxok busy"><Loader2 size={11} className="txm-spin" /></i>}
       </label>
       {msg && <p className={"pl-addrmsg" + (units.length ? "" : " bad")}>{msg}</p>}
-      {bld?.total_floor && (
+      {(bld?.total_floor || bld?.bld_name) && (
         <p className="pl-addrmsg">
           {[bld.bld_name, bld.struct, bld.total_floor ? `지상 ${bld.total_floor}층` : null,
             bld.use_apr ? `${String(bld.use_apr).slice(0, 4)}년 준공` : null,

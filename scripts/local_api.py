@@ -14697,7 +14697,10 @@ def _qa_title(cortar_no: str, detail_address: str, dong: str) -> dict | None:
             "land_area": _f("platArea"), "total_area": _f("totArea"),
             "bc_rat": _f("bcRat"), "vl_rat": _f("vlRat"),
             "main_purpose": g(it, "mainPurpsCdNm"), "height": _f("heit"),
-            "reg_kind": g(it, "regstrGbCdNm"), "parking": park or None}
+            "reg_kind": g(it, "regstrGbCdNm"), "parking": park or None,
+            # 건물명 — 등록 화면에서 '휴먼빌파크 (송도동 8-3)' 로 세우려면 이게 있어야 한다.
+            # 지번만으로는 어느 건물인지 중개사도 손님도 바로 못 떠올린다.
+            "bld_name": g(it, "bldNm") or None}
 
 
 def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
@@ -16231,9 +16234,13 @@ def _br_units(cortar_no: str, jibun: str) -> list | None:
             area = round(float(g(it, "area") or 0), 2) or None
         except ValueError:
             area = None
-        out.append({"dong": g(it, "dongNm") or None, "ho": ho, "area_m2": area,
+        # 단일동 건물은 대장이 동 이름 자리에 **건물명**을 넣는다(실측: 송도동 8-3 →
+        # dongNm·bldNm 이 둘 다 '휴먼빌파크'). 그걸 매물의 동으로 저장하면 동·호가
+        # '휴먼빌파크 104호'가 된다 — 동이 없는 건물이니 비워 둔다.
+        dnm, bnm = g(it, "dongNm") or None, g(it, "bldNm") or None
+        out.append({"dong": None if (dnm and dnm == bnm) else dnm, "ho": ho, "area_m2": area,
                     "floor": g(it, "flrNoNm") or None, "purpose": g(it, "etcPurps") or None,
-                    "bld_name": g(it, "bldNm") or None})
+                    "bld_name": bnm})
     out.sort(key=lambda x: (x["dong"] or "", len(x["ho"]), x["ho"]))
     return out
 
