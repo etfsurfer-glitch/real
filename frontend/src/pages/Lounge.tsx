@@ -6,10 +6,11 @@ import type { Offer as KOffer } from "../components/OfferForm";
 import { PhoneModal } from "../components/PhoneVerify";
 import SupportLink from "../components/SupportLink";
 import { Loading } from "../components/Loading";
+import ImportListings from "../components/ImportListings";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
   ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles, ChevronDown, Loader2,
-  Folder, FolderOpen, Check } from "lucide-react";
+  Folder, FolderOpen, Check, Upload, FileSpreadsheet } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
@@ -1602,6 +1603,7 @@ type MLItem = {
   source_article_no?: string; source_saved_at?: string;
   // 같은 물건이 매물장에도 있고 네이버에도 광고 중이면 한 줄에 두 표시가 붙는다
   also_naver?: boolean; naver_article_no?: string;
+  import_file?: string | null; import_at?: string | null;   // 엑셀에서 가져온 매물
   photos?: string[]; extra?: Record<string, any>;
 };
 type Manager = { name: string; position: string; role: string };
@@ -1651,6 +1653,18 @@ function groupSummary(g: MLItem[]): string {
 function SrcIcon({ l }: { l: MLItem }) {
   if (!l.is_private) {
     return <em className="c-src nv" title="네이버에서 가져온 매물 — 지금 광고 중"><Globe size={9} /></em>;
+  }
+  if (l.import_file) {
+    return (
+      <>
+        <em className="c-src im" title={`엑셀에서 가져온 매물 — ${l.import_file}${l.import_at ? ` (${l.import_at})` : ""}`}>
+          <FileSpreadsheet size={9} /></em>
+        {l.also_naver && (
+          <em className="c-src nv" title={`네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}`}>
+            <Globe size={9} /></em>
+        )}
+      </>
+    );
   }
   return (
     <>
@@ -1763,6 +1777,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   const [mapOpen, setMapOpen] = useState(false);     // 사무소 매물 지도
   const [privMsg, setPrivMsg] = useState<Record<string, string>>({});
   const [plOpen, setPlOpen] = useState(false);        // 비공개매물 등록 모달
+  const [impOpen, setImpOpen] = useState(false);      // 매물장 엑셀 가져오기
   const [editPL, setEditPL] = useState<MLItem | null>(null);
 
   useEffect(() => {
@@ -1891,6 +1906,9 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
         <button className="mlj-gbtn" onClick={() => setMapOpen(true)}>
           <MapIcon size={13} aria-hidden /> 지도
         </button>
+        <button className="mlj-gbtn" onClick={() => setImpOpen(true)}>
+          <Upload size={13} aria-hidden /> 매물장 가져오기
+        </button>
         <button className="mlj-gbtn pri" onClick={() => { setEditPL(null); setPlOpen(true); }}>
           <Plus size={13} aria-hidden /> 매물 직접등록
         </button>
@@ -1947,9 +1965,10 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
         : <>총 <b>{items?.length ?? 0}</b>개</>}
         {/* 출처 범례 — 행마다 아이콘 하나가 붙으므로 그 뜻을 여기서 한 번 말해 둔다 */}
         <span className="mlj-legend">
-          <i className="src pv"><Lock size={9} /></i>직접등록
-          <i className="src nv"><Globe size={9} /></i>네이버
-          <b className="both"><i className="src pv"><Lock size={9} /></i><i className="src nv"><Globe size={9} /></i>둘 다 — 매물장에도 있고 광고 중</b>
+          <i className="src pv"><Lock size={9} /></i>직접등록 — 우리만 봅니다
+          <i className="src nv"><Globe size={9} /></i>네이버 — 지금 광고 중
+          <i className="src im"><FileSpreadsheet size={9} /></i>가져옴 — 엑셀 매물장에서
+          <b className="both"><i className="src pv"><Lock size={9} /></i><i className="src nv"><Globe size={9} /></i>둘 다 — 매물장에도 있고 광고도 중</b>
         </span>
       </div>
       {!items || (busy && items.length === 0) ? (
@@ -2014,6 +2033,10 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
             ];
           })}
         </div>
+      )}
+      {impOpen && (
+        <ImportListings authH={authH} onClose={() => setImpOpen(false)}
+          onSaved={() => { setPriv(true); load(); }} />
       )}
       {detail && <ListingDetail l={detail} owner={detailOwner} authH={authH}
         managers={managers}

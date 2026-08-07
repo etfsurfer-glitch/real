@@ -30,6 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # 같은 폴더의 listing_import 등
 from collector.config import settings  # noqa: E402
 
 DB_PATH: Path = settings.local_db_path
@@ -13546,7 +13547,8 @@ def _ensure_private_listings(c) -> None:
     # (CREATE TABLE IF NOT EXISTS 는 기존 테이블에 no-op 이라, 새 컬럼을 참조하는 인덱스를
     #  같은 스크립트에 두면 'no such column' 으로 터진다.)
     have = {r[1] for r in c.execute("PRAGMA table_info(private_listings)")}
-    for col in ("source_article_no", "source_saved_at", "lat", "lng", "settle_ymd",
+    for col in ("import_file", "import_at",       # 엑셀에서 가져온 매물의 출처
+                "source_article_no", "source_saved_at", "lat", "lng", "settle_ymd",
                 "land_area_m2", "total_area_m2", "land_category", "land_use",
                 "premium", "bunyang_premium", "ceiling_h", "power_kw",
                 "vat_separate", "violation", "rent_income", "deposit_sum",
@@ -13704,6 +13706,7 @@ def _pl_row_to_item(r) -> dict:
     return {
         "article_no": f"P{r['id']}", "private_id": r["id"], "is_private": True,
         "source_article_no": g("source_article_no"), "source_saved_at": g("source_saved_at"),
+        "import_file": g("import_file"), "import_at": g("import_at"),
         "visibility": g("visibility"), "created_by": g("created_by"),
         "complex_no": g("complex_no"), "complex_name": g("complex_name"),
         "trade_type": g("trade_type") or "", "type": g("type") or "",
@@ -16379,6 +16382,128 @@ def lounge_listing_enrich(body: dict, user: dict = Depends(current_user)):
     row["dong"], row["ho"] = d, h
     auto = _qa_enrich_listing(row, rid)
     return {"listing": row, "_auto": auto, "filled": sorted(auto)}
+
+
+# ── 남의 매물장 엑셀 가져오기 ────────────────────────────────────────────────
+# 중개사가 이미 쓰던 매물장을 손으로 다시 치게 하면 아무도 옮겨 오지 않는다.
+# 서식이 제각각이라 '이 양식으로 맞춰 오세요' 도 답이 아니다 — 아무 서식이나 받아
+# 읽고, **무엇을 어떻게 읽었는지 보여 준 다음** 사람이 확인하면 저장한다.
+# 읽는 규칙은 scripts/listing_import.py 에 따로 뒀다(엑셀 서식만의 문제라 분리).
+
+@app.post("/lounge/import/preview")
+async def lounge_import_preview(file: UploadFile = File(...), mapping: str = Form(""),
+                                user: dict = Depends(current_user)):
+    """엑셀·CSV → 무엇을 어떻게 읽었는지. **저장하지 않는다.**
+
+    mapping 은 화면에서 사람이 고친 열 매핑이다. 고치면 값도 따라 바뀌어야 하므로
+    파일을 다시 올려 다시 읽는다 — 화면에서 값만 옮기면 단위 계산이 어긋난다.
+    """
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+    raw = await file.read()
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(413, "파일이 너무 커요(20MB까지). 시트를 나눠 올려 주세요.")
+    if not raw:
+        raise HTTPException(400, "빈 파일이에요.")
+    try:
+        import listing_import as _li
+        ovr = _json.loads(mapping) if (mapping or "").strip() else None
+        out = _li.analyze(raw, file.filename or "", override=ovr)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"엑셀을 읽지 못했어요({type(e).__name__}). "
+                                 f".xlsx·.xls·.csv 를 올려 주세요.")
+    # 이미 매물장에 있는 것은 미리 표시해 준다 — 저장하고 나서 중복을 발견하면 늦다
+    with _reviews_db() as rc:
+        rc.row_factory = sqlite3.Row
+        _ensure_private_listings(rc)
+        have = set()
+        for r in rc.execute(
+            "SELECT complex_name, address, dong, ho, trade_type, price, rent_price "
+            "FROM private_listings WHERE realtor_id=? AND status='active'", (rid,)):
+            have.add(_li.dedup_key({
+                "complex_name": r["complex_name"], "address": r["address"],
+                "dong": r["dong"], "ho": r["ho"], "trade_type": r["trade_type"],
+                # DB 는 만원 단위다 — 파서가 낸 원 단위에 맞춰 올린다
+                "price": int(float(r["price"] or 0) * 10000),
+                "rent_price": int(float(r["rent_price"] or 0) * 10000)}))
+    for sh in out["sheets"]:
+        seen = set()
+        for row in sh["rows"]:
+            k = _li.dedup_key(row)
+            if k in have:
+                row["_dup"] = "이미 매물장에 있음"
+            elif k in seen:
+                row["_dup"] = "이 파일 안에서 중복"
+            else:
+                seen.add(k)
+        sh["n_dup"] = sum(1 for r in sh["rows"] if r.get("_dup"))
+    out["fields"] = [{"key": k, "label": lb} for k, lb, _ in _li.FIELDS]
+    return out
+
+
+@app.post("/lounge/import/commit")
+def lounge_import_commit(body: dict, user: dict = Depends(current_user)):
+    """확인을 마친 줄을 매물장에 담는다. 화면이 보낸 줄만 담는다 — 파일을 다시 읽지 않는다."""
+    rows = body.get("rows") or []
+    if not isinstance(rows, list) or not rows:
+        raise HTTPException(400, "담을 매물이 없어요.")
+    if len(rows) > 3000:
+        raise HTTPException(400, "한 번에 3,000건까지 담을 수 있어요.")
+    fname = str(body.get("filename") or "")[:120]
+    vis = "me" if (body.get("visibility") == "me") else "office"
+    import listing_import as _li
+    saved, skipped = 0, []
+    with _reviews_db() as rc:
+        rc.row_factory = sqlite3.Row
+        rid = _require_member(rc, user["id"])
+        _ensure_private_listings(rc)
+        have = set()
+        for r in rc.execute(
+            "SELECT complex_name, address, dong, ho, trade_type, price, rent_price "
+            "FROM private_listings WHERE realtor_id=? AND status='active'", (rid,)):
+            have.add(_li.dedup_key({
+                "complex_name": r["complex_name"], "address": r["address"],
+                "dong": r["dong"], "ho": r["ho"], "trade_type": r["trade_type"],
+                "price": int(float(r["price"] or 0) * 10000),
+                "rent_price": int(float(r["rent_price"] or 0) * 10000)}))
+        now = _dt_now()
+        for raw in rows:
+            if not isinstance(raw, dict):
+                continue
+            r = {k: v for k, v in raw.items() if not str(k).startswith("_")}
+            key = _li.dedup_key(r)
+            if key in have:
+                skipped.append({"row": raw.get("_row"), "why": "이미 있는 매물"})
+                continue
+            have.add(key)
+            # 금액은 파서가 원 단위로 낸다 — 매물장 규약(만원)으로 옮기고 전세·월세의
+            # 보증금을 price 자리로 보낸다. 빠른입력과 같은 함수를 쓴다.
+            _qa_to_listing_units(r)
+            if not (r.get("contact") or "").strip() and r.get("owner_tel"):
+                r["contact"] = str(r["owner_tel"])
+            vals = {}
+            for f in _PL_FIELDS:
+                v = r.get(f)
+                if isinstance(v, (list, dict)):
+                    v = _json.dumps(v, ensure_ascii=False)
+                if f in _PL_NUM and v not in (None, ""):
+                    try:
+                        v = str(float(v))
+                    except (TypeError, ValueError):
+                        v = None
+                vals[f] = v if v not in ("",) else None
+            vals["dong"], vals["ho"] = _qa_norm_dong_ho(vals.get("dong"), vals.get("ho"))
+            cols = ["realtor_id", "created_by", "visibility", "import_file", "import_at"] + list(vals)
+            q = (f"INSERT INTO private_listings({','.join(cols)}) "
+                 f"VALUES({','.join('?' * len(cols))})")
+            try:
+                rc.execute(q, [rid, user["id"], vis, fname, now] + list(vals.values()))
+                saved += 1
+            except Exception as e:  # noqa: BLE001
+                skipped.append({"row": raw.get("_row"), "why": f"저장 실패({type(e).__name__})"})
+    return {"ok": True, "saved": saved, "skipped": skipped[:50], "n_skipped": len(skipped)}
 
 
 @app.post("/lounge/private-listings")

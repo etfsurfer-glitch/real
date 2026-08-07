@@ -5419,3 +5419,94 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .areq-offer-h{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
 .areq-offer-h b{font-size:13.5px}
 .areq-offer-h span{font-weight:700;color:#1268d3}
+
+/* ── 매물장 가져오기 ──────────────────────────────────────────────────────
+   남의 엑셀을 받아 우리 칸으로 옮기는 화면. 여기서 가장 중요한 것은 '무엇을 어떻게
+   읽었는지'를 보여 주는 열 카드다 — 그게 안 보이면 사람이 확인할 수가 없다. */
+.imp-back{position:fixed;inset:0;background:rgba(12,20,34,.55);z-index:1200;display:flex;
+  align-items:flex-start;justify-content:center;padding:26px 14px;overflow-y:auto}
+.imp{width:min(1080px,100%);background:var(--c-card);border-radius:16px;box-shadow:var(--sh-lg);
+  padding:18px 20px 20px;display:flex;flex-direction:column;gap:13px}
+.imp-h{display:flex;align-items:center;gap:10px}
+.imp-h h3{margin:0;display:flex;align-items:center;gap:7px;font-size:16.5px;font-weight:800;color:#13294b}
+.imp-h h3 svg{color:var(--c-primary)}
+.imp-x{margin-left:auto;border:none;background:none;cursor:pointer;color:var(--c-muted);padding:4px}
+/* 파일 받는 자리 */
+.imp-drop{display:flex;flex-direction:column;align-items:center;gap:8px;padding:34px 18px;
+  border:2px dashed var(--c-border);border-radius:14px;cursor:pointer;text-align:center;
+  background:#fbfcfe;transition:border-color .12s,background .12s}
+.imp-drop:hover,.imp-drop.on{border-color:var(--c-primary);background:var(--c-primary-tint)}
+.imp-drop svg{color:var(--c-primary)}
+.imp-drop b{font-size:14px;font-weight:800;color:#13294b}
+.imp-drop span{font-size:12px;color:var(--c-muted)}
+.imp-help{border:1px solid var(--c-border-soft);border-radius:12px;padding:13px 16px;background:#fbfcfe}
+.imp-help>b{display:block;font-size:12.5px;font-weight:800;color:#13294b;margin-bottom:7px}
+.imp-help ul{margin:0;padding-left:17px;display:flex;flex-direction:column;gap:5px}
+.imp-help li{font-size:12px;color:var(--c-text-soft);line-height:1.6}
+.imp-help i{font-style:normal;font-weight:700;color:var(--c-primary)}
+.imp-err{display:flex;align-items:center;gap:6px;margin:0;font-size:12.5px;font-weight:700;color:#c0392b}
+/* 시트 고르기 */
+.imp-sheets{display:flex;gap:6px;flex-wrap:wrap}
+.imp-sheets button{border:1px solid var(--c-border);background:#fff;border-radius:999px;cursor:pointer;
+  font:inherit;font-size:12px;font-weight:700;color:var(--c-muted);padding:6px 13px}
+.imp-sheets button.on{background:var(--c-primary);border-color:var(--c-primary);color:#fff}
+.imp-sheets em{font-style:normal;opacity:.7;margin-left:4px}
+.imp-sum{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12.5px;color:var(--c-muted)}
+.imp-sum b{font-size:14px;font-weight:800;color:#13294b}
+.imp-sum i{font-style:normal;background:#eef2f7;padding:3px 9px;border-radius:999px;font-weight:700}
+.imp-sum i.dup{display:inline-flex;align-items:center;gap:4px;background:#fff4e2;color:#a35c00}
+.imp-sum i.skip{background:var(--c-border-soft);color:var(--c-muted)}
+/* 열 카드 — 어떤 열을 무엇으로 읽었는지. 어떻게 찾았는지에 따라 테두리 색이 다르다 */
+.imp-cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;
+  max-height:236px;overflow-y:auto;padding:2px}
+.imp-col{display:flex;flex-direction:column;gap:5px;border:1px solid var(--c-border);
+  border-left-width:3px;border-radius:10px;padding:9px 11px;background:#fff}
+.imp-col.by-name{border-left-color:#1a7f4b}   /* 열 이름으로 확실히 찾음 */
+.imp-col.by-val{border-left-color:var(--c-primary)}  /* 값의 생김새로 찾음 */
+.imp-col.by-guess{border-left-color:#d9480f}  /* 짐작 — 확인이 필요하다 */
+.imp-col-h{font-size:11.5px;font-weight:800;color:#13294b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imp-col select{border:1px solid var(--c-border);border-radius:7px;background:#fff;font:inherit;
+  font-size:12px;font-weight:700;color:#13294b;padding:5px 7px;width:100%}
+.imp-col-s{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.imp-col-s select.u{width:auto;font-size:10.5px;font-weight:700;padding:2px 5px;border-radius:6px;
+  background:#fff4e2;border-color:#f6e0bd;color:#a35c00}
+.imp-col-s em{font-style:normal;font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px}
+.imp-col-s em.by{background:#eef2f7;color:#64748b}
+.imp-col-s em.ex{background:none;color:var(--c-faint);font-weight:600;padding:2px 0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.imp-opts{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--c-text-soft)}
+.imp-opts label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.imp-opts .vis select{border:1px solid var(--c-border);border-radius:7px;background:#fff;font:inherit;
+  font-size:12px;font-weight:700;padding:4px 7px;margin-left:5px}
+/* 미리보기 표 */
+.imp-tbl{border:1px solid var(--c-border);border-radius:12px;overflow:auto;max-height:340px}
+.imp-tbl table{border-collapse:collapse;width:100%;font-size:12px}
+.imp-tbl th{position:sticky;top:0;background:var(--c-row-stripe);font-size:10.5px;font-weight:800;
+  color:var(--c-muted);text-align:left;padding:7px 9px;white-space:nowrap;
+  border-bottom:1px solid var(--c-border)}
+.imp-tbl td{padding:6px 9px;border-bottom:1px solid var(--c-border-soft);white-space:nowrap;
+  color:var(--c-text);max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.imp-tbl tr.off td{color:var(--c-faint);text-decoration:line-through}
+.imp-tbl .ck{width:30px;text-align:center;padding-right:0}
+.imp-more{margin:0;padding:7px 10px;font-size:11.5px;color:var(--c-muted);background:#fbfcfe}
+.imp-skip{border:1px solid var(--c-border-soft);border-radius:10px;padding:9px 13px;background:#fbfcfe}
+.imp-skip summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--c-muted)}
+.imp-skip ul{margin:8px 0 0;padding-left:17px;display:flex;flex-direction:column;gap:3px}
+.imp-skip li{font-size:11.5px;color:var(--c-text-soft)}
+.imp-foot{display:flex;align-items:center;gap:9px;justify-content:flex-end}
+.imp-again{border:1px solid var(--c-border);background:#fff;border-radius:9px;cursor:pointer;
+  font:inherit;font-size:12.5px;font-weight:700;color:var(--c-muted);padding:9px 15px}
+.imp-save{display:inline-flex;align-items:center;gap:6px;border:none;background:var(--c-primary);
+  color:#fff;border-radius:9px;cursor:pointer;font:inherit;font-size:13px;font-weight:800;padding:10px 18px}
+.imp-save:disabled{background:var(--c-border);color:var(--c-faint);cursor:default}
+.imp-done{display:flex;flex-direction:column;align-items:center;gap:9px;padding:30px 18px;text-align:center}
+.imp-done>svg{color:#1a7f4b}
+.imp-done b{font-size:15px;font-weight:800;color:#13294b}
+.imp-done span{font-size:12.5px;color:var(--c-muted)}
+.imp-done-s{display:flex;align-items:center;gap:5px}
+.imp-chip{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
+  border-radius:5px;background:#f3efff;color:#6b39c9;font-style:normal}
+.imp-go{margin-top:6px;border:none;background:var(--c-primary);color:#fff;border-radius:9px;
+  cursor:pointer;font:inherit;font-size:13px;font-weight:800;padding:10px 20px}
+/* 매물장 행의 '가져옴' 표시 — 자물쇠·지구본과 나란히 선다 */
+.mjt .c-src.im,.mlj-legend .src.im{background:#f3efff;color:#6b39c9}
