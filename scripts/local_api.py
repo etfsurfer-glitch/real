@@ -14068,7 +14068,12 @@ def _enrich_by_jibun(row: dict, auto: dict) -> dict:
             return auto
         dong, ho = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
         if ho:
-            led = _qa_expos(cortar, jibun, dong or "", ho)   # 동 없이 호만으로도 찾는다
+            amb: list = []
+            led = _qa_expos(cortar, jibun, dong or "", ho, ambig=amb)   # 동 없이 호만으로도
+            if not led and amb:
+                row["_note"] = (f"{ho} 가 {len(amb)}개 동에 있고 전용면적이 서로 달라요"
+                                f"({', '.join(amb[:6])}). 동을 적어 주세요.")
+                row["_dong_cands"] = amb
             if led:
                 if led.get("area") and not row.get("area2_m2"):
                     row["area2_m2"] = led["area"]; auto["area2_m2"] = "건축물대장 전유부"
@@ -14161,8 +14166,13 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
             if ho and not (led_cor and led_addr):
                 row["_note"] = "이 단지는 지번이 없어 건축물대장을 조회할 수 없어요"
             if ho and led_cor and led_addr:
-                led = _qa_expos(led_cor, led_addr, dong or "", ho)
-                if not led:
+                amb: list = []
+                led = _qa_expos(led_cor, led_addr, dong or "", ho, ambig=amb)
+                if not led and amb:
+                    row["_note"] = (f"{ho} 가 {len(amb)}개 동에 있고 전용면적이 서로 달라요"
+                                    f"({', '.join(amb[:6])}). 동을 적어 주세요.")
+                    row["_dong_cands"] = amb
+                elif not led:
                     row["_note"] = (f"건축물대장에서 {' '.join(x for x in (dong, ho) if x)} 를 "
                                     f"못 찾았어요. 동·호를 확인해 주세요")
                 if led:
@@ -14307,11 +14317,15 @@ def _qa_title(cortar_no: str, detail_address: str, dong: str) -> dict | None:
 
 
 def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
-              want_bld: bool = False) -> dict | None:
+              want_bld: bool = False, ambig: list | None = None) -> dict | None:
     """건축물대장 전유부 — 동·호 단위 전용면적·층. 실패는 None(저장은 계속된다).
 
     data.go.kr 은 간헐적으로 401/5xx 를 낸다(실측: 같은 요청이 3초 뒤엔 정상).
     한 번 실패했다고 빈 매물을 저장하게 두면 안 되니 짧게 재시도한다.
+
+    동을 안 주면(단일동 빌라·주상복합) 그 호를 가진 동이 여럿일 수 있다. 한마루럭키
+    1103호는 8개 동에 있고 전용이 76.22·92.88·101.94 로 다르다(실측). 이럴 때 첫 줄을
+    집으면 조용한 오류가 되므로, 전용이 갈리면 채우지 않고 ambig 에 동 목록을 남긴다.
     """
     from collector.ondemand_ledger import _parse_jibun
     import urllib.parse as _up, urllib.request as _ur
@@ -14330,7 +14344,7 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
     for hf in ho_forms:
         prm = {"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd,
                "platGbCd": plat, "bun": bun, "ji": ji,
-               "hoNm": hf, "numOfRows": "20", "pageNo": "1", "_type": "xml"}
+               "hoNm": hf, "numOfRows": "100", "pageNo": "1", "_type": "xml"}
         if dong:                      # 빌라는 동이 없다 — 빈 값을 보내면 0건이 온다
             prm["dongNm"] = dong
         qs = _up.urlencode(prm, safe="%")
@@ -14347,16 +14361,23 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
             break
         if root is None:
             continue
-        for it in root.findall(".//item"):
-            g = lambda t: (it.findtext(t) or "").strip()   # noqa: E731
-            if g("exposPubuseGbCdNm") != "전유":
-                continue
-            out = {"area": float(g("area") or 0) or None,
-                   "floor": int(g("flrNo") or 0) or None,
-                   "struct": g("strctCdNm")}
-            if want_bld:
-                out["bld"] = g("bldNm")
-            return out
+        gg = lambda it, t: (it.findtext(t) or "").strip()   # noqa: E731
+        items = [it for it in root.findall(".//item") if gg(it, "exposPubuseGbCdNm") == "전유"]
+        if not items:
+            continue
+        if not dong and len(items) > 1:
+            areas = {gg(it, "area") for it in items}
+            if len(areas) > 1:                    # 동마다 전용이 다르다 — 사람이 골라야 한다
+                if ambig is not None:
+                    ambig[:] = sorted({gg(it, "dongNm") for it in items if gg(it, "dongNm")})
+                return None
+        it = items[0]
+        out = {"area": float(gg(it, "area") or 0) or None,
+               "floor": int(gg(it, "flrNo") or 0) or None,
+               "struct": gg(it, "strctCdNm")}
+        if want_bld:
+            out["bld"] = gg(it, "bldNm")
+        return out
     return None
 
 
