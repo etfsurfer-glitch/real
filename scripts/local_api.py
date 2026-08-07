@@ -13765,6 +13765,23 @@ def _qa_name_variants(key: str) -> list:
     return list(seen)[:16]
 
 
+def _qa_tokens(raw: str) -> list:
+    """숫자를 경계로 자른 토막. '분성마을4단지한솔솔파크' → ['분성마을','4','한솔솔파크'].
+
+    조각 앞의 '단지'·'차'만 떼고 '동'은 두지 않는다 — '동부'·'동아'를 '부'·'아'로
+    만들어 버려 이름이 통째로 사라졌다(실측: '아산배방3동부' 가 엉뚱한 단지에 붙음).
+    """
+    out = []
+    for t in _re.split(r"(\d+)", _sql_lower(raw)):
+        if not t:
+            continue
+        if not t.isdigit():
+            t = _re.sub(r"^(단지|차)", "", t)      # '4단지분성마을' → ['4','분성마을']
+        if len(t) >= 2 or t.isdigit():            # '단지'만 남은 조각은 버린다(뜻이 없다)
+            out.append(t)
+    return out
+
+
 def _qa_num_variants(key: str) -> list:
     """단지 번호 표기 혼용 — '주공5단지'를 사람은 '주공5', '주공제5단지', '주공5차'로도 친다.
 
@@ -13819,6 +13836,16 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
     #   name_norm = 소문자 + 공백·구분자 제거
     #   name_bare = 거기서 뒤쪽 괄호까지 뗀 것('신천역까사밀라(도시형)' → '신천역까사밀라')
     # 표현식으로 비교하면 6만 4천 행을 전수 훑는다 — 컬럼으로 비교해야 인덱스를 탄다.
+    def _nums(txt: str) -> list:
+        """이름에서 숫자만. 구분자를 먼저 지운다 — '동남(55-1)' 은 '551' 로 읽어야
+        사람이 친 '동남(551)' 과 맞는다(name_norm 도 같은 규칙이다)."""
+        t = _sql_lower(str(txt or ""))
+        for ch in "-.·_ ":
+            t = t.replace(ch, "")
+        return _re.findall(r"\d+", t)
+
+    want_num = _nums(raw)
+
     def _q(where, args, pfx=None):
         w, a = where, list(args)
         if pfx:
@@ -13826,9 +13853,14 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
             a += [p + "%" for p in pfx]
         # 흔한 이름('우성'·'삼익')은 후보가 수십 곳이다. 12곳에서 자르면 정답이 잘려 나가므로
         # 30곳까지 보되 큰 단지부터 담는다 — 사람이 이름만 대는 단지는 대개 큰 단지다.
-        return c.execute(
+        rows = c.execute(
             f"SELECT {cols} FROM complexes WHERE {w} "
             f"ORDER BY COALESCE(total_household_count,0) DESC LIMIT 30", a).fetchall()
+        # 숫자는 값으로 맞아야 한다. 부분일치라 '갤러리9' 가 '오송리움갤러리96' 에,
+        # '주공3' 이 '주공13단지' 에 붙는다 — 사람이 적은 번호와 다른 단지다.
+        if want_num:
+            rows = [r for r in rows if all(n in _nums(r[1]) for n in want_num)]
+        return rows
 
     def _prefix(col, keys):
         """접두 검색을 범위 비교로 — LIKE 'x%' 는 인덱스를 못 타지만 범위는 탄다."""
@@ -13870,14 +13902,34 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
         return hit, cands or [], why or ""
     # 마지막 — 토막을 순서 없이 모두 품은 이름. '분성마을4단지한솔솔파크'를 사람은
     # '한솔솔파크4단지분성마을' 처럼 앞뒤를 바꿔 부른다. 숫자를 경계로 잘라 AND 로 찾는다.
-    toks = [t for t in _re.split(r"(\d+)", _sql_lower(raw)) if t]
-    toks = [_re.sub(r"^(단지|차|동)", "", t) for t in toks]
-    toks = [t for t in toks if len(t) >= 2 or t.isdigit()]
+    #
+    # 이 단계는 느슨해서 오탐이 나기 쉽다(실측: '두산위브9' 가 '두산위브…N49' 에,
+    # '거제1아이파크' 가 '거제2차아이파크1단지' 에 붙었다). 그래서 SQL 로 후보만 좁히고
+    # 아래 두 가지로 걸러낸다.
+    #   ① 숫자는 값이 같아야 한다 — '9' 가 'N49'·'96' 의 9 에 붙으면 안 된다.
+    #   ② 사람이 친 글자가 그 이름의 대부분을 설명해야 한다(70% 이상).
+    toks = _qa_tokens(raw)
     if len(toks) >= 2:
-        hit, cands, why = _try(" AND ".join(["name_norm LIKE ?"] * len(toks)),
-                               tuple("%" + t + "%" for t in toks))
-        if hit or cands:
-            return hit, cands or [], why or ""
+        rows = []
+        for pfx in ([prefixes] if prefixes else []) + [None]:
+            rows = _q("(" + " AND ".join(["name_norm LIKE ?"] * len(toks)) + ")",
+                      tuple("%" + t + "%" for t in toks), pfx)
+            if rows:
+                break
+        keep = []
+        for r in rows:
+            cn = _sql_lower(str(r[1] or ""))
+            for ch in "-.·_ ":
+                cn = cn.replace(ch, "")
+            # 친 글자가 그 이름의 대부분을 설명해야 한다 — 토막 AND 는 느슨해서
+            # '거제1아이파크' 가 '거제2차아이파크1단지' 에 붙었다
+            if len(cn) and len(raw) / len(cn) < 0.7:
+                continue
+            keep.append(r)
+        if len(keep) == 1:
+            return keep[0], [], ""
+        if len(keep) > 1:
+            return None, keep, f"'{name}' 로 {len(keep)}곳이 검색돼요. 단지를 골라 주세요."
     return None, [], f"'{name}' 을(를) 단지 목록에서 못 찾았어요"
 
 
