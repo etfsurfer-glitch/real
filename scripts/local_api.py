@@ -13378,14 +13378,30 @@ _PL_FIELDS = [
     "total_area_m2",   # 연면적 — 단독·건물·공장
     "land_category",   # 지목 — 토지(대·전·답·임야…)
     "land_use",        # 용도지역 — 토지·상가·공장(제1종일반주거·상업…)
-    "premium",         # 권리금 — 상가·사무실
+    "premium",         # 권리금 — 상가·사무실 (영업권 대가)
+    "bunyang_premium", # 분양 프리미엄 — 분양권·재개발 (권리금과 다른 것이다)
     "ceiling_h",       # 층고(m) — 공장·창고
     "power_kw",        # 전기용량(kW) — 공장
+    # 없으면 값의 뜻이 달라지거나 거래가 깨지는 것들
+    "vat_separate",    # 부가세 별도 — 상가·사무실 임대료 관행. 없으면 월세 숫자가 서로 다른 뜻
+    "violation",       # 위반건축물 — 대출·전세가 막힌다. 건축물대장 표제부에서 읽는다
+    "rent_income",     # 월 임대수입 합계 — 다가구·건물은 이 숫자로 산다
+    "deposit_sum",     # 보증금 합계 — 위와 한 쌍
+    "bc_rat",          # 건폐율(%) — 토지·건물·공장. 대장 표제부에서 온다
+    "vl_rat",          # 용적률(%) — 위와 한 쌍
+    "main_purpose",    # 주용도 — 대장이 말하는 건물의 쓰임(공동주택·제2종근린생활시설…)
+    "height",          # 건물 높이(m)
+    "reg_kind",        # 집합|일반 — 집합은 호별 소유, 일반은 통건물
+    "road_contact",    # 도로 접함(맹지 여부) — 토지에서 가장 먼저 묻는 것
+    "current_biz",     # 현 업종 — 상가 승계 협의의 출발점
+    "tenant_until",    # 현 임차인 만기 — 승계·명도 일정
 ]
 _PL_NUM = {"area1_m2", "area2_m2", "area_py", "price", "rent_price", "deposit",
            "maintenance_fee", "loan_amount", "floor", "total_floor", "room_cnt",
            "bath_cnt", "parking", "lat", "lng",
-           "land_area_m2", "total_area_m2", "premium", "ceiling_h", "power_kw"}
+           "land_area_m2", "total_area_m2", "premium", "bunyang_premium",
+           "ceiling_h", "power_kw", "rent_income", "deposit_sum",
+           "bc_rat", "vl_rat", "height"}
 
 
 def _ensure_private_listings(c) -> None:
@@ -13411,7 +13427,10 @@ def _ensure_private_listings(c) -> None:
     have = {r[1] for r in c.execute("PRAGMA table_info(private_listings)")}
     for col in ("source_article_no", "source_saved_at", "lat", "lng", "settle_ymd",
                 "land_area_m2", "total_area_m2", "land_category", "land_use",
-                "premium", "ceiling_h", "power_kw"):
+                "premium", "bunyang_premium", "ceiling_h", "power_kw",
+                "vat_separate", "violation", "rent_income", "deposit_sum",
+                "road_contact", "current_biz", "tenant_until",
+                "bc_rat", "vl_rat", "main_purpose", "height", "reg_kind"):
         if col not in have:
             c.execute(f"ALTER TABLE private_listings ADD COLUMN {col} TEXT")
     c.execute("CREATE INDEX IF NOT EXISTS pl_src ON private_listings(realtor_id, source_article_no)")
@@ -13647,11 +13666,16 @@ _QA_SCHEMA = {
             "total_area_m2": {"type": "number", "nullable": True},
             "land_category": {"type": "string"}, "land_use": {"type": "string"},
             "premium": {"type": "integer", "nullable": True},
+            "bunyang_premium": {"type": "integer", "nullable": True},
+            "vat_separate": {"type": "string"}, "road_contact": {"type": "string"},
+            "current_biz": {"type": "string"}, "tenant_until": {"type": "string"},
+            "rent_income": {"type": "integer", "nullable": True},
+            "deposit_sum": {"type": "integer", "nullable": True},
             "floor": {"type": "integer", "nullable": True},
             "direction": {"type": "string"}, "move_in": {"type": "string"},
             "settle_ymd": {"type": "string"},
             "owner_name": {"type": "string"}, "owner_tel": {"type": "string"},
-            "feature_desc": {"type": "string"},
+            "feature_desc": {"type": "string", "maxLength": 120},
         }}},
         "고객": {"type": "array", "items": {"type": "object", "properties": {
             "name": {"type": "string"}, "phone": {"type": "string"},
@@ -13690,16 +13714,15 @@ _QA_PROMPT = (
     "  글에 '원룸'·'통건물' 처럼 유형이 적혀 있으면 반드시 그 유형을 넣어라. 모르겠을 때만 비운다.\n"
     "  ★ address 는 지번·도로명 주소만 넣어라. 동·호는 dong·ho 로 나눠 담는다.\n"
     "    '802호'는 ho 다(dong 이 아니다). 동은 '104동' 처럼 棟 을 가리킬 때만 쓴다.\n"
-    "  ★ 가격·면적·층·관리비는 반드시 그 칸에 숫자로 넣어라. feature_desc 에 문장으로\n"
-    "    옮겨 적지 마라 — 칸이 비면 매물장에서 쓸 수 없다. feature_desc 는 칸에 없는\n"
-    "    특징(올수리·급매·역세권)만 담는다.\n"
+    "  ★ 값은 반드시 해당 칸에 넣어라. feature_desc 는 칸이 없는 특징(올수리·급매·역세권)만\n"
+    "    담고 **한 문장, 60자 이내**로 쓴다. 같은 말을 되풀이하지 마라.\n"
     "[매물] trade_type 은 매매|전세|월세. 매매가=price, 전세·월세 보증금=deposit, 월세=rent_price.\n"
     "  '25평' 처럼 평만 있으면 area2_m2 를 추정하지 마라(공급/전용 구분 불가). 비워 둔다.\n"
-    "  ★ 유형에 따라 면적이 다른 것을 가리킨다. 아파트·빌라·상가·사무실은 전용면적=area2_m2,\n"
-    "    토지는 대지면적=land_area_m2, 단독·건물·공장은 대지=land_area_m2 와 연면적=total_area_m2 다.\n"
-    "    '대지 60평'→land_area_m2 198.3, '연면적 120평'→total_area_m2 396.7 (평×3.3058).\n"
-    "  ★ land_category 는 지목(대·전·답·임야·잡종지), land_use 는 용도지역(제1종일반주거·상업 등).\n"
-    "    premium 은 권리금(원). '권리금 없음'이면 0 을 넣어라.\n"
+    "  면적: 전용=area2_m2 / 대지=land_area_m2 / 연면적=total_area_m2. 평×3.3058=㎡.\n"
+    "  land_category=지목, land_use=용도지역, road_contact='4m 도로 접함'·'맹지' 그대로.\n"
+    "  premium=상가 권리금(원), bunyang_premium=분양권·재개발 프리미엄(다른 것이다).\n"
+    "  vat_separate='별도'|'포함', current_biz=현 업종, tenant_until=임차인 만기.\n"
+    "  rent_income=월세 합계, deposit_sum=보증금 합계(다가구·건물).\n"
     "  ★ 잔금과 입주는 다른 것이다. '11월 잔금'·'잔금 11월말' 은 settle_ymd 에 넣고,\n"
     "    '즉시입주'·'빈집'·'세입자 만기 후' 처럼 언제 들어갈 수 있는지는 move_in 에 넣어라.\n"
     "\n[고객] 요건.kind=구함|내놓음, trade=매매|전세|월세.\n"
@@ -13724,6 +13747,29 @@ _QA_PROMPT = (
     "  손님이 찾는 쪽이면 kind=구함이고 매물번호는 비운다.\n"
     "  중개사 본인·사무소·대표는 고객이 아니다. 넣지 마라.\n"
     "  문자·카톡이면 중개사 본인 발화('나')는 근거에서 뺀다.\n" + _QA_COMMON)
+
+
+def _qa_tidy(out: dict) -> dict:
+    """파싱 결과 손질 — 특징란에 같은 말이 되풀이되면 한 번만 남기고 짧게 자른다.
+
+    프롬프트가 길어지자 모델이 '상가입니다.' 를 토큰 한도까지 되풀이해 응답이 통째로
+    잘렸다(실측). 프롬프트·스키마로 눌러도 새는 길이 있어 결과에서 한 번 더 막는다.
+    """
+    for r in (out or {}).get("매물") or []:
+        # 모델이 빈 값을 문자열 'null' 로 내놓을 때가 있다 — 그대로 두면 주소가 'null' 이 된다
+        for k, v in list(r.items()):
+            if isinstance(v, str) and v.strip().lower() in ("null", "none", "undefined", "n/a"):
+                r[k] = None
+        t = str(r.get("feature_desc") or "")
+        if len(t) < 60:
+            continue
+        seen, keep = set(), []
+        for sent in _re.split(r"(?<=[.!?])\s*", t):
+            k = sent.strip()
+            if k and k not in seen:
+                seen.add(k); keep.append(k)
+        r["feature_desc"] = " ".join(keep)[:120]
+    return out
 
 
 def _json_repair(raw: str):
@@ -13764,18 +13810,22 @@ def _qa_parse(text: str) -> dict:
             contents=f"{prompt}\n오늘은 {today}.\n\n{text[:6000]}",
             config=_gt.GenerateContentConfig(
                 temperature=0 if attempt == 0 else 0.2,
-                thinking_config=_gt.ThinkingConfig(thinking_budget=0),
+                # 추출에는 생각할 틈을 준다. 0 으로 두면 항목이 많은 문장에서 칸을 채우지
+                # 못하고 서술로 흘러 토큰을 다 쓴다 — 정확도 0/7 에 30.5초.
+                # 2048 이면 7/7 에 6.5초로 오히려 빠르다(실측).
+                thinking_config=_gt.ThinkingConfig(
+                    thinking_budget=int(os.getenv("GEMINI_PARSE_THINKING", "2048"))),
                 response_mime_type="application/json", response_schema=schema,
                 max_output_tokens=8192),
         )
         raw = (resp.text or "").strip()
         try:
-            return _json.loads(raw)
+            return _qa_tidy(_json.loads(raw))
         except ValueError as e:
             last = e
             fixed = _json_repair(raw)      # 끊긴 응답은 마지막 성한 곳까지 살려 본다
             if fixed is not None:
-                return fixed
+                return _qa_tidy(fixed)
     raise last or ValueError("빈 응답")
 
 
@@ -14126,6 +14176,47 @@ def _qa_pick_by_ledger(cands, dong, ho):
     return None, bld
 
 
+def _apply_title(row: dict, auto: dict, ttl: dict) -> None:
+    """건축물대장 표제부 → 빈 칸. 사람이 적은 값은 덮지 않는다.
+
+    한 번의 조회에 대지면적·연면적·건폐율·용적률·주용도·높이·주차가 함께 온다.
+    따로 물어보지 않아도 되는 것들이라 전부 받아 둔다.
+    """
+    if (row.get("type") or "") == "토지":
+        # 땅을 파는데 그 위 건물의 층수·준공·용도를 붙이면 헷갈린다. 대지면적만 받는다.
+        if ttl.get("land_area") and not row.get("land_area_m2"):
+            row["land_area_m2"] = ttl["land_area"]; auto["land_area_m2"] = "건축물대장 표제부"
+        return
+    for key, col in (
+            ("total_floor", "total_floor"), ("use_apr", "approve_ymd"),
+            ("land_area", "land_area_m2"), ("total_area", "total_area_m2"),
+            ("bc_rat", "bc_rat"), ("vl_rat", "vl_rat"),
+            ("main_purpose", "main_purpose"), ("height", "height"),
+            ("reg_kind", "reg_kind"), ("parking", "parking")):
+        v = ttl.get(key)
+        if v not in (None, "") and not row.get(col):
+            row[col] = v
+            auto[col] = "건축물대장 표제부"
+    if ttl.get("elevator") is not None and not row.get("elevator"):
+        row["elevator"] = "있음" if ttl["elevator"] else "없음"
+        auto["elevator"] = "건축물대장 표제부"
+    # 주용도는 대장이 말하는 건물의 쓰임이다. 파서가 유형을 못 읽었을 때 이걸로 정한다.
+    if not (row.get("type") or "").strip():
+        kor = _PURPOSE_TYPE.get((ttl.get("main_purpose") or "").strip())
+        if kor:
+            row["type"] = kor
+            auto["type"] = "건축물대장 주용도"
+
+
+# 대장 주용도 → 우리 유형. 파서가 유형을 못 읽어도 건물이 말해 준다.
+_PURPOSE_TYPE = {
+    "공동주택": "아파트", "아파트": "아파트", "연립주택": "빌라", "다세대주택": "빌라",
+    "단독주택": "단독", "다가구주택": "단독", "제1종근린생활시설": "상가",
+    "제2종근린생활시설": "상가", "판매시설": "상가", "업무시설": "사무실",
+    "공장": "공장", "창고시설": "공장", "숙박시설": "건물",
+}
+
+
 def _enrich_by_jibun(row: dict, auto: dict) -> dict:
     """지번으로 건축물대장을 본다 — 단지가 없거나 못 가렸을 때의 길.
 
@@ -14156,13 +14247,7 @@ def _enrich_by_jibun(row: dict, auto: dict) -> dict:
                 row["dong"], row["ho"] = dong or row.get("dong"), ho
         ttl = _qa_title(cortar, jibun, dong or "")
         if ttl:
-            if ttl.get("total_floor") and not row.get("total_floor"):
-                row["total_floor"] = ttl["total_floor"]; auto["total_floor"] = "건축물대장 표제부"
-            if ttl.get("use_apr") and not row.get("approve_ymd"):
-                row["approve_ymd"] = ttl["use_apr"]; auto["approve_ymd"] = "건축물대장 표제부"
-            if ttl.get("elevator") is not None and not row.get("elevator"):
-                row["elevator"] = "있음" if ttl["elevator"] else ""
-                auto["elevator"] = "건축물대장 표제부"
+            _apply_title(row, auto, ttl)
     except Exception:  # noqa: BLE001
         pass
     return auto
@@ -14271,13 +14356,7 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
                 if not row.get("total_floor"):
                     ttl = _qa_title(led_cor, led_addr, dong)
                     if ttl:
-                        if ttl.get("total_floor"):
-                            row["total_floor"] = ttl["total_floor"]; auto["total_floor"] = "건축물대장 표제부"
-                        if ttl.get("use_apr") and not row.get("approve_ymd"):
-                            row["approve_ymd"] = ttl["use_apr"]; auto["approve_ymd"] = "건축물대장 표제부"
-                        if ttl.get("elevator") and not row.get("elevator"):
-                            row["elevator"] = "있음" if ttl["elevator"] else ""
-                            auto["elevator"] = "건축물대장 표제부"
+                        _apply_title(row, auto, ttl)
             # 전용면적이 정해지면 평형(방·욕실)을 역매칭한다.
             # 유일해가 아니다(전용 59.05 에 82C·82D·82B) — 방·욕실이 모두 같을 때만 채운다.
             a2 = row.get("area2_m2")
@@ -14357,6 +14436,9 @@ def _qa_clean_dong(row: dict) -> None:
     h = str(row.get("ho") or "").strip()
     if h in ("호", "동"):                     # '802호'를 나누다 남은 쓰레기
         row["ho"] = h = ""
+    if d.endswith("호") and not h:            # '201호' 가 동 칸에 — 호로 옮긴다
+        row["dong"], row["ho"] = None, d
+        return
     # 棟 은 '104동' 처럼 단위를 붙여 쓴다. 숫자만 있으면 대개 호를 동 칸에 넣은 것이다.
     if _re.fullmatch(r"\d+", d):
         if not h:
@@ -14428,9 +14510,23 @@ def _qa_title(cortar_no: str, detail_address: str, dong: str) -> dict | None:
             return int(float(v)) if v else None
         except ValueError:
             return None
+    def _f(t):
+        v = g(it, t)
+        try:
+            return float(v) if v else None
+        except ValueError:
+            return None
+    # 주차는 옥내·옥외 자주식을 합쳐 센다(기계식은 별도 칸이라 여기 안 넣는다)
+    park = (_i("indrAutoUtcnt") or 0) + (_i("oudrAutoUtcnt") or 0)
+    # 위반건축물은 이 API(getBrTitleInfo) 응답에 없다 — 78개 태그를 확인했다.
+    # 필요하면 별도 서비스를 붙여야 한다. 여기서 지어내지 않는다.
     return {"total_floor": _i("grndFlrCnt"), "under_floor": _i("ugrndFlrCnt"),
             "use_apr": g(it, "useAprDay"), "elevator": _i("rideUseElvtCnt"),
-            "households": _i("hhldCnt"), "struct": g(it, "strctCdNm")}
+            "households": _i("hhldCnt"), "struct": g(it, "strctCdNm"),
+            "land_area": _f("platArea"), "total_area": _f("totArea"),
+            "bc_rat": _f("bcRat"), "vl_rat": _f("vlRat"),
+            "main_purpose": g(it, "mainPurpsCdNm"), "height": _f("heit"),
+            "reg_kind": g(it, "regstrGbCdNm"), "parking": park or None}
 
 
 def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
