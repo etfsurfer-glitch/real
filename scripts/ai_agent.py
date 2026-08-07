@@ -2504,6 +2504,14 @@ def _history_text(h: dict) -> str:
     return out
 
 
+# 도구 없이 할 수 없는 말 — 찾아본 행위를 끝냈다고 주장하는 형태만 잡는다.
+_DID_LOOKUP_RE = re.compile(
+    r"(조회|확인|검색|분석|정리|집계|비교|살펴|찾아)\s*(해|하여|하였|했)\s*"
+    r"(보았|봤|보니|본\s*결과|드렸|드립|주었)|"
+    r"(조회|확인|검색|분석|정리|집계)(했|하였)습니다|"
+    r"(찾아|살펴|알아|훑어)\s*(본|봤)")
+
+
 def _looks_fabricated(text: str, trace: list | None) -> bool:
     """이력만 보고 앞 답변을 베껴 숫자만 바꾼 답인지.
 
@@ -2541,8 +2549,15 @@ def _looks_fabricated(text: str, trace: list | None) -> bool:
     lines = [l for l in text.split("\n") if l.strip()]
     has_row = any(l.lstrip().startswith(("-", "*", "•", "1.", "2.")) for l in lines)
     if not has_row and len(lines) <= 2 and len(text) <= 110:
-        return any(w in text for w in ("찾았", "통계", "시세", "평균", "현황", "결과",
-                                       "임대료", "매물", "거래량"))
+        if any(w in text for w in ("찾았", "통계", "시세", "평균", "현황", "결과",
+                                   "임대료", "매물", "거래량", "동향", "추이", "분위기")):
+            return True
+    # ⑧ 도구를 안 썼는데 '조회해 보았습니다' 처럼 **찾아본 척**을 한다(실측 2026-08-07:
+    #    '지방 전세 분위기는?' → tools=[] 인데 "전국 시도별 동향을 조회해 보았습니다" 로 끝).
+    #    ⑦ 은 자료성 낱말 목록에 기대는데 '동향·조회' 가 빠져 그대로 통과했다.
+    #    말끝이 아니라 **완료형 행위 주장**을 본다 — '확인해 보세요' 같은 안내에는 안 걸린다.
+    if _DID_LOOKUP_RE.search(text):
+        return True
     return False
 
 
