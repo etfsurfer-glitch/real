@@ -13707,7 +13707,7 @@ def _qa_parse(text: str) -> dict:
 
 # 사람이 부르는 단지명과 DB 이름은 다르다. '둔산동 한마루 아파트' 는 DB 에 '한마루럭키'·
 # '한마루삼성' 으로 있다. 완전일치만 보면 조용히 못 찾고 아무것도 못 채운다(실측).
-_QA_NAME_TAIL = ("아파트", "APT", "apt", "단지", "타운")
+_QA_NAME_TAIL = ("아파트", "APT", "apt")   # 타운·단지는 이름의 일부라 떼면 안 된다
 # 단지가 없는 유형 — 상가·사무실·단독은 '단지'라는 개념이 없어 단지 DB·건축물대장을
 # 이름으로 뒤지면 안 된다('상가'라는 이름의 실제 단지가 있어 준공일까지 붙었다).
 _QA_NON_COMPLEX = ("상가", "사무실", "단독", "다가구", "토지", "공장", "빌딩", "창고", "지식산업센터")
@@ -13754,9 +13754,13 @@ def _qa_match_complex(c, name: str, hint: str) -> tuple:
     후보가 여럿이면 고르지 않고 돌려준다 — 엉뚱한 단지의 대장을 붙이는 것보다
     비워 두고 물어보는 편이 낫다(설계안 §4-3 '후보' 등급).
     """
+    raw = (name or "").strip().replace(" ", "")
     key = _qa_name_key(name)
-    if len(key) < 2:
+    if len(raw) < 2:
         return None, [], "단지명이 너무 짧아요"
+    # 사람이 적은 그대로 먼저 찾고, 못 찾을 때만 '아파트' 같은 꼬리를 떼고 다시 찾는다.
+    # 처음부터 떼면 이름에 그 말이 들어간 단지를 남의 것에 붙이게 된다.
+    rounds = [raw] + ([key] if key and key != raw and len(key) >= 2 else [])
     cols = ("complex_no, complex_name, cortar_no, detail_address, use_approve_ymd, "
             "parking_per_household, heat_method_code, road_address, total_household_count")
     # 지역 힌트(동·구 이름)가 글에 있으면 그 지역으로 먼저 좁힌다
@@ -13767,11 +13771,10 @@ def _qa_match_complex(c, name: str, hint: str) -> tuple:
                 "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type IN ('sec','sigungu')").fetchall():
             if cname and len(cname) >= 2 and cname in hay:
                 prefixes.append(cno[:8] if len(cno) >= 10 else cno[:5])
-    # 이름에서 공백·구분자를 빼고 소문자로 맞춘 열 — 표기 흔들림을 SQL 쪽에서도 흡수한다
-    NM = ("LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(complex_name,' ',''),"
-          "'-',''),'.',''),'·',''),'_',''))")
-    keys = _qa_name_variants(key)
-    ph = ",".join("?" * len(keys))
+    # complexes.name_norm / name_bare 는 생성 컬럼(인덱스 있음)이다.
+    #   name_norm = 소문자 + 공백·구분자 제거
+    #   name_bare = 거기서 뒤쪽 괄호까지 뗀 것('신천역까사밀라(도시형)' → '신천역까사밀라')
+    # 표현식으로 비교하면 6만 4천 행을 전수 훑는다 — 컬럼으로 비교해야 인덱스를 탄다.
     def _q(where, args, pfx=None):
         w, a = where, list(args)
         if pfx:
@@ -13782,21 +13785,45 @@ def _qa_match_complex(c, name: str, hint: str) -> tuple:
         return c.execute(
             f"SELECT {cols} FROM complexes WHERE {w} "
             f"ORDER BY COALESCE(total_household_count,0) DESC LIMIT 30", a).fetchall()
-    # 완전일치는 '괄호만 다른 쌍'을 함께 본다. '신천역까사밀라'와 '신천역까사밀라(도시형)'이
-    # 따로 있는데 사람은 괄호를 안 친다 — 하나로 단정하면 남의 단지를 붙이게 된다.
-    exact = (f"{NM} IN ({ph}) OR "
-             + " OR ".join([f"{NM} LIKE ?"] * len(keys)))
-    exact_args = tuple(keys) + tuple(k + "(%" for k in keys)
-    for pfx in ([prefixes] if prefixes else []) + [None]:
-        for where, args in (
-                (exact, exact_args),
-                (" OR ".join([f"{NM} LIKE ?"] * len(keys)), tuple(k + "%" for k in keys)),
-                (" OR ".join([f"{NM} LIKE ?"] * len(keys)), tuple("%" + k + "%" for k in keys))):
+
+    def _prefix(col, keys):
+        """접두 검색을 범위 비교로 — LIKE 'x%' 는 인덱스를 못 타지만 범위는 탄다."""
+        conds, args = [], []
+        for k in keys:
+            conds.append(f"({col} >= ? AND {col} < ?)")
+            args += [k, k[:-1] + chr(ord(k[-1]) + 1)]
+        return " OR ".join(conds), tuple(args)
+
+    def _try(where, args):
+        for pfx in ([prefixes] if prefixes else []) + [None]:
             rows = _q(f"({where})", args, pfx)
             if len(rows) == 1:
                 return rows[0], [], ""
             if len(rows) > 1:
-                return None, rows, f"'{name}' 로 {len(rows)}곳이 검색돼요. 단지를 골라 주세요"
+                more = " 지역(동)을 함께 적으면 좁혀져요." if len(rows) >= 30 else ""
+                return None, rows, f"'{name}' 로 {len(rows)}곳이 검색돼요. 단지를 골라 주세요.{more}"
+        return None, None, None
+
+    # 인덱스를 타는 단계(완전·접두)를 먼저 다 돌고, 훑어야 하는 '포함'은 맨 뒤로 미룬다.
+    # 포함 검색만 전수 스캔이라 순서를 바꾸는 것만으로 대부분의 조회가 인덱스로 끝난다.
+    allkeys: list = []
+    for rk in rounds:
+        keys = _qa_name_variants(rk)
+        allkeys += [k for k in keys if k not in allkeys]
+        ph = ",".join("?" * len(keys))
+        pre_norm, pre_args = _prefix("name_norm", keys)
+        for where, args in (
+                # 괄호를 뗀 이름으로 맞춘다. '신천역까사밀라'와 '신천역까사밀라(도시형)'이
+                # 따로 있는데 사람은 괄호를 안 친다 — 둘 다 잡히면 후보로 넘어간다
+                (f"name_bare IN ({ph})", tuple(keys)),
+                (pre_norm, pre_args)):
+            hit, cands, why = _try(where, args)
+            if hit or cands:
+                return hit, cands or [], why or ""
+    hit, cands, why = _try(" OR ".join(["name_norm LIKE ?"] * len(allkeys)),
+                           tuple("%" + k + "%" for k in allkeys))
+    if hit or cands:
+        return hit, cands or [], why or ""
     return None, [], f"'{name}' 을(를) 단지 목록에서 못 찾았어요"
 
 

@@ -257,6 +257,21 @@ def init_schema(conn: sqlite3.Connection) -> None:
             _add_column_if_missing(conn, "listings_current", col, ddl)
         # 실매물(중복 광고 합침) 컬럼 — 기존 DB 보강.
         _add_column_if_missing(conn, "complex_daily_agg", "unit_count", "REAL")
+        # 단지명 정규화 컬럼 — 사람이 치는 표기('용산이편한세상')와 DB 표기('용산e-편한세상')를
+        # 맞대려면 소문자·구분자 제거본이 필요하다. 생성 컬럼이라 항상 최신이고,
+        # 인덱스를 걸면 6만 4천 행 전수 비교(110ms)가 인덱스 조회(0.1ms)가 된다.
+        _NORM = ("LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(complex_name,' ',''),"
+                 "'-',''),'.',''),'·',''),'_',''))")
+        _add_column_if_missing(conn, "complexes", "name_norm",
+                               f"TEXT GENERATED ALWAYS AS ({_NORM}) VIRTUAL")
+        # 뒤쪽 괄호까지 뗀 이름 — '신천역까사밀라(도시형)' 과 '신천역까사밀라' 를 같이 잡아
+        # 남의 단지를 조용히 붙이지 않게 한다(사람은 괄호를 안 친다).
+        _add_column_if_missing(
+            conn, "complexes", "name_bare",
+            f"TEXT GENERATED ALWAYS AS (CASE WHEN instr({_NORM},'(') > 1 "
+            f"THEN substr({_NORM}, 1, instr({_NORM},'(') - 1) ELSE {_NORM} END) VIRTUAL")
+        conn.execute("CREATE INDEX IF NOT EXISTS cx_name_norm ON complexes(name_norm)")
+        conn.execute("CREATE INDEX IF NOT EXISTS cx_name_bare ON complexes(name_bare)")
         # Seed articles from listings_current on first run with new schema
         # (one-shot migration; subsequent runs are no-ops because articles
         # already contains the matching rows).
