@@ -9,7 +9,7 @@ import { Loading } from "../components/Loading";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
   ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles, ChevronDown, Loader2,
-  Folder, FolderOpen } from "lucide-react";
+  Folder, FolderOpen, Check } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
@@ -2123,6 +2123,74 @@ function T({ f, set, k, label, ...rest }: any) {
   );
 }
 
+// 단지가 없는 유형 — 이름을 단지 목록에서 찾으면 안 된다('상가'라는 이름의 단지가 실제로 있다)
+const PL_NO_COMPLEX = ["상가", "사무실", "단독", "토지", "공장", "건물", "지식산업센터"];
+
+/** 단지 칸 — 적는 즉시 찾아 확정한다. 이름만 남기면 같은 단지가 표기마다 갈려
+ *  폴더도 매칭도 흩어진다. 후보가 여럿일 때만 고르게 한다(고객 요건과 같은 방식). */
+function PLComplex({ f, setF, authH }: any) {
+  const [hits, setHits] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [all, setAll] = useState(false);
+  const [note, setNote] = useState("");
+  const name = f.complex_name || "";
+  const fixed = !!f.complex_no;
+  const off = PL_NO_COMPLEX.includes(f.type || "");
+  const take = (h: any) => {
+    // 단지가 곧 지역이다 — 주소가 비어 있으면 단지 것으로 채운다
+    setF((s: any) => ({ ...s, complex_name: h.complex_name, complex_no: h.complex_no,
+      address: s.address || h.region || null }));
+    setHits([]); setAll(false);
+  };
+  useEffect(() => {
+    if (off || fixed || name.trim().length < 2) { setHits([]); return; }
+    let dead = false;
+    const t = setTimeout(async () => {
+      setBusy(true);
+      try {
+        const r = await fetch(`${API_BASE}/lounge/complex-search?q=${encodeURIComponent(name.trim())}`,
+                              { headers: authH() });
+        const j = await r.json();
+        if (dead) return;
+        const got: any[] = j.items ?? [];
+        setNote(j.note || "");
+        if (got.length === 1) take(got[0]);
+        else { setHits(got); setAll(false); }
+      } catch { if (!dead) setHits([]); } finally { if (!dead) setBusy(false); }
+    }, 350);
+    return () => { dead = true; clearTimeout(t); };
+  }, [name, fixed, off]);
+
+  const list = all ? hits : hits.slice(0, 6);
+  return (
+    <label className={"pl-f pl-cx" + (fixed ? " fixed" : "")}>
+      <span>{off ? "건물명" : "단지·건물명"}</span>
+      <input className="ai-input" value={name} placeholder={off ? "예: 역삼빌딩" : "예: 헬리오시티"}
+        onChange={(e) => setF((s: any) => ({ ...s, complex_name: e.target.value, complex_no: null }))} />
+      {!off && (fixed
+        ? <i className="pl-cxok" title="단지가 확정됐어요"><Check size={11} /></i>
+        : busy ? <i className="pl-cxok busy"><Loader2 size={11} className="txm-spin" /></i>
+        : hits.length > 0 ? <i className="pl-cxn" title="후보가 여럿이에요">{hits.length}</i>
+        : null)}
+      {!off && !fixed && hits.length > 0 && (
+        <div className="pl-cxdrop" onMouseDown={(e) => e.preventDefault()}>
+          <p>{note || "어느 단지인가요?"}</p>
+          {list.map((h) => (
+            <button type="button" key={h.complex_no} onClick={() => take(h)}>
+              <b>{h.complex_name}</b>
+              <span>{h.region}{h.households ? ` · ${h.households.toLocaleString()}세대` : ""}</span>
+            </button>
+          ))}
+          {!all && hits.length > list.length && (
+            <button type="button" className="more" onClick={() => setAll(true)}>
+              후보 {hits.length}곳 모두 보기</button>
+          )}
+        </div>
+      )}
+    </label>
+  );
+}
+
 function PLMoney({ f, setF, k, label }: any) {
   const [draft, setDraft] = useState<string | null>(null);
   const shown = draft !== null ? draft : manText(f[k]);
@@ -2302,7 +2370,7 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
               <option value="">선택 안 함</option>
               {PL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select></label>
-          <T f={f} set={set} k="complex_name" label="단지·건물명" placeholder="예: 헬리오시티" />
+          <PLComplex f={f} setF={setF} authH={authH} />
           <T f={f} set={set} k="dong" label="동" placeholder="104" />
           <T f={f} set={set} k="ho" label="호" placeholder="1103" />
           <PLMoney f={f} setF={setF} k="price" label="매매가·보증금" />

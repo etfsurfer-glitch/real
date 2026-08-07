@@ -538,6 +538,7 @@ function CxField({ n, i, setN, authH }: {
   const [hits, setHits] = useState<CxHit[]>([]);
   const [busy, setBusy] = useState(false);
   const [pick, setPick] = useState(false);      // 후보 목록을 펼친 상태
+  const [note, setNote] = useState("");
   const fixed = !!n.complex_no;
   const name = n.address || "";
   const dong = n.dong || "";
@@ -559,6 +560,7 @@ function CxField({ n, i, setN, authH }: {
         const j = await r.json();
         if (dead) return;
         const got: CxHit[] = j.items ?? [];
+        setNote(j.note || "");
         // 동을 이미 적어 뒀다면 그 동의 단지를 먼저 본다 — 동명이 단지를 가른다
         const near = dong ? got.filter((h) => (h.dong || "") === dong) : [];
         const one = got.length === 1 ? got[0] : near.length === 1 ? near[0] : null;
@@ -582,7 +584,7 @@ function CxField({ n, i, setN, authH }: {
         : null}
       {!fixed && hits.length > 0 && (
         <div className="ced-cxdrop" onMouseDown={(e) => e.preventDefault()}>
-          <p>어느 단지인가요?</p>
+          <p>{note || "어느 단지인가요?"}</p>
           {list.map((h) => (
             <button key={h.complex_no} type="button" onClick={() => take(h)}>
               <b>{h.complex_name}</b>

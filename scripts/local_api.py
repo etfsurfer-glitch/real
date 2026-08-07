@@ -13732,23 +13732,40 @@ _BRAND_ALIAS = [
 ]
 
 
+# 로마 숫자 — 단지명에 'Ⅱ'(U+2161)로 들어 있는데 사람은 'II'로 친다. 양쪽 다 찾는다.
+_ROMAN = [("Ⅰ", "i"), ("Ⅱ", "ii"), ("Ⅲ", "iii"), ("Ⅳ", "iv"), ("Ⅴ", "v"),
+          ("Ⅵ", "vi"), ("Ⅶ", "vii"), ("Ⅷ", "viii"), ("Ⅸ", "ix"), ("Ⅹ", "x")]
+
+
+def _sql_lower(s: str) -> str:
+    """SQLite LOWER() 와 같게 — ASCII 대문자만 내린다.
+
+    파이썬 lower() 는 유니코드까지 내려 'Ⅱ'(U+2161)를 'ⅱ'(U+2171)로 바꾸는데,
+    컬럼은 SQLite LOWER() 로 만들어져 'Ⅱ' 그대로다. 둘이 어긋나면 자기 이름으로도
+    자기 단지를 못 찾는다(실측: 롯데캐슬파크타운Ⅱ).
+    """
+    return "".join(chr(ord(ch) + 32) if "A" <= ch <= "Z" else ch for ch in s)
+
+
 def _qa_name_variants(key: str) -> list:
     """같은 단지의 다른 표기들. DB 는 '용산e-편한세상', 사람은 '용산이편한세상'이라 적는다.
-    구분자·대소문자를 지우고 브랜드 표기를 양방향으로 바꿔 본다(두 번 돌려 연쇄 치환까지)."""
-    base = key.lower()
+    구분자·대소문자를 지우고 브랜드·로마숫자 표기를 양방향으로 바꿔 본다."""
+    base = _sql_lower(key)
     for ch in "-.·_ ":
         base = base.replace(ch, "")
+    for r, a in _ROMAN:                      # 사람이 친 소문자 로마자도 흡수
+        base = base.replace(r.lower(), r)
     seen = {base}
     for _ in range(2):
         for v in list(seen):
-            for a, b in _BRAND_ALIAS:
+            for a, b in _BRAND_ALIAS + _ROMAN:
                 for x, y in ((a, b), (b, a)):
                     if x in v:
                         seen.add(v.replace(x, y))
-    return list(seen)[:12]
+    return list(seen)[:16]
 
 
-def _qa_match_complex(c, name: str, hint: str) -> tuple:
+def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tuple:
     """(단지행, 후보목록, 사유). 지역 힌트로 좁히고 완전 → 접두 → 부분 순으로 찾는다.
 
     후보가 여럿이면 고르지 않고 돌려준다 — 엉뚱한 단지의 대장을 붙이는 것보다
@@ -13764,13 +13781,15 @@ def _qa_match_complex(c, name: str, hint: str) -> tuple:
     cols = ("complex_no, complex_name, cortar_no, detail_address, use_approve_ymd, "
             "parking_per_household, heat_method_code, road_address, total_household_count")
     # 지역 힌트(동·구 이름)가 글에 있으면 그 지역으로 먼저 좁힌다
-    prefixes = []
+    # 사무소 인근을 먼저 본다 — 같은 이름이 전국에 흩어져 있어도 다루는 건 대개 근처다
+    prefixes = list(near or [])
     hay = (hint or "")
     if hay:
         for cno, cname in c.execute(
                 "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type IN ('sec','sigungu')").fetchall():
             if cname and len(cname) >= 2 and cname in hay:
                 prefixes.append(cno[:8] if len(cno) >= 10 else cno[:5])
+    prefixes = list(dict.fromkeys(prefixes))
     # complexes.name_norm / name_bare 는 생성 컬럼(인덱스 있음)이다.
     #   name_norm = 소문자 + 공백·구분자 제거
     #   name_bare = 거기서 뒤쪽 괄호까지 뗀 것('신천역까사밀라(도시형)' → '신천역까사밀라')
@@ -13861,7 +13880,7 @@ def _qa_pick_by_ledger(cands, dong, ho):
     return None, bld
 
 
-def _qa_enrich_listing(row: dict) -> dict:
+def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
     """단지명+동+호 → 건축물대장·우리 단지 DB 로 빈칸을 채운다(설계안 §4-2).
 
     채운 항목은 _auto 에 출처와 함께 남긴다 — 근거 없는 값을 보여주지 않기 위해서다.
@@ -13882,7 +13901,10 @@ def _qa_enrich_listing(row: dict) -> dict:
     try:
         with _open_db() as c:
             hint = " ".join(str(row.get(k) or "") for k in ("address", "address_detail", "memo"))
-            hit, cands, why = _qa_match_complex(c, name, hint)
+            # 글에 지역이 없으면 사무소 동·시군구를 힌트로 쓴다
+            dg, sg = _office_region(rid) if rid else (None, None)
+            near = [x for x in (dg and dg[:8], sg) if x]
+            hit, cands, why = _qa_match_complex(c, name, hint, near)
             if not hit and cands:
                 # 지번이 같아 이름만으로 못 가르는 경우가 있다 → 대장 건물명으로 한 번 더 가린다
                 d0, h0 = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
@@ -14793,7 +14815,7 @@ def lounge_need_parse(body: dict, user: dict = Depends(current_user)):
     if len(text) < 2:
         raise HTTPException(400, "내용을 입력해 주세요")
     with _reviews_db() as rc:
-        _require_member(rc, user["id"])
+        rid = _require_member(rc, user["id"])
     try:
         out = _qa_parse(text)
     except Exception as e:  # noqa: BLE001
@@ -15043,14 +15065,14 @@ def lounge_quick_parse(body: dict, user: dict = Depends(current_user)):
     if len(text) < 2:
         raise HTTPException(400, "내용을 입력해 주세요")
     with _reviews_db() as rc:
-        _require_member(rc, user["id"])
+        rid = _require_member(rc, user["id"])
     try:
         out = _qa_parse(text)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"인식에 실패했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__})")
     rows = out.get("매물") or []
     for r in rows:
-        r["_auto"] = _qa_enrich_listing(r)
+        r["_auto"] = _qa_enrich_listing(r, rid)
     out["매물"] = rows
     out["고객"] = out.get("고객") or []
     return out
@@ -15168,13 +15190,13 @@ def lounge_listing_enrich(body: dict, user: dict = Depends(current_user)):
     등록 폼에서 저장 전에 눌러 보게 하려고 따로 뺐다(기존 enrich 는 저장된 행에만 걸렸다).
     """
     with _reviews_db() as rc:
-        _require_member(rc, user["id"])
+        rid = _require_member(rc, user["id"])
     row = {k: body.get(k) for k in _PL_FIELDS if body.get(k) not in (None, "")}
     if not (row.get("complex_name") or row.get("complex_no")):
         raise HTTPException(400, "단지명을 먼저 적어 주세요")
     d, h = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
     row["dong"], row["ho"] = d, h
-    auto = _qa_enrich_listing(row)
+    auto = _qa_enrich_listing(row, rid)
     return {"listing": row, "_auto": auto, "filled": sorted(auto)}
 
 
@@ -15887,34 +15909,80 @@ def lounge_office_changes(realtor_id: str, user: dict = Depends(current_user)):
     return {"realtor_id": realtor_id, "realtor_name": office.get("realtor_name"), **res}
 
 
+def _office_region(rid: str) -> tuple:
+    """중개사무소가 자리잡은 지역 — (동 cortar_no, 시군구코드). 없으면 (None, None).
+
+    같은 이름의 단지가 전국에 흩어져 있어도 중개사가 다루는 건 대개 사무소 근처다.
+    가까운 곳부터 보여 주면 고를 일 자체가 줄어든다.
+    """
+    try:
+        with _open_db() as d:
+            r = d.execute("SELECT cortar_no, sgg_cd FROM realtor_dong WHERE realtor_id=? LIMIT 1",
+                          (rid,)).fetchone()
+        return (r[0], r[1]) if r else (None, None)
+    except Exception:
+        return (None, None)
+
+
+def _near_rank(cortar: str, dong: str, sgg: str) -> int:
+    """사무소에서 얼마나 가까운가 — 0 같은 동, 1 같은 시군구, 2 같은 시도, 3 그 밖."""
+    c = cortar or ""
+    if dong and c == dong:
+        return 0
+    if sgg and c.startswith(sgg):
+        return 1
+    if sgg and c[:2] == sgg[:2]:
+        return 2
+    return 3
+
+
 @app.get("/lounge/complex-search")
 def lounge_complex_search(q: str, user: dict = Depends(current_user)):
-    """관심단지 추가용 단지명 검색 — '아파트'·공백 제거 후 매칭, 위치(시도·시군구·동)+세대수 포함."""
+    """단지명 검색 — 사무소 인근을 먼저 본다. 가까운 층에서 하나로 좁혀지면 그것만 돌려준다
+    (부르는 쪽이 바로 확정한다). 그래도 여럿이면 전부 주되 가까운 순으로 담고,
+    지역을 더 적어 달라고 안내한다."""
     kw = (q or "").strip()
     if len(kw) < 2:
         return {"items": []}
     with _reviews_db() as c:
-        _require_member(c, user["id"])
-    norm = kw.replace("아파트", "").replace(" ", "").strip()
-    like = f"%{norm or kw}%"
+        rid = _require_member(c, user["id"])
+    dong, sgg = _office_region(rid)
+    keys = _qa_name_variants(_qa_name_key(kw)) + _qa_name_variants(kw.replace(" ", ""))
+    keys = list(dict.fromkeys(keys))[:16]
+    ph = ",".join("?" * len(keys))
     with _open_db() as d:
         rows = d.execute(
-            "SELECT cx.complex_no, cx.complex_name, cx.total_household_count, "
-            "       rsi.cortar_name, rsg.cortar_name, rdo.cortar_name, cx.real_estate_type "
-            "FROM complexes cx "
-            "LEFT JOIN regions rsi ON rsi.cortar_no = substr(cx.cortar_no,1,2)||'00000000' "
-            "LEFT JOIN regions rsg ON rsg.cortar_no = substr(cx.cortar_no,1,5)||'00000' "
-            "LEFT JOIN regions rdo ON rdo.cortar_no = cx.cortar_no "
-            "WHERE REPLACE(cx.complex_name,' ','') LIKE ? "
-            "ORDER BY cx.total_household_count DESC LIMIT 15",
-            (like,)).fetchall()
+            f"SELECT cx.complex_no, cx.complex_name, cx.total_household_count, "
+            f"       rsi.cortar_name, rsg.cortar_name, rdo.cortar_name, cx.cortar_no "
+            f"FROM complexes cx "
+            f"LEFT JOIN regions rsi ON rsi.cortar_no = substr(cx.cortar_no,1,2)||'00000000' "
+            f"LEFT JOIN regions rsg ON rsg.cortar_no = substr(cx.cortar_no,1,5)||'00000' "
+            f"LEFT JOIN regions rdo ON rdo.cortar_no = cx.cortar_no "
+            f"WHERE cx.name_bare IN ({ph}) OR cx.name_norm IN ({ph}) "
+            f"   OR " + " OR ".join(["cx.name_norm LIKE ?"] * len(keys)) + " "
+            f"ORDER BY COALESCE(cx.total_household_count,0) DESC LIMIT 60",
+            tuple(keys) * 2 + tuple("%" + k + "%" for k in keys)).fetchall()
     items = []
     for r in rows:
         region = " ".join(x for x in [_SIDO_SHORT.get(r[3], r[3]), r[4], r[5]] if x)
         # 시군구·동을 따로도 준다 — 단지를 고르면 고객 요건의 지역칸을 그대로 채우기 위함
         items.append({"complex_no": r[0], "complex_name": r[1],
                       "households": r[2], "region": region,
-                      "sido": r[3], "sigungu": r[4], "dong": r[5]})
+                      "sido": r[3], "sigungu": r[4], "dong": r[5],
+                      "near": _near_rank(r[6], dong, sgg)})
+    items.sort(key=lambda x: (x["near"], -(x["households"] or 0)))
+    # 가까운 층부터 훑어 하나로 좁혀지면 그것만 준다 — 사무소 동에 그 이름이 하나뿐이면
+    # 전국에 스무 곳이 있어도 물어볼 이유가 없다
+    for lvl in (0, 1, 2):
+        near = [x for x in items if x["near"] <= lvl]
+        if len(near) == 1:
+            return {"items": near, "scope": ("동", "시군구", "시도")[lvl]}
+        if near:
+            break
+    note = ""
+    if len(items) > 1:
+        note = "지역(동·구)을 함께 적으면 좁혀져요"
+    return {"items": items[:30], "note": note, "total": len(items)}
     return {"items": items}
 
 
