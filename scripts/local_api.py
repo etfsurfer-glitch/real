@@ -13765,6 +13765,29 @@ def _qa_name_variants(key: str) -> list:
     return list(seen)[:16]
 
 
+def _qa_num_variants(key: str) -> list:
+    """단지 번호 표기 혼용 — '주공5단지'를 사람은 '주공5', '주공제5단지', '주공5차'로도 친다.
+
+    '5차'와 '5단지'가 서로 다른 단지인 경우가 실제로 있어(무등파크맨션) 이 변형은
+    원문·접미어 라운드가 모두 실패한 뒤에만 쓴다. 여기서 둘 다 걸리면 후보로 넘어간다.
+    """
+    out = []
+
+    def add(v):
+        if v and v != key and v not in out:
+            out.append(v)
+
+    add(_re.sub(r"제(\d+)(단지|차)", r"\1\2", key))          # 제5단지 → 5단지
+    add(_re.sub(r"(\d+)단지", r"제\1단지", key))              # 5단지 → 제5단지
+    add(_re.sub(r"(\d+)단지", r"\1차", key))                  # 5단지 → 5차
+    add(_re.sub(r"(\d+)차", r"\1단지", key))                  # 5차 → 5단지
+    add(_re.sub(r"(\d+)(단지|차)", r"\1", key))               # 5단지 → 5
+    if not _re.search(r"\d+(단지|차)", key):                  # 주공5 → 주공5단지 / 주공5차
+        add(_re.sub(r"(\d+)", r"\1단지", key, count=1))
+        add(_re.sub(r"(\d+)", r"\1차", key, count=1))
+    return out[:6]
+
+
 def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tuple:
     """(단지행, 후보목록, 사유). 지역 힌트로 좁히고 완전 → 접두 → 부분 순으로 찾는다.
 
@@ -13778,6 +13801,8 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
     # 사람이 적은 그대로 먼저 찾고, 못 찾을 때만 '아파트' 같은 꼬리를 떼고 다시 찾는다.
     # 처음부터 떼면 이름에 그 말이 들어간 단지를 남의 것에 붙이게 된다.
     rounds = [raw] + ([key] if key and key != raw and len(key) >= 2 else [])
+    # 번호 표기 변형은 맨 뒤 — 위에서 그대로 찾히면 굳이 다른 표기를 뒤질 이유가 없다
+    rounds += [v for v in _qa_num_variants(raw) if v not in rounds]
     cols = ("complex_no, complex_name, cortar_no, detail_address, use_approve_ymd, "
             "parking_per_household, heat_method_code, road_address, total_household_count")
     # 지역 힌트(동·구 이름)가 글에 있으면 그 지역으로 먼저 좁힌다
@@ -13843,6 +13868,16 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
                            tuple("%" + k + "%" for k in allkeys))
     if hit or cands:
         return hit, cands or [], why or ""
+    # 마지막 — 토막을 순서 없이 모두 품은 이름. '분성마을4단지한솔솔파크'를 사람은
+    # '한솔솔파크4단지분성마을' 처럼 앞뒤를 바꿔 부른다. 숫자를 경계로 잘라 AND 로 찾는다.
+    toks = [t for t in _re.split(r"(\d+)", _sql_lower(raw)) if t]
+    toks = [_re.sub(r"^(단지|차|동)", "", t) for t in toks]
+    toks = [t for t in toks if len(t) >= 2 or t.isdigit()]
+    if len(toks) >= 2:
+        hit, cands, why = _try(" AND ".join(["name_norm LIKE ?"] * len(toks)),
+                               tuple("%" + t + "%" for t in toks))
+        if hit or cands:
+            return hit, cands or [], why or ""
     return None, [], f"'{name}' 을(를) 단지 목록에서 못 찾았어요"
 
 
