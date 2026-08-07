@@ -96,6 +96,11 @@ const N_FIELDS: [string, string, FType][] = [
   ["settle_date", "잔금시기", "text"],
 ];
 
+// 유형을 못 읽었을 때만 물어본다. 유형에 따라 단지 매칭 여부·건축물대장 조회 경로·
+// 광고 필수항목이 갈리므로 비어 있으면 뒤가 전부 어긋난다. 대개는 문장이나 단지 DB 에서
+// 채워지므로 이 칩은 잘 안 뜬다 — 늘 고르게 하면 손만 늘어난다.
+const QA_TYPES = ["아파트", "오피스텔", "빌라", "원룸", "단독", "상가", "사무실", "토지"];
+
 // 소유자 호칭은 거래유형에 따라 달라진다. 전세·월세 물건의 소유자는 매도인이 아니라 임대인이다.
 // 거래를 모를 때만 중립어(소유자)를 쓴다 — 기존 매물장 폼과 같은 말.
 function ownerLabel(trade: any): string {
@@ -334,6 +339,14 @@ export default function QuickAdd({ authH, onSaved }: {
                       low={lowConf.has(k)} onChange={(v) => editL(i, k, v)} />
                   ))}
               </div>
+              {!(r.type || "").trim() && (
+                <div className="qadd-type">
+                  <span>어떤 물건인가요?</span>
+                  {QA_TYPES.map((t) => (
+                    <button key={t} onClick={() => editL(i, "type", t)}>{t}</button>
+                  ))}
+                </div>
+              )}
               {r._note && (
                 <p className="qadd-note warn"><AlertTriangle size={12} /> {r._note}</p>
               )}
