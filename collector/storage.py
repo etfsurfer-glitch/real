@@ -243,7 +243,10 @@ _B_FIELDS = [
 def _add_column_if_missing(
     conn: sqlite3.Connection, table: str, column: str, type_ddl: str
 ) -> None:
-    cur = conn.execute(f"PRAGMA table_info({table})")
+    # table_info 는 GENERATED ... VIRTUAL 컬럼을 빼고 준다 — name_norm/name_bare 가 이미
+    # 있는데도 '없음'으로 보여 매 실행마다 ALTER 를 다시 쳤고, duplicate column 으로
+    # init_schema 가 죽어 수집이 통째로 멈췄다. xinfo 는 생성 컬럼까지 전부 준다.
+    cur = conn.execute(f"PRAGMA table_xinfo({table})")
     existing = {r[1] for r in cur.fetchall()}
     if column not in existing:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_ddl}")
