@@ -81,12 +81,20 @@ const L_FIELDS: [string, string | ((r: ListingRow) => string), FType, string?][]
   ["direction", "향", "text"],
   ["land_category", "지목", "text"],
   ["land_use", "용도지역", "text"],
+  ["road_contact", "도로", "text"],
   ["premium", "권리금", "money"],
+  ["bunyang_premium", "프리미엄", "money"],
+  ["vat_separate", "부가세", "text"],
+  ["current_biz", "현 업종", "text"],
+  ["tenant_until", "임차인 만기", "text"],
+  ["rent_income", "월세 합계", "money"],
+  ["deposit_sum", "보증금 합계", "money"],
   ["ceiling_h", "층고", "num", "m"],
   ["power_kw", "전기", "num", "kW"],
   ["settle_ymd", "잔금시기", "text"],
   ["move_in", "입주가능", "text"],
   ["maintenance_fee", "관리비", "money"],
+  ["loan_amount", "융자금", "money"],
   ["approve_ymd", "준공", "text"],
   ["parking", "주차", "num", "대"],
   ["owner_name", (r) => ownerLabel(r.trade_type), "text"],
@@ -114,27 +122,38 @@ const QA_TYPES = ["아파트", "오피스텔", "빌라", "원룸", "단독", "�
 // 주거(아파트·오피스텔·빌라·원룸·재개발·분양권)는 여기 없다 — 아래 NONRESI_ONLY 만 숨긴다.
 const T_HIDE: Record<string, string[]> = {
   토지:  ["dong", "ho", "area2_m2", "total_area_m2", "floor", "room_cnt", "bath_cnt",
-         "direction", "maintenance_fee", "approve_ymd", "premium", "ceiling_h", "power_kw"],
-  상가:  ["room_cnt", "bath_cnt", "direction", "land_category", "ceiling_h", "power_kw",
-         "land_area_m2", "total_area_m2"],
+         "direction", "maintenance_fee", "approve_ymd", "premium", "ceiling_h", "power_kw",
+         "vat_separate", "current_biz", "tenant_until", "rent_income", "deposit_sum"],
+  상가:  ["room_cnt", "bath_cnt", "direction", "land_category", "land_use", "ceiling_h",
+         "power_kw", "land_area_m2", "total_area_m2", "road_contact",
+         "rent_income", "deposit_sum"],
   사무실: ["room_cnt", "bath_cnt", "direction", "land_category", "land_use", "ceiling_h",
-         "power_kw", "land_area_m2", "total_area_m2"],
+         "power_kw", "land_area_m2", "total_area_m2", "road_contact", "premium",
+         "rent_income", "deposit_sum"],
   지식산업센터: ["room_cnt", "bath_cnt", "direction", "land_category", "premium",
-             "land_area_m2", "total_area_m2"],
-  단독:  ["dong", "ho", "area2_m2", "premium", "ceiling_h", "power_kw", "land_category"],
-  공장:  ["dong", "ho", "room_cnt", "bath_cnt", "direction", "premium", "area2_m2"],
+             "land_area_m2", "total_area_m2", "road_contact", "ceiling_h", "power_kw",
+             "rent_income", "deposit_sum"],
+  단독:  ["dong", "ho", "area2_m2", "premium", "ceiling_h", "power_kw", "land_category",
+         "vat_separate", "current_biz", "road_contact"],
+  공장:  ["dong", "ho", "room_cnt", "bath_cnt", "direction", "premium", "area2_m2",
+         "current_biz", "rent_income", "deposit_sum"],
   건물:  ["dong", "ho", "room_cnt", "bath_cnt", "direction", "premium", "ceiling_h",
-         "power_kw", "area2_m2"],
+         "power_kw", "area2_m2", "land_category", "current_biz"],
 };
 // 비주거에서만 쓰는 칸 — 주거 매물에는 보이지 않는다
 const NONRESI_ONLY = ["land_area_m2", "total_area_m2", "land_category", "land_use",
-                      "premium", "ceiling_h", "power_kw"];
+                      "road_contact", "premium", "ceiling_h", "power_kw",
+                      "vat_separate", "current_biz", "tenant_until",
+                      "rent_income", "deposit_sum"];
+// 분양 프리미엄은 주거·비주거가 아니라 '분양권·재개발' 만의 것이다
+const PREMIUM_ONLY = ["bunyang_premium"];
 
 /** 이 유형에서 이 칸을 보여 줄까. 값이 이미 있으면 무조건 보인다 —
  *  사람이 적었거나 대장이 채운 것을 숨기면 안 된다. */
 function showField(r: ListingRow, k: string): boolean {
   if (r[k] !== null && r[k] !== undefined && r[k] !== "") return true;
   const t = (r.type || "").trim();
+  if (PREMIUM_ONLY.includes(k)) return t === "분양권" || t === "재개발";
   if (!(t in T_HIDE)) return !NONRESI_ONLY.includes(k);   // 주거 또는 유형 모름
   return !T_HIDE[t].includes(k);
 }

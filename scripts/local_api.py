@@ -13671,6 +13671,13 @@ _QA_SCHEMA = {
             "current_biz": {"type": "string"}, "tenant_until": {"type": "string"},
             "rent_income": {"type": "integer", "nullable": True},
             "deposit_sum": {"type": "integer", "nullable": True},
+            "ceiling_h": {"type": "number", "nullable": True},
+            "power_kw": {"type": "number", "nullable": True},
+            "maintenance_fee": {"type": "integer", "nullable": True},
+            "loan_amount": {"type": "integer", "nullable": True},
+            "parking": {"type": "number", "nullable": True},
+            "room_cnt": {"type": "integer", "nullable": True},
+            "bath_cnt": {"type": "integer", "nullable": True},
             "floor": {"type": "integer", "nullable": True},
             "direction": {"type": "string"}, "move_in": {"type": "string"},
             "settle_ymd": {"type": "string"},
@@ -13710,10 +13717,15 @@ _QA_PROMPT = (
     "\n[매물] type 은 " + "|".join(_QA_TYPES) + " 중 하나다. 단지명을 여기 넣지 마라.\n"
     "  '단독주택'→단독, '다세대'·'연립'·'신축빌라'→빌라, '농지'·'대지'→토지,\n"
     "  '근린상가'·'점포'→상가, '통건물'·'빌딩'·'상가주택'→건물, '오피스'→사무실,\n"
-    "  '투룸'·'쓰리룸'·'고시원'→원룸, '아파트분양권'·'입주권'→분양권 처럼 우리 말로 바꿔라.\n"
+    "  '고시원'→원룸, '다가구'·'상가주택'→단독, '아파트분양권'·'입주권'→분양권 으로 바꿔라.\n"
+    "  ★ 건물 종류가 방 개수보다 세다. '신축빌라 투룸'은 빌라다(원룸 아님).\n"
+    "    '투룸'·'쓰리룸'만 있고 건물 종류가 없을 때만 원룸으로 본다.\n"
     "  글에 '원룸'·'통건물' 처럼 유형이 적혀 있으면 반드시 그 유형을 넣어라. 모르겠을 때만 비운다.\n"
     "  ★ address 는 지번·도로명 주소만 넣어라. 동·호는 dong·ho 로 나눠 담는다.\n"
     "    '802호'는 ho 다(dong 이 아니다). 동은 '104동' 처럼 棟 을 가리킬 때만 쓴다.\n"
+    "    '1층 101호'는 floor=1, ho='101호' 로 나눈다 — 층을 호로, 호를 층으로 넣지 마라.\n"
+    "  ★ 가격이 없어도 '매매'·'전세'·'월세'·'임대'·'세놓' 같은 말이 있으면 trade_type 을 채워라.\n"
+    "    ('임대'·'세놓'은 보증금·월세 표기를 보고 전세인지 월세인지 가른다. 모르면 월세.)\n"
     "  ★ 값은 반드시 해당 칸에 넣어라. feature_desc 는 칸이 없는 특징(올수리·급매·역세권)만\n"
     "    담고 **한 문장, 60자 이내**로 쓴다. 같은 말을 되풀이하지 마라.\n"
     "[매물] trade_type 은 매매|전세|월세. 매매가=price, 전세·월세 보증금=deposit, 월세=rent_price.\n"
@@ -13723,6 +13735,11 @@ _QA_PROMPT = (
     "  premium=상가 권리금(원), bunyang_premium=분양권·재개발 프리미엄(다른 것이다).\n"
     "  vat_separate='별도'|'포함', current_biz=현 업종, tenant_until=임차인 만기.\n"
     "  rent_income=월세 합계, deposit_sum=보증금 합계(다가구·건물).\n"
+    "  ceiling_h=층고(m), power_kw=전기용량(kW) — 공장·창고. '층고 8m'→8, '전기 100kW'→100.\n"
+    "  maintenance_fee=관리비(원), loan_amount=융자금(원), parking=주차 대수,\n"
+    "  room_cnt=방 수, bath_cnt=욕실 수. '관리비 15만'→150000, '융자 3억'→300000000, '주차 1대'→1.\n"
+    "  ★ '권리금 없음'·'무권리'는 premium 을 **0** 으로 넣어라(비우지 마라).\n"
+    "    tenant_until 은 적힌 대로 담는다 — '2027-03', '2027년 3월', '내년 3월' 다 좋다.\n"
     "  ★ 잔금과 입주는 다른 것이다. '11월 잔금'·'잔금 11월말' 은 settle_ymd 에 넣고,\n"
     "    '즉시입주'·'빈집'·'세입자 만기 후' 처럼 언제 들어갈 수 있는지는 move_in 에 넣어라.\n"
     "\n[고객] 요건.kind=구함|내놓음, trade=매매|전세|월세.\n"
@@ -13749,13 +13766,39 @@ _QA_PROMPT = (
     "  문자·카톡이면 중개사 본인 발화('나')는 근거에서 뺀다.\n" + _QA_COMMON)
 
 
-def _qa_tidy(out: dict) -> dict:
+def _qa_tidy(out: dict, text: str = "") -> dict:
     """파싱 결과 손질 — 특징란에 같은 말이 되풀이되면 한 번만 남기고 짧게 자른다.
 
     프롬프트가 길어지자 모델이 '상가입니다.' 를 토큰 한도까지 되풀이해 응답이 통째로
     잘렸다(실측). 프롬프트·스키마로 눌러도 새는 길이 있어 결과에서 한 번 더 막는다.
     """
-    for r in (out or {}).get("매물") or []:
+    rows = (out or {}).get("매물") or []
+    # 매물이 하나뿐이면 원문과 대조해 빠뜨린 값을 되찾는다. 여럿이면 어느 매물의 것인지
+    # 알 수 없어 건드리지 않는다. 모델이 '1502호'·'임차인 만기'를 통째로 흘리는 일이 있다.
+    if len(rows) == 1 and text:
+        r0 = rows[0]
+        if not str(r0.get("ho") or "").strip():
+            hm = _re.search(r"(?<![\d\-])(\d{1,4})\s*호(?![\w])", text)
+            if hm:
+                r0["ho"] = hm.group(1) + "호"
+        if not str(r0.get("tenant_until") or "").strip():
+            tm = _re.search(r"(?:임차인|세입자)\s*만기\s*[:은는]?\s*"
+                            r"([0-9]{4}[-./년]\s*[0-9]{1,2}\s*월?|[0-9]{1,2}\s*월)", text)
+            if tm:
+                r0["tenant_until"] = tm.group(1).strip()
+    # '11월 잔금' 처럼 달만 적는 일이 많다. 연도를 붙여 둬야 정렬·매칭에 쓸 수 있다.
+    # 이미 지난 달이면 내년으로 읽는다 — 8월에 '3월 잔금'이라 하면 내년 3월이다.
+    import datetime as _d
+    _now = _d.datetime.utcnow() + _d.timedelta(hours=9)
+    for r in rows:
+        for k in ("settle_ymd", "move_in", "tenant_until"):
+            mm = _re.fullmatch(r"\s*(\d{1,2})\s*월(?:\s*(초|중|말))?\s*", str(r.get(k) or ""))
+            if mm:
+                mo = int(mm.group(1))
+                if 1 <= mo <= 12:
+                    y = _now.year + (1 if mo < _now.month else 0)
+                    r[k] = f"{y}-{mo:02d}" + (mm.group(2) or "")
+    for r in rows:
         # 모델이 빈 값을 문자열 'null' 로 내놓을 때가 있다 — 그대로 두면 주소가 'null' 이 된다
         for k, v in list(r.items()):
             if isinstance(v, str) and v.strip().lower() in ("null", "none", "undefined", "n/a"):
@@ -13820,12 +13863,12 @@ def _qa_parse(text: str) -> dict:
         )
         raw = (resp.text or "").strip()
         try:
-            return _qa_tidy(_json.loads(raw))
+            return _qa_tidy(_json.loads(raw), text)
         except ValueError as e:
             last = e
             fixed = _json_repair(raw)      # 끊긴 응답은 마지막 성한 곳까지 살려 본다
             if fixed is not None:
-                return _qa_tidy(fixed)
+                return _qa_tidy(fixed, text)
     raise last or ValueError("빈 응답")
 
 
@@ -14261,6 +14304,9 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
     """
     auto: dict = {}
     _qa_clean_dong(row)
+    # 표기를 여기서 한 번에 통일한다. 전에는 대장 조회에 쓸 때만 정규화해서
+    # 화면·저장에는 '502' 같은 맨 숫자가 남았다.
+    row["dong"], row["ho"] = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
     name = (row.get("complex_name") or "").strip()
     if not name:
         # 빌라·상가는 건물명 없이 지번만 적는 것이 보통이다 — 그것만으로도 대장을 본다
@@ -14419,6 +14465,12 @@ def _qa_clean_dong(row: dict) -> None:
     '1층' → 층으로 옮기고 동은 비운다. '부평동'(법정동)은 주소에 이미 있으니 지운다.
     이대로 두면 대장 조회에 dongNm='1층'/'부평동' 이 들어가 0건이 온다(실측).
     """
+    if not str(row.get("ho") or "").strip():
+        # 놓친 호가 특징란에 문장으로 남는 일이 있다('상가 1층 101호 임대' → feature_desc).
+        # 특징란에서만 회수한다 — 지번의 숫자를 호로 오인하지 않기 위해.
+        fm = _re.search(r"(?<![\d-])(\d{1,4})\s*호(?![\w])", str(row.get("feature_desc") or ""))
+        if fm:
+            row["ho"] = fm.group(1) + "호"
     d = str(row.get("dong") or "").strip()
     if not d:
         return
