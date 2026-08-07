@@ -13723,17 +13723,29 @@ def _qa_name_key(name: str) -> str:
     return k
 
 
+# 브랜드 표기 흔들림 — 한쪽만 적어도 반대쪽을 함께 찾는다. 실측에서 못 찾은 것들이다
+# (IPARK/아이파크, 더샾/더샵, e편한/이편한).
+_BRAND_ALIAS = [
+    ("이편한", "e편한"), ("더샾", "더샵"), ("thesharp", "더샵"), ("the샵", "더샵"),
+    ("ipark", "아이파크"), ("i파크", "아이파크"), ("prugio", "푸르지오"),
+    ("래미안", "raemian"), ("자이아파트", "자이"),
+]
+
+
 def _qa_name_variants(key: str) -> list:
     """같은 단지의 다른 표기들. DB 는 '용산e-편한세상', 사람은 '용산이편한세상'이라 적는다.
-    구분자를 뺀 열과 맞대기 위해 키 쪽도 구분자를 빼고 영문↔한글 표기를 서로 바꿔 본다."""
-    base = key.replace("-", "").replace(".", "").replace("·", "")
-    out = [base]
-    for a, b in (("이편한", "e편한"), ("e편한", "이편한"), ("더샵", "thesharp"), ("thesharp", "더샵"),
-                 ("아이파크", "ipark"), ("ipark", "아이파크")):
-        v = base.replace(a, b)
-        if v != base:
-            out.append(v)
-    return out
+    구분자·대소문자를 지우고 브랜드 표기를 양방향으로 바꿔 본다(두 번 돌려 연쇄 치환까지)."""
+    base = key.lower()
+    for ch in "-.·_ ":
+        base = base.replace(ch, "")
+    seen = {base}
+    for _ in range(2):
+        for v in list(seen):
+            for a, b in _BRAND_ALIAS:
+                for x, y in ((a, b), (b, a)):
+                    if x in v:
+                        seen.add(v.replace(x, y))
+    return list(seen)[:12]
 
 
 def _qa_match_complex(c, name: str, hint: str) -> tuple:
@@ -13755,8 +13767,9 @@ def _qa_match_complex(c, name: str, hint: str) -> tuple:
                 "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type IN ('sec','sigungu')").fetchall():
             if cname and len(cname) >= 2 and cname in hay:
                 prefixes.append(cno[:8] if len(cno) >= 10 else cno[:5])
-    # 이름에서 공백·하이픈·점을 뺀 열 — 표기 흔들림을 SQL 쪽에서도 흡수한다
-    NM = "REPLACE(REPLACE(REPLACE(REPLACE(complex_name,' ',''),'-',''),'.',''),'·','')"
+    # 이름에서 공백·구분자를 빼고 소문자로 맞춘 열 — 표기 흔들림을 SQL 쪽에서도 흡수한다
+    NM = ("LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(complex_name,' ',''),"
+          "'-',''),'.',''),'·',''),'_',''))")
     keys = _qa_name_variants(key)
     ph = ",".join("?" * len(keys))
     def _q(where, args, pfx=None):
@@ -13764,10 +13777,19 @@ def _qa_match_complex(c, name: str, hint: str) -> tuple:
         if pfx:
             w += " AND (" + " OR ".join(["cortar_no LIKE ?"] * len(pfx)) + ")"
             a += [p + "%" for p in pfx]
-        return c.execute(f"SELECT {cols} FROM complexes WHERE {w} LIMIT 12", a).fetchall()
+        # 흔한 이름('우성'·'삼익')은 후보가 수십 곳이다. 12곳에서 자르면 정답이 잘려 나가므로
+        # 30곳까지 보되 큰 단지부터 담는다 — 사람이 이름만 대는 단지는 대개 큰 단지다.
+        return c.execute(
+            f"SELECT {cols} FROM complexes WHERE {w} "
+            f"ORDER BY COALESCE(total_household_count,0) DESC LIMIT 30", a).fetchall()
+    # 완전일치는 '괄호만 다른 쌍'을 함께 본다. '신천역까사밀라'와 '신천역까사밀라(도시형)'이
+    # 따로 있는데 사람은 괄호를 안 친다 — 하나로 단정하면 남의 단지를 붙이게 된다.
+    exact = (f"{NM} IN ({ph}) OR "
+             + " OR ".join([f"{NM} LIKE ?"] * len(keys)))
+    exact_args = tuple(keys) + tuple(k + "(%" for k in keys)
     for pfx in ([prefixes] if prefixes else []) + [None]:
         for where, args in (
-                (f"{NM} IN ({ph})", tuple(keys)),
+                (exact, exact_args),
                 (" OR ".join([f"{NM} LIKE ?"] * len(keys)), tuple(k + "%" for k in keys)),
                 (" OR ".join([f"{NM} LIKE ?"] * len(keys)), tuple("%" + k + "%" for k in keys))):
             rows = _q(f"({where})", args, pfx)
