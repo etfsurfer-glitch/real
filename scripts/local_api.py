@@ -13615,13 +13615,19 @@ def lounge_private_list(user: dict = Depends(current_user)):
 # 입주월로, 호칭 '사장님'을 이름으로 잡는 조용한 오류). 그래서 모델을 쓰되
 # 스키마를 강제하고, 확신 낮은 항목은 따로 표시해 사람이 확인하게 한다.
 
+# 매물 유형은 우리가 쓰는 말로만 받는다. 자유 문자열로 두었더니 단지명('용산이편한세상')과
+# 사전에 없는 말('단독주택'·'농지')이 들어와 유형별 분기가 전부 어긋났다.
+_QA_TYPES = ["아파트", "오피스텔", "빌라", "단독", "상가", "사무실", "토지", "공장",
+             "건물", "지식산업센터", "재개발", "원룸", "분양권"]
+
 _QA_SCHEMA = {
     "type": "object",
     "properties": {
         "매물": {"type": "array", "items": {"type": "object", "properties": {
             "complex_name": {"type": "string"}, "address": {"type": "string"},
             "dong": {"type": "string"}, "ho": {"type": "string"},
-            "type": {"type": "string"}, "trade_type": {"type": "string"},
+            "type": {"type": "string", "enum": _QA_TYPES, "nullable": True},
+            "trade_type": {"type": "string"},
             "price": {"type": "integer", "nullable": True},
             "deposit": {"type": "integer", "nullable": True},
             "rent_price": {"type": "integer", "nullable": True},
@@ -13662,7 +13668,10 @@ _QA_COMMON = (
 _QA_PROMPT = (
     "부동산 중개사가 남긴 글이다. 매물 정보와 사람(고객) 정보가 **한 글에 섞여 있을 수 있다.**\n"
     "둘 다 뽑아라. 없는 쪽은 빈 배열로 둔다.\n"
-    "\n[매물] trade_type 은 매매|전세|월세. 매매가=price, 전세·월세 보증금=deposit, 월세=rent_price.\n"
+    "\n[매물] type 은 " + "|".join(_QA_TYPES) + " 중 하나다. 단지명을 여기 넣지 마라.\n"
+    "  '단독주택'→단독, '다세대'·'연립'·'신축빌라'→빌라, '농지'·'대지'→토지,"
+    "  '근린상가'·'점포'→상가 처럼 우리 말로 바꿔 넣어라. 모르겠으면 비워 둔다.\n"
+    "[매물] trade_type 은 매매|전세|월세. 매매가=price, 전세·월세 보증금=deposit, 월세=rent_price.\n"
     "  '25평' 처럼 평만 있으면 area2_m2 를 추정하지 마라(공급/전용 구분 불가). 비워 둔다.\n"
     "  ★ 잔금과 입주는 다른 것이다. '11월 잔금'·'잔금 11월말' 은 settle_ymd 에 넣고,\n"
     "    '즉시입주'·'빈집'·'세입자 만기 후' 처럼 언제 들어갈 수 있는지는 move_in 에 넣어라.\n"
@@ -13690,6 +13699,25 @@ _QA_PROMPT = (
     "  문자·카톡이면 중개사 본인 발화('나')는 근거에서 뺀다.\n" + _QA_COMMON)
 
 
+def _json_repair(raw: str):
+    """끊긴 JSON 을 마지막으로 성한 지점까지 잘라 살린다.
+
+    모델이 토큰 한도나 글리치로 응답을 중간에 끊는 일이 있다(실측 12건 중 3건).
+    한 글자도 못 쓰는 것보다 앞부분이라도 건지는 편이 낫다 — 확인 화면에서 사람이 본다.
+    """
+    if not raw:
+        return None
+    t = raw[raw.find("{"):] if "{" in raw else raw
+    for cut in range(len(t), max(len(t) - 4000, 0), -1):
+        frag = t[:cut].rstrip().rstrip(",")
+        for tail in ("", "}", "]}", "}]}", "\"}]}", "\"}}]}"):
+            try:
+                return _json.loads(frag + tail)
+            except ValueError:
+                continue
+    return None
+
+
 def _qa_parse(text: str) -> dict:
     """자연어 한 덩이 → 매물 + 고객. 나누어 받지 않는다.
 
@@ -13702,15 +13730,26 @@ def _qa_parse(text: str) -> dict:
     prompt, schema = _QA_PROMPT, _QA_SCHEMA
     import datetime as _dtm
     today = (_dtm.datetime.utcnow() + _dtm.timedelta(hours=9)).strftime("%Y-%m-%d")
-    resp = client.models.generate_content(
-        model=os.getenv("GEMINI_PARSE_MODEL", "gemini-2.5-flash"),
-        contents=f"{prompt}\n오늘은 {today}.\n\n{text[:6000]}",
-        config=_gt.GenerateContentConfig(
-            temperature=0, thinking_config=_gt.ThinkingConfig(thinking_budget=0),
-            response_mime_type="application/json", response_schema=schema,
-            max_output_tokens=8192),
-    )
-    return _json.loads(resp.text)
+    last = None
+    for attempt in range(3):
+        resp = client.models.generate_content(
+            model=os.getenv("GEMINI_PARSE_MODEL", "gemini-2.5-flash"),
+            contents=f"{prompt}\n오늘은 {today}.\n\n{text[:6000]}",
+            config=_gt.GenerateContentConfig(
+                temperature=0 if attempt == 0 else 0.2,
+                thinking_config=_gt.ThinkingConfig(thinking_budget=0),
+                response_mime_type="application/json", response_schema=schema,
+                max_output_tokens=8192),
+        )
+        raw = (resp.text or "").strip()
+        try:
+            return _json.loads(raw)
+        except ValueError as e:
+            last = e
+            fixed = _json_repair(raw)      # 끊긴 응답은 마지막 성한 곳까지 살려 본다
+            if fixed is not None:
+                return fixed
+    raise last or ValueError("빈 응답")
 
 
 # 사람이 부르는 단지명과 DB 이름은 다르다. '둔산동 한마루 아파트' 는 DB 에 '한마루럭키'·
@@ -14154,6 +14193,14 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
                 auto["complex_name"] = "단지 DB"
             row.setdefault("complex_no", str(cx[0]))
             auto["complex_no"] = "단지 DB"
+            # 유형을 말 안 하는 사람이 많다('한마루럭키 104동 1103호 매매 12억').
+            # 단지가 확정되면 그 단지의 종류로 채운다 — 유형별 분기가 여기에 달려 있다.
+            if not (row.get("type") or "").strip():
+                _rt = c.execute("SELECT real_estate_type FROM complexes WHERE complex_no=?",
+                                (str(cx[0]),)).fetchone()
+                kor = _RET_KOR.get((_rt[0] if _rt else "") or "")
+                if kor:
+                    row["type"] = kor; auto["type"] = "단지 DB"
             if cx[6] and not row.get("address"):
                 row["address"] = cx[6]; auto["address"] = "단지 DB"
             elif row.get("address") and cx[1]:
