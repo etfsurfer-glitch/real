@@ -15352,6 +15352,131 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
     return {"ok": True, "listings": len(listing_ids), "customers": saved}
 
 
+# ── 빌라·다세대 — 지번으로 등록한다 ──────────────────────────────────────────
+# 빌라는 단지가 없다. 중개사는 '화곡동 123-45' 처럼 지번을 적고 그 건물의 몇 호인지를 고른다.
+# 그래서 단지명이 아니라 주소에서 출발해 건축물대장의 호 목록을 가져오는 길이 따로 필요하다.
+_ADDR_JIBUN = _re.compile(r"(?:^|\s)(산?\d+(?:-\d+)?)\s*(?:번지)?\s*$")
+# 사람은 '서울'이라 적고 regions 에는 '서울특별시'로 들어 있다
+_SIDO_LONG = {"서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시", "인천": "인천광역시",
+              "광주": "광주광역시", "대전": "대전광역시", "울산": "울산광역시", "세종": "세종특별자치시",
+              "경기": "경기도", "강원": "강원특별자치도", "충북": "충청북도", "충남": "충청남도",
+              "전북": "전북특별자치도", "전남": "전라남도", "경북": "경상북도", "경남": "경상남도",
+              "제주": "제주특별자치도"}
+
+
+def _addr_to_cortar(c, addr: str) -> tuple:
+    """'서울 강서구 화곡동 123-45' → (법정동코드, '123-45'). 못 풀면 (None, None).
+
+    같은 동 이름이 여러 시군구에 있으므로 앞에 적힌 시도·시군구로 좁힌다.
+    """
+    a = (addr or "").strip()
+    m = _ADDR_JIBUN.search(a)
+    if not m:
+        return None, None
+    jibun = m.group(1)
+    head = a[:m.start()].strip()
+    toks = [t for t in head.split() if t]
+    if not toks:
+        return None, None
+    dong = toks[-1]
+    rows = c.execute("SELECT cortar_no FROM regions WHERE cortar_name=? AND cortar_type='sec'",
+                     (dong,)).fetchall()
+    if not rows:
+        return None, None
+    if len(rows) > 1 and len(toks) > 1:
+        # 앞 토막(시도·시군구)으로 좁힌다 — '화곡동'은 하나지만 '중앙동'은 전국에 많다
+        names = {}
+        # 우리 regions 의 상위 단위는 city(시도)·dvsn(시군구) 이다
+        for r in c.execute("SELECT cortar_no, cortar_name FROM regions "
+                           "WHERE cortar_type IN ('city','dvsn')"):
+            names.setdefault(r[1], []).append(r[0])
+        pref = []
+        for t in toks[:-1]:
+            hit = names.get(t) or names.get(_SIDO_LONG.get(t, t)) or []
+            for cn in hit:
+                pref.append(cn[:2] if cn.endswith("00000000") else cn[:5])
+        if pref:
+            narrowed = [r for r in rows if any(r[0].startswith(p) for p in pref)]
+            if narrowed:
+                rows = narrowed
+    if len(rows) != 1:
+        return None, None
+    return rows[0][0], jibun
+
+
+@app.get("/lounge/addr-units")
+def lounge_addr_units(addr: str, user: dict = Depends(current_user)):
+    """지번 주소 → 그 건물의 동·호 목록과 건물 정보(건축물대장).
+
+    빌라 등록의 출발점이다. 호를 고르면 전용면적·층이 따라온다.
+    """
+    with _reviews_db() as rc:
+        _require_member(rc, user["id"])
+    with _open_db() as d:
+        cortar, jibun = _addr_to_cortar(d, addr)
+    if not cortar:
+        raise HTTPException(400, "지번을 못 읽었어요. '화곡동 123-45' 처럼 동과 번지를 적어 주세요.")
+    units = _br_units(cortar, jibun)
+    if units is None:
+        raise HTTPException(502, "건축물대장을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.")
+    title = _qa_title(cortar, jibun, "") or {}
+    return {"cortar_no": cortar, "jibun": jibun, "units": units,
+            "building": title, "count": len(units)}
+
+
+def _br_units(cortar_no: str, jibun: str) -> list | None:
+    """그 지번의 전유부 전체 — [{dong, ho, area_m2, floor, purpose}]. 실패는 None.
+
+    한 지번에 빌라 한 동인 경우가 대부분이라 동은 비어 오기도 한다. 그대로 둔다.
+    """
+    from collector.ondemand_ledger import _parse_jibun
+    import urllib.parse as _up, urllib.request as _ur
+    import xml.etree.ElementTree as _ET
+    parsed = _parse_jibun(cortar_no, jibun)
+    key = (os.getenv("DATA_GO_KR_SERVICE_KEY") or "").split(",")[0].strip()
+    if not parsed or not key:
+        return None
+    sgg, plat, bun, ji, bjd = parsed
+    qs = _up.urlencode({"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
+                        "bun": bun, "ji": ji, "numOfRows": "300", "pageNo": "1",
+                        "_type": "xml"}, safe="%")
+    url = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo?" + qs
+    root = None
+    for attempt in range(4):
+        try:
+            with _ur.urlopen(url, timeout=15) as r:
+                root = _ET.fromstring(r.read())
+            break
+        except Exception:  # noqa: BLE001
+            if attempt < 3:
+                import time as _t
+                _t.sleep(1.2 * (attempt + 1))
+                continue
+            return None
+    g = lambda it, t: (it.findtext(t) or "").strip()   # noqa: E731
+    out, seen = [], set()
+    for it in root.findall(".//item"):
+        # 전유(exposPubuseGbCdNm='전유')만 — 공용부(계단·주차장)는 매물이 아니다
+        if g(it, "exposPubuseGbCdNm") not in ("전유", ""):
+            continue
+        ho = g(it, "hoNm")
+        if not ho:
+            continue
+        k = (g(it, "dongNm"), ho)
+        if k in seen:
+            continue
+        seen.add(k)
+        try:
+            area = round(float(g(it, "area") or 0), 2) or None
+        except ValueError:
+            area = None
+        out.append({"dong": g(it, "dongNm") or None, "ho": ho, "area_m2": area,
+                    "floor": g(it, "flrNoNm") or None, "purpose": g(it, "etcPurps") or None,
+                    "bld_name": g(it, "bldNm") or None})
+    out.sort(key=lambda x: (x["dong"] or "", len(x["ho"]), x["ho"]))
+    return out
+
+
 @app.post("/lounge/listing-enrich")
 def lounge_listing_enrich(body: dict, user: dict = Depends(current_user)):
     """단지+동+호 → 건축물대장·단지 DB 로 빈칸을 채워 돌려준다. **저장하지 않는다.**

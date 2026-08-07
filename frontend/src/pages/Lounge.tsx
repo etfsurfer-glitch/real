@@ -2125,6 +2125,83 @@ function T({ f, set, k, label, ...rest }: any) {
 
 // 단지가 없는 유형 — 이름을 단지 목록에서 찾으면 안 된다('상가'라는 이름의 단지가 실제로 있다)
 const PL_NO_COMPLEX = ["상가", "사무실", "단독", "토지", "공장", "건물", "지식산업센터"];
+// 지번으로 등록하는 유형 — 빌라는 단지가 없어 '화곡동 123-45' 를 적고 그 건물 몇 호인지를 고른다
+const PL_ADDR_FIRST = [...PL_NO_COMPLEX, "빌라", "원룸", "재개발"];
+
+/** 지번 칸 — 주소를 적으면 건축물대장에서 그 건물의 호 목록을 가져와 고르게 한다.
+ *  호를 고르면 건물명·전용면적·층·준공이 따라온다. 빌라 등록의 출발점이다. */
+function PLAddr({ f, setF, authH }: any) {
+  const [units, setUnits] = useState<any[]>([]);
+  const [bld, setBld] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const addr = f.address || "";
+  const asked = useRef("");
+
+  useEffect(() => {
+    const a = addr.trim();
+    if (a.length < 6 || asked.current === a) return;
+    let dead = false;
+    const t = setTimeout(async () => {
+      asked.current = a;
+      setBusy(true); setMsg("");
+      try {
+        const r = await fetch(`${API_BASE}/lounge/addr-units?addr=${encodeURIComponent(a)}`,
+                              { headers: authH() });
+        const d = await r.json();
+        if (dead) return;
+        if (!r.ok) throw new Error(d?.detail || "조회 실패");
+        setUnits(d.units || []); setBld(d.building || null);
+        // 표제부는 호를 안 골라도 쓸 수 있다 — 총층수·준공은 광고 필수항목이다
+        setF((s: any) => ({ ...s,
+          total_floor: s.total_floor || d.building?.total_floor || null,
+          approve_ymd: s.approve_ymd || d.building?.use_apr || null }));
+        setMsg((d.units || []).length
+          ? `건축물대장에서 ${d.units.length}개 호를 찾았어요. 해당 호를 고르세요.`
+          : "이 지번에는 등기된 호가 없어요(단독·다가구일 수 있어요). 나머지는 직접 적어 주세요.");
+      } catch (e: any) {
+        if (!dead) { setUnits([]); setBld(null); setMsg(e.message || "조회 실패"); }
+      } finally { if (!dead) setBusy(false); }
+    }, 700);
+    return () => { dead = true; clearTimeout(t); };
+  }, [addr]);
+
+  const pick = (u: any) => setF((s: any) => ({ ...s,
+    dong: u.dong || s.dong, ho: u.ho,
+    area2_m2: u.area_m2 ?? s.area2_m2,
+    floor_info: u.floor ? String(u.floor).replace("층", "") : s.floor_info,
+    complex_name: s.complex_name || u.bld_name || null }));
+
+  return (
+    <>
+      <label className="pl-f pl-cx wide"><span>지번 주소</span>
+        <input className="ai-input" value={addr} placeholder="예: 서울 강서구 화곡동 123-45"
+          onChange={(e) => setF((s: any) => ({ ...s, address: e.target.value }))} />
+        {busy && <i className="pl-cxok busy"><Loader2 size={11} className="txm-spin" /></i>}
+      </label>
+      {msg && <p className={"pl-addrmsg" + (units.length ? "" : " bad")}>{msg}</p>}
+      {bld?.total_floor && (
+        <p className="pl-addrmsg">
+          {[bld.bld_name, bld.struct, bld.total_floor ? `지상 ${bld.total_floor}층` : null,
+            bld.use_apr ? `${String(bld.use_apr).slice(0, 4)}년 준공` : null,
+            bld.households ? `${bld.households}세대` : null].filter(Boolean).join(" · ")}
+        </p>
+      )}
+      {units.length > 0 && (
+        <div className="pl-units">
+          {units.map((u) => (
+            <button type="button" key={`${u.dong || ""}-${u.ho}`}
+              className={f.ho === u.ho && (!u.dong || f.dong === u.dong) ? "on" : ""}
+              onClick={() => pick(u)}>
+              <b>{[u.dong, u.ho].filter(Boolean).join(" ")}</b>
+              <span>{[u.area_m2 ? `${u.area_m2}㎡` : null, u.floor].filter(Boolean).join(" · ")}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 /** 단지 칸 — 적는 즉시 찾아 확정한다. 이름만 남기면 같은 단지가 표기마다 갈려
  *  폴더도 매칭도 흩어진다. 후보가 여럿일 때만 고르게 한다(고객 요건과 같은 방식). */
@@ -2370,7 +2447,9 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
               <option value="">선택 안 함</option>
               {PL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select></label>
-          <PLComplex f={f} setF={setF} authH={authH} />
+          {PL_ADDR_FIRST.includes(f.type || "")
+            ? <PLAddr f={f} setF={setF} authH={authH} />
+            : <PLComplex f={f} setF={setF} authH={authH} />}
           <T f={f} set={set} k="dong" label="동" placeholder="104" />
           <T f={f} set={set} k="ho" label="호" placeholder="1103" />
           <PLMoney f={f} setF={setF} k="price" label="매매가·보증금" />
