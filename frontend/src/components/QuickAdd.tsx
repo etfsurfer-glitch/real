@@ -73,10 +73,17 @@ const L_FIELDS: [string, string | ((r: ListingRow) => string), FType, string?][]
   ["deposit", "보증금", "money"],
   ["rent_price", "월세", "money"],
   ["area2_m2", "전용", "num", "㎡"],
+  ["land_area_m2", "대지", "num", "㎡"],
+  ["total_area_m2", "연면적", "num", "㎡"],
   ["floor", "층", "num", "층"],
   ["room_cnt", "방", "num", "개"],
   ["bath_cnt", "욕실", "num", "개"],
   ["direction", "향", "text"],
+  ["land_category", "지목", "text"],
+  ["land_use", "용도지역", "text"],
+  ["premium", "권리금", "money"],
+  ["ceiling_h", "층고", "num", "m"],
+  ["power_kw", "전기", "num", "kW"],
   ["settle_ymd", "잔금시기", "text"],
   ["move_in", "입주가능", "text"],
   ["maintenance_fee", "관리비", "money"],
@@ -99,7 +106,38 @@ const N_FIELDS: [string, string, FType][] = [
 // 유형을 못 읽었을 때만 물어본다. 유형에 따라 단지 매칭 여부·건축물대장 조회 경로·
 // 광고 필수항목이 갈리므로 비어 있으면 뒤가 전부 어긋난다. 대개는 문장이나 단지 DB 에서
 // 채워지므로 이 칩은 잘 안 뜬다 — 늘 고르게 하면 손만 늘어난다.
-const QA_TYPES = ["아파트", "오피스텔", "빌라", "원룸", "단독", "상가", "사무실", "토지"];
+const QA_TYPES = ["아파트", "오피스텔", "빌라", "원룸", "단독", "상가", "사무실",
+                  "토지", "공장", "건물", "지식산업센터", "재개발", "분양권"];
+
+// 유형마다 뜻이 있는 칸이 다르다. 토지에 방·욕실·향을 보여 주면 영영 안 채워지고,
+// 상가에 권리금 칸이 없으면 적을 곳이 없다.
+// 주거(아파트·오피스텔·빌라·원룸·재개발·분양권)는 여기 없다 — 아래 NONRESI_ONLY 만 숨긴다.
+const T_HIDE: Record<string, string[]> = {
+  토지:  ["dong", "ho", "area2_m2", "total_area_m2", "floor", "room_cnt", "bath_cnt",
+         "direction", "maintenance_fee", "approve_ymd", "premium", "ceiling_h", "power_kw"],
+  상가:  ["room_cnt", "bath_cnt", "direction", "land_category", "ceiling_h", "power_kw",
+         "land_area_m2", "total_area_m2"],
+  사무실: ["room_cnt", "bath_cnt", "direction", "land_category", "land_use", "ceiling_h",
+         "power_kw", "land_area_m2", "total_area_m2"],
+  지식산업센터: ["room_cnt", "bath_cnt", "direction", "land_category", "premium",
+             "land_area_m2", "total_area_m2"],
+  단독:  ["dong", "ho", "area2_m2", "premium", "ceiling_h", "power_kw", "land_category"],
+  공장:  ["dong", "ho", "room_cnt", "bath_cnt", "direction", "premium", "area2_m2"],
+  건물:  ["dong", "ho", "room_cnt", "bath_cnt", "direction", "premium", "ceiling_h",
+         "power_kw", "area2_m2"],
+};
+// 비주거에서만 쓰는 칸 — 주거 매물에는 보이지 않는다
+const NONRESI_ONLY = ["land_area_m2", "total_area_m2", "land_category", "land_use",
+                      "premium", "ceiling_h", "power_kw"];
+
+/** 이 유형에서 이 칸을 보여 줄까. 값이 이미 있으면 무조건 보인다 —
+ *  사람이 적었거나 대장이 채운 것을 숨기면 안 된다. */
+function showField(r: ListingRow, k: string): boolean {
+  if (r[k] !== null && r[k] !== undefined && r[k] !== "") return true;
+  const t = (r.type || "").trim();
+  if (!(t in T_HIDE)) return !NONRESI_ONLY.includes(k);   // 주거 또는 유형 모름
+  return !T_HIDE[t].includes(k);
+}
 
 // 소유자 호칭은 거래유형에 따라 달라진다. 전세·월세 물건의 소유자는 매도인이 아니라 임대인이다.
 // 거래를 모를 때만 중립어(소유자)를 쓴다 — 기존 매물장 폼과 같은 말.
@@ -332,7 +370,8 @@ export default function QuickAdd({ authH, onSaved }: {
                 <Building2 size={13} /> 매물 {i + 1}
               </label>
               <div className="qadd-fields">
-                {L_FIELDS.filter(([k]) => showAll || (r[k] !== null && r[k] !== undefined && r[k] !== ""))
+                {L_FIELDS.filter(([k]) => showField(r, k))
+                  .filter(([k]) => showAll || (r[k] !== null && r[k] !== undefined && r[k] !== ""))
                   .map(([k, label, type, unit]) => (
                     <Cell key={k} label={typeof label === "function" ? label(r) : label}
                       type={type} unit={unit} value={r[k]} auto={r._auto?.[k]}

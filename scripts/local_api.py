@@ -13373,10 +13373,19 @@ _PL_FIELDS = [
     "move_in", "settle_ymd", "approve_ymd", "parking", "elevator", "pets", "heating",
     "options", "feature_desc", "memo", "contact", "owner_name", "owner_tel",
     "manager", "tags", "confirm_ymd", "lat", "lng",
+    # 비주거 — 주거 기준 칸만으로는 토지·상가·공장을 담을 수 없다
+    "land_area_m2",    # 대지면적 — 단독·토지·공장·건물
+    "total_area_m2",   # 연면적 — 단독·건물·공장
+    "land_category",   # 지목 — 토지(대·전·답·임야…)
+    "land_use",        # 용도지역 — 토지·상가·공장(제1종일반주거·상업…)
+    "premium",         # 권리금 — 상가·사무실
+    "ceiling_h",       # 층고(m) — 공장·창고
+    "power_kw",        # 전기용량(kW) — 공장
 ]
 _PL_NUM = {"area1_m2", "area2_m2", "area_py", "price", "rent_price", "deposit",
            "maintenance_fee", "loan_amount", "floor", "total_floor", "room_cnt",
-           "bath_cnt", "parking", "lat", "lng"}
+           "bath_cnt", "parking", "lat", "lng",
+           "land_area_m2", "total_area_m2", "premium", "ceiling_h", "power_kw"}
 
 
 def _ensure_private_listings(c) -> None:
@@ -13400,7 +13409,9 @@ def _ensure_private_listings(c) -> None:
     # (CREATE TABLE IF NOT EXISTS 는 기존 테이블에 no-op 이라, 새 컬럼을 참조하는 인덱스를
     #  같은 스크립트에 두면 'no such column' 으로 터진다.)
     have = {r[1] for r in c.execute("PRAGMA table_info(private_listings)")}
-    for col in ("source_article_no", "source_saved_at", "lat", "lng", "settle_ymd"):
+    for col in ("source_article_no", "source_saved_at", "lat", "lng", "settle_ymd",
+                "land_area_m2", "total_area_m2", "land_category", "land_use",
+                "premium", "ceiling_h", "power_kw"):
         if col not in have:
             c.execute(f"ALTER TABLE private_listings ADD COLUMN {col} TEXT")
     c.execute("CREATE INDEX IF NOT EXISTS pl_src ON private_listings(realtor_id, source_article_no)")
@@ -13632,6 +13643,10 @@ _QA_SCHEMA = {
             "deposit": {"type": "integer", "nullable": True},
             "rent_price": {"type": "integer", "nullable": True},
             "area2_m2": {"type": "number", "nullable": True},
+            "land_area_m2": {"type": "number", "nullable": True},
+            "total_area_m2": {"type": "number", "nullable": True},
+            "land_category": {"type": "string"}, "land_use": {"type": "string"},
+            "premium": {"type": "integer", "nullable": True},
             "floor": {"type": "integer", "nullable": True},
             "direction": {"type": "string"}, "move_in": {"type": "string"},
             "settle_ymd": {"type": "string"},
@@ -13669,10 +13684,22 @@ _QA_PROMPT = (
     "부동산 중개사가 남긴 글이다. 매물 정보와 사람(고객) 정보가 **한 글에 섞여 있을 수 있다.**\n"
     "둘 다 뽑아라. 없는 쪽은 빈 배열로 둔다.\n"
     "\n[매물] type 은 " + "|".join(_QA_TYPES) + " 중 하나다. 단지명을 여기 넣지 마라.\n"
-    "  '단독주택'→단독, '다세대'·'연립'·'신축빌라'→빌라, '농지'·'대지'→토지,"
-    "  '근린상가'·'점포'→상가 처럼 우리 말로 바꿔 넣어라. 모르겠으면 비워 둔다.\n"
+    "  '단독주택'→단독, '다세대'·'연립'·'신축빌라'→빌라, '농지'·'대지'→토지,\n"
+    "  '근린상가'·'점포'→상가, '통건물'·'빌딩'·'상가주택'→건물, '오피스'→사무실,\n"
+    "  '투룸'·'쓰리룸'·'고시원'→원룸, '아파트분양권'·'입주권'→분양권 처럼 우리 말로 바꿔라.\n"
+    "  글에 '원룸'·'통건물' 처럼 유형이 적혀 있으면 반드시 그 유형을 넣어라. 모르겠을 때만 비운다.\n"
+    "  ★ address 는 지번·도로명 주소만 넣어라. 동·호는 dong·ho 로 나눠 담는다.\n"
+    "    '802호'는 ho 다(dong 이 아니다). 동은 '104동' 처럼 棟 을 가리킬 때만 쓴다.\n"
+    "  ★ 가격·면적·층·관리비는 반드시 그 칸에 숫자로 넣어라. feature_desc 에 문장으로\n"
+    "    옮겨 적지 마라 — 칸이 비면 매물장에서 쓸 수 없다. feature_desc 는 칸에 없는\n"
+    "    특징(올수리·급매·역세권)만 담는다.\n"
     "[매물] trade_type 은 매매|전세|월세. 매매가=price, 전세·월세 보증금=deposit, 월세=rent_price.\n"
     "  '25평' 처럼 평만 있으면 area2_m2 를 추정하지 마라(공급/전용 구분 불가). 비워 둔다.\n"
+    "  ★ 유형에 따라 면적이 다른 것을 가리킨다. 아파트·빌라·상가·사무실은 전용면적=area2_m2,\n"
+    "    토지는 대지면적=land_area_m2, 단독·건물·공장은 대지=land_area_m2 와 연면적=total_area_m2 다.\n"
+    "    '대지 60평'→land_area_m2 198.3, '연면적 120평'→total_area_m2 396.7 (평×3.3058).\n"
+    "  ★ land_category 는 지목(대·전·답·임야·잡종지), land_use 는 용도지역(제1종일반주거·상업 등).\n"
+    "    premium 은 권리금(원). '권리금 없음'이면 0 을 넣어라.\n"
     "  ★ 잔금과 입주는 다른 것이다. '11월 잔금'·'잔금 11월말' 은 settle_ymd 에 넣고,\n"
     "    '즉시입주'·'빈집'·'세입자 만기 후' 처럼 언제 들어갈 수 있는지는 move_in 에 넣어라.\n"
     "\n[고객] 요건.kind=구함|내놓음, trade=매매|전세|월세.\n"
@@ -14326,6 +14353,16 @@ def _qa_clean_dong(row: dict) -> None:
     addr = str(row.get("address") or "")
     if d.endswith(("동", "읍", "면", "리", "가")) and d in addr and not _re.match(r"^\d", d):
         row["dong"] = None
+        return
+    h = str(row.get("ho") or "").strip()
+    if h in ("호", "동"):                     # '802호'를 나누다 남은 쓰레기
+        row["ho"] = h = ""
+    # 棟 은 '104동' 처럼 단위를 붙여 쓴다. 숫자만 있으면 대개 호를 동 칸에 넣은 것이다.
+    if _re.fullmatch(r"\d+", d):
+        if not h:
+            row["dong"], row["ho"] = None, d          # '802' → 호
+        elif h.rstrip("호") == d:
+            row["dong"] = None                        # '201' + '201호' — 같은 것이 두 번
 
 
 def _qa_norm_dong_ho(dong, ho):
