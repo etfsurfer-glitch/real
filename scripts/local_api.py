@@ -13711,6 +13711,9 @@ _QA_NAME_TAIL = ("아파트", "APT", "apt")   # 타운·단지는 이름의 일�
 # 단지가 없는 유형 — 상가·사무실·단독은 '단지'라는 개념이 없어 단지 DB·건축물대장을
 # 이름으로 뒤지면 안 된다('상가'라는 이름의 실제 단지가 있어 준공일까지 붙었다).
 _QA_NON_COMPLEX = ("상가", "사무실", "단독", "다가구", "토지", "공장", "빌딩", "창고", "지식산업센터")
+# 빌라류는 단지가 있기도 하지만 사람은 지번으로 특정한다. 단지 코드는 붙이되(시세 비교에 쓴다)
+# 건축물대장은 사람이 적은 지번으로 본다 — 한 지번에 여러 빌라가 서로 다른 이름으로 있다.
+_QA_JIBUN_FIRST = ("빌라", "연립", "다세대", "원룸", "도시형생활주택")
 # 유형 이름 자체가 단지명 자리에 온 것 — 단지명이 아니다
 _QA_NOT_A_NAME = set(_QA_NON_COMPLEX) | {"아파트", "오피스텔", "빌라", "연립", "다세대", "원룸", "주택", "분양권"}
 
@@ -14049,6 +14052,43 @@ def _qa_pick_by_ledger(cands, dong, ho):
     return None, bld
 
 
+def _enrich_by_jibun(row: dict, auto: dict) -> dict:
+    """지번으로 건축물대장을 본다 — 단지가 없거나 못 가렸을 때의 길.
+
+    단지가 확정된 매물에는 쓰지 않는다. 단지의 지번이 더 정확하고, 사람이 적은 주소가
+    그 단지와 다를 수 있어서다(그 어긋남은 아래 _jibun_conflict 가 따로 알린다).
+    """
+    addr = (row.get("address") or "").strip()
+    if not addr:
+        return auto
+    try:
+        with _open_db() as d:
+            cortar, jibun = _addr_to_cortar(d, addr)
+        if not cortar:
+            return auto
+        dong, ho = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
+        if ho:
+            led = _qa_expos(cortar, jibun, dong or "", ho)   # 동 없이 호만으로도 찾는다
+            if led:
+                if led.get("area") and not row.get("area2_m2"):
+                    row["area2_m2"] = led["area"]; auto["area2_m2"] = "건축물대장 전유부"
+                if led.get("floor") and not row.get("floor"):
+                    row["floor"] = led["floor"]; auto["floor"] = "건축물대장 전유부"
+                row["dong"], row["ho"] = dong or row.get("dong"), ho
+        ttl = _qa_title(cortar, jibun, dong or "")
+        if ttl:
+            if ttl.get("total_floor") and not row.get("total_floor"):
+                row["total_floor"] = ttl["total_floor"]; auto["total_floor"] = "건축물대장 표제부"
+            if ttl.get("use_apr") and not row.get("approve_ymd"):
+                row["approve_ymd"] = ttl["use_apr"]; auto["approve_ymd"] = "건축물대장 표제부"
+            if ttl.get("elevator") is not None and not row.get("elevator"):
+                row["elevator"] = "있음" if ttl["elevator"] else ""
+                auto["elevator"] = "건축물대장 표제부"
+    except Exception:  # noqa: BLE001
+        pass
+    return auto
+
+
 def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
     """단지명+동+호 → 건축물대장·우리 단지 DB 로 빈칸을 채운다(설계안 §4-2).
 
@@ -14064,9 +14104,9 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
         row["complex_name"] = None
         row["_note"] = f"'{name}' 은 단지명이 아니라 매물 유형이에요. 건물명이 있으면 적어 주세요."
         return auto
-    # 상가·사무실·단독은 단지가 없다 — 주소로 다루고 단지 매칭은 하지 않는다
+    # 상가·사무실·단독은 단지가 없다 — 지번으로 대장을 본다
     if (row.get("type") or "") in _QA_NON_COMPLEX:
-        return auto
+        return _enrich_by_jibun(row, auto)
     try:
         with _open_db() as c:
             hint = " ".join(str(row.get(k) or "") for k in ("address", "address_detail", "memo"))
@@ -14088,7 +14128,9 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
                 if cands:
                     row["_complex_cands"] = [
                         {"complex_no": str(r[0]), "name": r[1], "region": r[3] or ""} for r in cands]
-                return auto
+                # 단지를 못 가려도 지번이 있으면 그것으로 채운다 — 근거가 지번뿐일 뿐
+                # 아무것도 못 채우는 것보다 낫다. 단지가 확정된 경우엔 여기 오지 않는다.
+                return _enrich_by_jibun(row, auto)
             cx = (hit[0], hit[2], hit[3], hit[4], hit[5], hit[6], hit[7], hit[8])
             if hit[1] and _qa_name_key(hit[1]) != _qa_name_key(name):
                 row["complex_name"] = hit[1]      # DB 정식 명칭으로 맞춘다
@@ -14097,18 +14139,32 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
             auto["complex_no"] = "단지 DB"
             if cx[6] and not row.get("address"):
                 row["address"] = cx[6]; auto["address"] = "단지 DB"
+            elif row.get("address") and cx[1]:
+                # 적은 지번이 그 단지의 법정동과 다르면 둘 중 하나가 틀린 것이다
+                cor2, _jb = _addr_to_cortar(c, row["address"])
+                if cor2 and str(cor2) != str(cx[1]):
+                    row["_note"] = (f"적으신 주소({row['address']})는 '{row.get('complex_name')}' "
+                                    f"단지의 지번과 달라요. 단지나 주소 중 하나를 확인해 주세요.")
             if cx[3] and not row.get("approve_ymd"):
                 row["approve_ymd"] = cx[3]; auto["approve_ymd"] = "단지 DB"
             if cx[4] and not row.get("parking"):
                 row["parking"] = cx[4]; auto["parking"] = "단지 DB(세대당)"
+            # 대장을 어느 지번으로 볼지 — 아파트는 단지 지번이 정확하고,
+            # 빌라는 사람이 적은 지번이 정확하다
+            led_cor, led_addr = cx[1], cx[2]
+            if (row.get("type") or "") in _QA_JIBUN_FIRST and row.get("address"):
+                _c2, _j2 = _addr_to_cortar(c, row["address"])
+                if _c2:
+                    led_cor, led_addr = _c2, _j2
             # 동·호가 있으면 건축물대장 전유부로 전용면적·층을 확정한다
             dong, ho = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
-            if dong and ho and not (cx[1] and cx[2]):
+            if ho and not (led_cor and led_addr):
                 row["_note"] = "이 단지는 지번이 없어 건축물대장을 조회할 수 없어요"
-            if dong and ho and cx[1] and cx[2]:
-                led = _qa_expos(cx[1], cx[2], dong, ho)
+            if ho and led_cor and led_addr:
+                led = _qa_expos(led_cor, led_addr, dong or "", ho)
                 if not led:
-                    row["_note"] = f"건축물대장에서 {dong} {ho} 를 못 찾았어요. 동·호를 확인해 주세요"
+                    row["_note"] = (f"건축물대장에서 {' '.join(x for x in (dong, ho) if x)} 를 "
+                                    f"못 찾았어요. 동·호를 확인해 주세요")
                 if led:
                     if led.get("area") and not row.get("area2_m2"):
                         row["area2_m2"] = led["area"]; auto["area2_m2"] = "건축물대장 전유부"
@@ -14117,7 +14173,7 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
                     row["dong"], row["ho"] = dong, ho
                 # 총 층수는 법정 명시사항인데 전유부에 없다 — 표제부에서 가져온다
                 if not row.get("total_floor"):
-                    ttl = _qa_title(cx[1], cx[2], dong)
+                    ttl = _qa_title(led_cor, led_addr, dong)
                     if ttl:
                         if ttl.get("total_floor"):
                             row["total_floor"] = ttl["total_floor"]; auto["total_floor"] = "건축물대장 표제부"
@@ -14272,9 +14328,12 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
     ho_forms = [ho, ho + "호"] if not str(ho).endswith("호") else [ho, str(ho)[:-1]]
     base = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo?"
     for hf in ho_forms:
-        qs = _up.urlencode({"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd,
-                            "platGbCd": plat, "bun": bun, "ji": ji, "dongNm": dong,
-                            "hoNm": hf, "numOfRows": "20", "pageNo": "1", "_type": "xml"}, safe="%")
+        prm = {"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd,
+               "platGbCd": plat, "bun": bun, "ji": ji,
+               "hoNm": hf, "numOfRows": "20", "pageNo": "1", "_type": "xml"}
+        if dong:                      # 빌라는 동이 없다 — 빈 값을 보내면 0건이 온다
+            prm["dongNm"] = dong
+        qs = _up.urlencode(prm, safe="%")
         for attempt in range(4):
             try:
                 with _ur.urlopen(base + qs, timeout=12) as r:
