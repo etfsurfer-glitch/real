@@ -13821,7 +13821,10 @@ def _qa_tokens(raw: str) -> list:
     만들어 버려 이름이 통째로 사라졌다(실측: '아산배방3동부' 가 엉뚱한 단지에 붙음).
     """
     out = []
-    for t in _re.split(r"(\d+)", _sql_lower(raw)):
+    flat = _sql_lower(raw)
+    for ch in "-.·_ ":                                # name_norm 과 같은 규칙으로 눕힌다
+        flat = flat.replace(ch, "")
+    for t in _re.split(r"(\d+)", flat):
         if not t:
             continue
         if not t.isdigit():
@@ -13957,7 +13960,7 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
     # 부분일치는 짧은 조각이 긴 이름 속에 우연히 들어 있어도 통과한다
     # ('현데' 가 '시흥장현데시앙' 에 붙었다). 친 글자가 절반은 설명하게 한다.
     hit, cands, why = _try(" OR ".join(["name_norm LIKE ?"] * len(allkeys)),
-                           tuple("%" + k + "%" for k in allkeys), 0.5)
+                           tuple("%" + k + "%" for k in allkeys), 0.6)
     if hit or cands:
         return hit, cands or [], why or ""
     # 마지막 — 토막을 순서 없이 모두 품은 이름. '분성마을4단지한솔솔파크'를 사람은
@@ -13990,14 +13993,19 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
         for k in dict.fromkeys(sum((_qa_name_variants(r) for r in rounds), [])):
             bare = _re.sub(r"\(.*$", "", k) or k     # 색인은 괄호 뗀 이름(name_bare)이다
             cand += _pho_index(c).get(_pho_key(bare), [])
-        cand = list(dict.fromkeys(cand))[:30]
+        cand = list(dict.fromkeys(cand))
         if cand:
-            rows = c.execute(
-                f"SELECT {cols} FROM complexes WHERE complex_no IN "
-                f"({','.join('?' * len(cand))}) "
-                f"ORDER BY COALESCE(total_household_count,0) DESC", cand).fetchall()
+            rows = []
+            for i in range(0, len(cand), 400):        # IN 목록이 길어질 수 있어 나눠 조회
+                part = cand[i:i + 400]
+                rows += c.execute(
+                    f"SELECT {cols} FROM complexes WHERE complex_no IN "
+                    f"({','.join('?' * len(part))})", part).fetchall()
+            # 자르기 전에 숫자로 먼저 거른다 — 수백 곳이 걸리는 이름에서 정답이 잘려 나갔다
             if want_num:
                 rows = [r for r in rows if all(x in _nums(r[1]) for x in want_num)]
+            rows.sort(key=lambda r: -(r[8] or 0))
+            rows = rows[:30]
             if len(rows) == 1:
                 return rows[0], [], ""
             if len(rows) > 1:
