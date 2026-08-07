@@ -127,9 +127,13 @@ _PARENS = re.compile(r"[（(\[［].*?[)）\]］]")
 
 
 def norm_head(s) -> str:
-    """열 이름 정규화 — 공백·괄호·기호를 털어 낸다. '전용 면적(㎡)' → '전용면적'."""
-    t = str(s or "")
-    t = _PARENS.sub("", t)
+    """열 이름 정규화 — 공백·괄호·기호를 털어 낸다. '전용 면적(㎡)' → '전용면적'.
+
+    앞에 붙는 번호도 뗀다('① 단지명'·'1. 거래'·'※비고'). 다만 **구분 기호가 뒤따를 때만**
+    뗀다 — 그냥 숫자를 떼면 값 '103동' 이 '동' 이 되어 데이터 줄이 머리글로 읽힌다(실측).
+    """
+    t = _PARENS.sub("", str(s or ""))
+    t = re.sub(r"^\s*(?:[①-⑳❶-❿⓵-⓾※★☆◆◇▶▷]+\s*|\d+\s*[.)\]]\s*)", "", t)
     t = _SP.sub("", t)
     t = re.sub(r"[·ㆍ/\\|,.\-_~*#:;'\"]+", "", t)
     t = re.sub(r"[㎡m²평억만원won]+$", "", t, flags=re.I) if len(t) > 2 else t
@@ -144,19 +148,27 @@ TRADE_WORDS = [
     (r"월세|월임대|임대차|사글세|^월$|rent|lease", "월세"),
     (r"임대", "월세"),
 ]
+# 물건 종류 낱말 — **여기가 유일한 원본**이다. local_api 의 문장 판별기도 이걸 쓴다.
+# 두 벌로 두면 같은 말을 서로 다르게 읽는다(실측: '건물' 이 한쪽에서만 잡혔다).
+# scope 가 쓰임을 가른다 — "cell" 은 '물건종류' 칸처럼 낱말만 든 칸에서만 본다.
+# '건물' 은 문장에 흔해('그 건물 2층 상가') 자유 문장에서 보면 오독한다.
 PTYPE_WORDS = [
-    (r"지식산업센터|지산|아파트형\s*공장", "지식산업센터"),
-    (r"상가주택|통건물|통임대|꼬마빌딩|빌딩", "건물"),
-    (r"분양권|입주권", "분양권"), (r"재개발|재건축", "재개발"),
-    (r"아파트|아파|apt", "아파트"), (r"오피스텔|오피(?!스)", "오피스텔"),
-    (r"빌라|다세대|연립|타운하우스", "빌라"),
-    (r"다가구|단독주택|전원주택|단독", "단독"),
-    (r"원룸|투룸|고시원", "원룸"),
-    (r"상가|점포|근린생활|근생|매장", "상가"),
-    (r"사무실|사무소|오피스|office", "사무실"),
-    (r"토지|나대지|농지|임야|전답|필지|대지|땅", "토지"),
-    (r"공장|창고", "공장"),
+    (r"지식산업센터|지산|아파트형\s*공장", "지식산업센터", "both"),
+    (r"상가주택|통건물|통임대|꼬마빌딩|빌딩", "건물", "both"),
+    (r"^건물$", "건물", "cell"),
+    (r"분양권|입주권", "분양권", "both"),
+    (r"재개발|재건축", "재개발", "both"),
+    (r"아파트|아파|apt", "아파트", "both"),
+    (r"오피스텔|오피(?!스)", "오피스텔", "both"),
+    (r"빌라|다세대|연립|타운하우스", "빌라", "both"),
+    (r"다가구|단독주택|전원주택|단독", "단독", "both"),
+    (r"원룸|투룸|고시원", "원룸", "both"),
+    (r"상가|점포|근린생활|근생|매장", "상가", "both"),
+    (r"사무실|사무소|오피스|office", "사무실", "both"),
+    (r"토지|나대지|농지|임야|전답|필지|대지|땅", "토지", "both"),
+    (r"공장|창고", "공장", "both"),
 ]
+PTYPES = [t for _, t, _ in PTYPE_WORDS]
 _NUM = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?")
 # 사람이 '없음' 대신 찍어 두는 기호들 — 값으로 담으면 비고가 '-' 로 채워진다
 _BLANKISH = {"-", "–", "—", "ㆍ", ".", "..", "…", "x", "X", "n/a", "na", "없음", "무"}
@@ -188,11 +200,14 @@ def to_trade(v) -> str | None:
     return None
 
 
-def to_ptype(v) -> str | None:
+def to_ptype(v, scope: str = "cell") -> str | None:
+    """낱말 → 물건 종류. scope="text" 면 자유 문장에서 안전한 규칙만 쓴다."""
     t = _SP.sub("", cell_text(v))
     if not t:
         return None
-    for pat, out in PTYPE_WORDS:
+    for pat, out, sc in PTYPE_WORDS:
+        if sc != "both" and sc != scope:
+            continue
         if re.search(pat, t, re.I):
             return out
     return None
@@ -304,11 +319,11 @@ def to_tel(v) -> str | None:
         d = _tel_digits(m.group(0)) if m else ""
     if len(d) < 9 or len(d) > 11:
         return None
-    if len(d) == 11:
-        return f"{d[:3]}-{d[3:7]}-{d[7:]}"
-    if len(d) == 10:
-        return f"{d[:3]}-{d[3:6]}-{d[6:]}" if d.startswith("01") else f"{d[:2]}-{d[2:6]}-{d[6:]}"
-    return f"{d[:2]}-{d[2:5]}-{d[5:]}"
+    # 서울(02)만 지역번호가 두 자리고 나머지는 셋이다(031·051·064). 길이로만 나누면
+    # '031-355-1234' 가 '03-1355-1234' 가 된다(실측).
+    head = d[:2] if d.startswith("02") else d[:3]
+    rest = d[len(head):]
+    return f"{head}-{rest[:-4]}-{rest[-4:]}" if len(rest) > 4 else f"{head}-{rest}"
 
 
 def to_ymd(v) -> str | None:
@@ -369,6 +384,12 @@ def tidy_unit(v, kind: str) -> str | None:
 def read_sheets(data: bytes, filename: str = "") -> list[dict]:
     """엑셀·CSV → [{name, rows}]. rows 는 칸 값 그대로(문자열 변환 전)."""
     name = (filename or "").lower()
+    # 확장자보다 내용이 먼저다. '.csv' 로 저장된 엑셀 파일이 실제로 온다 —
+    # 그걸 글자로 읽으면 NUL 이 섞여 통째로 터진다(실측).
+    if data[:4] == b"PK\x03\x04":
+        return _read_xlsx(data)
+    if data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        return _read_xls(data)
     if name.endswith(".csv") or name.endswith(".txt"):
         return [{"name": "CSV", "rows": _read_csv(data)}]
     if name.endswith(".xls"):
@@ -751,18 +772,20 @@ def _infer_leftovers(mapping: dict, width: int, col, header) -> None:
         if j in mapping:
             continue
         vals = [cell_text(v) for v in col(j) if cell_text(v)]
-        if len(vals) < 2:
+        if not vals:
             continue
         digits = sum(1 for v in vals if _NUM.fullmatch(v.replace(",", "")))
         if digits >= len(vals) * 0.8:
             n = to_won(vals[0], "auto") or 0
-            if n >= 1_000_000 and "price" not in taken:
+            # 값이 한 줄뿐인 열은 '매매가만 채운 매매 물건 한 건' 같은 경우다.
+            # 그때도 액수가 물건 값이면 금액으로 본다 — 다만 짐작이라고 표시한다.
+            if n >= 10_000_000 and "price" not in taken:
                 mapping[j] = "price"; taken.add("price")
             elif n >= 1_000_000 and "deposit" not in taken:
                 mapping[j] = "deposit"; taken.add("deposit")
             continue
         letters = sum(1 for v in vals if re.search(r"[가-힣A-Za-z]", v))
-        if letters >= len(vals) * 0.8 and max(len(v) for v in vals) <= 40:
+        if len(vals) >= 2 and letters >= len(vals) * 0.8 and max(len(v) for v in vals) <= 40:
             if "complex_name" not in taken and "address" not in taken:
                 mapping[j] = "complex_name"; taken.add("complex_name")
 
@@ -844,8 +867,9 @@ def _post(rec: dict) -> None:
             rec["type"] = "상가"
         elif rec.get("land_category") or rec.get("land_use"):
             rec["type"] = "토지"
-        elif rec.get("land_area_m2") and not rec.get("area2_m2"):
-            rec["type"] = "토지"
+        elif (rec.get("land_area_m2") and not rec.get("area2_m2")
+              and not rec.get("total_area_m2")):
+            rec["type"] = "토지"      # 연면적이 있으면 건물이 서 있다 — 땅만 파는 게 아니다
     if not rec.get("type"):
         for k in ("feature_desc", "memo", "address", "complex_name"):
             got = to_ptype(rec.get(k))
