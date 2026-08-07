@@ -15444,6 +15444,33 @@ _SIDO_LONG = {"서울": "서울특별시", "부산": "부산광역시", "대구"
               "제주": "제주특별자치도"}
 
 
+def _bjd_lookup(c, toks: list) -> str | None:
+    """법정동 전수표(bjd)로 읍면동을 고른다. 하나로 좁혀질 때만 돌려준다.
+
+    표는 VWorld 행정구역에서 받아 둔 것으로 일반구(수원시 장안구)와
+    2026-07 신설구(인천 검단구·영종구·제물포구, 화성시 동탄구)까지 들어 있다.
+    """
+    try:
+        rows = c.execute("SELECT code10, sido_nm, sgg_nm FROM bjd WHERE umd_nm=?",
+                         (toks[-1],)).fetchall()
+    except Exception:  # noqa: BLE001  (표가 아직 없는 환경)
+        return None
+    if not rows:
+        return None
+    if len(rows) == 1:
+        return rows[0][0]
+    head = " ".join(toks[:-1])
+    if not head:
+        return None
+    # 시군구 이름이 통째로 들어 있는 것만 남긴다('수원시 장안구' → 두 토막 다 있어야)
+    keep = [r for r in rows if r[2] and all(t in head for t in r[2].split())]
+    if len(keep) != 1:
+        # 시군구로 못 가르면 시도로 — '서울'처럼 짧게 적어도 받는다
+        keep = [r for r in rows
+                if r[1] and (r[1] in head or _SIDO_SHORT.get(r[1], r[1]) in head)]
+    return keep[0][0] if len(keep) == 1 else None
+
+
 def _ri_cortar(c, toks: list) -> str | None:
     """'경기도 양평군 용문면 다문리' → 법정동코드. ledger_recover.ri_bjd 를 쓴다.
 
@@ -15488,6 +15515,11 @@ def _addr_to_cortar(c, addr: str) -> tuple:
     if not toks:
         return None, None
     dong = toks[-1]
+    # 법정동 전수표를 먼저 본다 — regions(네이버 cortar)에는 일반구·신설구가 없어
+    # '수원시 장안구 정자동' 같은 주소를 못 골랐다(실측 실패의 큰 몫).
+    got = _bjd_lookup(c, toks)
+    if got:
+        return got, jibun
     rows = c.execute("SELECT cortar_no FROM regions WHERE cortar_name=? AND cortar_type='sec'",
                      (dong,)).fetchall()
     if not rows and dong.endswith("리") and len(toks) >= 2:
