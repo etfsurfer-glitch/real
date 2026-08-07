@@ -10993,6 +10993,8 @@ def _init_reviews_db() -> None:
               realtor_id   TEXT,
               customer_id  INTEGER,
               kind         TEXT NOT NULL DEFAULT '구함',   -- 구함 | 내놓음
+              ptype        TEXT,               -- 물건 종류(아파트·상가·토지…). 매물의 type 과 같은 말.
+                                               -- 이게 없으면 상가 손님에게 아파트를 들이밀게 된다
               trade        TEXT,               -- A1 매매 | B1 전세 | B2 월세
               role         TEXT,               -- 주안 | 대안 | 보유
               budget_min   INTEGER, budget_max INTEGER,
@@ -11104,6 +11106,7 @@ def _init_reviews_db() -> None:
             "ALTER TABLE biz_needs ADD COLUMN ho TEXT",
             "ALTER TABLE biz_needs ADD COLUMN area_m2 REAL",
             "ALTER TABLE biz_needs ADD COLUMN floor_info TEXT",
+            "ALTER TABLE biz_needs ADD COLUMN ptype TEXT",
             # doc_hash 보강 뒤에 인덱스(컬럼 생성 전에 만들면 실패) — 재업로드 조회용
             "CREATE INDEX IF NOT EXISTS bzc_hash_idx ON biz_contracts(user_id, doc_hash)",
             "ALTER TABLE user_profiles ADD COLUMN member_no INTEGER",
@@ -13650,6 +13653,38 @@ def lounge_private_list(user: dict = Depends(current_user)):
 _QA_TYPES = ["아파트", "오피스텔", "빌라", "단독", "상가", "사무실", "토지", "공장",
              "건물", "지식산업센터", "재개발", "원룸", "분양권"]
 
+# 문장에서 물건 종류를 읽는다. 매물뿐 아니라 **고객 요건**에도 쓴다 —
+# '역삼동 상가 찾는 손님'의 종류가 비어 있으면 매칭이 아파트를 물어 온다.
+# 순서가 뜻을 가른다: '상가주택'은 상가가 아니라 건물이고, '아파트형공장'은
+# 지식산업센터이며, '다가구 원룸건물'은 원룸이 아니라 단독이다.
+_PTYPE_WORDS = [
+    (r"지식산업센터|지산|아파트형\s*공장", "지식산업센터"),
+    (r"상가주택|통건물|통임대|꼬마빌딩|빌딩", "건물"),
+    (r"분양권|입주권", "분양권"),
+    (r"재개발|재건축", "재개발"),
+    (r"아파트|아팟", "아파트"),
+    (r"오피스텔|오피(?!스)", "오피스텔"),
+    (r"빌라|다세대|연립|타운하우스", "빌라"),
+    (r"다가구|단독주택|전원주택|단독", "단독"),
+    (r"원룸|투룸|고시원", "원룸"),
+    (r"상가|점포|근린생활|근생|매장", "상가"),
+    (r"사무실|사무소|오피스", "사무실"),
+    # '대지'는 단독·공장 설명에도 나오지만(대지 60평 연면적 120평) 그쪽은 위에서 먼저 걸린다
+    (r"토지|나대지|농지|임야|전답|필지|대지|땅", "토지"),
+    (r"공장|창고", "공장"),
+]
+
+
+def _ptype_from_text(t) -> str:
+    """문장 → 물건 종류. 못 읽으면 빈 문자열(억지로 정하지 않는다)."""
+    t = str(t or "")
+    if not t:
+        return ""
+    for pat, tp in _PTYPE_WORDS:
+        if _re.search(pat, t):
+            return tp
+    return ""
+
 _QA_SCHEMA = {
     "type": "object",
     "properties": {
@@ -13689,6 +13724,7 @@ _QA_SCHEMA = {
             "memo": {"type": "string"},
             "요건": {"type": "array", "items": {"type": "object", "properties": {
                 "kind": {"type": "string"}, "trade": {"type": "string"}, "role": {"type": "string"},
+                "ptype": {"type": "string", "enum": _QA_TYPES, "nullable": True},
                 "budget_min": {"type": "integer", "nullable": True},
                 "budget_max": {"type": "integer", "nullable": True},
                 "ask_price": {"type": "integer", "nullable": True},
@@ -13743,6 +13779,10 @@ _QA_PROMPT = (
     "  ★ 잔금과 입주는 다른 것이다. '11월 잔금'·'잔금 11월말' 은 settle_ymd 에 넣고,\n"
     "    '즉시입주'·'빈집'·'세입자 만기 후' 처럼 언제 들어갈 수 있는지는 move_in 에 넣어라.\n"
     "\n[고객] 요건.kind=구함|내놓음, trade=매매|전세|월세.\n"
+    "  ★ ptype 은 **손님이 원하는 물건 종류**다 — 매물의 type 과 같은 말을 쓰고\n"
+    "    같은 규칙으로 바꿔라('상가 구해요'→상가, '30평대 아파트'→아파트,\n"
+    "    '사무실 임대 찾음'→사무실, '땅 보러 왔다'→토지). 글에 없으면 비워 둔다.\n"
+    "    내놓은 요건이면 그 매물의 type 과 같은 값을 넣어라.\n"
     "  role 은 **우선순위**다. 같은 구분(구함·내놓음) 안에서 손님이 먼저 원하는 순서대로\n"
     "  '1안','2안','3안' 을 넣어라. 순서를 알 수 없으면 비워 둔다.\n"
     "  한 사람이 여러 요건을 가질 수 있다(매매를 찾으면서 안 되면 전세도 보는 식).\n"
@@ -14826,6 +14866,13 @@ def _fit(nd: dict, hit: dict) -> list:
     def add(key, label, status, note=""):
         out.append({"key": key, "label": label, "status": status, "note": note})
 
+    # 물건 종류 — 손님이 상가를 찾는데 아파트가 올라오면 나머지 조건은 볼 것도 없다
+    want_pt = (nd.get("ptype") or "").strip()
+    if want_pt:
+        got = (hit.get("ptype") or "").strip()
+        add("ptype", "종류", "ok" if got == want_pt else "unknown" if not got else "miss", got)
+    else:
+        add("ptype", "종류", "unknown", "요건에 종류 없음")
     # 거래유형
     want_tr = _TRADE_KOR.get(nd.get("trade") or "", nd.get("trade") or "")
     if want_tr:
@@ -14887,6 +14934,11 @@ def _match_ours(rc, rid: str, nd: dict, limit: int = 12, level: int = 0) -> list
     args: list = [rid]
     if tt:
         where.append("trade_type=?"); args.append(tt)
+    pt = (nd.get("ptype") or "").strip()
+    if pt:
+        # 종류가 다른 물건은 후보가 아니다. 다만 예전에 넣은 매물은 type 이 비어 있을 수
+        # 있어 그것까지 빼지는 않는다 — 우리 물건을 못 찾는 쪽이 더 나쁘다.
+        where.append("(type=? OR type IS NULL OR type='')"); args.append(pt)
     lo, hi = _match_price_range(nd)
     if lo:
         where.append("CAST(price AS REAL)*10000 >= ?"); args.append(lo * (1 - ex["price"]))
@@ -14912,7 +14964,7 @@ def _match_ours(rc, rid: str, nd: dict, limit: int = 12, level: int = 0) -> list
             where.append("(REPLACE(complex_name,' ','') LIKE ? OR address LIKE ? OR building_name LIKE ?)")
             args += [f"%{kw}%"] * 3
     rows = rc.execute(
-        f"SELECT id, complex_name, building_name, address, dong, ho, trade_type, price, "
+        f"SELECT id, complex_name, building_name, address, dong, ho, trade_type, price, type, "
         f"       rent_price, area2_m2, area1_m2, floor_info, direction, settle_ymd, "
         f"       total_floor, room_cnt, bath_cnt, approve_ymd, parking, move_in, "
         f"       maintenance_fee, complex_no, manager, feature_desc "
@@ -14931,7 +14983,8 @@ def _match_ours(rc, rid: str, nd: dict, limit: int = 12, level: int = 0) -> list
                     "baths": _to_f(r["bath_cnt"]), "approve": (r["approve_ymd"] or "")[:4],
                     "parking": _to_f(r["parking"]), "move_in": r["move_in"] or "",
                     "mgmt": _to_f(r["maintenance_fee"]), "complex_no": r["complex_no"],
-                    "manager": r["manager"] or "", "feature": (r["feature_desc"] or "")[:40]})
+                    "manager": r["manager"] or "", "feature": (r["feature_desc"] or "")[:40],
+                    "ptype": r["type"] or ""})
     return out
 
 
@@ -15004,14 +15057,157 @@ def _need_region_hint(rc, rid: str, nd: dict) -> dict:
     return out
 
 
+# 물건 종류 → 어느 표를 뒤질 것인가. 단지 DB(listings_current)에 들어 있는 것은
+# 아파트·오피스텔·분양권뿐이고(실측: APT/JGC/OPST/ABYG/OBYG), 나머지는 지역단위로
+# 따로 모아 둔 비단지 DB에 있다.
+_PTYPE_RET = {"아파트": ("APT", "JGC"), "오피스텔": ("OPST",), "분양권": ("ABYG", "OBYG")}
+_PTYPE_NONRESI = {"빌라": "villa", "단독": "house", "상가": "sangga", "사무실": "office",
+                  "토지": "land", "공장": "factory", "건물": "building",
+                  "지식산업센터": "knowledge", "재개발": "redev", "원룸": "oneroom"}
+
+
+def _need_cortars(nd: dict, scope: str) -> list:
+    """요건의 지역 → 법정동 코드(10자리). 비단지엔 단지명이 없어 지역이 유일한 좁히는 축이다.
+
+    시군구로 넓힐 때도 접두(SUBSTR)로 자르지 않고 그 안의 동 코드를 모두 펼친다 —
+    SUBSTR 은 인덱스를 못 타서 70만 행을 통째로 훑게 된다(실측 20초).
+    같은 동 이름이 여러 시군구에 있으면(둔산동 — 대전 서구·대구 동구) 넓히는 순간
+    다른 시도 매물이 쏟아지므로 그럴 땐 동 단위에 묶어 둔다.
+    """
+    base = []
+    cortar = str(nd.get("_cortar") or "").strip()
+    if cortar:
+        base = [cortar]
+    elif str(nd.get("complex_no") or "").strip():
+        with _open_db() as c:
+            r = c.execute("SELECT cortar_no FROM complexes WHERE complex_no=?",
+                          (str(nd["complex_no"]).strip(),)).fetchone()
+        base = [str(r[0])] if (r and r[0]) else []
+    elif (nd.get("dong") or "").strip():
+        with _open_db() as c:
+            base = [str(x[0]) for x in c.execute(
+                "SELECT cortar_no FROM regions WHERE cortar_name=? LIMIT 20",
+                ((nd.get("dong") or "").strip(),)) if x[0]]
+    if not base:
+        return []
+    sggs = sorted({x[:5] for x in base})
+    if scope == "sigungu" and len(sggs) == 1:
+        with _open_db() as c:
+            wide = [str(x[0]) for x in c.execute(
+                "SELECT cortar_no FROM regions WHERE cortar_no >= ? AND cortar_no < ? "
+                "  AND LENGTH(cortar_no)=10 LIMIT 200",
+                (sggs[0] + "00000", sggs[0] + "99999")) if x[0]]
+        if wide:
+            return wide
+    return base
+
+
+def _match_market_nonresi(cat: str, nd: dict, limit: int, ex: dict) -> list:
+    """상가·사무실·토지·빌라… 전국 매물에서 찾기.
+
+    비단지는 단지가 없어 '단지당 N건' 개념이 없다 — 지역과 조건으로만 좁힌다.
+    상가는 권리금이 거래를 가르므로 같이 올린다(호가에 안 들어가 있다).
+
+    ★ 금액 단위가 단지 DB 와 다르다 — 비단지는 **만원**, listings_current 는 **원**이다
+      (실측: 역삼동 상가 월세 보증 3500·월 350). 요건의 예산은 원 단위이므로
+      비교할 때 만원을 원으로 올린다. 이걸 놓치면 조건이 1만 배 어긋나 늘 0건이 나온다.
+    """
+    path = DB_PATH.parent / _NONRESI_DB[cat]
+    if not path.exists():
+        return []
+    tt = (nd.get("trade") or "A1")
+    if tt not in ("A1", "B1", "B2"):
+        tt = _TRADE_CODE.get(tt, "A1")
+    codes = _need_cortars(nd, ex["scope"])
+    if not codes:
+        return []          # 지역 단서가 없으면 전국을 통째로 뒤지지 않는다
+    qm = ",".join("?" * len(codes))
+    where = [f"cortar_no IN ({qm})", "trade_type=?", "deal_or_warrant_price > 0"]
+    args: list = list(codes) + [tt]
+    lo, hi = _match_price_range(nd)
+    if lo:
+        where.append("deal_or_warrant_price * 10000 >= ?"); args.append(lo * (1 - ex["price"]))
+    if hi:
+        where.append("deal_or_warrant_price * 10000 <= ?"); args.append(hi * (1 + ex["price"]))
+    # 면적 — 비단지는 전용이 빈 경우가 많다(토지·건물). 값이 있는 것만 걸러 낸다.
+    amin, amax = nd.get("area_min"), nd.get("area_max")
+    a_col = "COALESCE(area2_m2, area1_m2)"
+    if amin:
+        where.append(f"({a_col} IS NULL OR {a_col} >= ?)")
+        args.append(float(amin) * (1 - ex["area"]))
+    if amax:
+        where.append(f"({a_col} IS NULL OR {a_col} <= ?)")
+        args.append(float(amax) * (1 + ex["area"]))
+    out = []
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as c:
+        c.row_factory = sqlite3.Row
+        # 권리금은 상가·건물 DB 에만 있다(수집 원천이 그것만 준다) — 없는 표에선 빈 칸으로
+        has_prem = any(r[1] == "premium_price" for r in c.execute("PRAGMA table_info(listings)"))
+        prem = "premium_price AS prem" if has_prem else "NULL AS prem"
+        # 현재분만 본다. 단 snapshot_date 를 그대로 두면 플래너가 그 인덱스를 골라
+        # 오늘치 70만 행을 통째로 훑는다(실측 20초) — 단항 + 로 인덱스를 막고
+        # 지역 인덱스(listings_cortar_idx)를 타게 한다.
+        mx = c.execute("SELECT MAX(snapshot_date) FROM listings").fetchone()[0]
+        if not mx:
+            return []
+        args = [mx] + args
+        rows = c.execute(
+            f"SELECT article_no, cortar_no, real_estate_type_name, trade_type, "
+            f"       deal_or_warrant_price AS price, rent_price AS rent, {prem}, "
+            f"       area1_m2, area2_m2, floor_info, direction, building_name, "
+            f"       realtor_id, realtor_name, article_confirm_ymd "
+            f"FROM listings WHERE +snapshot_date = ? AND {' AND '.join(where)} "
+            f"ORDER BY deal_or_warrant_price LIMIT ?", args + [limit]).fetchall()
+    if not rows:
+        return []
+    # 지역 이름과 사무소 전화는 본 DB에 있다 — 한 번에 모아 붙인다
+    cors = sorted({str(r["cortar_no"]) for r in rows if r["cortar_no"]})
+    oids = sorted({str(r["realtor_id"]) for r in rows if r["realtor_id"]})
+    names, tels = {}, {}
+    with _open_db() as c:
+        if cors:
+            names = {str(x[0]): x[1] for x in c.execute(
+                f"SELECT cortar_no, cortar_name FROM regions "
+                f"WHERE cortar_no IN ({','.join('?' * len(cors))})", cors)}
+        if oids:
+            tels = {r[0]: (r[1] or r[2] or "") for r in c.execute(
+                f"SELECT realtor_id, representative_tel_no, cell_phone_no FROM naver_realtors "
+                f"WHERE realtor_id IN ({','.join('?' * len(oids))})", oids)}
+    for r in rows:
+        out.append({"src": "market", "id": r["article_no"],
+                    "name": r["building_name"] or r["real_estate_type_name"] or _NONRESI_LABEL.get(cat, cat),
+                    "where": names.get(str(r["cortar_no"]) or "", "") or "",
+                    "trade": _TRADE_KOR.get(tt, tt),
+                    "price_man": r["price"] or 0,          # 이미 만원 단위다
+                    "rent_man": r["rent"] or None,
+                    "premium_man": r["prem"] or None,
+                    "area": r["area2_m2"] or r["area1_m2"], "supply": r["area1_m2"],
+                    "floor": r["floor_info"] or "", "direction": r["direction"] or "",
+                    "settle": "", "ptype": _NONRESI_LABEL.get(cat, cat),
+                    "complex_no": None, "article_no": r["article_no"],
+                    "confirm": r["article_confirm_ymd"],
+                    "office": r["realtor_name"] or "", "office_id": r["realtor_id"] or "",
+                    "office_tel": tels.get(r["realtor_id"] or "", "")})
+    return out
+
+
 def _match_market(nd: dict, limit: int = 12, level: int = 0) -> list:
     """전국 매물에서 찾기(단지형). 단지당 상위 N건만 올려 목록이 한 단지로 덮이지 않게."""
     ex = _EXPAND[max(0, min(level, len(_EXPAND) - 1))]
+    # 단지 DB(listings_current)에는 아파트·오피스텔·분양권밖에 없다. 상가를 찾는
+    # 손님에게 이 표를 뒤지면 아파트가 나온다 — 종류가 비단지면 그쪽 DB로 간다.
+    cat = _PTYPE_NONRESI.get((nd.get("ptype") or "").strip())
+    if cat:
+        return _match_market_nonresi(cat, nd, limit, ex)
     tt = (nd.get("trade") or "A1")
     if tt not in ("A1", "B1", "B2"):
         tt = _TRADE_CODE.get(tt, "A1")
     where = ["l.trade_type=?", "l.deal_or_warrant_price > 0", "l.area2_m2 IS NOT NULL"]
     args: list = [tt]
+    rets = _PTYPE_RET.get((nd.get("ptype") or "").strip())
+    if rets:      # 아파트를 찾는 손님에게 오피스텔을 섞지 않는다
+        where.append("l.real_estate_type IN (" + ",".join("?" * len(rets)) + ")")
+        args += list(rets)
     if tt in ("A1", "B1"):
         where.append("l.deal_or_warrant_price >= 30000000")     # 자릿수 오타 방어
     lo, hi = _match_price_range(nd)
@@ -15168,6 +15364,7 @@ def _match_criteria(nd: dict) -> dict:
     """
     used, skipped = [], []
     lo, hi = _match_price_range(nd)
+    (used if (nd.get("ptype") or "").strip() else skipped).append("물건 종류")
     (used if nd.get("trade") else skipped).append("거래유형")
     (used if (lo or hi) else skipped).append("예산")
     (used if (nd.get("area_min") or nd.get("area_max")) else skipped).append("면적")
@@ -15213,7 +15410,7 @@ def _need_norm(body: dict) -> None:
         body["trade"] = _TRADE_CODE.get(t, t)
 
 
-_NEED_EDIT = ("kind", "trade", "role", "budget_min", "budget_max", "ask_price",
+_NEED_EDIT = ("kind", "ptype", "trade", "role", "budget_min", "budget_max", "ask_price",
               "sido", "sigungu", "dong", "complex_no", "address", "area_min", "area_max",
               "status", "settle_date", "memo", "listing_id",
               "bld_dong", "ho", "area_m2", "floor_info")
@@ -15238,7 +15435,46 @@ def _need_line(n: dict) -> str:
     won = lambda v: (f"{v / 1e8:.9g}억" if v and v >= 1e8 else f"{int(v) // 10000:,}만" if v else "")
     lo, hi = won(n.get("budget_min")), won(n.get("budget_max"))
     money = won(n.get("ask_price")) or (f"{lo}~{hi}" if lo and hi else lo or hi)
-    return " ".join(x for x in [n.get("address") or n.get("dong"), tr, money] if x) or "요건"
+    return " ".join(x for x in [n.get("address") or n.get("dong"),
+                                n.get("ptype"), tr, money] if x) or "요건"
+
+
+def _need_ptype(rc, nd: dict, raw: str = "") -> str:
+    """요건의 물건 종류를 정한다. 사람이 고른 값이 있으면 그게 우선이다.
+
+    자동으로 채우는 길은 셋이고, 확실한 것부터 쓴다 —
+    ① 이 요건이 물고 있는 우리 매물의 유형(내놓음은 이걸로 끝난다)
+    ② 확정된 단지 코드의 유형(단지가 정해졌으면 종류도 정해진 것이다)
+    ③ 손님이 쓴 문장의 낱말('상가 구해요').
+    셋 다 아니면 비워 둔다 — 아파트로 넘겨짚으면 매칭이 조용히 틀린다.
+    """
+    cur = (nd.get("ptype") or "").strip()
+    if cur in _QA_TYPES:
+        return cur
+    lid = nd.get("listing_id")
+    if lid and rc is not None:
+        try:
+            _ensure_private_listings(rc)
+            r = rc.execute("SELECT type FROM private_listings WHERE id=?", (lid,)).fetchone()
+            if r and (r[0] or "").strip() in _QA_TYPES:
+                return (r[0] or "").strip()
+        except Exception:  # noqa: BLE001
+            pass
+    cno = str(nd.get("complex_no") or "").strip()
+    if cno:
+        try:
+            with _open_db() as c:
+                r = c.execute("SELECT real_estate_type FROM complexes WHERE complex_no=?",
+                              (cno,)).fetchone()
+            if r and _RET_KOR.get(r[0]):
+                return _RET_KOR[r[0]]
+        except Exception:  # noqa: BLE001
+            pass
+    for t in (raw, nd.get("raw_text"), nd.get("address"), nd.get("memo")):
+        g = _ptype_from_text(t)
+        if g:
+            return g
+    return ""
 
 
 @app.get("/lounge/customers/{cid}/activities")
@@ -15329,6 +15565,12 @@ def lounge_need_update(nid: int, body: dict, user: dict = Depends(current_user))
             if res.get("complex_name"):
                 body["address"] = res["complex_name"]      # DB 정식 명칭으로 맞춘다
         _need_norm(body)
+        # 물건 종류 — 사람이 손대지 않았고 아직 비어 있으면 자동으로 채운다.
+        # 사람이 일부러 지운 경우(body 에 빈 값이 들어온 경우)는 건드리지 않는다.
+        if "ptype" not in body and not (was.get("ptype") or "").strip():
+            pt = _need_ptype(rc, {**was, **body})
+            if pt:
+                body = dict(body); body["ptype"] = pt
         cols, vals = [], []
         for k in _NEED_EDIT:
             if k not in body:
@@ -15370,6 +15612,10 @@ def lounge_need_create(body: dict, user: dict = Depends(current_user)):
                 body["complex_no"] = res["complex_no"]
                 body["address"] = res.get("complex_name") or body["address"]
         _need_norm(body)
+        if not (body.get("ptype") or "").strip():
+            pt = _need_ptype(rc, body)
+            if pt:
+                body = dict(body); body["ptype"] = pt
         cols = ["user_id", "realtor_id", "customer_id"]
         vals = [user["id"], rid, cid]
         for k in _NEED_EDIT:
@@ -15417,6 +15663,8 @@ def lounge_need_parse(body: dict, user: dict = Depends(current_user)):
     for c in (out.get("고객") or []):
         for nd in (c.get("요건") or []):
             nd.pop("매물번호", None)
+            if not (nd.get("ptype") or "").strip():
+                nd["ptype"] = _ptype_from_text(text)
             needs.append(nd)
     return {"needs": needs, "확신낮음": out.get("확신낮음") or []}
 
@@ -15499,6 +15747,7 @@ def lounge_match_listing(pid: int, user: dict = Depends(current_user), limit: in
         price = (_to_f(l["price"]) or 0) * 10000          # 만원 → 원
         area = _to_f(l["area2_m2"])
         tt = _TRADE_CODE.get(l["trade_type"] or "", "")   # 'A1'|'B1'|'B2'
+        lpt = (l["type"] or "").strip()                   # 이 물건의 종류
 
         rows = rc.execute(
             "SELECT n.*, c.name AS cname, c.phone AS cphone FROM biz_needs n "
@@ -15510,6 +15759,11 @@ def lounge_match_listing(pid: int, user: dict = Depends(current_user), limit: in
         # 요건의 trade 는 코드('B1')일 수도 한글('전세')일 수도 있다 — 코드로 맞춰 비교한다
         ndt = _TRADE_CODE.get(nd.get("trade") or "", nd.get("trade") or "")
         if tt and ndt and ndt != tt:
+            continue
+        # 종류가 어긋나면 나머지 조건이 아무리 맞아도 보여 줄 손님이 아니다.
+        # 한쪽이 비어 있으면(옛 요건·옛 매물) 판단할 근거가 없으므로 남긴다.
+        npt = (nd.get("ptype") or "").strip()
+        if lpt and npt and lpt != npt:
             continue
         lo, hi = _match_price_range(nd)
         if price:
@@ -15631,7 +15885,7 @@ def lounge_customers(user: dict = Depends(current_user), q: str = "", limit: int
         if ql:
             hay = " ".join(str(x) for x in [row.get("name"), row.get("phone"), row.get("memo")] if x)
             hay += " " + " ".join(str(n.get(k) or "") for n in row["needs"]
-                                  for k in ("address", "dong", "sigungu"))
+                                  for k in ("address", "dong", "sigungu", "ptype"))
             if ql not in hay:
                 continue
         items.append(row)
@@ -15668,6 +15922,15 @@ def lounge_quick_parse(body: dict, user: dict = Depends(current_user)):
         r["_auto"] = _qa_enrich_listing(r, rid)
     out["매물"] = rows
     out["고객"] = out.get("고객") or []
+    # 요건의 물건 종류 — 모델이 흘렸으면 그 요건이 가리키는 매물, 없으면 원문에서 채운다.
+    # 확인 화면에서 눈으로 보고 고칠 수 있어야 하므로 저장 때가 아니라 지금 채운다.
+    for c in out["고객"]:
+        for nd in (c.get("요건") or []):
+            if (nd.get("ptype") or "").strip():
+                continue
+            li = nd.get("매물번호")
+            src = rows[li] if isinstance(li, int) and 0 <= li < len(rows) else None
+            nd["ptype"] = (src or {}).get("type") or _ptype_from_text(text) or ""
     return out
 
 
@@ -15755,17 +16018,21 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
                 # 내놓은 요건이면 방금 저장한 매물에 건다(매물번호 = 매물 배열 인덱스)
                 lidx = nd.get("매물번호")
                 lid = listing_ids[lidx] if isinstance(lidx, int) and 0 <= lidx < len(listing_ids) else None
+                # 물건 종류 — 모델이 못 읽었으면 매물·단지·원문에서 채운다
+                nd["listing_id"] = lid
+                nd["ptype"] = _need_ptype(rc, nd, body.get("raw_text") or "")
                 rc.execute(
-                    "INSERT INTO biz_needs(client_uid, user_id, realtor_id, customer_id, kind, trade, "
+                    "INSERT INTO biz_needs(client_uid, user_id, realtor_id, customer_id, kind, ptype, trade, "
                     "  role, budget_min, budget_max, ask_price, sigungu, dong, address, area_min, "
                     "  area_max, settle_date, listing_id, complex_no, raw_text) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                     # client_uid 유니크 인덱스가 부분 인덱스(WHERE client_uid IS NOT NULL)라
                     # 충돌 대상에 같은 조건을 붙여야 매칭된다. 안 붙이면 실행 시점에 터진다.
                     "ON CONFLICT(client_uid) WHERE client_uid IS NOT NULL "
                     "  DO UPDATE SET updated_at=datetime('now')",
                     (nd.get("client_uid"), user["id"], rid, cid,
-                     nd.get("kind") or "구함", _TRADE_CODE.get(nd.get("trade") or "") or nd.get("trade"),
+                     nd.get("kind") or "구함", nd.get("ptype") or None,
+                     _TRADE_CODE.get(nd.get("trade") or "") or nd.get("trade"),
                      nd.get("role"), nd.get("budget_min"), nd.get("budget_max"), nd.get("ask_price"),
                      None, nd.get("dong"), nd.get("address"),
                      nd.get("area_min"), nd.get("area_max"),

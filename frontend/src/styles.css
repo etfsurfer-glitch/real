@@ -2155,6 +2155,9 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .ced-sel.k{background:var(--c-primary);border-color:var(--c-primary);color:#fff}
 .ced-sel.k.sell{background:#1a7f4b;border-color:#1a7f4b}
 .ced-sel.pri{background:#f3efff;border-color:#e0d6fb;color:#6b39c9}
+/* 물건 종류 — 안 고른 상태를 눈에 띄게 둔다(비면 매칭이 종류를 못 거른다) */
+.ced-sel.pt{background:#eef1f6;border-color:#dfe4ec;color:#41506b;font-weight:700}
+.ced-sel.pt.empty{background:#fff;border-style:dashed;color:var(--c-faint);font-weight:600}
 .ced-sel.st{font-weight:800}
 .ced-sel.st.s0{background:var(--c-primary-soft);border-color:#cfe0f8;color:var(--c-primary)}  /* 문의 */
 .ced-sel.st.s1{background:#fff4e2;border-color:#f6e0bd;color:#a35c00}                         /* 미팅 */
@@ -2272,7 +2275,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .cldt{container-type:inline-size;background:var(--c-card);border:1px solid var(--c-border);
   border-radius:14px;overflow:hidden;box-shadow:var(--sh-sm)}
 .cldt-head,.cldt-r{display:grid;gap:2px 10px;align-items:center;
-  grid-template-columns:minmax(0,1.45fr) 96px 54px 1.15fr 1.2fr .85fr 1.3fr 128px}
+  grid-template-columns:minmax(0,1.35fr) 148px 54px 1.1fr 1.15fr .8fr 1.25fr 128px}
 .cldt-head{padding:7px 13px;background:var(--c-row-stripe);border-bottom:1px solid var(--c-border);
   font-size:10.5px;font-weight:800;color:var(--c-muted)}
 .cldt-head > :nth-child(n+2){text-align:center}
@@ -2298,6 +2301,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .cldt .cled-k{font-style:normal;background:var(--c-primary);color:#fff;font-size:10px;font-weight:700;
   padding:1.5px 7px;border-radius:5px;white-space:nowrap}
 .cldt .cled-k.sell{background:#1a7f4b}
+/* 물건 종류 — 구분(구함·내놓음) 옆에 붙여 '무엇을' 구하는지를 같이 읽게 한다.
+   비어 있으면 채우라고 알려 주는 자리로 쓴다(빈칸이면 있는지조차 모른다). */
+.cldt .c-pt{font-style:normal;font-size:10px;font-weight:700;padding:1.5px 7px;border-radius:5px;
+  white-space:nowrap;background:#eef1f6;color:#41506b;border:1px solid #dfe4ec}
+.cldt .c-pt.none{background:transparent;color:var(--c-faint);border-style:dashed}
 /* 계약 줄 — 요건과 성격이 달라(이미 끝난 일) 바탕을 깔아 구분한다 */
 .cldt .cled-k.ctr{background:#0f4c81}
 .cldt-r.done{background:#f7fafc}
@@ -2317,7 +2325,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .cldt .c-ct{text-align:center}
 .cldt .lb{display:none;color:var(--c-faint);font-weight:700;margin-right:3px}
 @container (max-width:1024px){
-  .cldt-head,.cldt-r{grid-template-columns:minmax(0,1.4fr) 92px 50px 1.1fr 1.1fr 1.2fr 112px}
+  .cldt-head,.cldt-r{grid-template-columns:minmax(0,1.3fr) 140px 50px 1.05fr 1.05fr 1.15fr 112px}
   .cldt .c-st,.cldt .h-st{display:none}
 }
 @container (max-width:640px){
@@ -2360,6 +2368,8 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   font-weight:700;color:#13294b}
 .mtb-cond em{font-style:normal;background:var(--c-primary);color:#fff;font-size:10.5px;font-weight:700;
   padding:2px 8px;border-radius:6px;flex:none}
+/* 물건 종류 — 거래유형(파란 칩)과 나란히 두되 색을 달리해 서로 안 헷갈리게 */
+.mtb-cond em.pt{background:#eef1f6;color:#41506b;border:1px solid #dfe4ec}
 .mtb-cond i{font-style:normal;font-weight:500;color:var(--c-muted);font-size:11.5px}
 .mtb-pri{font-style:normal;font-size:10px;font-weight:800;color:#6b39c9;background:#f0e9fb;
   padding:1px 7px;border-radius:999px;flex:none}

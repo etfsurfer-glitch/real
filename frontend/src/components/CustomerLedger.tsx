@@ -14,7 +14,7 @@ type Listing = {
   trade_type?: string; price?: any; deposit?: any; rent_price?: any; area2_m2?: any;
 };
 type Need = {
-  id: number; kind?: string; trade?: string; role?: string;
+  id: number; kind?: string; ptype?: string | null; trade?: string; role?: string;
   budget_min?: number | null; budget_max?: number | null; ask_price?: number | null;
   sigungu?: string | null; dong?: string | null; address?: string | null;
   area_min?: number | null; area_max?: number | null; settle_date?: string | null;
@@ -99,7 +99,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
   const openEdit = (c: Customer) => setEdit({
     id: c.id, name: c.name, phone: c.phone, memo: c.memo,
     needs: c.needs.map((n) => ({
-      id: n.id, kind: n.kind, trade: n.trade, role: n.role,
+      id: n.id, kind: n.kind, ptype: n.ptype, trade: n.trade, role: n.role,
       budget_min: n.budget_min, budget_max: n.budget_max, ask_price: n.ask_price,
       sigungu: n.sigungu, dong: n.dong, address: n.address,
       area_min: n.area_min, area_max: n.area_max,
@@ -126,7 +126,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
       if (ct && c.ctype !== ct) return false;
       if (!ql) return true;
       const hay = [c.name, c.phone, c.memo,
-        ...c.needs.map((n) => [whereOf(n), n.listing?.complex_name].join(" ")),
+        ...c.needs.map((n) => [whereOf(n), n.ptype, n.listing?.complex_name].join(" ")),
         ...(c.contracts ?? []).map((x) => [x.title, x.address, x.role].join(" "))].join(" ");
       return hay.includes(ql);
     });
@@ -178,7 +178,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
         <div className="cldt">
           <div className="cldt-head">
             <span>고객</span>
-            <span className="h-kd">구분</span>
+            <span className="h-kd">구분·종류</span>
             <span className="h-tr">거래</span>
             <span className="h-pr">예산·호가</span>
             <span className="h-rg">지역·단지</span>
@@ -214,7 +214,15 @@ export default function CustomerLedger({ authH, onGoListings }: {
                 <span className="cldt-meta">
                   <span className="c-kd">
                     {ct ? <em className="cled-k ctr">계약</em>
-                      : n ? <em className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind || "요건"}</em>
+                      : n ? (
+                        <>
+                          <em className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind || "요건"}</em>
+                          {/* 무엇을 구하는 손님인지 — 상가 손님과 아파트 손님을 한눈에 가른다 */}
+                          {n.ptype
+                            ? <em className="c-pt">{n.ptype}</em>
+                            : <em className="c-pt none" title="물건 종류를 아직 모릅니다. 눌러서 골라 주세요">종류?</em>}
+                        </>
+                      )
                       : <em className="c-none">요건 없음</em>}
                   </span>
                   <span className="c-tr">{ct ? (ct.contract_type || "-")

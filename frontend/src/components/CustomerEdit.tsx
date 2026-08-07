@@ -10,7 +10,7 @@ import { X, Plus, Trash2, Loader2, Check, Sparkles, UserRound, Building2,
 const API_BASE = import.meta.env.VITE_API_BASE;
 
 export type EditNeed = {
-  id?: number; kind?: string; trade?: string; role?: string;
+  id?: number; kind?: string; ptype?: string | null; trade?: string; role?: string;
   budget_min?: number | null; budget_max?: number | null; ask_price?: number | null;
   sigungu?: string | null; dong?: string | null; address?: string | null;
   area_min?: number | null; area_max?: number | null;
@@ -33,6 +33,9 @@ export type EditCustomer = {
 };
 
 const KINDS = ["구함", "내놓음"];
+// 물건 종류 — 매물장(QuickAdd)의 유형과 같은 목록이어야 매칭이 어긋나지 않는다
+const PTYPES = ["아파트", "오피스텔", "빌라", "단독", "상가", "사무실", "토지", "공장",
+  "건물", "지식산업센터", "재개발", "원룸", "분양권"];
 const TRADES: [string, string][] = [["A1", "매매"], ["B1", "전세"], ["B2", "월세"]];
 const STATUS = ["문의", "미팅", "보류", "완료"];
 // 예전 단계(탐색·비교·협상·계약)가 남아 있어도 새 단계로 읽는다
@@ -171,7 +174,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
       const j = await r.json();
       if (!r.ok) throw new Error(j?.detail || `오류 ${r.status}`);
       const got: EditNeed[] = (j.needs || []).map((n: any) => ({
-        kind: n.kind || "구함", trade: n.trade || "A1", role: roleNum(n.role),
+        kind: n.kind || "구함", ptype: n.ptype || null, trade: n.trade || "A1", role: roleNum(n.role),
         budget_min: n.budget_min ?? null, budget_max: n.budget_max ?? null,
         ask_price: n.ask_price ?? null, dong: n.region || null, address: n.complex_name || null,
         area_min: n.area_min ?? null, area_max: n.area_max ?? null,
@@ -212,7 +215,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
         }
         if (n._del) continue;
         const body: Record<string, any> = {};
-        for (const k of ["kind", "trade", "role", "budget_min", "budget_max", "ask_price",
+        for (const k of ["kind", "ptype", "trade", "role", "budget_min", "budget_max", "ask_price",
           "sigungu", "dong", "address", "area_min", "area_max", "status", "settle_date", "memo",
           "bld_dong", "ho", "area_m2", "floor_info", "complex_no"]) {
           body[k] = (n as any)[k] ?? null;
@@ -295,6 +298,13 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
               <select className="ced-sel" value={n.trade || "A1"}
                 onChange={(e) => setN(i, { trade: e.target.value })}>
                 {TRADES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              {/* 물건 종류 — 매물의 유형과 같은 말을 쓴다. 이게 있어야 상가 손님에게
+                  아파트를 들이밀지 않는다. 보통은 문장에서 자동으로 채워진다. */}
+              <select className={"ced-sel pt" + (n.ptype ? "" : " empty")}
+                value={n.ptype || ""} onChange={(e) => setN(i, { ptype: e.target.value || null })}>
+                <option value="">종류?</option>
+                {PTYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
               {/* 우선순위 — 이 고객의 요건 수만큼. 구분과 무관하게 '몇 번째 안'이다
                   (구함 1건 + 내놓음 1건이면 1안·2안이 나와야 한다) */}
@@ -408,9 +418,9 @@ function needSummary(n: EditNeed): string {
   const tr = TRADES.find(([v]) => v === (n.trade || "A1"))?.[1] || "";
   const py = (m2?: number | null) => (m2 ? `${Math.round(Number(m2) / 3.3058)}평` : "");
   const parts = n.kind === "내놓음"
-    ? [n.address, [n.bld_dong, n.ho].filter(Boolean).join(" "), tr,
+    ? [n.address, [n.bld_dong, n.ho].filter(Boolean).join(" "), n.ptype, tr,
        moneyText(n.ask_price), py(n.area_m2)]
-    : [n.address || n.dong, tr,
+    : [n.address || n.dong, n.ptype, tr,
        n.budget_min || n.budget_max
          ? `${moneyText(n.budget_min)}~${moneyText(n.budget_max)}`.replace(/^~|~$/, "") : "",
        n.area_min || n.area_max ? `${py(n.area_min)}~${py(n.area_max)}`.replace(/^~|~$/, "") : ""];

@@ -19,6 +19,7 @@ type Hit = {
   trade?: string; price_man?: number | null; rent_man?: number | null;
   area?: number | null; supply?: number | null; floor?: string; direction?: string;
   settle?: string; n_in_complex?: number; complex_no?: string; fit?: Fit[];
+  ptype?: string; premium_man?: number | null;      // 종류·권리금(상가·사무실)
   // 우리 매물
   total_floor?: number | null; rooms?: number | null; baths?: number | null;
   approve?: string; parking?: number | null; move_in?: string; mgmt?: number | null;
@@ -33,7 +34,7 @@ type Criteria = { used: string[]; skipped: string[]; unavailable: string[] };
 const ROLE_OLD: Record<string, string> = { 주안: "1안", 대안: "2안", 보유: "1안" };
 const roleLabel = (r?: string | null) => ROLE_OLD[r || ""] || r || "";
 type Need = {
-  id: number; kind?: string; trade?: string; role?: string;
+  id: number; kind?: string; ptype?: string | null; trade?: string; role?: string;
   budget_min?: number | null; budget_max?: number | null;
   sigungu?: string | null; dong?: string | null; address?: string | null;
   area_min?: number | null; area_max?: number | null; settle_date?: string | null;
@@ -148,6 +149,7 @@ export default function MatchBoard({ authH, onGoLedger }: {
                   <Phone size={10} /> {n.cphone}</a>}
               </span>
               <span className="mtb-cond">
+                {n.ptype && <em className="pt">{n.ptype}</em>}
                 <em>{TRADE_KOR[n.trade || ""] || n.trade || "-"}</em>
                 {/* 몇 번째 안인지 — 어느 조건을 먼저 밀지가 여기서 갈린다 */}
                 {n.role && <i className="mtb-pri">{roleLabel(n.role)}</i>}
@@ -247,6 +249,7 @@ function HitRow({ h }: { h: Hit }) {
     : eok(h.price_man);
   // 스펙 — 손님에게 전화로 읽어 줄 만한 것들만 순서대로
   const spec = [
+    h.ptype || "",
     h.area ? py(h.area) : "",
     h.floor ? `${h.floor}${h.total_floor ? `/${h.total_floor}` : ""}층` : "",
     h.rooms ? `방${h.rooms}${h.baths ? `/욕${h.baths}` : ""}` : "",
@@ -257,6 +260,7 @@ function HitRow({ h }: { h: Hit }) {
     h.settle ? `잔금 ${h.settle}` : "",
     h.move_in ? `입주 ${h.move_in}` : "",
     h.mgmt ? `관리비 ${h.mgmt}만` : "",
+    h.premium_man ? `권리금 ${Math.round(h.premium_man).toLocaleString()}만` : "",
     h.where || "",
   ].filter(Boolean).join(" · ");
   // 전국 매물은 단지 안 시세 폭과 실거래 대비를 같이 준다 — '싸다'를 근거로 말하게

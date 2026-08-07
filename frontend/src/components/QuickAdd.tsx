@@ -103,7 +103,8 @@ const L_FIELDS: [string, string | ((r: ListingRow) => string), FType, string?][]
   ["memo", "메모", "text"],
 ];
 const N_FIELDS: [string, string, FType][] = [
-  ["kind", "구분", "text"], ["trade", "거래", "trade"], ["role", "역할", "text"],
+  ["kind", "구분", "text"], ["ptype", "물건 종류", "text"],
+  ["trade", "거래", "trade"], ["role", "역할", "text"],
   ["budget_min", "예산 최소", "money"], ["budget_max", "예산 최대", "money"],
   ["ask_price", "내놓은 가격", "money"],
   ["region", "지역", "text"], ["complex_name", "단지", "text"],
