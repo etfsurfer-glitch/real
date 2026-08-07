@@ -2440,6 +2440,53 @@ _NONRESI_LABEL = {"sangga": "상가", "office": "사무실", "villa": "빌라·�
                   "knowledge": "지식산업센터", "redev": "재개발", "oneroom": "원룸"}
 
 
+# ── 비단지 매물의 건물명 ─────────────────────────────────────────────────────
+# 네이버 비단지 원천에는 건물 이름이 없다. building_name 은 '일반상가'·'중소형사무실'
+# 같은 유형 딱지고(실측), 그러면 매물장 이름 칸이 '송도동 8-3' 처럼 지번뿐이라
+# 어느 건물인지 중개사도 손님도 바로 못 떠올린다.
+# 건축물대장 표제부는 마스킹 지번 복원 때 **법정동 단위로** 받아 둔 것이 이미
+# 13,000여 개 있다(ledger_recover.title_cache) — 이름을 붙이자고 API 를 다시 부를
+# 이유가 없다. 실측 적중 42%(3,460건 중 1,460건), 못 붙인 것은 지금처럼 지번만 선다.
+import functools as _ft
+import re as _re_bld
+
+_JIBUN_TAIL = _re_bld.compile(r"(?:^|\s)산?\s*(\d+)(?:-(\d+))?\s*$")
+
+
+@_ft.lru_cache(maxsize=192)
+def _title_bld_index(sgg: str, bjd: str) -> dict:
+    """법정동 하나의 표제부 → {(bun, ji): 건물명}. 이름이 갈리는 지번은 담지 않는다."""
+    path = DB_PATH.parent / "ledger_recover.sqlite"
+    if not path.exists():
+        return {}
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as c:
+            row = c.execute("SELECT items FROM title_cache WHERE sgg=? AND bjd=?",
+                            (sgg, bjd)).fetchone()
+        if not row or not row[0]:
+            return {}
+        agg: dict = {}
+        for it in _json.loads(row[0]):
+            if len(it) >= 6 and it[5]:
+                agg.setdefault((it[0], it[1]), set()).add(it[5])
+        # 한 지번에 이름이 여럿이면(본동·별동이 따로 등재) 무엇을 세울지 알 수 없다.
+        # 틀린 이름을 다는 것보다 지번만 두는 편이 낫다.
+        return {k: next(iter(v)) for k, v in agg.items() if len(v) == 1}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _bld_name_of(cortar_no: str, addr: str) -> str:
+    """법정동코드 + 지번 주소 → 건축물대장 건물명. 못 찾으면 빈 문자열."""
+    if not cortar_no or len(str(cortar_no)) < 10:
+        return ""
+    m = _JIBUN_TAIL.search(addr or "")
+    if not m:
+        return ""
+    idx = _title_bld_index(str(cortar_no)[:5], str(cortar_no)[5:])
+    return idx.get((m.group(1).zfill(4), (m.group(2) or "0").zfill(4)), "")
+
+
 @app.get("/stats/nonresi")
 def nonresi_stats(cat: str, cortar: str = "", trade: str = ""):
     """비단지(상가·사무실·빌라·단독) 호가 통계 — 지역×거래유형별 건수·평균 보증/월세/매매·평당·면적.
@@ -13290,6 +13337,7 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                 "naver_url": f"https://m.land.naver.com/article/info/{r[0]}",
                 "cp_name": "", "verification_type": vtype, "lat": r[11], "lng": r[12],
                 "dong": dong, "address": full_addr,
+                "bld_name": _bld_name_of(r[13] or "", full_addr),
                 "parking_total": None, "parking_per": None, "households": None,
                 "approve_ymd": None, "builder": None, "mgmt_tel": None,
             })

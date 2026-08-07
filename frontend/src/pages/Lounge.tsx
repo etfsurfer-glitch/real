@@ -1593,6 +1593,8 @@ type MLItem = {
   price_change_state: string; feature_desc: string; naver_url: string; cp_name: string;
   verification_type: string; lat: number; lng: number; memo: string; contact: string; manager: string;
   dong: string; address: string;
+  // 건축물대장 건물명 — 비단지 매물에만 붙는다(원천엔 이름이 없다)
+  bld_name?: string;
   parking_total: number | null; parking_per: number | null; households: number | null;
   approve_ymd: string | number | null; builder: string | null; mgmt_tel: string | null;
   // 비공개매물(콕집 직접등록) 전용 — 네이버 매물엔 없다
@@ -1683,7 +1685,8 @@ const ML_GENERIC_BLD = new Set([
 // 빌라 원천에는 '1동'·'가동'·'A동' 처럼 동 표기가 이름 칸에 들어온다 — 이름이 아니다
 const ML_DONG_ONLY = /^(?:\d+|[A-Za-z]|[가-힣])동$/;
 function realName(l: MLItem): string {
-  const n = (l.complex_name || l.building_name || "").trim();
+  // 중개사가 적은 이름 > 건축물대장 건물명 > 원천 값(대개 유형 딱지라 거의 걸러진다)
+  const n = (l.complex_name || l.bld_name || l.building_name || "").trim();
   return !n || ML_GENERIC_BLD.has(n) || ML_DONG_ONLY.test(n) ? "" : n;
 }
 function mlName(l: MLItem): string {
