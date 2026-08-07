@@ -2546,6 +2546,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   font-size:11px;font-weight:700;color:var(--c-muted)}
 .mlj-legend .src{margin-left:6px}
 .mlj-legend .src:first-child{margin-left:0}
+/* 한 물건이 매물장에도 있고 네이버에도 광고 중이면 표시가 둘 붙는다 — 범례도 그렇게 읽힌다 */
+.mlj-legend .both{display:inline-flex;align-items:center;gap:1px;font-weight:700}
+.mlj-legend .both .src{margin-left:0}
+.mlj-legend .both .src+.src{margin-left:-3px}
+.mjt .c-src+.c-src{margin-left:-3px}
 /* 단지 폴더 — 같은 단지 물건을 접었다 펼친다. 머리는 모든 열을 가로지른다 */
 .mjt-g{grid-column:1/-1;display:flex;align-items:center;gap:7px;padding:8px 13px;cursor:pointer;
   background:#f7f9fc;border-bottom:1px solid var(--c-border-soft)}

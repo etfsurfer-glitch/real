@@ -1600,6 +1600,8 @@ type MLItem = {
   // 비공개매물(콕집 직접등록) 전용 — 네이버 매물엔 없다
   is_private?: boolean; private_id?: number; visibility?: string; created_by?: string;
   source_article_no?: string; source_saved_at?: string;
+  // 같은 물건이 매물장에도 있고 네이버에도 광고 중이면 한 줄에 두 표시가 붙는다
+  also_naver?: boolean; naver_article_no?: string;
   photos?: string[]; extra?: Record<string, any>;
 };
 type Manager = { name: string; position: string; role: string };
@@ -1647,11 +1649,21 @@ function groupSummary(g: MLItem[]): string {
 /** 매물 출처 — 행마다 아이콘 하나. 자물쇠는 우리가 직접 적은 것(우리만 봄),
  *  지구본은 네이버에서 가져온 것(지금 광고 중). 뜻은 표 위 범례에 적어 뒀다. */
 function SrcIcon({ l }: { l: MLItem }) {
-  return l.is_private
-    ? <em className="c-src pv" title={`직접등록 — ${l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}`}>
+  if (!l.is_private) {
+    return <em className="c-src nv" title="네이버에서 가져온 매물 — 지금 광고 중"><Globe size={9} /></em>;
+  }
+  return (
+    <>
+      <em className="c-src pv" title={`직접등록 — ${l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}`}>
         <Lock size={9} /></em>
-    : <em className="c-src nv" title="네이버에서 가져온 매물 — 지금 광고 중">
-        <Globe size={9} /></em>;
+      {/* 같은 물건이 네이버에도 올라가 있으면 둘 다 붙인다 — 광고 중인지 아닌지가
+          매물장에서 바로 보여야 한다 */}
+      {l.also_naver && (
+        <em className="c-src nv" title={`네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}`}>
+          <Globe size={9} /></em>
+      )}
+    </>
+  );
 }
 
 /** 표에 세울 이름. 단지형은 단지명이지만 단지가 없는 물건(빌라·상가·사무실·단독·토지…)은
@@ -1937,6 +1949,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
         <span className="mlj-legend">
           <i className="src pv"><Lock size={9} /></i>직접등록
           <i className="src nv"><Globe size={9} /></i>네이버
+          <b className="both"><i className="src pv"><Lock size={9} /></i><i className="src nv"><Globe size={9} /></i>둘 다 — 매물장에도 있고 광고 중</b>
         </span>
       </div>
       {!items || (busy && items.length === 0) ? (

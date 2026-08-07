@@ -13242,6 +13242,8 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                 "trade_type": _TRADE_KOR.get(r[3], r[3]), "type": tkor, "area_name": r[5],
                 "area1_m2": r[6], "area2_m2": r[7], "floor_info": r[8], "direction": r[9],
                 "price_text": r[10], "rent_price_text": r[11], "price": r[12] or 0, "confirm_ymd": r[13] or "",
+                # 단지 DB 만 원 단위다(비단지·비공개는 만원) — 비교할 땐 이 값을 쓴다
+                "price_man": round((r[12] or 0) / 10000.0),
                 "building_name": r[14], "tags": tags, "same_addr_cnt": r[16], "same_addr_min": r[17],
                 "same_addr_max": r[18], "feature_desc": r[19],
                 "naver_url": f"https://m.land.naver.com/article/info/{r[0]}", "cp_name": r[21],
@@ -13332,6 +13334,7 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                 "area_name": r[1] or ckor, "area1_m2": r[5], "area2_m2": r[6], "floor_info": r[7] or "",
                 "direction": r[8] or "", "price_text": _ml_price_text(r[3]),
                 "rent_price_text": _ml_price_text(r[4]), "price": r[3] or 0, "confirm_ymd": r[10] or "",
+                "price_man": round(r[3] or 0),
                 "building_name": r[9] or "", "tags": tags, "same_addr_cnt": sa_cnt, "same_addr_min": sa_min,
                 "same_addr_max": sa_max, "feature_desc": feat,
                 "naver_url": f"https://m.land.naver.com/article/info/{r[0]}",
@@ -13342,6 +13345,72 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                 "approve_ymd": None, "builder": None, "mgmt_tel": None,
             })
     return items
+
+
+def _ml_pair_key(x: dict):
+    """같은 물건인지 볼 때 쓰는 열쇠 — 단지(없으면 지번)·거래유형·가격."""
+    base = str(x.get("complex_no") or "").strip() or \
+        _re.sub(r"\s+", "", str(x.get("address") or ""))
+    price = int(x.get("price_man") or 0)
+    tr = str(x.get("trade_type") or "").strip()
+    return (base, tr, price) if (base and price and tr) else None
+
+
+def _merge_private_naver(priv: list, items: list) -> list:
+    """같은 물건이 비공개매물과 네이버 매물로 두 번 서 있으면 한 줄로 합친다.
+
+    네이버 매물을 비공개로 담으면 source_article_no 에 원본이 남는다 — 그건 확실한
+    연결이다. 반대로 비공개로 먼저 등록한 물건이 나중에 네이버에 올라오면 연결 고리가
+    없어 값으로 찾아야 하는데, 잘못 붙이면 남의 물건이 내 것처럼 보인다. 그래서
+    단지(또는 지번)·거래유형·가격이 같고 전용이 ±1.5㎡ 안이며 **후보가 딱 한 건일 때만**
+    붙인다. 둘 이상이면 어느 쪽인지 알 수 없으니 손대지 않고 따로 세운다.
+
+    합칠 땐 비공개 행이 바탕이다 — 중개사가 적은 메모·연락처·담당·사진이 거기 있다.
+    네이버 쪽에만 있는 것(광고 확인일·검증·같은주소 시세폭)은 빈 칸일 때만 채운다.
+    """
+    if not priv or not items:
+        return priv + items
+    by_no = {it.get("article_no"): it for it in items}
+    used, link = set(), {}
+    for p in priv:                       # ① 확실한 연결
+        src = (p.get("source_article_no") or "").strip()
+        if src and src in by_no and src not in used:
+            used.add(src)
+            link[id(p)] = by_no[src]
+    buckets: dict = {}                   # ② 값으로 찾기
+    for it in items:
+        if it.get("article_no") in used:
+            continue
+        k = _ml_pair_key(it)
+        if k:
+            buckets.setdefault(k, []).append(it)
+    for p in priv:
+        if id(p) in link:
+            continue
+        k = _ml_pair_key(p)
+        if not k:
+            continue
+        pa = p.get("area2_m2") or 0
+        cands = [c for c in buckets.get(k, ())
+                 if c.get("article_no") not in used
+                 and abs((c.get("area2_m2") or 0) - pa) <= 1.5]
+        if len(cands) == 1:
+            used.add(cands[0]["article_no"])
+            link[id(p)] = cands[0]
+    for p in priv:
+        nv = link.get(id(p))
+        if not nv:
+            continue
+        p["also_naver"] = True
+        p["naver_article_no"] = nv.get("article_no")
+        p["naver_url"] = nv.get("naver_url") or ""
+        # 네이버 행에만 있던 것들 — 메모·담당은 광고 쪽에 적어 뒀을 수 있어 같이 살린다
+        for k in ("confirm_ymd", "verification_type", "same_addr_cnt",
+                  "same_addr_min", "same_addr_max", "bld_name",
+                  "memo", "contact", "manager"):
+            if not p.get(k):
+                p[k] = nv.get(k) or p.get(k)
+    return priv + [it for it in items if it.get("article_no") not in used]
 
 
 def _sort_listings(items: list, sort: str) -> list:
@@ -13387,7 +13456,8 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
     # 비공개매물을 앞에 둔다 — 아래 정렬이 안정 정렬이라 확인일이 같으면 이쪽이 먼저 온다.
     # 방금 등록한 물건이 오늘 확인된 네이버 매물 수백 건 뒤로 밀려 안 보이던 문제.
     # (비공개매물은 자체 memo/contact/manager 를 이미 갖고 있어 위 결합을 타지 않는다)
-    items = priv + items
+    # 같은 물건이 두 줄로 서지 않게 합친다 — 한 줄에 자물쇠와 지구본이 같이 붙는다
+    items = _merge_private_naver(priv, items)
     if q.strip():
         ql = q.strip()
         # 네이버 매물번호도 검색 대상(중개사가 번호로 바로 자기 물건을 찾는 흐름)
@@ -13640,7 +13710,8 @@ def _pl_row_to_item(r) -> dict:
         "area_name": g("area_name") or "", "area1_m2": num("area1_m2"), "area2_m2": num("area2_m2"),
         "floor_info": g("floor_info") or "", "direction": g("direction") or "",
         "price_text": _ml_price_text(price), "rent_price_text": _ml_price_text(num("rent_price") or 0),
-        "price": price, "confirm_ymd": g("confirm_ymd") or (g("created_at") or "")[:10].replace("-", ""),
+        "price": price, "price_man": round(price),
+        "confirm_ymd": g("confirm_ymd") or (g("created_at") or "")[:10].replace("-", ""),
         "building_name": g("building_name") or "", "tags": tags or _pl_auto_tags(g, num),
         "same_addr_cnt": 0, "same_addr_min": 0, "same_addr_max": 0,
         "feature_desc": g("feature_desc") or "",
