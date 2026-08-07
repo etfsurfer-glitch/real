@@ -188,10 +188,11 @@ def _parse_jibun(cortar_no, detail_address):
     """cortar_no(법정동10)+detail_address('1597-6'/'산23') → (sgg,plat,bun4,ji4,bjd) or None."""
     if not cortar_no or len(str(cortar_no)) < 10 or not detail_address:
         return None
-    da = str(detail_address).strip().split()[0]   # "18번지 일대"→"18번지", "1597-6 외"→"1597-6"
+    raw = str(detail_address).strip()
     plat = "0"
-    if da.startswith("산"):
-        plat, da = "1", da[1:]
+    if raw.startswith("산"):                      # '산 11-244' 처럼 띄어 쓰기도 한다
+        plat, raw = "1", raw[1:].lstrip()
+    da = raw.split()[0] if raw.split() else ""   # "18번지 일대"→"18번지", "1597-6 외"→"1597-6"
     da = da.replace("번지", "")
     m = re.match(r"(\d+)(?:-(\d+))?", da)          # 선두 본번[-부번]만, 후행 텍스트 무시
     if not m:
@@ -327,6 +328,95 @@ def ledger_for_coord(lat, lon, vworld_key, datago_keys) -> dict | None:
         return None
     sgg, plat, bun, ji, bjd = j
     return _ref_cached(sgg, bjd, plat, bun, ji, datago_keys)
+
+
+def title_full_ref(sgg, bjd, plat, bun, ji, datago_keys) -> dict | None:
+    """표제부 상세 — 실거래지도 상세 표시용. ledger_ref(매물점검)보다 필드가 많다
+    (구조·지상/지하층수·세대/가구/호수·높이·건폐율·용적률·건축/대지면적·승강기·허가·착공·사용승인).
+    ledger_ref와 별개 캐시(RF)라 매물점검에 영향 없음. 없음=None, 일시실패=_ERR(캐시 금지)."""
+    if isinstance(datago_keys, str):
+        datago_keys = [datago_keys]
+    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji}
+    items = _br_items(BR_URL, base, datago_keys)
+    if items is _ERR:
+        return _ERR
+    if not items:
+        return None
+
+    def g(it, tag):
+        return (it.findtext(tag) or "").strip()
+
+    mains = [it for it in items if g(it, "mainAtchGbCd") == "0"] or items
+    pick = max(mains, key=lambda it: float(g(it, "totArea") or 0))
+
+    def _sum(tag):                       # 다동단지는 세대/가구/호수를 동별 합산
+        return sum(_int(g(it, tag)) or 0 for it in items) or None
+
+    def _f(tag):
+        try:
+            return float(g(pick, tag)) or None
+        except ValueError:
+            return None
+    park = sum(filter(None, (_int(g(pick, k)) for k in
+              ("indrMechUtcnt", "oudrMechUtcnt", "indrAutoUtcnt", "oudrAutoUtcnt")))) or None
+    return {
+        "bld_nm": g(pick, "bldNm") or None,
+        "main_purps": g(pick, "mainPurpsCdNm") or None,
+        "etc_purps": g(pick, "etcPurps") or None,
+        "structure": g(pick, "strctCdNm") or None,
+        "roof": g(pick, "roofCdNm") or None,
+        "grnd_flr": _int(g(pick, "grndFlrCnt")),
+        "ugrnd_flr": _int(g(pick, "ugrndFlrCnt")),
+        "hhld_cnt": _sum("hhldCnt"),
+        "fmly_cnt": _sum("fmlyCnt"),
+        "ho_cnt": _sum("hoCnt"),
+        "heit": _f("heit"),
+        "bc_rat": _f("bcRat"),
+        "vl_rat": _f("vlRat"),
+        "arch_area": _f("archArea"),
+        "plat_area": _f("platArea"),
+        "tot_area": _f("totArea"),
+        "elvt": _int(g(pick, "rideUseElvtCnt")),
+        "pms_day": g(pick, "pmsDay") or None,
+        "stcns_day": g(pick, "stcnsDay") or None,
+        "use_apr_day": g(pick, "useAprDay") or None,
+        "parking": park,
+        "n_dong": len(items),
+    }
+
+
+def _full_cached(sgg, bjd, plat, bun, ji, datago_keys):
+    rk = f"RF{sgg}{bjd}{plat}{bun}{ji}"
+    if rk in _cache:
+        return _cache[rk]
+    v = _cget(rk)
+    if v is not _MISS:
+        _cache[rk] = v
+        return v
+    ref = title_full_ref(sgg, bjd, plat, bun, ji, datago_keys)
+    if ref is _ERR:
+        return None
+    _cput(rk, ref)
+    _cache[rk] = ref
+    return ref
+
+
+def ledger_full_for_jibun(cortar_no, detail_address, datago_keys) -> dict | None:
+    """지번(법정동10 + '1597-6') → 표제부 상세(영속 캐시). 단지·비단지 공통."""
+    j = _parse_jibun(cortar_no, detail_address)
+    if not j:
+        return None
+    sgg, plat, bun, ji, bjd = j
+    return _full_cached(sgg, bjd, plat, bun, ji, datago_keys)
+
+
+def flr_ouln_for_jibun(cortar_no, detail_address, datago_keys) -> list | None:
+    """지번 → 층별개요(영속 캐시). 혼합건물 층별 용도·면적."""
+    j = _parse_jibun(cortar_no, detail_address)
+    if not j:
+        return None
+    sgg, plat, bun, ji, bjd = j
+    return _flr_cached(sgg, bjd, plat, bun, ji, datago_keys)
 
 
 def _pnu_to_jibun(pnu):

@@ -15435,13 +15435,42 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
 # ── 빌라·다세대 — 지번으로 등록한다 ──────────────────────────────────────────
 # 빌라는 단지가 없다. 중개사는 '화곡동 123-45' 처럼 지번을 적고 그 건물의 몇 호인지를 고른다.
 # 그래서 단지명이 아니라 주소에서 출발해 건축물대장의 호 목록을 가져오는 길이 따로 필요하다.
-_ADDR_JIBUN = _re.compile(r"(?:^|\s)(산?\d+(?:-\d+)?)\s*(?:번지)?\s*$")
+_ADDR_JIBUN = _re.compile(r"(?:^|\s)(산\s*)?(\d+(?:-\d+)?)\s*(?:번지)?\s*$")
 # 사람은 '서울'이라 적고 regions 에는 '서울특별시'로 들어 있다
 _SIDO_LONG = {"서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시", "인천": "인천광역시",
               "광주": "광주광역시", "대전": "대전광역시", "울산": "울산광역시", "세종": "세종특별자치시",
               "경기": "경기도", "강원": "강원특별자치도", "충북": "충청북도", "충남": "충청남도",
               "전북": "전북특별자치도", "전남": "전라남도", "경북": "경상북도", "경남": "경상남도",
               "제주": "제주특별자치도"}
+
+
+def _ri_cortar(c, toks: list) -> str | None:
+    """'경기도 양평군 용문면 다문리' → 법정동코드. ledger_recover.ri_bjd 를 쓴다.
+
+    regions(네이버 cortar)에는 도시의 '동'만 있고 시골의 '리'가 없다. 리는
+    '시군구코드 + 읍면리이름 → 법정동코드' 표로 따로 풀어야 한다.
+    """
+    if len(toks) < 2:
+        return None
+    umd = f"{toks[-2]} {toks[-1]}"
+    sggs = []
+    for t in toks[:-2]:
+        for r in c.execute("SELECT cortar_no FROM regions WHERE cortar_name=? "
+                           "AND cortar_type='dvsn'", (t,)):
+            sggs.append(r[0][:5])
+    try:
+        import sqlite3 as _sq
+        with _sq.connect(f"file:{DB_PATH.parent / 'ledger_recover.sqlite'}?mode=ro", uri=True) as rc:
+            if sggs:
+                q = ",".join("?" * len(sggs))
+                row = rc.execute(f"SELECT sgg5, bjd5 FROM ri_bjd WHERE umd_nm=? AND sgg5 IN ({q})",
+                                 [umd] + sggs).fetchone()
+            else:
+                rows = rc.execute("SELECT sgg5, bjd5 FROM ri_bjd WHERE umd_nm=?", (umd,)).fetchall()
+                row = rows[0] if len(rows) == 1 else None   # 여럿이면 고르지 않는다
+    except Exception:  # noqa: BLE001
+        return None
+    return (row[0] + row[1]) if row else None
 
 
 def _addr_to_cortar(c, addr: str) -> tuple:
@@ -15453,7 +15482,7 @@ def _addr_to_cortar(c, addr: str) -> tuple:
     m = _ADDR_JIBUN.search(a)
     if not m:
         return None, None
-    jibun = m.group(1)
+    jibun = ("산" if m.group(1) else "") + m.group(2)
     head = a[:m.start()].strip()
     toks = [t for t in head.split() if t]
     if not toks:
@@ -15461,6 +15490,10 @@ def _addr_to_cortar(c, addr: str) -> tuple:
     dong = toks[-1]
     rows = c.execute("SELECT cortar_no FROM regions WHERE cortar_name=? AND cortar_type='sec'",
                      (dong,)).fetchall()
+    if not rows and dong.endswith("리") and len(toks) >= 2:
+        # 시골은 '읍/면 + 리' 다. 우리 regions 는 네이버 기준이라 리가 없어 별도 표를 본다.
+        cor = _ri_cortar(c, toks)
+        return (cor, jibun) if cor else (None, None)
     if not rows:
         return None, None
     if len(rows) > 1 and len(toks) > 1:
@@ -15470,15 +15503,20 @@ def _addr_to_cortar(c, addr: str) -> tuple:
         for r in c.execute("SELECT cortar_no, cortar_name FROM regions "
                            "WHERE cortar_type IN ('city','dvsn')"):
             names.setdefault(r[1], []).append(r[0])
-        pref = []
+        # 시군구(5자리)를 시도(2자리)보다 먼저 쓴다. 둘을 섞으면 '충청남도'가 걸려
+        # 충남 전체가 남고 '서산시'로 좁힌 효과가 사라진다(실측: 읍내동 3곳).
+        pref5, pref2 = [], []
         for t in toks[:-1]:
-            hit = names.get(t) or names.get(_SIDO_LONG.get(t, t)) or []
-            for cn in hit:
-                pref.append(cn[:2] if cn.endswith("00000000") else cn[:5])
-        if pref:
-            narrowed = [r for r in rows if any(r[0].startswith(p) for p in pref)]
+            for cn in (names.get(t) or names.get(_SIDO_LONG.get(t, t)) or []):
+                (pref2 if cn.endswith("00000000") else pref5).append(
+                    cn[:2] if cn.endswith("00000000") else cn[:5])
+        for pset in (pref5, pref2):
+            if not pset:
+                continue
+            narrowed = [r for r in rows if any(r[0].startswith(p) for p in pset)]
             if narrowed:
                 rows = narrowed
+                break
     if len(rows) != 1:
         return None, None
     return rows[0][0], jibun
