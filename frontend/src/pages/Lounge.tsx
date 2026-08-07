@@ -1609,7 +1609,7 @@ function ListingCells({ l }: { l: MLItem }) {
   return (
     <>
       <span className="mjt-meta">
-        <span className="c-ho">{dongHo(l)}</span>
+        <span className="c-ho">{unitOf(l)}</span>
         <span className="c-ar">{l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : "-"}</span>
         <span className="c-fl">{l.floor_info
           ? `${l.floor_info}${l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : ""}층`
@@ -1650,6 +1650,33 @@ function SrcIcon({ l }: { l: MLItem }) {
         <Lock size={9} /></em>
     : <em className="c-src nv" title="네이버에서 가져온 매물 — 지금 광고 중">
         <Globe size={9} /></em>;
+}
+
+/** 표에 세울 이름. 단지형은 단지명이지만 단지가 없는 물건(빌라·상가·사무실·단독·토지…)은
+ *  주소다. 그쪽 building_name 은 '일반상가'·'빌라' 같은 유형 딱지라(실측) 이름 자리에
+ *  세우면 모든 행이 똑같아 보여 어느 물건인지 구별이 안 된다.
+ *  주소는 시·도와 시군구를 떼고 '숭의동 121-7' 로 줄인다 — 한 사무소 물건은 대개
+ *  같은 시군구라 앞부분이 매 행 반복될 뿐이다(전체 주소는 툴팁으로 남긴다). */
+function isAddrFirst(l: { type?: string | null }) {
+  return PL_ADDR_FIRST.includes(l.type || "");
+}
+function shortAddr(addr?: string | null): string {
+  const t = (addr || "").trim().split(/\s+/).filter(Boolean);
+  if (t.length <= 2) return t.join(" ");
+  // '역삼동 산 12-3' 처럼 산번지는 세 토막이라야 동을 안 잃는다
+  return t.slice(t[t.length - 2] === "산" ? -3 : -2).join(" ");
+}
+function mlName(l: MLItem): string {
+  if (isAddrFirst(l) && l.address) return shortAddr(l.address);
+  return l.complex_name || l.building_name || l.area_name || "매물";
+}
+/** 동·호 칸. 단지 없는 물건은 주소를 이름 칸에 세웠으니 여기서 법정동을 또 쓰지 않는다. */
+function unitOf(l: MLItem): string {
+  if (!isAddrFirst(l)) return dongHo(l);
+  const d = (l.dong || "").trim(), h = (l.ho || "").trim();
+  const dd = d && !(l.address || "").includes(d) ? (/동$/.test(d) ? d : `${d}동`) : "";
+  const hh = h ? (/호$/.test(h) ? h : `${h}호`) : "";
+  return [dd, hh].filter(Boolean).join(" ") || "-";
 }
 
 /** 동·호 표기 통일 — '104 1103' 과 '104동 1103호' 가 섞여 있었다.
@@ -1767,7 +1794,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     const by = new Map<string, MLItem[]>();
     const order: string[] = [];
     for (const l of items || []) {
-      const k = l.complex_no || l.complex_name || `#${l.article_no}`;
+      const k = isAddrFirst(l) ? (l.address || `#${l.article_no}`)
+                              : (l.complex_no || l.complex_name || `#${l.article_no}`);
       if (!by.has(k)) { by.set(k, []); order.push(k); }
       by.get(k)!.push(l);
     }
@@ -1777,7 +1805,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   // 직접등록 매물 삭제 — 되돌릴 수 없으니 무엇을 지우는지 이름으로 확인받는다.
   // 서버는 status='closed' 로만 바꾼다(행은 남아 복구할 수 있다).
   const delPrivate = async (l: MLItem) => {
-    const what = [l.complex_name || l.building_name || "이 매물", dongHo(l)].filter(Boolean).join(" ");
+    const what = [mlName(l), unitOf(l)].filter((x) => x && x !== "-").join(" ");
     if (!window.confirm(`${what}\n\n매물장에서 지웁니다. 계속할까요?`)) return;
     try {
       const r = await fetch(`${API_BASE}/lounge/private-listings/${l.private_id}`,
@@ -1894,8 +1922,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           {/* 표 머리 — 좁아지면 사라진다. 행 안의 배치만 바뀌고 데이터·상태는 하나다. */}
           <div className="mjt-head">
             <span />
-            <span>단지</span>
-            <span className="h-ho">동·호·주소</span>
+            <span>단지·주소</span>
+            <span className="h-ho">동·호</span>
             <span className="h-ar">전용</span>
             <span className="h-fl">층</span>
             <span className="h-st">잔금</span>
@@ -1903,15 +1931,18 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
             <span style={{ textAlign: "right" }}>가격</span>
           </div>
           {groups.flatMap((g) => {
-            const key = g[0].complex_no || g[0].complex_name || `#${g[0].article_no}`;
-            const name = g[0].complex_name || g[0].building_name || g[0].area_name || "매물";
+            const key = isAddrFirst(g[0]) ? (g[0].address || `#${g[0].article_no}`)
+                                          : (g[0].complex_no || g[0].complex_name || `#${g[0].article_no}`);
+            const name = mlName(g[0]);
             // 한 건뿐이면 폴더로 감싸지 않는다 — 열고 닫을 것이 없다
             if (g.length < 2) {
               const l = g[0];
               return [
                 <div key={l.article_no} className="mjt-r" onClick={() => { setDetailOwner(""); setDetail(l); }}>
                   <span className="c-tr"><i className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</i></span>
-                  <span className="c-nm">{name}<SrcIcon l={l} /></span>
+                  <span className="c-nm" title={isAddrFirst(l) ? (l.address || "") : ""}>
+                    {name}<SrcIcon l={l} />
+                  </span>
                   <ListingCells l={l} />
                 </div>,
               ];
@@ -1935,7 +1966,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                   {/* 폴더 안이어도 단지명은 남긴다 — 행만 떼어 봐도 어느 단지인지 읽혀야 한다 */}
                   <span className="c-nm">
                     <em className="c-sub"><i /></em>
-                    <span className="c-dim">{l.complex_name || l.building_name || l.area_name || "매물"}</span>
+                    <span className="c-dim" title={isAddrFirst(l) ? (l.address || "") : ""}>{mlName(l)}</span>
                     <SrcIcon l={l} />
                   </span>
                   <ListingCells l={l} />
@@ -2124,7 +2155,7 @@ function T({ f, set, k, label, ...rest }: any) {
 }
 
 // 단지가 없는 유형 — 이름을 단지 목록에서 찾으면 안 된다('상가'라는 이름의 단지가 실제로 있다)
-const PL_NO_COMPLEX = ["상가", "사무실", "단독", "토지", "공장", "건물", "지식산업센터"];
+const PL_NO_COMPLEX = ["상가", "사무실", "단독", "토지", "공장", "건물", "빌딩", "지식산업센터"];
 // 지번으로 등록하는 유형 — 빌라는 단지가 없어 '화곡동 123-45' 를 적고 그 건물 몇 호인지를 고른다
 const PL_ADDR_FIRST = [...PL_NO_COMPLEX, "빌라", "원룸", "재개발"];
 
@@ -2643,7 +2674,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
           {l.type && <span className="mlj-type">{l.type}</span>}
           <span className="mld-price">{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</span>
         </div>
-        <h3 className="mld-title">{l.complex_name || l.building_name || l.area_name || "매물"}</h3>
+        <h3 className="mld-title">{mlName(l)}</h3>
         {l.address && <div className="mld-addr"><MapPin size={13} /> {l.address}</div>}
         <div className="mld-rows">
           <Row k="유형" v={l.type} />
