@@ -25,7 +25,7 @@ type Need = {
 /** 계약서에서 뽑아 둔 계약 — 여기선 읽기만 한다(고치는 곳은 계약관리). */
 type Contract = {
   id: number; role?: string; status?: string; contract_type?: string | null;
-  title?: string; address?: string | null;
+  property_kind?: string | null; title?: string; address?: string | null;
   sale?: number | null; deposit?: number | null; monthly_rent?: number | null;
   contract_date?: string | null; balance_date?: string | null;
 };
@@ -92,6 +92,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
   const [items, setItems] = useState<Customer[] | null>(null);
   const [q, setQ] = useState("");
   const [ct, setCt] = useState("");
+  const [pt, setPt] = useState("");          // 물건 종류 — '_none' 은 종류를 아직 안 정한 것
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<EditCustomer | null>(null);
@@ -124,13 +125,25 @@ export default function CustomerLedger({ authH, onGoListings }: {
     const ql = q.trim();
     return (items || []).filter((c) => {
       if (ct && c.ctype !== ct) return false;
+      // 요건 하나만 맞아도 그 고객은 남긴다 — 한 사람이 상가도 보고 아파트도 본다
+      if (pt && !c.needs.some((n) => (pt === "_none" ? !n.ptype : n.ptype === pt))) return false;
       if (!ql) return true;
       const hay = [c.name, c.phone, c.memo,
         ...c.needs.map((n) => [whereOf(n), n.ptype, n.listing?.complex_name].join(" ")),
         ...(c.contracts ?? []).map((x) => [x.title, x.address, x.role].join(" "))].join(" ");
       return hay.includes(ql);
     });
-  }, [items, q, ct]);
+  }, [items, q, ct, pt]);
+
+  const ptypes = useMemo(() => {
+    const m = new Map<string, number>();
+    let none = 0;
+    (items || []).forEach((c) => c.needs.forEach((n) => {
+      if (n.ptype) m.set(n.ptype, (m.get(n.ptype) || 0) + 1); else none += 1;
+    }));
+    const list = [...m.entries()].sort((a, b) => b[1] - a[1]);
+    return none ? [...list, ["_none", none] as [string, number]] : list;
+  }, [items]);
 
   const counts = useMemo(() => {
     const need = (items || []).reduce((a, c) => a + c.needs.length, 0);
@@ -158,6 +171,15 @@ export default function CustomerLedger({ authH, onGoListings }: {
           <input value={q} onChange={(e) => setQ(e.target.value)}
             placeholder="고객·전화·지역·단지 검색" />
         </span>
+        {ptypes.length > 0 && (
+          <select className="cled-pt" value={pt} onChange={(e) => setPt(e.target.value)}
+            aria-label="물건 종류">
+            <option value="">종류 전체</option>
+            {ptypes.map(([v, n]) => (
+              <option key={v} value={v}>{v === "_none" ? "종류 미상" : v} {n}</option>
+            ))}
+          </select>
+        )}
         <span className="cled-seg">
           {FILTERS.map((f) => (
             <button key={f.v} className={ct === f.v ? "on" : ""} onClick={() => setCt(f.v)}>{f.label}</button>
@@ -178,7 +200,8 @@ export default function CustomerLedger({ authH, onGoListings }: {
         <div className="cldt">
           <div className="cldt-head">
             <span>고객</span>
-            <span className="h-kd">구분·종류</span>
+            <span className="h-kd">구분</span>
+            <span className="h-ty">종류</span>
             <span className="h-tr">거래</span>
             <span className="h-pr">예산·호가</span>
             <span className="h-rg">지역·단지</span>
@@ -214,16 +237,16 @@ export default function CustomerLedger({ authH, onGoListings }: {
                 <span className="cldt-meta">
                   <span className="c-kd">
                     {ct ? <em className="cled-k ctr">계약</em>
-                      : n ? (
-                        <>
-                          <em className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind || "요건"}</em>
-                          {/* 무엇을 구하는 손님인지 — 상가 손님과 아파트 손님을 한눈에 가른다 */}
-                          {n.ptype
-                            ? <em className="c-pt">{n.ptype}</em>
-                            : <em className="c-pt none" title="물건 종류를 아직 모릅니다. 눌러서 골라 주세요">종류?</em>}
-                        </>
-                      )
+                      : n ? <em className={"cled-k" + (n.kind === "내놓음" ? " sell" : "")}>{n.kind || "요건"}</em>
                       : <em className="c-none">요건 없음</em>}
+                  </span>
+                  {/* 무엇을 구하는 손님인지 — 상가 손님과 아파트 손님을 한눈에 가른다 */}
+                  <span className="c-ty">
+                    {ct ? (ct.property_kind ? <em className="c-pt">{ct.property_kind}</em> : "")
+                      : n ? (n.ptype
+                        ? <em className="c-pt">{n.ptype}</em>
+                        : <em className="c-pt none" title="물건 종류를 아직 모릅니다. 눌러서 골라 주세요">종류?</em>)
+                      : ""}
                   </span>
                   <span className="c-tr">{ct ? (ct.contract_type || "-")
                     : n ? (TRADE_KOR[n.trade || ""] || n.trade || "-") : ""}</span>

@@ -2275,7 +2275,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .cldt{container-type:inline-size;background:var(--c-card);border:1px solid var(--c-border);
   border-radius:14px;overflow:hidden;box-shadow:var(--sh-sm)}
 .cldt-head,.cldt-r{display:grid;gap:2px 10px;align-items:center;
-  grid-template-columns:minmax(0,1.35fr) 148px 54px 1.1fr 1.15fr .8fr 1.25fr 128px}
+  grid-template-columns:minmax(0,1.3fr) 76px 72px 50px 1.05fr 1.1fr .78fr 1.2fr 124px}
 .cldt-head{padding:7px 13px;background:var(--c-row-stripe);border-bottom:1px solid var(--c-border);
   font-size:10.5px;font-weight:800;color:var(--c-muted)}
 .cldt-head > :nth-child(n+2){text-align:center}
@@ -2312,6 +2312,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .cldt-r.done:hover{background:var(--c-primary-tint)}
 .cldt-r.done .cled-link{color:#12724a;background:#e4f5ec}
 .cldt .c-none{font-style:normal;font-size:11px;color:var(--c-faint)}
+.cldt .c-ty{display:flex;align-items:center;justify-content:center;overflow:hidden}
 .cldt .c-tr{text-align:center;font-weight:700;color:var(--c-text)}
 .cldt .c-pr{text-align:center;font-weight:800;color:var(--c-sale);white-space:nowrap;
   font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
@@ -2325,7 +2326,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .cldt .c-ct{text-align:center}
 .cldt .lb{display:none;color:var(--c-faint);font-weight:700;margin-right:3px}
 @container (max-width:1024px){
-  .cldt-head,.cldt-r{grid-template-columns:minmax(0,1.3fr) 140px 50px 1.05fr 1.05fr 1.15fr 112px}
+  .cldt-head,.cldt-r{grid-template-columns:minmax(0,1.25fr) 72px 68px 48px 1fr 1fr 1.1fr 110px}
   .cldt .c-st,.cldt .h-st{display:none}
 }
 @container (max-width:640px){
@@ -2334,7 +2335,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   .cldt .c-nm{order:1}.cldt .c-ct{order:2}
   .cldt-meta{order:3;grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 7px;
     font-size:11.5px;color:var(--c-muted)}
-  .cldt .c-tr,.cldt .c-pr,.cldt .c-rg,.cldt .c-st,.cldt .c-lk,.cldt .c-kd{text-align:left}
+  .cldt .c-tr,.cldt .c-pr,.cldt .c-rg,.cldt .c-st,.cldt .c-lk,.cldt .c-kd,.cldt .c-ty{text-align:left}
   .cldt .c-st{display:inline}
   .cldt .lb{display:inline}
   .cldt .c-nm{font-size:13.5px}
@@ -2452,6 +2453,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   border-radius:999px;padding:7px 14px;flex:1;min-width:200px;max-width:380px}
 .cled-search svg{color:var(--c-faint);flex:none}
 .cled-search input{flex:1;min-width:0;border:none;outline:none;background:none;font:inherit;font-size:13.5px}
+/* 물건 종류 — 13종이라 세그먼트로 늘어놓을 수 없다. 있는 것만 세어 올린 드롭다운.
+   순서는 전역 필터 규칙(지역→유형→거래)에 맞춰 구분 세그먼트 앞에 둔다. */
+.cled-pt{border:1px solid var(--c-border);border-radius:999px;background:#fff;font:inherit;
+  font-size:12.5px;font-weight:700;color:#13294b;padding:7px 12px;cursor:pointer}
+.cled-pt:focus{outline:none;border-color:var(--c-primary)}
 .cled-seg{display:inline-flex;gap:2px;background:#eef2f7;border-radius:999px;padding:3px}
 .cled-seg button{border:none;background:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
   color:#64748b;padding:6px 14px;border-radius:999px}
