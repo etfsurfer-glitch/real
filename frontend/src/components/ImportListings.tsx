@@ -12,7 +12,8 @@ type Col = { index: number; header: string; field: string; label: string; unit: 
   by: string; kind?: string; sample: string[] };
 type Row = Record<string, any> & { _row?: number; _dup?: string };
 type Sheet = { name: string; header_row: number; columns: Col[]; rows: Row[];
-  skipped: { row: number; why: string; text: string }[]; n_skipped: number; n_dup: number };
+  skipped: { row: number; why: string; text: string }[]; n_skipped: number; n_dup: number;
+  cut?: number; stopped_at?: number };
 type Preview = { sheets: Sheet[]; filename: string; fields: { key: string; label: string }[] };
 
 const won = (v: any): string => {
@@ -180,6 +181,18 @@ export default function ImportListings({ authH, onClose, onSaved }: {
                   {sheet.n_dup > 0 && <i className="dup"><Copy size={10} /> 이미 있는 것 {sheet.n_dup}건</i>}
                   {sheet.n_skipped > 0 && <i className="skip">건너뜀 {sheet.n_skipped}건</i>}
                 </div>
+                {/* 못 읽은 것을 조용히 넘기지 않는다 — 안 알리면 '다 가져왔다'로 읽힌다 */}
+                {!!sheet.stopped_at && (
+                  <p className="imp-warn"><AlertTriangle size={13} />
+                    {sheet.stopped_at}행부터 <b>열 구성이 다른 표</b>가 시작돼 거기까지만 읽었어요.
+                    아래 표는 시트를 나눠서 따로 올려 주세요.
+                  </p>
+                )}
+                {!!sheet.cut && (
+                  <p className="imp-warn"><AlertTriangle size={13} />
+                    너무 길어 뒤쪽 <b>{sheet.cut.toLocaleString()}줄</b>은 읽지 않았어요. 나눠서 올려 주세요.
+                  </p>
+                )}
 
                 {/* 열을 어떻게 읽었는지 — 여기가 이 화면의 핵심이다. 틀렸으면 바꾼다 */}
                 <div className="imp-cols">

@@ -56,6 +56,8 @@ FIELDS: list[tuple[str, str, str]] = [
     ("contact", "연락처", "tel"),
     ("manager", "담당자", "text"),
     ("current_biz", "업종", "text"),
+    ("land_category", "지목", "text"),
+    ("land_use", "용도지역", "text"),
     ("tenant_until", "임차 만기", "text"),
     ("feature_desc", "특징", "text"),
     ("memo", "비고", "text"),
@@ -106,6 +108,8 @@ HEADER_SYN: dict[str, list[str]] = {
                 "contact", "mobile"],
     "manager": ["담당자", "담당", "manager", "agent"],
     "current_biz": ["현업종", "업종", "영업종목", "현재업종"],
+    "land_category": ["지목", "지목현황"],
+    "land_use": ["용도지역", "용도지구", "지역지구"],
     "tenant_until": ["임차만기", "계약만기", "만기", "임대만기"],
     "feature_desc": ["매물특징", "특징", "상세설명", "광고문구", "설명", "내용", "description"],
     "memo": ["특이사항", "비고", "메모", "참고", "note", "remark", "memo"],
@@ -113,6 +117,9 @@ HEADER_SYN: dict[str, list[str]] = {
 # 한 칸에 동·호가 같이 오는 열 — '101동 1502호', '101-1502'
 DONGHO_SYN = ["동호수", "동호", "호수동", "동/호", "동·호"]
 # 매물이 아닌 줄 — 소계·합계·머리 반복
+# 한 시트에서 읽는 최대 줄. 넘으면 잘렸다고 화면에 말한다 — 조용히 자르면
+# '다 가져왔다'로 읽힌다(실측: 3,000줄 파일에서 1건이 소리 없이 사라졌다).
+_MAX_ROWS = 20000
 JUNK_ROW = re.compile(r"^\s*(소계|합계|총계|계|비고|이상|끝|합|total)\s*$")
 
 _SP = re.compile(r"[\s ]+")
@@ -402,7 +409,7 @@ def _read_xlsx(data: bytes) -> list[dict]:
     for ws in wb.worksheets:
         if ws.sheet_state != "visible":
             continue
-        rows = [list(r) for r in ws.iter_rows(values_only=True, max_row=3000)]
+        rows = [list(r) for r in ws.iter_rows(values_only=True, max_row=_MAX_ROWS)]
         if not big:
             _unmerge(ws, rows)
         out.append({"name": ws.title, "rows": rows})
@@ -432,7 +439,7 @@ def _read_xls(data: bytes) -> list[dict]:
     out = []
     for sh in bk.sheets():
         rows = []
-        for i in range(min(sh.nrows, 3000)):
+        for i in range(min(sh.nrows, _MAX_ROWS)):
             r = []
             for j in range(sh.ncols):
                 c = sh.cell(i, j)
@@ -483,6 +490,24 @@ def match_header(cell) -> str | None:
         if len(wn) >= 2 and wn in h and (best is None or len(wn) > best[1]):
             best = ("_dongho", len(wn))
     return best[0] if best else None
+
+
+def _looks_header(row) -> tuple[bool, dict]:
+    """이 줄이 진짜 머리글인가.
+
+    '목련아파트 | 매매 | 62,000' 같은 데이터 줄도 낱말 두 개가 열 이름과 겹친다 —
+    그것만 보고 머리글로 판정하면 첫 줄부터 읽기를 멈춘다(실측). 머리글은
+    ① 채워진 칸 대부분이 열 이름이고 ② 숫자만 든 칸이 없다.
+    """
+    filled = [c for c in row if cell_text(c)]
+    if len(filled) < 2:
+        return False, {}
+    for c in filled:
+        t = _SP.sub("", cell_text(c)).replace(",", "")
+        if _NUM.fullmatch(t):
+            return False, {}
+    hit, seen = _head_score(row)
+    return (hit >= 2 and hit >= len(filled) * 0.6), seen
 
 
 def find_header(rows: list) -> tuple[int, dict]:
@@ -539,7 +564,7 @@ def infer_by_value(col_vals: list) -> str | None:
 
 
 # ── 열 단위 ──────────────────────────────────────────────────────────────────
-def money_unit(header, vals: list) -> str:
+def money_unit(header, vals: list, field: str = "") -> str:
     """이 금액 열을 억으로 읽을지 만원으로 읽을지 원으로 읽을지.
 
     같은 '85,000' 이 매매가 열에서는 8억 5천이고, '12' 는 12억이다. 열의 값 분포를
@@ -571,7 +596,8 @@ def money_unit(header, vals: list) -> str:
     mid = nums[len(nums) // 2]
     if mid >= 1e8:
         return "원"
-    if mid < 100:
+    # 월세·관리비를 억으로 읽으면 45만원이 45억이 된다(실측). 작은 수가 정상인 칸이다
+    if mid < 100 and field not in ("rent_price", "maintenance_fee"):
         return "억"
     return "만"
 
@@ -593,7 +619,7 @@ def area_unit(header, vals: list) -> str:
 
 
 # ── 분석 ─────────────────────────────────────────────────────────────────────
-def analyze(data: bytes, filename: str = "", max_rows: int = 3000,
+def analyze(data: bytes, filename: str = "", max_rows: int = _MAX_ROWS,
             override: dict | None = None) -> dict:
     """엑셀 → {sheets:[{name, header_row, columns, rows, skipped}]}. 저장하지 않는다.
 
@@ -622,6 +648,7 @@ def _analyze_sheet(name: str, rows: list, max_rows: int, ovr: dict | None = None
     body = rows[hidx + 1:] if hidx >= 0 else rows
     while body and not any(cell_text(c) for c in body[-1]):
         body.pop()                      # 엑셀이 습관적으로 남기는 꼬리 빈 줄은 세지 않는다
+    cut = max(0, len(body) - max_rows)
     body = body[:max_rows]
     if not body:
         return None
@@ -670,7 +697,7 @@ def _analyze_sheet(name: str, rows: list, max_rows: int, ovr: dict | None = None
         u = ""
         forced_u = ((ovr or {}).get("units") or {}).get(str(j))
         if kind == "money":
-            u = forced_u or money_unit(header[j] if j < len(header) else "", col(j))
+            u = forced_u or money_unit(header[j] if j < len(header) else "", col(j), f)
             units[j] = u
         elif kind == "area":
             u = forced_u or area_unit(header[j] if j < len(header) else "", col(j))
@@ -688,8 +715,17 @@ def _analyze_sheet(name: str, rows: list, max_rows: int, ovr: dict | None = None
             "sample": [cell_text(v) for v in col(j)[:3] if cell_text(v)][:3],
         })
 
-    parsed, skipped = [], []
+    parsed, skipped, stopped = [], [], 0
+    mine = set(mapping.values())
     for i, r in enumerate(body):
+        # 한 시트에 표가 둘인 매물장이 있다('[매매 물건]' 아래에 '[전월세 물건]').
+        # 그때 두 번째 표는 열 순서가 다른데 첫 표의 열로 읽으면 보증금이 매매가로,
+        # 월세가 면적으로 들어간다(실측). 머리글이 다시 나오면서 **열 구성이 달라지면**
+        # 거기서 멈추고 그 사실을 말한다 — 틀린 값을 담는 것보다 낫다.
+        is_head, seen = _looks_header(r)
+        if is_head and set(seen) != mine:
+            stopped = hidx + 2 + i
+            break
         rec = _parse_row(r, mapping, units)
         why = _why_skip(rec, r)
         if why:
@@ -700,7 +736,7 @@ def _analyze_sheet(name: str, rows: list, max_rows: int, ovr: dict | None = None
         parsed.append(rec)
     return {"name": name, "header_row": hidx + 1 if hidx >= 0 else 0,
             "columns": columns, "rows": parsed, "skipped": skipped[:40],
-            "n_skipped": len(skipped)}
+            "n_skipped": len(skipped), "cut": cut, "stopped_at": stopped}
 
 
 def _infer_leftovers(mapping: dict, width: int, col, header) -> None:
@@ -800,11 +836,20 @@ def _post(rec: dict) -> None:
     # 층 하나만 있고 총층이 따로 있으면 '3/15' 로 합친다
     if rec.get("floor_info") and rec.get("total_floor") and "/" not in str(rec["floor_info"]):
         rec["floor_info"] = f"{rec['floor_info']}/{int(rec['total_floor'])}"
-    # 물건 종류를 못 읽었으면 이름·주소·특징에서 찾는다
+    # 물건 종류 — 칸이 말해 주는 것이 이름보다 정확하다.
+    # '역삼빌딩'은 상가의 건물 **이름**이지 종류가 아니다(실측: 상가 매물장이 통째로
+    # '건물'로 잡혔다). 그래서 이름에서 얻은 '건물'은 버린다.
     if not rec.get("type"):
-        for k in ("complex_name", "feature_desc", "memo", "address"):
+        if rec.get("premium") or rec.get("current_biz"):
+            rec["type"] = "상가"
+        elif rec.get("land_category") or rec.get("land_use"):
+            rec["type"] = "토지"
+        elif rec.get("land_area_m2") and not rec.get("area2_m2"):
+            rec["type"] = "토지"
+    if not rec.get("type"):
+        for k in ("feature_desc", "memo", "address", "complex_name"):
             got = to_ptype(rec.get(k))
-            if got:
+            if got and not (k == "complex_name" and got == "건물"):
                 rec["type"] = got
                 break
 
@@ -817,7 +862,12 @@ def _why_skip(rec: dict, raw: list) -> str:
     first = next((cell_text(c) for c in raw if cell_text(c)), "")
     if JUNK_ROW.match(first):
         return "매물 줄이 아님(소계·합계)"
-    if all(match_header(c) for c in raw if cell_text(c)) and len(texts) >= 3:
+    # 칸 하나에 글자만 있는 줄은 소제목이다('[전월세 물건]'). 매물이라면 금액이든
+    # 동·호든 하나는 더 있다.
+    if len(texts) == 1 and not any(rec.get(k) for k in ("price", "deposit", "rent_price",
+                                                        "premium", "dong", "ho")):
+        return "매물 줄이 아님(소제목)"
+    if _looks_header(raw)[0] and len(texts) >= 3:
         return "머리글이 다시 나온 줄"
     has_where = any(rec.get(k) for k in ("complex_name", "address", "dong", "ho"))
     has_money = any(rec.get(k) for k in ("price", "deposit", "rent_price", "premium"))

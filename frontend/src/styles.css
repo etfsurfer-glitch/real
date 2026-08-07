@@ -5510,3 +5510,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   cursor:pointer;font:inherit;font-size:13px;font-weight:800;padding:10px 20px}
 /* 매물장 행의 '가져옴' 표시 — 자물쇠·지구본과 나란히 선다 */
 .mjt .c-src.im,.mlj-legend .src.im{background:#f3efff;color:#6b39c9}
+.imp-warn{display:flex;align-items:center;gap:7px;margin:0;padding:9px 13px;border-radius:10px;
+  background:#fff4e2;border:1px solid #f6e0bd;color:#a35c00;font-size:12px;font-weight:600;line-height:1.5}
+.imp-warn svg{flex:none}
+.imp-warn b{font-weight:800}
