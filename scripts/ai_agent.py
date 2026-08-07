@@ -1138,9 +1138,12 @@ def find_record_high(region: str, trade_type: str = "매매",
 
 
 def region_market_pulse(region: str = "") -> dict:
-    """지역(시도) 실거래 거래량 분위기: 이번달 vs 지난달 vs 전년동월 vs 3년평균/예측.
-    '요즘 거래 활발해?' 같은 질문용. region 을 비우면 전국 시도 전체를 준다.
-    (참고: 시도 단위까지만 지원. 구/동 단위 거래량은 미지원.)
+    """지역(시도) 실거래 거래량 분위기. '요즘 거래 활발해?' 같은 질문용.
+    region 을 비우면 전국 시도 전체를 준다. (시도 단위까지만. 구/동 거래량은 미지원.)
+
+    ★ 이번달 수치는 아직 채워지는 중이다 — 실거래는 계약 후 30일 안에 신고하므로
+      이번달 숫자는 몇 주 뒤에야 완성된다. 지난달과 그대로 비교하면 안 된다.
+      분위기는 **완결된 지난달**을 전년 동월·3년 평균과 견주어 말한다.
     """
     import scripts.local_api as api
     # 기본 캐시(D리스트)에 같은 키가 있어 선조회 — 콜드 5.5s → 0초대
@@ -1148,12 +1151,46 @@ def region_market_pulse(region: str = "") -> dict:
     items = res.get("regions", [])
     reg = _resolve_region(region) if region else None
 
+    # 달 초에는 이번달 수치를 아예 주지 않는다.
+    # 주의 문구를 붙여도 모델은 89건 vs 4,343건을 '크게 감소' 로 읽고 그 위에 결론을
+    # 세웠다(실측 2026-08-07). 말할 수 없는 숫자는 손에 쥐여 주지 않는 편이 낫다.
+    try:
+        day = int(str(res.get("filed_date") or "")[8:10] or 0)
+    except ValueError:
+        day = 0
+    early = day and day < 20        # 신고 기한이 30일이라 20일쯤 지나야 형태가 잡힌다
+
+    def _delta(now, base):
+        """증감을 우리가 계산해 문장으로 준다.
+
+        모델에게 숫자 두 개만 주면 손으로 견주다 방향을 틀린다 — 부산 2,420→2,260 을
+        '증가' 로, 충북 1,037→1,166 을 '감소' 로 답했다(실측 2026-08-07).
+        """
+        try:
+            now, base = float(now), float(base)
+        except (TypeError, ValueError):
+            return None
+        if not base:
+            return None
+        d = now - base
+        # 원본 두 값까지 이 문장 안에 담는다. 숫자 키로 따로 주면 모델이 그걸로 다시
+        # 계산하다 틀린다 — 경기 12,338 vs 8,713 을 +43.8% 라 답했다(정답 +41.6%).
+        return (f"{base:,.0f}건 → {now:,.0f}건, "
+                f"{'늘었다' if d > 0 else '줄었다' if d < 0 else '같다'} "
+                f"({d:+,.0f}건 {d / base * 100:+.1f}%)")
+
     def row(it):
-        return {
-            "지역": it["region_name"], "이번달": it["current_month_count"],
-            "지난달": it["prev_month_count"], "전년동월": it.get("yoy_cur_actual"),
-            "최근3년평균": it.get("avg3y_cur_actual"), "이번달_예측": it.get("current_month_pred"),
+        prev = it["prev_month_count"]
+        r = {
+            "지역": it["region_name"],
+            "지난달_완결": prev,
+            "전년동월대비": _delta(prev, it.get("yoy_cur_actual")),
+            "3년평균대비": _delta(prev, it.get("avg3y_cur_actual")),
         }
+        if not early:
+            r["이번달_집계중"] = it["current_month_count"]
+            r["이번달_예측"] = it.get("current_month_pred")
+        return r
 
     note = None
     if reg:
@@ -1166,9 +1203,22 @@ def region_market_pulse(region: str = "") -> dict:
                     f"답변에 반드시 '{reg['sido']} 기준'이라고 밝히세요.")
     else:
         data = [row(it) for it in items]
-    out = {"기준월": res.get("current_month"), "신고기준일": res.get("filed_date"), "분위기": data}
+    if early:
+        warn = (f"이번달({res.get('current_month')})은 {day}일차라 수치를 아예 빼 두었다. "
+                f"실거래는 계약 후 30일 안에 신고해서 지금 숫자는 그 달의 모습이 아니다. "
+                f"이번달 거래량을 지어내거나 추측하지 마라. 분위기는 **완결된 지난달**을 "
+                f"전년 동월·3년 평균과 견주어 말하고, 이번달은 '아직 집계 초반이라 말하기 이르다' "
+                f"고만 밝혀라. 증감은 '전년대비'·'3년평균대비' 에 이미 계산해 두었으니 "
+                f"그대로 옮겨 쓰고 직접 빼거나 나누지 마라.")
+    else:
+        warn = (f"이번달({res.get('current_month')})은 아직 집계 중이다 — {res.get('filed_date')} "
+                f"까지 신고된 분만 들어 있고 앞으로 더 쌓인다. '이번달_집계중' 을 '지난달_완결'과 "
+                f"그대로 견주어 '감소했다' 고 말하지 마라. 견주려면 '이번달_예측' 을 쓰고, "
+                f"이번달을 언급할 때는 '아직 집계 중' 이라고 반드시 밝혀라.")
+    out = {"기준월": res.get("current_month"), "신고기준일": res.get("filed_date"),
+           "주의": warn, "분위기": data}
     if note:
-        out["주의"] = note
+        out["주의_지역"] = note
     return out
 
 
