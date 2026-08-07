@@ -13765,6 +13765,55 @@ def _qa_name_variants(key: str) -> list:
     return list(seen)[:16]
 
 
+# ── 외래어 표기 흔들림(래미안/레미안, 제니스/재니스) ──────────────────────────
+# 한국어에서 ㅐ와 ㅔ는 사실상 구분되지 않아 외래어 단지명을 사람마다 다르게 적는다.
+# 자모로 갈라 그 차이를 지운 '발음 키'를 만들어 맞댄다. 된소리도 평음으로 눕힌다
+# (거센소리는 두 낱말을 실제로 가르므로 건드리지 않는다 — '가'와 '카'는 다른 말이다).
+_JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+_JUNG_SAME = {"ㅐ": "ㅔ", "ㅒ": "ㅖ", "ㅙ": "ㅚ", "ㅞ": "ㅚ"}
+_CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+_TENSE = {"ㄲ": "ㄱ", "ㄸ": "ㄷ", "ㅃ": "ㅂ", "ㅆ": "ㅅ", "ㅉ": "ㅈ"}
+_JONG = ["", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ", "ㄽ", "ㄾ",
+         "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"]
+
+
+def _pho_key(s: str) -> str:
+    """발음 키 — 한글은 자모로 갈라 ㅐ/ㅔ·ㅙ/ㅚ/ㅞ 를 하나로, 된소리를 평음으로 눕힌다."""
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if 0xAC00 <= o <= 0xD7A3:
+            code = o - 0xAC00
+            cho, jung, jong = code // 588, (code % 588) // 28, code % 28
+            c = _TENSE.get(_CHO[cho], _CHO[cho])
+            v = _JUNG[jung]
+            v = _JUNG_SAME.get(v, v)
+            t = _JONG[jong]
+            out.append(c + v + _TENSE.get(t, t))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+_PHO: dict = {"n": 0, "map": {}}
+
+
+def _pho_index(c) -> dict:
+    """발음 키 → 단지번호들. 한 번 만들어 두고 단지 수가 바뀌면 다시 만든다.
+
+    SQLite 로는 한글을 자모로 가를 수 없어 인덱스를 못 건다. 대신 메모리에 들고 있는다
+    (6만 4천 개, 수백 ms 한 번).
+    """
+    n = c.execute("SELECT COUNT(*) FROM complexes").fetchone()[0]
+    if _PHO["map"] and _PHO["n"] == n:
+        return _PHO["map"]
+    m: dict = {}
+    for no, nm in c.execute("SELECT complex_no, name_bare FROM complexes WHERE name_bare<>''"):
+        m.setdefault(_pho_key(nm), []).append(no)
+    _PHO["n"], _PHO["map"] = n, m
+    return m
+
+
 def _qa_tokens(raw: str) -> list:
     """숫자를 경계로 자른 토막. '분성마을4단지한솔솔파크' → ['분성마을','4','한솔솔파크'].
 
@@ -13846,6 +13895,13 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
 
     want_num = _nums(raw)
 
+    def _cover(nm) -> float:
+        """친 글자가 그 이름의 몇 할을 설명하는가."""
+        t = _sql_lower(str(nm or ""))
+        for ch in "-.·_ ":
+            t = t.replace(ch, "")
+        return len(raw) / len(t) if t else 0.0
+
     def _q(where, args, pfx=None):
         w, a = where, list(args)
         if pfx:
@@ -13870,9 +13926,11 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
             args += [k, k[:-1] + chr(ord(k[-1]) + 1)]
         return " OR ".join(conds), tuple(args)
 
-    def _try(where, args):
+    def _try(where, args, cover=0.0):
         for pfx in ([prefixes] if prefixes else []) + [None]:
             rows = _q(f"({where})", args, pfx)
+            if cover:
+                rows = [r for r in rows if _cover(r[1]) >= cover]
             if len(rows) == 1:
                 return rows[0], [], ""
             if len(rows) > 1:
@@ -13896,8 +13954,10 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
             hit, cands, why = _try(where, args)
             if hit or cands:
                 return hit, cands or [], why or ""
+    # 부분일치는 짧은 조각이 긴 이름 속에 우연히 들어 있어도 통과한다
+    # ('현데' 가 '시흥장현데시앙' 에 붙었다). 친 글자가 절반은 설명하게 한다.
     hit, cands, why = _try(" OR ".join(["name_norm LIKE ?"] * len(allkeys)),
-                           tuple("%" + k + "%" for k in allkeys))
+                           tuple("%" + k + "%" for k in allkeys), 0.5)
     if hit or cands:
         return hit, cands or [], why or ""
     # 마지막 — 토막을 순서 없이 모두 품은 이름. '분성마을4단지한솔솔파크'를 사람은
@@ -13916,20 +13976,34 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
                       tuple("%" + t + "%" for t in toks), pfx)
             if rows:
                 break
-        keep = []
-        for r in rows:
-            cn = _sql_lower(str(r[1] or ""))
-            for ch in "-.·_ ":
-                cn = cn.replace(ch, "")
-            # 친 글자가 그 이름의 대부분을 설명해야 한다 — 토막 AND 는 느슨해서
-            # '거제1아이파크' 가 '거제2차아이파크1단지' 에 붙었다
-            if len(cn) and len(raw) / len(cn) < 0.7:
-                continue
-            keep.append(r)
+        # 친 글자가 그 이름의 대부분을 설명해야 한다 — 토막 AND 는 느슨해서
+        # '거제1아이파크' 가 '거제2차아이파크1단지' 에 붙었다
+        keep = [r for r in rows if _cover(r[1]) >= 0.7]
         if len(keep) == 1:
             return keep[0], [], ""
         if len(keep) > 1:
             return None, keep, f"'{name}' 로 {len(keep)}곳이 검색돼요. 단지를 골라 주세요."
+    # 그래도 없으면 발음으로 — '레미안'이라 적어도 '래미안'을 찾아 준다.
+    # 여기까지 온 것은 글자 그대로는 어디에도 없다는 뜻이라 덮어쓸 걱정이 없다.
+    try:
+        cand = []
+        for k in dict.fromkeys(sum((_qa_name_variants(r) for r in rounds), [])):
+            bare = _re.sub(r"\(.*$", "", k) or k     # 색인은 괄호 뗀 이름(name_bare)이다
+            cand += _pho_index(c).get(_pho_key(bare), [])
+        cand = list(dict.fromkeys(cand))[:30]
+        if cand:
+            rows = c.execute(
+                f"SELECT {cols} FROM complexes WHERE complex_no IN "
+                f"({','.join('?' * len(cand))}) "
+                f"ORDER BY COALESCE(total_household_count,0) DESC", cand).fetchall()
+            if want_num:
+                rows = [r for r in rows if all(x in _nums(r[1]) for x in want_num)]
+            if len(rows) == 1:
+                return rows[0], [], ""
+            if len(rows) > 1:
+                return None, rows, f"'{name}' 로 {len(rows)}곳이 검색돼요. 단지를 골라 주세요."
+    except Exception:
+        pass
     return None, [], f"'{name}' 을(를) 단지 목록에서 못 찾았어요"
 
 
