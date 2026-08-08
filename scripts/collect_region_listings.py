@@ -115,7 +115,16 @@ def _schema(premium: bool) -> str:
       latitude              REAL,
       longitude             REAL,
       article_confirm_ymd   TEXT,
-      raw                   TEXT,
+      -- 네이버 응답에서 실제로 쓰는 값만 칸으로 올린다. 예전엔 응답 JSON 전체를 raw 에
+      -- 담았는데 행당 1,400 바이트로 DB 의 89~91% 를 차지했다(실측). 쓰는 것은 아래 여섯뿐이고
+      -- 나머지는 3일 롤링으로 어차피 사라진다(아카이브 parquet 도 raw 를 안 담는다).
+      article_feature_desc  TEXT,
+      tag_list_json         TEXT,
+      same_addr_cnt         INTEGER,
+      same_addr_min_price   INTEGER,
+      same_addr_max_price   INTEGER,
+      verification_type     TEXT,
+      raw                   TEXT,      -- 더는 채우지 않는다. 옛 행에만 남아 있다
       first_seen_date       TEXT,
       snapshot_date         TEXT NOT NULL
     );
@@ -127,12 +136,51 @@ def _schema(premium: bool) -> str:
     """
 
 
+def _won_or_none(v):
+    """'11억 5,000' → 1150000000. 비단지 원천은 동일주소 최저·최고가를 **한글 금액 문자열**로 준다
+    (실측: 69만 행 100%). 예전 코드는 int() 로 바로 바꾸다 터졌고, 그 예외를 삼키느라
+    검증유형과 최고가까지 조용히 버려지고 있었다. 단지형(원 단위 정수)과 맞춰 원으로 담는다.
+    """
+    if v in (None, ""):
+        return None
+    if isinstance(v, (int, float)):
+        return int(v)
+    try:
+        import listing_import as _li
+        return _li.to_won(v)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _int_or_none(v):
+    """네이버가 숫자를 문자열로도 준다. 못 읽으면 None — 0 으로 만들지 않는다.
+
+    0 과 '값 없음' 은 다르다. sameAddrCnt 가 0 이면 같은 주소 매물이 없다는 뜻이고,
+    None 이면 원천이 안 알려 줬다는 뜻이다. 읽는 쪽이 그 둘을 다르게 다룬다.
+    """
+    if v in (None, ""):
+        return None
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
 def _open(cat: str) -> sqlite3.Connection:
     db_file, _names, premium = CATEGORIES[cat]
     path = os.path.join(DATA_DIR, db_file)
     assert "naverreal" not in db_file, "안전장치: 메인 DB 접근 금지"
     c = sqlite3.connect(path, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
+    # 이미 만들어진 DB 에도 새 칸을 붙인다. ALTER ADD COLUMN 은 메타데이터만 바꿔
+    # 즉시 끝나고 파일이 커지지 않는다(기존 행은 NULL 로 읽힌다).
+    for _col, _typ in (("article_feature_desc", "TEXT"), ("tag_list_json", "TEXT"),
+                       ("same_addr_cnt", "INTEGER"), ("same_addr_min_price", "INTEGER"),
+                       ("same_addr_max_price", "INTEGER"), ("verification_type", "TEXT")):
+        try:
+            c.execute(f"ALTER TABLE listings ADD COLUMN {_col} {_typ}")
+        except sqlite3.OperationalError:
+            pass          # 이미 있음
     c.execute("PRAGMA busy_timeout=30000")
     c.execute("PRAGMA synchronous=NORMAL")
     c.executescript(_schema(premium))
@@ -183,7 +231,14 @@ def _upsert(conns: dict, cat: str, it: dict, cortar: str, today: str, has_premiu
         "latitude": it.get("latitude"),
         "longitude": it.get("longitude"),
         "article_confirm_ymd": it.get("articleConfirmYmd"),
-        "raw": json.dumps(it, ensure_ascii=False),
+        "article_feature_desc": it.get("articleFeatureDesc"),
+        "tag_list_json": (json.dumps(it["tagList"], ensure_ascii=False)
+                          if it.get("tagList") else None),
+        "same_addr_cnt": _int_or_none(it.get("sameAddrCnt")),
+        "same_addr_min_price": _won_or_none(it.get("sameAddrMinPrc")),
+        "same_addr_max_price": _won_or_none(it.get("sameAddrMaxPrc")),
+        "verification_type": (it.get("verificationTypeName")
+                              or it.get("verificationTypeCode") or None),
         "snapshot_date": today,
     }
     if has_premium:

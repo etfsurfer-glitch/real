@@ -13213,6 +13213,30 @@ def _find_listing_owner(article_no: str):
     return None
 
 
+def _to_int0(v) -> int:
+    try:
+        return int(v) if v not in (None, "") else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _to_won0(v) -> int:
+    """숫자면 그대로, '11억 5,000' 같은 한글 금액이면 원으로 바꾼다.
+
+    예전에는 int() 로 바로 바꾸다 예외가 났고, 그 예외를 삼키느라 뒤따르던
+    최고가·검증유형까지 통째로 버려졌다(비단지 매물 상세에서 늘 비어 보이던 이유).
+    """
+    if v in (None, ""):
+        return 0
+    if isinstance(v, (int, float)):
+        return int(v)
+    try:
+        from listing_import import to_won as _won
+        return _won(str(v)) or 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
     """중개사(realtor_id)의 매물 통합 — 단지형(listings_current) + 비단지(7종 별도 DB).
     매물장·중개사 세부페이지 공용. code=거래코드(A1/B1/B2) 또는 None, cat=유형 한글 필터."""
@@ -13296,9 +13320,19 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
         path = DB_PATH.parent / _NONRESI_DB[dbkey]
         if not path.exists():
             continue
+        # 값은 칸에서 읽고, 칸이 빈 옛 행만 raw 에서 꺼낸다(COALESCE).
+        # raw 는 더 이상 채우지 않으므로 3일이면 폴백이 필요 없어진다 — 그때 지운다.
         _sel_nr = ("SELECT article_no,real_estate_type_name,trade_type,deal_or_warrant_price,rent_price,"
                    "area1_m2,area2_m2,floor_info,direction,building_name,article_confirm_ymd,latitude,longitude,"
-                   "cortar_no,raw,realtor_name FROM listings ")
+                   "cortar_no,raw,realtor_name,"
+                   "COALESCE(article_feature_desc, json_extract(raw,'$.articleFeatureDesc')),"
+                   "COALESCE(tag_list_json, json_extract(raw,'$.tagList')),"
+                   "COALESCE(same_addr_cnt, json_extract(raw,'$.sameAddrCnt')),"
+                   "COALESCE(same_addr_min_price, json_extract(raw,'$.sameAddrMinPrc')),"
+                   "COALESCE(same_addr_max_price, json_extract(raw,'$.sameAddrMaxPrc')),"
+                   "COALESCE(verification_type, json_extract(raw,'$.verificationTypeName'),"
+                   "         json_extract(raw,'$.verificationTypeCode')) "
+                   "FROM listings ")
         _snap = "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"
         _tc = " AND trade_type=?" if code else ""
         try:
@@ -13333,17 +13367,19 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
         # 좌표 역지오코딩 캐시가 있으면 지번까지(없으면 위 지역주소로 폴백)
         coordmap = _coord_addr_map({_ckey(r[11], r[12]) for r in rrows})
         for r in rrows:
-            feat, tags, sa_cnt, sa_min, sa_max, vtype = "", [], 0, 0, 0, ""
+            feat = r[16] or ""
             try:
-                rw = _json.loads(r[14]) if r[14] else {}
-                feat = rw.get("articleFeatureDesc") or ""
-                tags = rw.get("tagList") or []
-                sa_cnt = int(rw.get("sameAddrCnt") or 0)
-                sa_min = int(rw.get("sameAddrMinPrc") or 0)
-                sa_max = int(rw.get("sameAddrMaxPrc") or 0)
-                vtype = rw.get("verificationTypeName") or rw.get("verificationTypeCode") or ""
-            except Exception:
-                pass
+                tags = _json.loads(r[17]) if r[17] else []
+                if not isinstance(tags, list):
+                    tags = []
+            except Exception:  # noqa: BLE001
+                tags = []
+            sa_cnt = _to_int0(r[18])
+            # 옛 행의 raw 는 '11억 5,000' 같은 한글 문자열이다(비단지 원천이 그렇게 준다).
+            # 새 칸은 이미 원 단위 정수라 그대로 지나간다.
+            sa_min = _to_won0(r[19])
+            sa_max = _to_won0(r[20])
+            vtype = r[21] or ""
             dong = dongmap.get(r[13], "") or ""
             # 지번주소(좌표 캐시) 우선, 없으면 '시도 시군구 동'. 건물명은 카드에서 따로 노출.
             full_addr = coordmap.get(_ckey(r[11], r[12]), "") or addrmap.get(r[13], "") or dong
@@ -14081,7 +14117,7 @@ def _qa_tidy(out: dict, text: str = "") -> dict:
 
     # 날짜 표기는 listing_import.to_ymd 가 원본이다(엑셀 가져오기와 같은 규칙).
     # '2026년 10월 15일' 이 그대로 남아 있었다 — 규칙이 두 곳에 갈려 있던 자리다.
-    from listing_import import to_ymd as _li_to_ymd
+    from listing_import import to_ymd as _li_to_ymd, to_won as _li_to_won
     for r in rows:
         for k in ("settle_ymd", "approve_ymd", "confirm_ymd"):
             v = str(r.get(k) or "").strip()
