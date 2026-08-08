@@ -13786,6 +13786,20 @@ def _pl_row_to_item(r) -> dict:
         "deposit": num("deposit"), "owner_name": g("owner_name") or "",
         "heating": g("heating") or "", "elevator": g("elevator") or "",
         "options": g("options") or "", "ho": g("ho") or "",
+        # 비주거 칸 — 저장은 되는데 카드에 안 실려 화면 어디에도 안 보였다.
+        # 상가에 권리금이 안 보이면 그 매물은 값을 말하지 못한다(부가세도 마찬가지 —
+        # 별도인지 포함인지에 따라 월세 숫자의 뜻이 달라진다).
+        "premium": num("premium"), "bunyang_premium": num("bunyang_premium"),
+        "vat_separate": g("vat_separate") or "", "current_biz": g("current_biz") or "",
+        "tenant_until": g("tenant_until") or "", "road_contact": g("road_contact") or "",
+        "land_area_m2": num("land_area_m2"), "total_area_m2": num("total_area_m2"),
+        "land_category": g("land_category") or "", "land_use": g("land_use") or "",
+        "ceiling_h": num("ceiling_h"), "power_kw": num("power_kw"),
+        "rent_income": num("rent_income"), "deposit_sum": num("deposit_sum"),
+        "violation": g("violation") or "",
+        "bc_rat": num("bc_rat"), "vl_rat": num("vl_rat"),
+        "main_purpose": g("main_purpose") or "", "height": num("height"),
+        "reg_kind": g("reg_kind") or "", "loan_amount": num("loan_amount"),
         "ad_check": _pl_ad_check(g),
         # 비공개 전용 부가정보(상세에서 노출)
         "extra": {k: g(k) for k in ("ho", "room_cnt", "bath_cnt", "deposit", "maintenance_fee",

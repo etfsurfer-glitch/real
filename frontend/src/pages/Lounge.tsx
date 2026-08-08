@@ -1604,6 +1604,16 @@ type MLItem = {
   // 같은 물건이 매물장에도 있고 네이버에도 광고 중이면 한 줄에 두 표시가 붙는다
   also_naver?: boolean; naver_article_no?: string;
   import_file?: string | null; import_at?: string | null;   // 엑셀에서 가져온 매물
+  // 비주거 — 상가·사무실·토지·공장·건물에서만 뜻이 있다(주거 매물엔 값이 없다)
+  premium?: number | null; bunyang_premium?: number | null; vat_separate?: string;
+  current_biz?: string; tenant_until?: string; road_contact?: string;
+  land_area_m2?: number | null; total_area_m2?: number | null;
+  land_category?: string; land_use?: string;
+  ceiling_h?: number | null; power_kw?: number | null;
+  rent_income?: number | null; deposit_sum?: number | null;
+  violation?: string; bc_rat?: number | null; vl_rat?: number | null;
+  main_purpose?: string; height?: number | null; reg_kind?: string;
+  loan_amount?: number | null;
   photos?: string[]; extra?: Record<string, any>;
 };
 type Manager = { name: string; position: string; role: string };
@@ -2767,6 +2777,30 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
           <Row k="관리실" v={l.mgmt_tel} />
           <Row k="담당자" v={l.manager} />
           <Row k="연락처" v={l.contact} />
+          {/* 비주거 항목 — 저장은 되는데 화면에 안 실려 어디에도 안 보이던 것들.
+              상가에 권리금이 없으면 그 매물은 값을 말하지 못하고, 부가세 별도인지
+              포함인지에 따라 같은 월세 숫자가 다른 뜻이 된다. Row 는 값이 없으면 스스로 빠진다. */}
+          <Row k="권리금" v={l.premium ? eok(l.premium) : null} />
+          <Row k="분양 프리미엄" v={l.bunyang_premium ? eok(l.bunyang_premium) : null} />
+          <Row k="부가세" v={l.vat_separate ?? null} />
+          <Row k="현재 업종" v={l.current_biz ?? null} />
+          <Row k="임차 만기" v={l.tenant_until ?? null} />
+          <Row k="융자" v={l.loan_amount ? eok(l.loan_amount) : null} />
+          <Row k="월 임대수입" v={l.rent_income ? eok(l.rent_income) : null} />
+          <Row k="보증금 합계" v={l.deposit_sum ? eok(l.deposit_sum) : null} />
+          <Row k="대지면적" v={l.land_area_m2 ? areaLabel(l.land_area_m2) : null} />
+          <Row k="연면적" v={l.total_area_m2 ? areaLabel(l.total_area_m2) : null} />
+          <Row k="지목" v={l.land_category ?? null} />
+          <Row k="용도지역" v={l.land_use ?? null} />
+          <Row k="도로" v={l.road_contact ?? null} />
+          <Row k="층고" v={l.ceiling_h ? `${l.ceiling_h}m` : null} />
+          <Row k="전기용량" v={l.power_kw ? `${l.power_kw}kW` : null} />
+          <Row k="주용도" v={l.main_purpose ?? null} />
+          <Row k="건폐율·용적률" v={l.bc_rat || l.vl_rat
+            ? [l.bc_rat ? `건폐 ${l.bc_rat}%` : "", l.vl_rat ? `용적 ${l.vl_rat}%` : ""].filter(Boolean).join(" · ")
+            : null} />
+          <Row k="대장 종류" v={l.reg_kind ?? null} />
+          <Row k="위반건축물" v={l.violation ?? null} />
         </div>
         {l.tags?.length > 0 && <div className="mlj-tags" style={{ marginTop: 10 }}>{l.tags.map((t, i) => <span key={i}>{t}</span>)}</div>}
         {l.feature_desc && <div className="mld-feat">{l.feature_desc}</div>}
