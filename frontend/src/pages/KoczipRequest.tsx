@@ -328,13 +328,14 @@ export default function KoczipRequest() {
             <>
               <div className="kreq-lbl">몇 곳에 보낼까요?</div>
               <div className="kreq-chips">
-                {[5, 10, 20, 30].map((n) => (
+                {[30, 40, 50].map((n) => (
                   <button key={n} className={`kreq-chip ${count === n ? "on" : ""}`}
                     onClick={() => setCount(n)}>{n}곳</button>
                 ))}
               </div>
               <p className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>
                 정하지 않으시면 <b>30곳</b>입니다. 그 동네 사무소를 한 번에 훑어야 답이 빨리 옵니다.
+                답이 없으면 <b>30분마다 10곳씩 세 번</b> 더 넓혀 드립니다.
                 <b> 받는 곳은 다음 화면에서 확인하실 수 있어요.</b>
               </p>
               {/* 추천받기에서도 후보를 다 받아야 '다음'이 열린다 — 왜 안 눌리는지 보이게 한다 */}

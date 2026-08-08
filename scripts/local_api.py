@@ -21001,7 +21001,7 @@ def engage_comment(body: dict):
 
 # 처음부터 넓게 보낸다. 3곳으로 시작해 30분마다 넓히던 방식은 손님이 반나절을 기다리게
 # 했다 — 그 동네 사무소를 한 번에 훑고, 그래도 제안이 없으면 조건이 문제라고 본다.
-_REQ_MIN_TARGETS, _REQ_MAX_TARGETS, _REQ_DEFAULT_TARGETS = 1, 30, 30
+_REQ_MIN_TARGETS, _REQ_MAX_TARGETS, _REQ_DEFAULT_TARGETS = 1, 50, 30
 
 
 def _init_request_db() -> None:
@@ -21177,7 +21177,9 @@ def request_candidates(cortar: str = "", sigungu: str = "", limit: int = 20,
     조건에 맞는 물건을 쥐고 있는 곳이라야 손님에게 바로 안내할 수 있기 때문이다.
     조건 매물이 없으면 그 동네에서 활동 많은 곳으로 넓힌다.
     개인정보는 아직 오가지 않으므로 로그인 없이도 볼 수 있다(사무소 공개정보만)."""
-    limit = max(1, min(int(limit), 40))
+    # 확대까지 하면 한 요청이 80곳까지 간다(기본 30 + 10×3, 최대 선택 50 + 30).
+    # 예전 한도 40 은 3곳으로 시작하던 시절 값이라, 50곳을 골라도 40곳만 나갔다(실측).
+    limit = max(1, min(int(limit), 120))
     rows = []
 
     # ① 조건 매물 보유 사무소 — listings_current 는 오늘 스냅샷이라 '지금 파는 곳'이 나온다
@@ -21427,8 +21429,8 @@ def _office_phones(realtor_id: str) -> list:
 
 
 _ESC_GAP_MIN = 30          # 무응답 이 시간이 지나면 확대
-_ESC_ADD = 3               # 한 번에 추가하는 사무소 수
-_ESC_MAX_ROUNDS = 3        # 최대 확대 횟수(3 + 3×3 = 최대 12곳)
+_ESC_ADD = 10              # 한 번에 추가하는 사무소 수
+_ESC_MAX_ROUNDS = 3        # 최대 확대 횟수(기본 30 + 10×3 = 최대 60곳, 50 선택 시 80곳)
 _ESC_HOURS = (8, 21)       # 문자 발송 허용 시간(KST) — 새벽 문자는 민폐이자 위험
 
 
