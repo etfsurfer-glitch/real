@@ -1,0 +1,2358 @@
+<title>서울 59㎡ 12억 이하 · 500세대 이상 단지 286곳</title>
+<style>
+:root{
+  --ink:#12203a; --ink2:#3d4b63; --mute:#6b7889; --faint:#9aa5b4;
+  --line:#e3e8ef; --line2:#f0f3f7; --bg:#ffffff; --panel:#f7f9fc;
+  --brand:#1268d3; --brand-soft:#e8f0ff; --sale:#c8372f; --up:#c8372f; --flat:#1a7f4b;
+}
+:root:not([data-theme="light"]) {}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#e8edf5; --ink2:#c2cbd8; --mute:#98a3b3; --faint:#71808f;
+    --line:#28323f; --line2:#1f2732; --bg:#121721; --panel:#19202b;
+    --brand:#5da2ff; --brand-soft:#17293f; --sale:#ef7d74; --up:#ef7d74; --flat:#57c68d;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#e8edf5; --ink2:#c2cbd8; --mute:#98a3b3; --faint:#71808f;
+  --line:#28323f; --line2:#1f2732; --bg:#121721; --panel:#19202b;
+  --brand:#5da2ff; --brand-soft:#17293f; --sale:#ef7d74; --up:#ef7d74; --flat:#57c68d;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,
+    "Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:940px;margin:0 auto;padding:0 20px 72px}
+/* 머리 */
+header{padding:44px 0 26px;border-bottom:2px solid var(--ink)}
+.brand{display:flex;align-items:baseline;gap:9px;margin-bottom:22px}
+.brand b{font-size:17px;font-weight:800;letter-spacing:-.02em;color:var(--brand)}
+.brand span{font-size:11.5px;font-weight:700;color:var(--mute);letter-spacing:.04em}
+h1{margin:0 0 12px;font-size:clamp(27px,4.6vw,40px);font-weight:800;line-height:1.24;
+  letter-spacing:-.035em;text-wrap:balance}
+h1 em{font-style:normal;color:var(--brand)}
+.lede{margin:0;max-width:62ch;font-size:15.5px;color:var(--ink2);line-height:1.75}
+.meta{margin-top:18px;display:flex;flex-wrap:wrap;gap:7px}
+.meta i{font-style:normal;font-size:11.5px;font-weight:700;color:var(--ink2);
+  background:var(--panel);border:1px solid var(--line);padding:5px 11px;border-radius:999px}
+/* 요약 숫자 */
+.kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);margin:30px 0 8px;border-radius:14px;overflow:hidden}
+.kpi div{background:var(--bg);padding:18px 18px 16px}
+.kpi b{display:block;font-size:29px;font-weight:800;letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;line-height:1.15}
+.kpi b small{font-size:15px;font-weight:700;margin-left:2px}
+.kpi span{display:block;margin-top:4px;font-size:12px;font-weight:700;color:var(--mute)}
+.kpi u{display:block;margin-top:7px;font-size:11.5px;color:var(--faint);text-decoration:none;line-height:1.5}
+/* 가격대 막대 */
+.bands{margin:26px 0 34px}
+.bands h2{margin:0 0 12px}
+.band{display:grid;grid-template-columns:110px 1fr 54px;align-items:center;gap:12px;
+  padding:7px 0;border-bottom:1px solid var(--line2)}
+.band:last-child{border-bottom:none}
+.band em{font-style:normal;font-size:12.5px;font-weight:700;color:var(--ink2)}
+.band .bar{height:9px;border-radius:5px;background:var(--brand);opacity:.85}
+.band .bar.b0{opacity:.42} .band .bar.b1{opacity:.58} .band .bar.b2{opacity:.74}
+.band .v{text-align:right;font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums}
+h2{margin:36px 0 14px;font-size:19px;font-weight:800;letter-spacing:-.025em}
+.note{margin:0 0 22px;font-size:13px;color:var(--mute);max-width:66ch;line-height:1.7}
+/* 구별 표 */
+.gu{margin:0 0 30px}
+.gu h3{display:flex;align-items:baseline;gap:10px;margin:0 0 9px;padding-bottom:8px;
+  font-size:16px;font-weight:800;letter-spacing:-.02em;border-bottom:1px solid var(--line)}
+.gu h3 em{font-style:normal;font-size:11.5px;font-weight:700;color:#fff;background:var(--brand);
+  padding:2px 9px;border-radius:999px}
+.gu h3 i{font-style:normal;margin-left:auto;font-size:12.5px;font-weight:700;color:var(--mute);
+  font-variant-numeric:tabular-nums}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
+th{text-align:left;font-size:11px;font-weight:800;color:var(--mute);padding:0 10px 7px;
+  white-space:nowrap;letter-spacing:.01em}
+td{padding:9px 10px;border-top:1px solid var(--line2);vertical-align:top}
+tbody tr:hover td{background:var(--panel)}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.nm b{display:block;font-weight:700;letter-spacing:-.01em}
+.sub{display:block;margin-top:1px;font-size:11.5px;font-weight:500;color:var(--faint)}
+.strong{font-weight:800;color:var(--sale);font-size:14.5px}
+.rng{color:var(--ink2);font-size:12.5px}
+.none{color:var(--faint);font-weight:500;font-size:12px}
+.gap{font-weight:800;font-size:12.5px}
+.gap.up{color:var(--up)} .gap.flat{color:var(--flat)} .gap.na{color:var(--faint)}
+/* 꼬리 */
+footer{margin-top:44px;padding-top:22px;border-top:1px solid var(--line)}
+footer h2{margin-top:0}
+footer ul{margin:0 0 18px;padding-left:18px}
+footer li{font-size:13px;color:var(--ink2);line-height:1.85;margin-bottom:3px}
+footer b{font-weight:700;color:var(--ink)}
+.sign{font-size:12px;color:var(--faint);line-height:1.7}
+.sign b{color:var(--brand);font-weight:800}
+@media (max-width:640px){
+  .wrap{padding:0 15px 56px} header{padding-top:30px}
+  .kpi b{font-size:25px} table{font-size:13px}
+  .band{grid-template-columns:88px 1fr 44px;gap:9px}
+}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="brand"><b>콕집</b><span>부동산 뉴스레터</span></div>
+  <h1>서울에서 <em>59㎡</em>를 <em>12억 이하</em>로,<br>500세대 넘는 단지 286곳</h1>
+  <p class="lede">
+    이른바 ‘국민평형 아래 한 칸’인 전용 59㎡(약 18평)는 신혼·1~2인 가구가 가장 많이 찾는 면적입니다.
+    최근 6개월 서울 59㎡ 매매는 8,989건, 중앙값은 9억 3,000이었습니다.
+    그중 <b>실거래 중앙값이 12억 이하이면서 500세대가 넘는 단지</b>만 추려 자치구별로 정리했습니다.
+    세대수를 기준으로 삼은 이유는 단지가 클수록 거래가 꾸준해 시세를 믿을 수 있고, 팔 때도 덜 막히기 때문입니다.
+  </p>
+  <div class="meta">
+    <i>기준일 2026-08-07</i><i>최근 6개월 매매 실거래</i><i>전용 58.0~60.5㎡</i>
+    <i>500세대 이상</i><i>해제거래 제외</i>
+  </div>
+</header>
+
+<div class="kpi">
+  <div><b>286<small>개 단지</small></b><span>조건을 모두 채운 곳</span>
+    <u>19개 자치구 · 합계 327,463세대</u></div>
+  <div><b>3억 9,000</b><span>가장 낮은 중앙값</span>
+    <u>금천구 벽산1단지 · 2,336세대</u></div>
+  <div><b>68.3<small>%</small></b><span>서울 59㎡ 중 12억 이하 비중</span>
+    <u>8,989건 가운데 (건수 기준)</u></div>
+  <div><b>+8<small>%</small></b><span>호가가 실거래보다</span>
+    <u>매물이 있는 246개 단지의 중앙값</u></div>
+</div>
+
+<div class="bands">
+  <h2>가격대별로 보면</h2>
+  <div class="band"><em>6억 미만</em>
+     <div class="bar b0" style="width:55%"></div>
+     <div class="v">49곳</div></div><div class="band"><em>6억대·7억대</em>
+     <div class="bar b1" style="width:92%"></div>
+     <div class="v">82곳</div></div><div class="band"><em>8억대·9억대</em>
+     <div class="bar b2" style="width:100%"></div>
+     <div class="v">89곳</div></div><div class="band"><em>10억~12억</em>
+     <div class="bar b3" style="width:74%"></div>
+     <div class="v">66곳</div></div>
+</div>
+
+<h2>자치구별 단지</h2>
+<p class="note">
+  <b>실거래 중앙값</b>은 최근 6개월 그 단지 59㎡ 거래의 가운데 값입니다. 한두 건의 특이 거래에
+  휘둘리지 않게 평균 대신 중앙값을 썼습니다. <b>호가差</b>는 현재 가장 싼 매물 호가가 그 중앙값보다
+  얼마나 위인지입니다 — 숫자가 클수록 지금 사려면 최근 거래보다 더 얹어야 한다는 뜻입니다.
+  자치구는 해당 단지가 많은 순입니다.
+</p>
+
+    <section class="gu">
+      <h3>노원구<em>54개 단지</em><i>중앙값 6억 6,500</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>청백4단지</b><span class="sub">월계동 · 1998년</span></td>
+      <td class="num">520</td>
+      <td class="num strong">4억 3,500</td>
+      <td class="num rng">4억 800 ~ 4억 7,000<span class="sub">7건</span></td>
+      <td class="num">5억 3,000</td>
+      <td class="num gap up">+22%</td>
+    </tr><tr>
+      <td class="nm"><b>초안2단지</b><span class="sub">월계동 · 1997년</span></td>
+      <td class="num">571</td>
+      <td class="num strong">4억 4,800</td>
+      <td class="num rng">4억 ~ 4억 6,500<span class="sub">4건</span></td>
+      <td class="num">4억 3,000</td>
+      <td class="num gap flat">-4%</td>
+    </tr><tr>
+      <td class="nm"><b>불암현대</b><span class="sub">상계동 · 1999년</span></td>
+      <td class="num">826</td>
+      <td class="num strong">4억 7,150</td>
+      <td class="num rng">3억 9,500 ~ 5억 1,250<span class="sub">10건</span></td>
+      <td class="num">4억 6,000</td>
+      <td class="num gap flat">-2%</td>
+    </tr><tr>
+      <td class="nm"><b>두산</b><span class="sub">상계동 · 1994년</span></td>
+      <td class="num">763</td>
+      <td class="num strong">4억 8,500</td>
+      <td class="num rng">4억 6,500 ~ 5억 3,000<span class="sub">10건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>동아불암</b><span class="sub">상계동 · 1999년</span></td>
+      <td class="num">673</td>
+      <td class="num strong">4억 8,650</td>
+      <td class="num rng">2억 7,310 ~ 5억 3,000<span class="sub">14건</span></td>
+      <td class="num">5억 2,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>상계대림(172)</b><span class="sub">상계동 · 1989년</span></td>
+      <td class="num">675</td>
+      <td class="num strong">4억 9,900</td>
+      <td class="num rng">4억 4,000 ~ 5억 7,000<span class="sub">12건</span></td>
+      <td class="num">5억 1,000</td>
+      <td class="num gap flat">+2%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공13단지</b><span class="sub">상계동 · 1989년</span></td>
+      <td class="num">939</td>
+      <td class="num strong">5억</td>
+      <td class="num rng">4억 ~ 5억 6,000<span class="sub">11건</span></td>
+      <td class="num">6억 3,000</td>
+      <td class="num gap up">+26%</td>
+    </tr><tr>
+      <td class="nm"><b>청암2단지</b><span class="sub">상계동 · 2001년</span></td>
+      <td class="num">602</td>
+      <td class="num strong">5억</td>
+      <td class="num rng">4억 4,000 ~ 5억 4,000<span class="sub">5건</span></td>
+      <td class="num">5억 2,000</td>
+      <td class="num gap flat">+4%</td>
+    </tr><tr>
+      <td class="nm"><b>벽산</b><span class="sub">상계동 · 1989년</span></td>
+      <td class="num">1,590</td>
+      <td class="num strong">5억 1,250</td>
+      <td class="num rng">4억 1,500 ~ 5억 4,000<span class="sub">14건</span></td>
+      <td class="num">5억 6,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>은빛1단지</b><span class="sub">상계동 · 1998년</span></td>
+      <td class="num">1,391</td>
+      <td class="num strong">5억 2,900</td>
+      <td class="num rng">4억 7,500 ~ 5억 8,000<span class="sub">24건</span></td>
+      <td class="num">5억 7,000</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공16단지</b><span class="sub">상계동 · 1988년</span></td>
+      <td class="num">2,392</td>
+      <td class="num strong">5억 3,000</td>
+      <td class="num rng">4억 2,000 ~ 6억 2,500<span class="sub">57건</span></td>
+      <td class="num">6억</td>
+      <td class="num gap up">+13%</td>
+    </tr><tr>
+      <td class="nm"><b>삼익4단지</b><span class="sub">공릉동 · 1994년</span></td>
+      <td class="num">525</td>
+      <td class="num strong">5억 3,900</td>
+      <td class="num rng">4억 9,000 ~ 6억<span class="sub">8건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap up">+30%</td>
+    </tr><tr>
+      <td class="nm"><b>은빛2단지</b><span class="sub">상계동 · 1998년</span></td>
+      <td class="num">1,313</td>
+      <td class="num strong">5억 4,000</td>
+      <td class="num rng">4억 6,000 ~ 5억 8,000<span class="sub">26건</span></td>
+      <td class="num">5억 8,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>월계주공2단지</b><span class="sub">월계동 · 1992년</span></td>
+      <td class="num">2,002</td>
+      <td class="num strong">5억 7,500</td>
+      <td class="num rng">5억 400 ~ 6억 5,000<span class="sub">19건</span></td>
+      <td class="num">6억 8,000</td>
+      <td class="num gap up">+18%</td>
+    </tr><tr>
+      <td class="nm"><b>상계불암대림</b><span class="sub">상계동 · 2000년</span></td>
+      <td class="num">634</td>
+      <td class="num strong">5억 7,750</td>
+      <td class="num rng">5억 4,000 ~ 6억 800<span class="sub">9건</span></td>
+      <td class="num">5억 4,000</td>
+      <td class="num gap flat">-6%</td>
+    </tr><tr>
+      <td class="nm"><b>비선</b><span class="sub">공릉동 · 1999년</span></td>
+      <td class="num">700</td>
+      <td class="num strong">5억 8,000</td>
+      <td class="num rng">5억 5,500 ~ 6억 2,500<span class="sub">7건</span></td>
+      <td class="num">6억 7,000</td>
+      <td class="num gap up">+16%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공12단지</b><span class="sub">상계동 · 1988년</span></td>
+      <td class="num">1,739</td>
+      <td class="num strong">5억 8,000</td>
+      <td class="num rng">5억 4,800 ~ 6억<span class="sub">3건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap up">+21%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공14단지</b><span class="sub">상계동 · 1989년</span></td>
+      <td class="num">2,265</td>
+      <td class="num strong">5억 9,000</td>
+      <td class="num rng">5억 5,000 ~ 6억<span class="sub">7건</span></td>
+      <td class="num">7억 5,000</td>
+      <td class="num gap up">+27%</td>
+    </tr><tr>
+      <td class="nm"><b>성원4단지</b><span class="sub">월계동 · 1995년</span></td>
+      <td class="num">713</td>
+      <td class="num strong">5억 9,750</td>
+      <td class="num rng">5억 8,000 ~ 7억<span class="sub">8건</span></td>
+      <td class="num">6억 3,000</td>
+      <td class="num gap flat">+5%</td>
+    </tr><tr>
+      <td class="nm"><b>공릉한보에센시티</b><span class="sub">공릉동 · 2000년</span></td>
+      <td class="num">561</td>
+      <td class="num strong">5억 9,800</td>
+      <td class="num rng">5억 5,700 ~ 6억 7,700<span class="sub">17건</span></td>
+      <td class="num">6억</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>염광</b><span class="sub">중계동 · 1996년</span></td>
+      <td class="num">791</td>
+      <td class="num strong">5억 9,900</td>
+      <td class="num rng">5억 7,800 ~ 6억 3,000<span class="sub">13건</span></td>
+      <td class="num">6억 1,000</td>
+      <td class="num gap flat">+2%</td>
+    </tr><tr>
+      <td class="nm"><b>수락리버시티4단지</b><span class="sub">상계동 · 2009년</span></td>
+      <td class="num">548</td>
+      <td class="num strong">6억 1,300</td>
+      <td class="num rng">6억 1,300 ~ 6억 1,300<span class="sub">1건</span></td>
+      <td class="num">5억 9,000</td>
+      <td class="num gap flat">-4%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공1단지</b><span class="sub">상계동 · 1988년</span></td>
+      <td class="num">2,064</td>
+      <td class="num strong">6억 3,000</td>
+      <td class="num rng">5억 9,000 ~ 6억 9,000<span class="sub">36건</span></td>
+      <td class="num">6억 3,000</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>청솔</b><span class="sub">하계동 · 1989년</span></td>
+      <td class="num">1,192</td>
+      <td class="num strong">6억 3,775</td>
+      <td class="num rng">5억 6,100 ~ 6억 5,000<span class="sub">4건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공9단지</b><span class="sub">상계동 · 1988년</span></td>
+      <td class="num">2,830</td>
+      <td class="num strong">6억 4,850</td>
+      <td class="num rng">6억 ~ 7억<span class="sub">10건</span></td>
+      <td class="num">6억 7,000</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공11단지</b><span class="sub">상계동 · 1988년</span></td>
+      <td class="num">1,944</td>
+      <td class="num strong">6억 5,000</td>
+      <td class="num rng">5억 9,200 ~ 6억 8,500<span class="sub">9건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공10단지</b><span class="sub">상계동 · 1988년</span></td>
+      <td class="num">2,654</td>
+      <td class="num strong">6억 5,500</td>
+      <td class="num rng">4억 4,000 ~ 7억 200<span class="sub">18건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>상계중앙하이츠2차</b><span class="sub">상계동 · 1998년</span></td>
+      <td class="num">795</td>
+      <td class="num strong">6억 6,500</td>
+      <td class="num rng">5억 8,000 ~ 7억 4,000<span class="sub">15건</span></td>
+      <td class="num">7억 8,000</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>양지대림2차</b><span class="sub">중계동 · 1999년</span></td>
+      <td class="num">652</td>
+      <td class="num strong">6억 6,900</td>
+      <td class="num rng">6억 1,500 ~ 7억 1,000<span class="sub">8건</span></td>
+      <td class="num">7억 5,000</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>중계주공4단지</b><span class="sub">중계동 · 1991년</span></td>
+      <td class="num">690</td>
+      <td class="num strong">6억 8,500</td>
+      <td class="num rng">6억 1,000 ~ 7억 4,000<span class="sub">7건</span></td>
+      <td class="num">7억 3,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>중계무지개</b><span class="sub">중계동 · 1991년</span></td>
+      <td class="num">2,433</td>
+      <td class="num strong">6억 8,500</td>
+      <td class="num rng">6억 2,000 ~ 7억 5,500<span class="sub">17건</span></td>
+      <td class="num">7억 5,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공4단지</b><span class="sub">상계동 · 1988년</span></td>
+      <td class="num">2,136</td>
+      <td class="num strong">6억 9,000</td>
+      <td class="num rng">5억 8,000 ~ 7억 4,200<span class="sub">15건</span></td>
+      <td class="num">6억 7,500</td>
+      <td class="num gap flat">-2%</td>
+    </tr><tr>
+      <td class="nm"><b>학여울청구</b><span class="sub">하계동 · 1999년</span></td>
+      <td class="num">1,476</td>
+      <td class="num strong">6억 9,500</td>
+      <td class="num rng">6억 6,800 ~ 7억 4,000<span class="sub">13건</span></td>
+      <td class="num">8억 2,000</td>
+      <td class="num gap up">+18%</td>
+    </tr><tr>
+      <td class="nm"><b>공릉두산힐스빌</b><span class="sub">공릉동 · 2000년</span></td>
+      <td class="num">579</td>
+      <td class="num strong">7억 500</td>
+      <td class="num rng">6억 4,700 ~ 7억 5,000<span class="sub">8건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>중계그린</b><span class="sub">중계동 · 1990년</span></td>
+      <td class="num">3,481</td>
+      <td class="num strong">7억 1,250</td>
+      <td class="num rng">6억 7,000 ~ 7억 9,500<span class="sub">12건</span></td>
+      <td class="num">7억 5,000</td>
+      <td class="num gap flat">+5%</td>
+    </tr><tr>
+      <td class="nm"><b>태강</b><span class="sub">공릉동 · 1999년</span></td>
+      <td class="num">1,676</td>
+      <td class="num strong">7억 2,250</td>
+      <td class="num rng">6억 5,000 ~ 7억 6,000<span class="sub">22건</span></td>
+      <td class="num">7억 4,000</td>
+      <td class="num gap flat">+2%</td>
+    </tr><tr>
+      <td class="nm"><b>장미</b><span class="sub">하계동 · 1989년</span></td>
+      <td class="num">1,880</td>
+      <td class="num strong">7억 4,000</td>
+      <td class="num rng">5억 5,000 ~ 8억 4,500<span class="sub">14건</span></td>
+      <td class="num">8억 5,000</td>
+      <td class="num gap up">+15%</td>
+    </tr><tr>
+      <td class="nm"><b>양지대림</b><span class="sub">중계동 · 1998년</span></td>
+      <td class="num">508</td>
+      <td class="num strong">7억 4,500</td>
+      <td class="num rng">7억 4,500 ~ 7억 4,500<span class="sub">1건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공7단지</b><span class="sub">상계동 · 1988년</span></td>
+      <td class="num">2,634</td>
+      <td class="num strong">7억 5,000</td>
+      <td class="num rng">6억 ~ 8억<span class="sub">11건</span></td>
+      <td class="num">7억 9,500</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공2단지</b><span class="sub">상계동 · 1987년</span></td>
+      <td class="num">2,029</td>
+      <td class="num strong">7억 6,000</td>
+      <td class="num rng">7억 6,000 ~ 7억 6,000<span class="sub">1건</span></td>
+      <td class="num">6억 7,000</td>
+      <td class="num gap flat">-12%</td>
+    </tr><tr>
+      <td class="nm"><b>중계주공5단지</b><span class="sub">중계동 · 1992년</span></td>
+      <td class="num">2,328</td>
+      <td class="num strong">7억 7,750</td>
+      <td class="num rng">5억 5,000 ~ 8억 4,000<span class="sub">14건</span></td>
+      <td class="num">7억 7,000</td>
+      <td class="num gap flat">-1%</td>
+    </tr><tr>
+      <td class="nm"><b>공릉풍림아이원</b><span class="sub">공릉동 · 2001년</span></td>
+      <td class="num">1,601</td>
+      <td class="num strong">7억 8,000</td>
+      <td class="num rng">7억 500 ~ 8억 4,500<span class="sub">23건</span></td>
+      <td class="num">8억 2,500</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>현대(929)</b><span class="sub">월계동 · 2000년</span></td>
+      <td class="num">1,281</td>
+      <td class="num strong">8억 3,700</td>
+      <td class="num rng">7억 9,300 ~ 9억 1,500<span class="sub">11건</span></td>
+      <td class="num">9억 4,000</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>상계주공3단지</b><span class="sub">상계동 · 1987년</span></td>
+      <td class="num">2,213</td>
+      <td class="num strong">8억 4,000</td>
+      <td class="num rng">7억 ~ 8억 8,000<span class="sub">25건</span></td>
+      <td class="num">7억 9,000</td>
+      <td class="num gap flat">-6%</td>
+    </tr><tr>
+      <td class="nm"><b>롯데캐슬루나</b><span class="sub">월계동 · 2006년</span></td>
+      <td class="num">850</td>
+      <td class="num strong">8억 6,500</td>
+      <td class="num rng">7억 9,500 ~ 8억 7,000<span class="sub">5건</span></td>
+      <td class="num">9억 5,000</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>삼호4차</b><span class="sub">월계동 · 1987년</span></td>
+      <td class="num">910</td>
+      <td class="num strong">8억 9,800</td>
+      <td class="num rng">8억 3,000 ~ 9억 3,500<span class="sub">7건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap up">+11%</td>
+    </tr><tr>
+      <td class="nm"><b>꿈의숲SK뷰</b><span class="sub">월계동 · 2016년</span></td>
+      <td class="num">504</td>
+      <td class="num strong">9억 500</td>
+      <td class="num rng">8억 7,000 ~ 9억 8,000<span class="sub">5건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>노원센트럴푸르지오</b><span class="sub">상계동 · 2021년</span></td>
+      <td class="num">810</td>
+      <td class="num strong">9억 800</td>
+      <td class="num rng">7억 8,000 ~ 10억<span class="sub">20건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>태릉해링턴플레이스</b><span class="sub">공릉동 · 2022년</span></td>
+      <td class="num">1,308</td>
+      <td class="num strong">9억 6,000</td>
+      <td class="num rng">6억 6,000 ~ 10억 3,500<span class="sub">19건</span></td>
+      <td class="num">10억 6,000</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>노원롯데캐슬시그니처</b><span class="sub">상계동 · 2023년</span></td>
+      <td class="num">1,163</td>
+      <td class="num strong">9억 6,000</td>
+      <td class="num rng">8억 3,000 ~ 9억 9,000<span class="sub">10건</span></td>
+      <td class="num">9억 2,000</td>
+      <td class="num gap flat">-4%</td>
+    </tr><tr>
+      <td class="nm"><b>그랑빌</b><span class="sub">월계동 · 2002년</span></td>
+      <td class="num">3,003</td>
+      <td class="num strong">9억 7,000</td>
+      <td class="num rng">8억 7,500 ~ 10억 6,000<span class="sub">17건</span></td>
+      <td class="num">9억 8,000</td>
+      <td class="num gap flat">+1%</td>
+    </tr><tr>
+      <td class="nm"><b>포레나노원</b><span class="sub">상계동 · 2020년</span></td>
+      <td class="num">1,062</td>
+      <td class="num strong">9억 9,000</td>
+      <td class="num rng">7억 ~ 10억 3,000<span class="sub">11건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>월계센트럴아이파크</b><span class="sub">월계동 · 2020년</span></td>
+      <td class="num">859</td>
+      <td class="num strong">10억 4,400</td>
+      <td class="num rng">9억 6,800 ~ 10억 8,000<span class="sub">10건</span></td>
+      <td class="num">10억 8,000</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>미륭,미성,삼호3차</b><span class="sub">월계동 · 1986년</span></td>
+      <td class="num">3,930</td>
+      <td class="num strong">10억 6,000</td>
+      <td class="num rng">9억 9,000 ~ 11억 9,000<span class="sub">27건</span></td>
+      <td class="num">11억 6,000</td>
+      <td class="num gap up">+9%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>성북구<em>42개 단지</em><i>중앙값 9억 1,100</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>정릉대우</b><span class="sub">정릉동 · 2001년</span></td>
+      <td class="num">791</td>
+      <td class="num strong">5억 3,800</td>
+      <td class="num rng">4억 8,500 ~ 5억 7,500<span class="sub">11건</span></td>
+      <td class="num">5억 3,000</td>
+      <td class="num gap flat">-1%</td>
+    </tr><tr>
+      <td class="nm"><b>정릉풍림아이원</b><span class="sub">정릉동 · 2005년</span></td>
+      <td class="num">1,971</td>
+      <td class="num strong">5억 8,500</td>
+      <td class="num rng">5억 1,500 ~ 7억<span class="sub">45건</span></td>
+      <td class="num">6억 2,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>정릉우성</b><span class="sub">정릉동 · 2000년</span></td>
+      <td class="num">823</td>
+      <td class="num strong">6억</td>
+      <td class="num rng">6억 ~ 6억<span class="sub">1건</span></td>
+      <td class="num">6억 8,000</td>
+      <td class="num gap up">+13%</td>
+    </tr><tr>
+      <td class="nm"><b>길음뉴타운데시앙</b><span class="sub">정릉동 · 1999년</span></td>
+      <td class="num">514</td>
+      <td class="num strong">6억 2,500</td>
+      <td class="num rng">6억 1,000 ~ 7억 1,000<span class="sub">7건</span></td>
+      <td class="num">6억 8,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>중앙하이츠빌2단지</b><span class="sub">정릉동 · 2005년</span></td>
+      <td class="num">745</td>
+      <td class="num strong">6억 5,250</td>
+      <td class="num rng">6억 ~ 7억 5,000<span class="sub">8건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>푸른마을동아</b><span class="sub">정릉동 · 2003년</span></td>
+      <td class="num">529</td>
+      <td class="num strong">6억 5,700</td>
+      <td class="num rng">6억 ~ 7억 4,000<span class="sub">11건</span></td>
+      <td class="num">6억 8,000</td>
+      <td class="num gap flat">+4%</td>
+    </tr><tr>
+      <td class="nm"><b>정릉e-편한세상1차</b><span class="sub">정릉동 · 2006년</span></td>
+      <td class="num">739</td>
+      <td class="num strong">7억 500</td>
+      <td class="num rng">6억 6,500 ~ 8억 1,000<span class="sub">16건</span></td>
+      <td class="num">7억 5,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>돈암삼부(삼부컨비니언)</b><span class="sub">길음동 · 1998년</span></td>
+      <td class="num">684</td>
+      <td class="num strong">7억 3,000</td>
+      <td class="num rng">4억 4,000 ~ 8억 3,000<span class="sub">16건</span></td>
+      <td class="num">8억 5,000</td>
+      <td class="num gap up">+16%</td>
+    </tr><tr>
+      <td class="nm"><b>정릉힐스테이트3차</b><span class="sub">정릉동 · 2008년</span></td>
+      <td class="num">522</td>
+      <td class="num strong">7억 3,250</td>
+      <td class="num rng">7억 1,500 ~ 8억<span class="sub">12건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>길음뉴타운경남아너스빌</b><span class="sub">정릉동 · 1999년</span></td>
+      <td class="num">860</td>
+      <td class="num strong">7억 6,900</td>
+      <td class="num rng">6억 8,000 ~ 8억 5,500<span class="sub">7건</span></td>
+      <td class="num">8억 7,000</td>
+      <td class="num gap up">+13%</td>
+    </tr><tr>
+      <td class="nm"><b>동신</b><span class="sub">하월곡동 · 1998년</span></td>
+      <td class="num">746</td>
+      <td class="num strong">7억 7,000</td>
+      <td class="num rng">7억 ~ 8억 4,500<span class="sub">18건</span></td>
+      <td class="num">8억 4,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>동아에코빌</b><span class="sub">상월곡동 · 2003년</span></td>
+      <td class="num">1,253</td>
+      <td class="num strong">7억 8,000</td>
+      <td class="num rng">6억 5,000 ~ 8억 7,500<span class="sub">25건</span></td>
+      <td class="num">8억 9,000</td>
+      <td class="num gap up">+14%</td>
+    </tr><tr>
+      <td class="nm"><b>한신,한진</b><span class="sub">돈암동 · 1998년</span></td>
+      <td class="num">4,509</td>
+      <td class="num strong">7억 9,000</td>
+      <td class="num rng">6억 9,000 ~ 8억 8,500<span class="sub">42건</span></td>
+      <td class="num">8억 8,000</td>
+      <td class="num gap up">+11%</td>
+    </tr><tr>
+      <td class="nm"><b>종암SK</b><span class="sub">종암동 · 1999년</span></td>
+      <td class="num">1,318</td>
+      <td class="num strong">8억 2,000</td>
+      <td class="num rng">7억 8,000 ~ 9억 8,000<span class="sub">15건</span></td>
+      <td class="num">9억 8,000</td>
+      <td class="num gap up">+20%</td>
+    </tr><tr>
+      <td class="nm"><b>돈암삼성</b><span class="sub">돈암동 · 1999년</span></td>
+      <td class="num">1,278</td>
+      <td class="num strong">8억 3,500</td>
+      <td class="num rng">7억 3,500 ~ 8억 8,000<span class="sub">12건</span></td>
+      <td class="num">8억 9,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>래미안안암</b><span class="sub">안암동1가 · 2005년</span></td>
+      <td class="num">528</td>
+      <td class="num strong">8억 3,500</td>
+      <td class="num rng">5억 9,500 ~ 9억 8,000<span class="sub">9건</span></td>
+      <td class="num">10억 6,000</td>
+      <td class="num gap up">+27%</td>
+    </tr><tr>
+      <td class="nm"><b>장위자이레디언트</b><span class="sub">장위동 · 2025년</span></td>
+      <td class="num">2,840</td>
+      <td class="num strong">8억 5,000</td>
+      <td class="num rng">8억 5,000 ~ 8억 5,000<span class="sub">1건</span></td>
+      <td class="num">15억 1,000</td>
+      <td class="num gap up">+78%</td>
+    </tr><tr>
+      <td class="nm"><b>종암아이파크2차</b><span class="sub">종암동 · 2005년</span></td>
+      <td class="num">782</td>
+      <td class="num strong">8억 5,500</td>
+      <td class="num rng">8억 4,000 ~ 9억 2,000<span class="sub">6건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>정릉e-편한세상2차</b><span class="sub">정릉동 · 2009년</span></td>
+      <td class="num">527</td>
+      <td class="num strong">8억 7,500</td>
+      <td class="num rng">8억 700 ~ 9억<span class="sub">5건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap up">+14%</td>
+    </tr><tr>
+      <td class="nm"><b>두산</b><span class="sub">석관동 · 1998년</span></td>
+      <td class="num">1,998</td>
+      <td class="num strong">9억</td>
+      <td class="num rng">8억 3,000 ~ 10억 3,000<span class="sub">26건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>꿈의숲푸르지오</b><span class="sub">하월곡동 · 2010년</span></td>
+      <td class="num">714</td>
+      <td class="num strong">9억</td>
+      <td class="num rng">7억 5,000 ~ 9억 8,500<span class="sub">28건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap up">+22%</td>
+    </tr><tr>
+      <td class="nm"><b>돈암브라운스톤</b><span class="sub">돈암동 · 2004년</span></td>
+      <td class="num">1,074</td>
+      <td class="num strong">9억 1,100</td>
+      <td class="num rng">7억 8,000 ~ 10억 2,500<span class="sub">24건</span></td>
+      <td class="num">9억 4,000</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>꿈의숲대명루첸</b><span class="sub">장위동 · 2008년</span></td>
+      <td class="num">611</td>
+      <td class="num strong">9억 1,750</td>
+      <td class="num rng">8억 9,000 ~ 9억 5,000<span class="sub">4건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>래미안석관</b><span class="sub">석관동 · 2009년</span></td>
+      <td class="num">580</td>
+      <td class="num strong">9억 2,000</td>
+      <td class="num rng">8억 2,000 ~ 10억<span class="sub">5건</span></td>
+      <td class="num">9억 5,000</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>월곡두산위브</b><span class="sub">하월곡동 · 2003년</span></td>
+      <td class="num">2,197</td>
+      <td class="num strong">9억 3,000</td>
+      <td class="num rng">8억 6,000 ~ 10억<span class="sub">25건</span></td>
+      <td class="num">9억 7,000</td>
+      <td class="num gap flat">+4%</td>
+    </tr><tr>
+      <td class="nm"><b>삼선푸르지오</b><span class="sub">삼선동2가 · 2008년</span></td>
+      <td class="num">864</td>
+      <td class="num strong">9억 3,500</td>
+      <td class="num rng">8억 2,500 ~ 9억 7,700<span class="sub">12건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>종암아이파크1차</b><span class="sub">종암동 · 2004년</span></td>
+      <td class="num">513</td>
+      <td class="num strong">9억 6,500</td>
+      <td class="num rng">9억 5,000 ~ 9억 8,000<span class="sub">2건</span></td>
+      <td class="num">11억 5,000</td>
+      <td class="num gap up">+19%</td>
+    </tr><tr>
+      <td class="nm"><b>길음뉴타운2단지푸르지오</b><span class="sub">길음동 · 2005년</span></td>
+      <td class="num">1,634</td>
+      <td class="num strong">9억 7,000</td>
+      <td class="num rng">9억 1,000 ~ 10억 3,000<span class="sub">9건</span></td>
+      <td class="num">9억 7,000</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>돈암코오롱하늘채</b><span class="sub">돈암동 · 2016년</span></td>
+      <td class="num">629</td>
+      <td class="num strong">9억 7,500</td>
+      <td class="num rng">9억 7,500 ~ 9억 7,500<span class="sub">1건</span></td>
+      <td class="num">11억 5,000</td>
+      <td class="num gap up">+18%</td>
+    </tr><tr>
+      <td class="nm"><b>래미안월곡</b><span class="sub">하월곡동 · 2006년</span></td>
+      <td class="num">1,372</td>
+      <td class="num strong">9억 7,750</td>
+      <td class="num rng">9억 2,000 ~ 11억<span class="sub">14건</span></td>
+      <td class="num">11억 3,000</td>
+      <td class="num gap up">+16%</td>
+    </tr><tr>
+      <td class="nm"><b>월곡래미안루나밸리</b><span class="sub">하월곡동 · 2007년</span></td>
+      <td class="num">787</td>
+      <td class="num strong">9억 8,000</td>
+      <td class="num rng">8억 6,750 ~ 10억 5,000<span class="sub">15건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>래미안크리시엘</b><span class="sub">종암동 · 2004년</span></td>
+      <td class="num">1,168</td>
+      <td class="num strong">10억 1,000</td>
+      <td class="num rng">8억 6,000 ~ 11억 3,500<span class="sub">21건</span></td>
+      <td class="num">11억 3,000</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>래미안세레니티</b><span class="sub">종암동 · 2009년</span></td>
+      <td class="num">955</td>
+      <td class="num strong">10억 3,000</td>
+      <td class="num rng">9억 4,700 ~ 11억<span class="sub">15건</span></td>
+      <td class="num">12억</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>길음동부센트레빌</b><span class="sub">길음동 · 2003년</span></td>
+      <td class="num">1,377</td>
+      <td class="num strong">10억 4,850</td>
+      <td class="num rng">8억 8,500 ~ 11억 3,000<span class="sub">16건</span></td>
+      <td class="num">11억 5,000</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>꿈의숲코오롱하늘채</b><span class="sub">장위동 · 2017년</span></td>
+      <td class="num">513</td>
+      <td class="num strong">10억 8,300</td>
+      <td class="num rng">10억 5,000 ~ 10억 9,800<span class="sub">6건</span></td>
+      <td class="num">12억 2,000</td>
+      <td class="num gap up">+13%</td>
+    </tr><tr>
+      <td class="nm"><b>길음뉴타운4단지e편한세상</b><span class="sub">길음동 · 2005년</span></td>
+      <td class="num">1,605</td>
+      <td class="num strong">11억 1,500</td>
+      <td class="num rng">10억 ~ 11억 8,000<span class="sub">12건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap flat">-1%</td>
+    </tr><tr>
+      <td class="nm"><b>길음뉴타운5단지래미안</b><span class="sub">길음동 · 2006년</span></td>
+      <td class="num">560</td>
+      <td class="num strong">11억 3,650</td>
+      <td class="num rng">6억 7,600 ~ 11억 9,500<span class="sub">6건</span></td>
+      <td class="num">12억</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>래미안장위퍼스트하이</b><span class="sub">장위동 · 2020년</span></td>
+      <td class="num">1,562</td>
+      <td class="num strong">11억 5,000</td>
+      <td class="num rng">10억 4,500 ~ 12억 1,500<span class="sub">7건</span></td>
+      <td class="num">13억 4,000</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>래미안라센트</b><span class="sub">종암동 · 2011년</span></td>
+      <td class="num">1,025</td>
+      <td class="num strong">11억 5,150</td>
+      <td class="num rng">10억 9,000 ~ 12억<span class="sub">8건</span></td>
+      <td class="num">12억 5,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>래미안아트리치</b><span class="sub">석관동 · 2019년</span></td>
+      <td class="num">1,091</td>
+      <td class="num strong">11억 8,500</td>
+      <td class="num rng">10억 9,500 ~ 12억 6,000<span class="sub">11건</span></td>
+      <td class="num">12억 9,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>길음래미안1차</b><span class="sub">길음동 · 2003년</span></td>
+      <td class="num">1,125</td>
+      <td class="num strong">11억 9,000</td>
+      <td class="num rng">10억 5,000 ~ 12억 5,000<span class="sub">16건</span></td>
+      <td class="num">11억 7,000</td>
+      <td class="num gap flat">-2%</td>
+    </tr><tr>
+      <td class="nm"><b>길음뉴타운9단지래미안</b><span class="sub">길음동 · 2010년</span></td>
+      <td class="num">1,012</td>
+      <td class="num strong">11억 9,800</td>
+      <td class="num rng">11억 ~ 13억<span class="sub">7건</span></td>
+      <td class="num">13억</td>
+      <td class="num gap up">+9%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>구로구<em>24개 단지</em><i>중앙값 7억 2,000</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>동부골든</b><span class="sub">오류동 · 1998년</span></td>
+      <td class="num">1,236</td>
+      <td class="num strong">4억 6,650</td>
+      <td class="num rng">4억 4,500 ~ 5억 5,100<span class="sub">8건</span></td>
+      <td class="num">4억 5,000</td>
+      <td class="num gap flat">-4%</td>
+    </tr><tr>
+      <td class="nm"><b>구일우성</b><span class="sub">구로동 · 1998년</span></td>
+      <td class="num">829</td>
+      <td class="num strong">5억 6,800</td>
+      <td class="num rng">5억 3,000 ~ 6억<span class="sub">26건</span></td>
+      <td class="num">5억 7,000</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>두산</b><span class="sub">개봉동 · 1997년</span></td>
+      <td class="num">561</td>
+      <td class="num strong">5억 7,850</td>
+      <td class="num rng">4억 9,800 ~ 6억 8,500<span class="sub">19건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>중앙구로하이츠(685-124)</b><span class="sub">구로동 · 1987년</span></td>
+      <td class="num">579</td>
+      <td class="num strong">6억</td>
+      <td class="num rng">6억 ~ 6억<span class="sub">2건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>개봉한진타운</b><span class="sub">개봉동 · 2000년</span></td>
+      <td class="num">1,371</td>
+      <td class="num strong">6억 750</td>
+      <td class="num rng">5억 5,200 ~ 6억 5,800<span class="sub">24건</span></td>
+      <td class="num">6억 7,000</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>삼환</b><span class="sub">개봉동 · 1995년</span></td>
+      <td class="num">783</td>
+      <td class="num strong">6억 3,300</td>
+      <td class="num rng">5억 6,500 ~ 6억 8,500<span class="sub">15건</span></td>
+      <td class="num">8억</td>
+      <td class="num gap up">+26%</td>
+    </tr><tr>
+      <td class="nm"><b>영풍마드레빌</b><span class="sub">오류동 · 2002년</span></td>
+      <td class="num">627</td>
+      <td class="num strong">6억 4,500</td>
+      <td class="num rng">6억 4,000 ~ 7억 1,500<span class="sub">4건</span></td>
+      <td class="num">7억 3,000</td>
+      <td class="num gap up">+13%</td>
+    </tr><tr>
+      <td class="nm"><b>고척대우</b><span class="sub">고척동 · 1999년</span></td>
+      <td class="num">987</td>
+      <td class="num strong">6억 6,000</td>
+      <td class="num rng">5억 7,400 ~ 7억 1,500<span class="sub">23건</span></td>
+      <td class="num">6억 5,000</td>
+      <td class="num gap flat">-2%</td>
+    </tr><tr>
+      <td class="nm"><b>하버라인3단지</b><span class="sub">항동 · 2019년</span></td>
+      <td class="num">1,170</td>
+      <td class="num strong">6억 7,800</td>
+      <td class="num rng">6억 6,000 ~ 7억 2,000<span class="sub">15건</span></td>
+      <td class="num">6억 8,000</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>금강수목원</b><span class="sub">오류동 · 2003년</span></td>
+      <td class="num">620</td>
+      <td class="num strong">6억 8,250</td>
+      <td class="num rng">4억 5,000 ~ 8억 3,000<span class="sub">13건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>하버라인2단지</b><span class="sub">항동 · 2019년</span></td>
+      <td class="num">646</td>
+      <td class="num strong">6억 9,500</td>
+      <td class="num rng">6억 8,300 ~ 7억 800<span class="sub">7건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap flat">+1%</td>
+    </tr><tr>
+      <td class="nm"><b>천왕연지타운1단지</b><span class="sub">천왕동 · 2013년</span></td>
+      <td class="num">571</td>
+      <td class="num strong">7억 1,000</td>
+      <td class="num rng">7억 ~ 7억 4,000<span class="sub">3건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>온수힐스테이트</b><span class="sub">온수동 · 2010년</span></td>
+      <td class="num">999</td>
+      <td class="num strong">7억 2,000</td>
+      <td class="num rng">6억 4,500 ~ 8억<span class="sub">16건</span></td>
+      <td class="num">7억 9,000</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>구로중앙하이츠(1269)</b><span class="sub">구로동 · 2001년</span></td>
+      <td class="num">597</td>
+      <td class="num strong">7억 3,000</td>
+      <td class="num rng">7억 ~ 7억 8,000<span class="sub">3건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>삼성래미안</b><span class="sub">구로동 · 2004년</span></td>
+      <td class="num">1,244</td>
+      <td class="num strong">7억 9,900</td>
+      <td class="num rng">7억 6,500 ~ 9억<span class="sub">4건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>개봉푸르지오</b><span class="sub">개봉동 · 2014년</span></td>
+      <td class="num">978</td>
+      <td class="num strong">8억</td>
+      <td class="num rng">7억 9,500 ~ 8억 4,900<span class="sub">3건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>현대홈타운2단지</b><span class="sub">개봉동 · 2001년</span></td>
+      <td class="num">964</td>
+      <td class="num strong">8억 400</td>
+      <td class="num rng">7억 ~ 9억 4,500<span class="sub">21건</span></td>
+      <td class="num">9억 4,800</td>
+      <td class="num gap up">+18%</td>
+    </tr><tr>
+      <td class="nm"><b>삼환로즈빌</b><span class="sub">고척동 · 2004년</span></td>
+      <td class="num">600</td>
+      <td class="num strong">8억 3,750</td>
+      <td class="num rng">8억 1,500 ~ 8억 6,000<span class="sub">2건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>현대</b><span class="sub">개봉동 · 2001년</span></td>
+      <td class="num">2,412</td>
+      <td class="num strong">8억 7,000</td>
+      <td class="num rng">7억 3,100 ~ 9억 6,000<span class="sub">18건</span></td>
+      <td class="num">9억 7,000</td>
+      <td class="num gap up">+11%</td>
+    </tr><tr>
+      <td class="nm"><b>개봉아이파크</b><span class="sub">개봉동 · 2006년</span></td>
+      <td class="num">684</td>
+      <td class="num strong">8억 7,750</td>
+      <td class="num rng">7억 8,000 ~ 9억 8,000<span class="sub">10건</span></td>
+      <td class="num">10억 6,000</td>
+      <td class="num gap up">+21%</td>
+    </tr><tr>
+      <td class="nm"><b>한마을</b><span class="sub">개봉동 · 1999년</span></td>
+      <td class="num">1,983</td>
+      <td class="num strong">9억</td>
+      <td class="num rng">7억 9,500 ~ 9억 8,000<span class="sub">38건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>고척파크푸르지오</b><span class="sub">고척동 · 2009년</span></td>
+      <td class="num">662</td>
+      <td class="num strong">9억 9,750</td>
+      <td class="num rng">9억 7,000 ~ 10억 4,000<span class="sub">6건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>신도림롯데</b><span class="sub">구로동 · 1999년</span></td>
+      <td class="num">718</td>
+      <td class="num strong">10억</td>
+      <td class="num rng">9억 5,000 ~ 11억<span class="sub">7건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>디큐브시티(주상복합)</b><span class="sub">신도림동 · 2011년</span></td>
+      <td class="num">524</td>
+      <td class="num strong">11억 1,150</td>
+      <td class="num rng">10억 8,000 ~ 11억 4,000<span class="sub">4건</span></td>
+      <td class="num">10억 7,000</td>
+      <td class="num gap flat">-4%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>은평구<em>23개 단지</em><i>중앙값 9억 1,700</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>e편한세상수색에코포레</b><span class="sub">수색동 · 2003년</span></td>
+      <td class="num">976</td>
+      <td class="num strong">7억 1,400</td>
+      <td class="num rng">6억 8,500 ~ 7억 6,000<span class="sub">8건</span></td>
+      <td class="num">8억</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>백련산힐스테이트1차</b><span class="sub">응암동 · 2011년</span></td>
+      <td class="num">1,106</td>
+      <td class="num strong">8억 500</td>
+      <td class="num rng">7억 6,400 ~ 8억 5,000<span class="sub">13건</span></td>
+      <td class="num">8억 8,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>은평뉴타운마고정3단지</b><span class="sub">진관동 · 2009년</span></td>
+      <td class="num">659</td>
+      <td class="num strong">8억 750</td>
+      <td class="num rng">8억 ~ 8억 1,500<span class="sub">2건</span></td>
+      <td class="num">8억 1,000</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>백련산힐스테이트3차</b><span class="sub">응암동 · 2011년</span></td>
+      <td class="num">967</td>
+      <td class="num strong">8억 1,700</td>
+      <td class="num rng">7억 9,000 ~ 8억 4,800<span class="sub">6건</span></td>
+      <td class="num">9억 5,000</td>
+      <td class="num gap up">+16%</td>
+    </tr><tr>
+      <td class="nm"><b>백련산힐스테이트2차</b><span class="sub">응암동 · 2011년</span></td>
+      <td class="num">1,148</td>
+      <td class="num strong">8억 3,000</td>
+      <td class="num rng">7억 6,000 ~ 8억 5,000<span class="sub">13건</span></td>
+      <td class="num">9억</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>북한산힐스테이트1차</b><span class="sub">불광동 · 2009년</span></td>
+      <td class="num">603</td>
+      <td class="num strong">8억 5,000</td>
+      <td class="num rng">8억 1,000 ~ 9억 7,000<span class="sub">13건</span></td>
+      <td class="num">9억</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>북한산래미안</b><span class="sub">불광동 · 2010년</span></td>
+      <td class="num">782</td>
+      <td class="num strong">8억 5,500</td>
+      <td class="num rng">5억 8,000 ~ 9억 7,000<span class="sub">14건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>북한산현대힐스테이트3차</b><span class="sub">불광동 · 2010년</span></td>
+      <td class="num">1,185</td>
+      <td class="num strong">8억 6,500</td>
+      <td class="num rng">7억 6,500 ~ 9억 3,000<span class="sub">22건</span></td>
+      <td class="num">9억 7,000</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>백련산해모로</b><span class="sub">응암동 · 2020년</span></td>
+      <td class="num">760</td>
+      <td class="num strong">8억 8,900</td>
+      <td class="num rng">8억 5,000 ~ 9억 9,000<span class="sub">6건</span></td>
+      <td class="num">10억 9,000</td>
+      <td class="num gap up">+23%</td>
+    </tr><tr>
+      <td class="nm"><b>센트레빌아스테리움시그니처</b><span class="sub">역촌동 · 2024년</span></td>
+      <td class="num">752</td>
+      <td class="num strong">9억</td>
+      <td class="num rng">9억 ~ 9억<span class="sub">2건</span></td>
+      <td class="num">9억 5,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>은평뉴타운박석고개힐스테이트12단지</b><span class="sub">진관동 · 2009년</span></td>
+      <td class="num">660</td>
+      <td class="num strong">9억 1,000</td>
+      <td class="num rng">9억 500 ~ 9억 7,000<span class="sub">4건</span></td>
+      <td class="num">8억 9,500</td>
+      <td class="num gap flat">-2%</td>
+    </tr><tr>
+      <td class="nm"><b>백련산파크자이</b><span class="sub">응암동 · 2021년</span></td>
+      <td class="num">678</td>
+      <td class="num strong">9억 1,700</td>
+      <td class="num rng">8억 7,500 ~ 9억 5,900<span class="sub">17건</span></td>
+      <td class="num">9억 7,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>은평뉴타운박석고개힐스테이트1단지</b><span class="sub">진관동 · 2009년</span></td>
+      <td class="num">947</td>
+      <td class="num strong">9억 3,950</td>
+      <td class="num rng">9억 1,000 ~ 9억 8,000<span class="sub">8건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>북한산현대홈타운</b><span class="sub">불광동 · 2004년</span></td>
+      <td class="num">662</td>
+      <td class="num strong">9억 4,000</td>
+      <td class="num rng">8억 4,000 ~ 10억 1,000<span class="sub">7건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>힐스테이트백련산4차</b><span class="sub">응암동 · 2018년</span></td>
+      <td class="num">963</td>
+      <td class="num strong">9억 4,750</td>
+      <td class="num rng">8억 7,900 ~ 9억 7,700<span class="sub">8건</span></td>
+      <td class="num">9억 3,000</td>
+      <td class="num gap flat">-2%</td>
+    </tr><tr>
+      <td class="nm"><b>불광롯데캐슬</b><span class="sub">불광동 · 2018년</span></td>
+      <td class="num">588</td>
+      <td class="num strong">9억 8,000</td>
+      <td class="num rng">8억 9,000 ~ 10억 8,000<span class="sub">9건</span></td>
+      <td class="num">11억 2,000</td>
+      <td class="num gap up">+14%</td>
+    </tr><tr>
+      <td class="nm"><b>DMC아트포레자이</b><span class="sub">수색동 · 2026년</span></td>
+      <td class="num">672</td>
+      <td class="num strong">9억 8,000</td>
+      <td class="num rng">6억 8,000 ~ 12억 8,000<span class="sub">2건</span></td>
+      <td class="num">12억 3,000</td>
+      <td class="num gap up">+26%</td>
+    </tr><tr>
+      <td class="nm"><b>백련산SK뷰아이파크</b><span class="sub">응암동 · 2020년</span></td>
+      <td class="num">1,305</td>
+      <td class="num strong">10억 1,000</td>
+      <td class="num rng">9억 3,000 ~ 10억 8,000<span class="sub">12건</span></td>
+      <td class="num">10억 4,000</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>북한산힐스테이트7차</b><span class="sub">불광동 · 2011년</span></td>
+      <td class="num">882</td>
+      <td class="num strong">10억 6,500</td>
+      <td class="num rng">10억 4,000 ~ 10억 9,000<span class="sub">4건</span></td>
+      <td class="num">11억 2,000</td>
+      <td class="num gap flat">+5%</td>
+    </tr><tr>
+      <td class="nm"><b>북한산푸르지오</b><span class="sub">녹번동 · 2015년</span></td>
+      <td class="num">1,230</td>
+      <td class="num strong">10억 9,250</td>
+      <td class="num rng">10억 8,000 ~ 11억 3,500<span class="sub">8건</span></td>
+      <td class="num">11억 7,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>DMCSK뷰아이파크포레</b><span class="sub">수색동 · 2025년</span></td>
+      <td class="num">1,486</td>
+      <td class="num strong">10억 9,500</td>
+      <td class="num rng">10억 3,000 ~ 12억 4,000<span class="sub">15건</span></td>
+      <td class="num">11억 9,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>DMC롯데캐슬더퍼스트</b><span class="sub">수색동 · 2021년</span></td>
+      <td class="num">1,192</td>
+      <td class="num strong">11억 5,500</td>
+      <td class="num rng">11억 ~ 12억 2,000<span class="sub">26건</span></td>
+      <td class="num">13억 5,000</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>래미안베라힐즈</b><span class="sub">녹번동 · 2019년</span></td>
+      <td class="num">1,305</td>
+      <td class="num strong">12억</td>
+      <td class="num rng">11억 4,000 ~ 13억<span class="sub">11건</span></td>
+      <td class="num">12억 3,000</td>
+      <td class="num gap flat">+2%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>동대문구<em>20개 단지</em><i>중앙값 9억 8,750</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>동답한신</b><span class="sub">답십리동 · 1992년</span></td>
+      <td class="num">600</td>
+      <td class="num strong">6억</td>
+      <td class="num rng">5억 6,050 ~ 6억 4,000<span class="sub">3건</span></td>
+      <td class="num">7억 9,000</td>
+      <td class="num gap up">+32%</td>
+    </tr><tr>
+      <td class="nm"><b>전농우성</b><span class="sub">전농동 · 1992년</span></td>
+      <td class="num">1,234</td>
+      <td class="num strong">7억 6,700</td>
+      <td class="num rng">6억 2,000 ~ 8억 5,000<span class="sub">23건</span></td>
+      <td class="num">8억 9,000</td>
+      <td class="num gap up">+16%</td>
+    </tr><tr>
+      <td class="nm"><b>신동아</b><span class="sub">용두동 · 1994년</span></td>
+      <td class="num">772</td>
+      <td class="num strong">8억 3,000</td>
+      <td class="num rng">7억 9,000 ~ 9억 2,500<span class="sub">10건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap up">+27%</td>
+    </tr><tr>
+      <td class="nm"><b>주공1단지</b><span class="sub">휘경동 · 2001년</span></td>
+      <td class="num">1,224</td>
+      <td class="num strong">8억 4,750</td>
+      <td class="num rng">7억 9,000 ~ 9억<span class="sub">8건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>한신</b><span class="sub">청량리동 · 1997년</span></td>
+      <td class="num">960</td>
+      <td class="num strong">8억 6,000</td>
+      <td class="num rng">6억 7,000 ~ 9억 2,000<span class="sub">7건</span></td>
+      <td class="num">9억 3,000</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>청량리신현대</b><span class="sub">회기동 · 1989년</span></td>
+      <td class="num">736</td>
+      <td class="num strong">8억 7,000</td>
+      <td class="num rng">7억 7,000 ~ 9억 1,500<span class="sub">6건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap up">+15%</td>
+    </tr><tr>
+      <td class="nm"><b>현대</b><span class="sub">이문동 · 2000년</span></td>
+      <td class="num">601</td>
+      <td class="num strong">8억 7,500</td>
+      <td class="num rng">7억 5,500 ~ 9억 2,700<span class="sub">4건</span></td>
+      <td class="num">8억 5,000</td>
+      <td class="num gap flat">-3%</td>
+    </tr><tr>
+      <td class="nm"><b>안암골벽산</b><span class="sub">제기동 · 2003년</span></td>
+      <td class="num">640</td>
+      <td class="num strong">8억 8,000</td>
+      <td class="num rng">5억 5,000 ~ 8억 9,900<span class="sub">3건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap up">+14%</td>
+    </tr><tr>
+      <td class="nm"><b>동아</b><span class="sub">답십리동 · 2001년</span></td>
+      <td class="num">741</td>
+      <td class="num strong">9억 5,500</td>
+      <td class="num rng">9억 2,500 ~ 9억 9,000<span class="sub">4건</span></td>
+      <td class="num">10억 3,000</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>쌍용</b><span class="sub">이문동 · 2000년</span></td>
+      <td class="num">1,318</td>
+      <td class="num strong">9억 8,000</td>
+      <td class="num rng">9억 500 ~ 10억 2,000<span class="sub">19건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>답십리청솔우성</b><span class="sub">답십리동 · 2000년</span></td>
+      <td class="num">1,542</td>
+      <td class="num strong">9억 8,750</td>
+      <td class="num rng">9억 4,000 ~ 10억 2,000<span class="sub">8건</span></td>
+      <td class="num">10억 9,000</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>두산</b><span class="sub">답십리동 · 2000년</span></td>
+      <td class="num">739</td>
+      <td class="num strong">10억 1,000</td>
+      <td class="num rng">9억 2,000 ~ 10억 7,000<span class="sub">6건</span></td>
+      <td class="num">10억 1,000</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>장안현대홈타운1차</b><span class="sub">장안동 · 2003년</span></td>
+      <td class="num">2,182</td>
+      <td class="num strong">10억 1,500</td>
+      <td class="num rng">9억 ~ 12억 1,000<span class="sub">9건</span></td>
+      <td class="num">11억 8,000</td>
+      <td class="num gap up">+16%</td>
+    </tr><tr>
+      <td class="nm"><b>한신</b><span class="sub">제기동 · 2004년</span></td>
+      <td class="num">1,070</td>
+      <td class="num strong">10억 3,000</td>
+      <td class="num rng">9억 4,500 ~ 11억 2,000<span class="sub">16건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>이문e-편한세상</b><span class="sub">이문동 · 2003년</span></td>
+      <td class="num">1,378</td>
+      <td class="num strong">10억 3,750</td>
+      <td class="num rng">6억 ~ 10억 8,000<span class="sub">12건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>전농SK</b><span class="sub">전농동 · 2000년</span></td>
+      <td class="num">1,830</td>
+      <td class="num strong">10억 6,750</td>
+      <td class="num rng">9억 4,000 ~ 11억 6,500<span class="sub">16건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>장안힐스테이트</b><span class="sub">장안동 · 2007년</span></td>
+      <td class="num">859</td>
+      <td class="num strong">10억 8,500</td>
+      <td class="num rng">10억 3,000 ~ 11억 7,000<span class="sub">17건</span></td>
+      <td class="num">12억</td>
+      <td class="num gap up">+11%</td>
+    </tr><tr>
+      <td class="nm"><b>이문래미안2차</b><span class="sub">이문동 · 2004년</span></td>
+      <td class="num">648</td>
+      <td class="num strong">10억 9,500</td>
+      <td class="num rng">10억 8,000 ~ 11억 4,000<span class="sub">5건</span></td>
+      <td class="num">11억 5,000</td>
+      <td class="num gap flat">+5%</td>
+    </tr><tr>
+      <td class="nm"><b>장안래미안1차</b><span class="sub">장안동 · 2003년</span></td>
+      <td class="num">558</td>
+      <td class="num strong">11억 7,500</td>
+      <td class="num rng">11억 3,000 ~ 12억 1,500<span class="sub">3건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>래미안아름숲</b><span class="sub">전농동 · 2012년</span></td>
+      <td class="num">719</td>
+      <td class="num strong">11억 8,000</td>
+      <td class="num rng">7억 ~ 12억 4,000<span class="sub">4건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>중랑구<em>19개 단지</em><i>중앙값 6억 9,800</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>동성3차</b><span class="sub">신내동 · 1997년</span></td>
+      <td class="num">800</td>
+      <td class="num strong">5억 2,000</td>
+      <td class="num rng">4억 7,500 ~ 5억 6,000<span class="sub">11건</span></td>
+      <td class="num">6억 5,000</td>
+      <td class="num gap up">+25%</td>
+    </tr><tr>
+      <td class="nm"><b>동성1,2차</b><span class="sub">신내동 · 1993년</span></td>
+      <td class="num">1,047</td>
+      <td class="num strong">5억 3,300</td>
+      <td class="num rng">5억 1,000 ~ 6억 4,000<span class="sub">11건</span></td>
+      <td class="num">6억 2,000</td>
+      <td class="num gap up">+16%</td>
+    </tr><tr>
+      <td class="nm"><b>새한</b><span class="sub">신내동 · 1998년</span></td>
+      <td class="num">532</td>
+      <td class="num strong">5억 5,750</td>
+      <td class="num rng">5억 3,000 ~ 5억 9,000<span class="sub">4건</span></td>
+      <td class="num">5억 5,000</td>
+      <td class="num gap flat">-1%</td>
+    </tr><tr>
+      <td class="nm"><b>신내11단지대명</b><span class="sub">신내동 · 1996년</span></td>
+      <td class="num">804</td>
+      <td class="num strong">5억 5,800</td>
+      <td class="num rng">5억 2,000 ~ 5억 9,800<span class="sub">9건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>면목한신</b><span class="sub">면목동 · 1987년</span></td>
+      <td class="num">1,362</td>
+      <td class="num strong">5억 7,700</td>
+      <td class="num rng">5억 6,800 ~ 6억 6,000<span class="sub">5건</span></td>
+      <td class="num">6억 6,000</td>
+      <td class="num gap up">+14%</td>
+    </tr><tr>
+      <td class="nm"><b>신내4단지</b><span class="sub">묵동 · 1996년</span></td>
+      <td class="num">1,070</td>
+      <td class="num strong">5억 8,500</td>
+      <td class="num rng">5억 5,500 ~ 6억 2,000<span class="sub">11건</span></td>
+      <td class="num">6억 6,000</td>
+      <td class="num gap up">+13%</td>
+    </tr><tr>
+      <td class="nm"><b>용마한신</b><span class="sub">면목동 · 1990년</span></td>
+      <td class="num">565</td>
+      <td class="num strong">5억 9,700</td>
+      <td class="num rng">5억 4,000 ~ 6억 4,500<span class="sub">6건</span></td>
+      <td class="num">6억 7,000</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>중랑숲금호어울림</b><span class="sub">망우동 · 2006년</span></td>
+      <td class="num">686</td>
+      <td class="num strong">6억</td>
+      <td class="num rng">5억 8,000 ~ 6억 3,500<span class="sub">6건</span></td>
+      <td class="num">6억 5,000</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>신내6단지시영</b><span class="sub">신내동 · 1996년</span></td>
+      <td class="num">1,609</td>
+      <td class="num strong">6억 3,000</td>
+      <td class="num rng">4억 ~ 7억 9,000<span class="sub">21건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap up">+11%</td>
+    </tr><tr>
+      <td class="nm"><b>신내데시앙포레</b><span class="sub">신내동 · 2013년</span></td>
+      <td class="num">1,896</td>
+      <td class="num strong">6억 9,800</td>
+      <td class="num rng">6억 9,800 ~ 6억 9,800<span class="sub">1건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>면목두산4,5단지</b><span class="sub">면목동 · 2000년</span></td>
+      <td class="num">555</td>
+      <td class="num strong">6억 9,850</td>
+      <td class="num rng">6억 5,000 ~ 7억 5,000<span class="sub">10건</span></td>
+      <td class="num">7억 5,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>상봉태영데시앙</b><span class="sub">상봉동 · 2003년</span></td>
+      <td class="num">582</td>
+      <td class="num strong">7억 1,400</td>
+      <td class="num rng">7억 ~ 7억 2,800<span class="sub">2건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap flat">-2%</td>
+    </tr><tr>
+      <td class="nm"><b>데시앙</b><span class="sub">신내동 · 2010년</span></td>
+      <td class="num">1,326</td>
+      <td class="num strong">7억 1,500</td>
+      <td class="num rng">7억 750 ~ 7억 2,000<span class="sub">3건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>신내우디안1단지</b><span class="sub">신내동 · 2014년</span></td>
+      <td class="num">1,402</td>
+      <td class="num strong">7억 3,150</td>
+      <td class="num rng">7억 500 ~ 7억 5,800<span class="sub">2건</span></td>
+      <td class="num">7억 5,000</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>면목늘푸른동아</b><span class="sub">면목동 · 2002년</span></td>
+      <td class="num">573</td>
+      <td class="num strong">7억 4,000</td>
+      <td class="num rng">7억 1,500 ~ 8억 1,500<span class="sub">5건</span></td>
+      <td class="num">8억</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>태릉브라운스톤</b><span class="sub">묵동 · 2004년</span></td>
+      <td class="num">587</td>
+      <td class="num strong">7억 4,000</td>
+      <td class="num rng">7억 500 ~ 7억 4,300<span class="sub">5건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>한신</b><span class="sub">중화동 · 1997년</span></td>
+      <td class="num">1,544</td>
+      <td class="num strong">8억 3,500</td>
+      <td class="num rng">6억 1,400 ~ 9억 3,300<span class="sub">33건</span></td>
+      <td class="num">9억</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>e편한세상화랑대</b><span class="sub">묵동 · 2017년</span></td>
+      <td class="num">719</td>
+      <td class="num strong">9억 2,500</td>
+      <td class="num rng">9억 500 ~ 10억 1,000<span class="sub">5건</span></td>
+      <td class="num">9억 8,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>리버센SK뷰롯데캐슬</b><span class="sub">중화동 · 2025년</span></td>
+      <td class="num">1,055</td>
+      <td class="num strong">11억 3,250</td>
+      <td class="num rng">8억 8,000 ~ 12억 7,000<span class="sub">4건</span></td>
+      <td class="num">14억</td>
+      <td class="num gap up">+24%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>관악구<em>14개 단지</em><i>중앙값 8억 9,000</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>국제산장</b><span class="sub">신림동 · 1993년</span></td>
+      <td class="num">630</td>
+      <td class="num strong">4억 2,700</td>
+      <td class="num rng">4억 ~ 4억 4,000<span class="sub">4건</span></td>
+      <td class="num">4억 2,000</td>
+      <td class="num gap flat">-2%</td>
+    </tr><tr>
+      <td class="nm"><b>삼성산주공3단지</b><span class="sub">신림동 · 2000년</span></td>
+      <td class="num">1,482</td>
+      <td class="num strong">5억 2,500</td>
+      <td class="num rng">4억 9,500 ~ 5억 5,000<span class="sub">9건</span></td>
+      <td class="num">5억 4,000</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>건영3차</b><span class="sub">신림동 · 1996년</span></td>
+      <td class="num">783</td>
+      <td class="num strong">5억 5,900</td>
+      <td class="num rng">5억 ~ 6억<span class="sub">13건</span></td>
+      <td class="num">6억 7,500</td>
+      <td class="num gap up">+21%</td>
+    </tr><tr>
+      <td class="nm"><b>관악산휴먼시아2단지</b><span class="sub">신림동 · 2008년</span></td>
+      <td class="num">2,265</td>
+      <td class="num strong">6억 2,250</td>
+      <td class="num rng">5억 7,000 ~ 6억 7,800<span class="sub">20건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>관악산휴먼시아1단지</b><span class="sub">신림동 · 2008년</span></td>
+      <td class="num">545</td>
+      <td class="num strong">6억 3,250</td>
+      <td class="num rng">5억 8,000 ~ 6억 6,500<span class="sub">10건</span></td>
+      <td class="num">7억</td>
+      <td class="num gap up">+11%</td>
+    </tr><tr>
+      <td class="nm"><b>신림현대</b><span class="sub">신림동 · 1993년</span></td>
+      <td class="num">1,634</td>
+      <td class="num strong">6억 7,500</td>
+      <td class="num rng">6억 3,500 ~ 7억 1,000<span class="sub">8건</span></td>
+      <td class="num">7억 5,000</td>
+      <td class="num gap up">+11%</td>
+    </tr><tr>
+      <td class="nm"><b>신림동부</b><span class="sub">신림동 · 1993년</span></td>
+      <td class="num">592</td>
+      <td class="num strong">8억 500</td>
+      <td class="num rng">7억 8,500 ~ 8억 6,500<span class="sub">8건</span></td>
+      <td class="num">8억</td>
+      <td class="num gap flat">-1%</td>
+    </tr><tr>
+      <td class="nm"><b>신림푸르지오1차</b><span class="sub">신림동 · 2005년</span></td>
+      <td class="num">1,456</td>
+      <td class="num strong">8억 9,000</td>
+      <td class="num rng">8억 9,000 ~ 8억 9,000<span class="sub">1건</span></td>
+      <td class="num">9억 5,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>관악우성</b><span class="sub">봉천동 · 2000년</span></td>
+      <td class="num">1,597</td>
+      <td class="num strong">9억 6,900</td>
+      <td class="num rng">8억 7,000 ~ 11억 1,000<span class="sub">24건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>현대</b><span class="sub">봉천동 · 1992년</span></td>
+      <td class="num">2,134</td>
+      <td class="num strong">9억 8,000</td>
+      <td class="num rng">8억 6,000 ~ 10억 4,500<span class="sub">17건</span></td>
+      <td class="num">10억 3,500</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>벽산블루밍1차</b><span class="sub">봉천동 · 2005년</span></td>
+      <td class="num">2,105</td>
+      <td class="num strong">9억 9,000</td>
+      <td class="num rng">8억 9,500 ~ 11억<span class="sub">45건</span></td>
+      <td class="num">10억 7,000</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>성현동아</b><span class="sub">봉천동 · 2000년</span></td>
+      <td class="num">1,261</td>
+      <td class="num strong">10억 5,000</td>
+      <td class="num rng">9억 ~ 10억 9,000<span class="sub">9건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap flat">+5%</td>
+    </tr><tr>
+      <td class="nm"><b>관악푸르지오</b><span class="sub">봉천동 · 2004년</span></td>
+      <td class="num">2,104</td>
+      <td class="num strong">11억 3,650</td>
+      <td class="num rng">10억 3,000 ~ 12억 2,800<span class="sub">40건</span></td>
+      <td class="num">11억 5,000</td>
+      <td class="num gap flat">+1%</td>
+    </tr><tr>
+      <td class="nm"><b>관악드림타운</b><span class="sub">봉천동 · 2003년</span></td>
+      <td class="num">3,544</td>
+      <td class="num strong">11억 5,000</td>
+      <td class="num rng">10억 3,000 ~ 11억 9,900<span class="sub">34건</span></td>
+      <td class="num">11억 4,000</td>
+      <td class="num gap flat">-1%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>도봉구<em>14개 단지</em><i>중앙값 6억 7,000</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>한양2,3,4차</b><span class="sub">쌍문동 · 1988년</span></td>
+      <td class="num">1,635</td>
+      <td class="num strong">4억 1,100</td>
+      <td class="num rng">3억 9,000 ~ 4억 3,500<span class="sub">3건</span></td>
+      <td class="num">3억 8,000</td>
+      <td class="num gap flat">-8%</td>
+    </tr><tr>
+      <td class="nm"><b>삼익세라믹</b><span class="sub">쌍문동 · 1988년</span></td>
+      <td class="num">1,541</td>
+      <td class="num strong">4억 2,500</td>
+      <td class="num rng">3억 9,000 ~ 4억 7,000<span class="sub">16건</span></td>
+      <td class="num">4억 2,000</td>
+      <td class="num gap flat">-1%</td>
+    </tr><tr>
+      <td class="nm"><b>신창</b><span class="sub">창동 · 1998년</span></td>
+      <td class="num">609</td>
+      <td class="num strong">4억 2,700</td>
+      <td class="num rng">3억 8,500 ~ 4억 7,000<span class="sub">11건</span></td>
+      <td class="num">3억 8,000</td>
+      <td class="num gap flat">-11%</td>
+    </tr><tr>
+      <td class="nm"><b>서원</b><span class="sub">도봉동 · 1996년</span></td>
+      <td class="num">2,450</td>
+      <td class="num strong">4억 8,400</td>
+      <td class="num rng">4억 4,000 ~ 4억 9,500<span class="sub">8건</span></td>
+      <td class="num">5억</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>창동대우</b><span class="sub">창동 · 1995년</span></td>
+      <td class="num">952</td>
+      <td class="num strong">5억 9,000</td>
+      <td class="num rng">5억 3,500 ~ 6억 4,000<span class="sub">16건</span></td>
+      <td class="num">6억 3,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>창동주공1단지</b><span class="sub">창동 · 1990년</span></td>
+      <td class="num">808</td>
+      <td class="num strong">6억 4,250</td>
+      <td class="num rng">5억 9,800 ~ 6억 9,000<span class="sub">4건</span></td>
+      <td class="num">6억 7,500</td>
+      <td class="num gap flat">+5%</td>
+    </tr><tr>
+      <td class="nm"><b>대상타운현대</b><span class="sub">방학동 · 2001년</span></td>
+      <td class="num">1,278</td>
+      <td class="num strong">6억 6,000</td>
+      <td class="num rng">6억 4,500 ~ 7억 2,700<span class="sub">4건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>주공18단지</b><span class="sub">창동 · 1988년</span></td>
+      <td class="num">910</td>
+      <td class="num strong">6억 7,000</td>
+      <td class="num rng">4억 1,000 ~ 7억<span class="sub">7건</span></td>
+      <td class="num">7억 2,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>창동주공3단지</b><span class="sub">창동 · 1990년</span></td>
+      <td class="num">2,856</td>
+      <td class="num strong">7억 1,250</td>
+      <td class="num rng">4억 4,500 ~ 8억<span class="sub">28건</span></td>
+      <td class="num">8억</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>상아1차</b><span class="sub">창동 · 1987년</span></td>
+      <td class="num">694</td>
+      <td class="num strong">7억 2,700</td>
+      <td class="num rng">7억 2,600 ~ 7억 2,800<span class="sub">2건</span></td>
+      <td class="num">7억 3,000</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>창동현대2차</b><span class="sub">창동 · 2001년</span></td>
+      <td class="num">705</td>
+      <td class="num strong">7억 6,000</td>
+      <td class="num rng">6억 3,000 ~ 7억 8,500<span class="sub">7건</span></td>
+      <td class="num">8억 4,000</td>
+      <td class="num gap up">+11%</td>
+    </tr><tr>
+      <td class="nm"><b>동아청솔</b><span class="sub">창동 · 1997년</span></td>
+      <td class="num">1,981</td>
+      <td class="num strong">8억</td>
+      <td class="num rng">5억 3,500 ~ 9억 1,800<span class="sub">30건</span></td>
+      <td class="num">8억 1,000</td>
+      <td class="num gap flat">+1%</td>
+    </tr><tr>
+      <td class="nm"><b>쌍용</b><span class="sub">창동 · 1997년</span></td>
+      <td class="num">1,352</td>
+      <td class="num strong">8억</td>
+      <td class="num rng">6억 ~ 8억 5,000<span class="sub">15건</span></td>
+      <td class="num">8억 1,000</td>
+      <td class="num gap flat">+1%</td>
+    </tr><tr>
+      <td class="nm"><b>주공19단지</b><span class="sub">창동 · 1988년</span></td>
+      <td class="num">1,764</td>
+      <td class="num strong">8억 7,250</td>
+      <td class="num rng">6억 ~ 9억 300<span class="sub">12건</span></td>
+      <td class="num">9억</td>
+      <td class="num gap flat">+3%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>서대문구<em>14개 단지</em><i>중앙값 9억 3,000</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>유원하나</b><span class="sub">홍제동 · 1996년</span></td>
+      <td class="num">704</td>
+      <td class="num strong">5억 5,400</td>
+      <td class="num rng">5억 1,500 ~ 5억 9,000<span class="sub">17건</span></td>
+      <td class="num">5억 5,000</td>
+      <td class="num gap flat">-1%</td>
+    </tr><tr>
+      <td class="nm"><b>홍은벽산</b><span class="sub">홍은동 · 1997년</span></td>
+      <td class="num">1,509</td>
+      <td class="num strong">6억 5,000</td>
+      <td class="num rng">5억 9,000 ~ 7억 4,500<span class="sub">14건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>현대</b><span class="sub">홍은동 · 1988년</span></td>
+      <td class="num">610</td>
+      <td class="num strong">6억 9,500</td>
+      <td class="num rng">6억 ~ 7억 5,000<span class="sub">10건</span></td>
+      <td class="num">9억 5,000</td>
+      <td class="num gap up">+37%</td>
+    </tr><tr>
+      <td class="nm"><b>문화촌현대</b><span class="sub">홍제동 · 2002년</span></td>
+      <td class="num">768</td>
+      <td class="num strong">7억 1,000</td>
+      <td class="num rng">6억 4,000 ~ 8억<span class="sub">21건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>연희성원</b><span class="sub">연희동 · 2001년</span></td>
+      <td class="num">581</td>
+      <td class="num strong">7억 3,000</td>
+      <td class="num rng">6억 6,000 ~ 7억 7,000<span class="sub">8건</span></td>
+      <td class="num">7억 9,000</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>서대문센트럴아이파크</b><span class="sub">홍은동 · 2025년</span></td>
+      <td class="num">827</td>
+      <td class="num strong">7억 9,000</td>
+      <td class="num rng">7억 9,000 ~ 7억 9,000<span class="sub">1건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap up">+27%</td>
+    </tr><tr>
+      <td class="nm"><b>홍제한양</b><span class="sub">홍제동 · 1993년</span></td>
+      <td class="num">998</td>
+      <td class="num strong">8억 6,250</td>
+      <td class="num rng">5억 5,000 ~ 10억 2,500<span class="sub">22건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap up">+22%</td>
+    </tr><tr>
+      <td class="nm"><b>남가좌현대</b><span class="sub">남가좌동 · 1999년</span></td>
+      <td class="num">1,155</td>
+      <td class="num strong">9억 3,000</td>
+      <td class="num rng">8억 ~ 10억 5,000<span class="sub">21건</span></td>
+      <td class="num">10억 4,000</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>연희대우</b><span class="sub">연희동 · 2002년</span></td>
+      <td class="num">562</td>
+      <td class="num strong">9억 8,750</td>
+      <td class="num rng">9억 ~ 10억 5,000<span class="sub">12건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>힐스테이트홍은포레스트</b><span class="sub">홍은동 · 2023년</span></td>
+      <td class="num">623</td>
+      <td class="num strong">9억 9,000</td>
+      <td class="num rng">9억 ~ 10억 4,000<span class="sub">18건</span></td>
+      <td class="num">10억 3,000</td>
+      <td class="num gap flat">+4%</td>
+    </tr><tr>
+      <td class="nm"><b>DMC래미안클라시스</b><span class="sub">남가좌동 · 2000년</span></td>
+      <td class="num">1,114</td>
+      <td class="num strong">9억 9,500</td>
+      <td class="num rng">9억 ~ 10억 8,500<span class="sub">18건</span></td>
+      <td class="num">11억 1,000</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>홍제원현대(홍제원힐스테이트)</b><span class="sub">홍제동 · 2000년</span></td>
+      <td class="num">939</td>
+      <td class="num strong">10억 1,000</td>
+      <td class="num rng">9억 5,000 ~ 11억 5,800<span class="sub">13건</span></td>
+      <td class="num">10억 8,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>인왕산현대(인왕산힐스테이트)</b><span class="sub">홍제동 · 2000년</span></td>
+      <td class="num">700</td>
+      <td class="num strong">10억 2,000</td>
+      <td class="num rng">8억 9,250 ~ 11억 4,200<span class="sub">11건</span></td>
+      <td class="num">11억 2,000</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>북한산더샵</b><span class="sub">홍은동 · 2017년</span></td>
+      <td class="num">552</td>
+      <td class="num strong">11억 3,000</td>
+      <td class="num rng">11억 1,000 ~ 11억 5,000<span class="sub">2건</span></td>
+      <td class="num">12억 7,000</td>
+      <td class="num gap up">+12%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>강동구<em>13개 단지</em><i>중앙값 11억 3,850</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>고덕리엔파크1단지</b><span class="sub">강일동 · 2011년</span></td>
+      <td class="num">605</td>
+      <td class="num strong">6억</td>
+      <td class="num rng">6억 ~ 6억<span class="sub">1건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>동아하이빌</b><span class="sub">천호동 · 2000년</span></td>
+      <td class="num">526</td>
+      <td class="num strong">8억 3,000</td>
+      <td class="num rng">7억 7,000 ~ 8억 4,200<span class="sub">5건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>강동리엔파크14단지</b><span class="sub">상일동 · 2021년</span></td>
+      <td class="num">943</td>
+      <td class="num strong">10억</td>
+      <td class="num rng">7억 2,000 ~ 11억 7,800<span class="sub">11건</span></td>
+      <td class="num">11억 4,000</td>
+      <td class="num gap up">+14%</td>
+    </tr><tr>
+      <td class="nm"><b>천호삼성</b><span class="sub">천호동 · 1997년</span></td>
+      <td class="num">643</td>
+      <td class="num strong">10억 3,000</td>
+      <td class="num rng">9억 7,000 ~ 10억 4,000<span class="sub">3건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>강일리버파크7단지</b><span class="sub">강일동 · 2009년</span></td>
+      <td class="num">731</td>
+      <td class="num strong">10억 4,000</td>
+      <td class="num rng">10억 ~ 10억 8,000<span class="sub">2건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>고덕리엔파크3단지</b><span class="sub">상일동 · 2011년</span></td>
+      <td class="num">2,283</td>
+      <td class="num strong">10억 9,000</td>
+      <td class="num rng">10억 9,000 ~ 10억 9,000<span class="sub">1건</span></td>
+      <td class="num">12억 9,000</td>
+      <td class="num gap up">+18%</td>
+    </tr><tr>
+      <td class="nm"><b>강동리버스트4단지</b><span class="sub">강일동 · 2020년</span></td>
+      <td class="num">1,239</td>
+      <td class="num strong">11억 3,850</td>
+      <td class="num rng">10억 7,000 ~ 12억<span class="sub">4건</span></td>
+      <td class="num">11억 7,000</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>강일리버파크5단지</b><span class="sub">강일동 · 2009년</span></td>
+      <td class="num">722</td>
+      <td class="num strong">11억 4,500</td>
+      <td class="num rng">11억 4,500 ~ 11억 4,500<span class="sub">1건</span></td>
+      <td class="num">13억 5,000</td>
+      <td class="num gap up">+18%</td>
+    </tr><tr>
+      <td class="nm"><b>강동리버스트8단지</b><span class="sub">강일동 · 2021년</span></td>
+      <td class="num">946</td>
+      <td class="num strong">11억 5,500</td>
+      <td class="num rng">10억 3,000 ~ 12억 4,500<span class="sub">16건</span></td>
+      <td class="num">12억</td>
+      <td class="num gap flat">+4%</td>
+    </tr><tr>
+      <td class="nm"><b>강일리버파크3단지</b><span class="sub">강일동 · 2009년</span></td>
+      <td class="num">987</td>
+      <td class="num strong">11억 5,500</td>
+      <td class="num rng">7억 100 ~ 12억 5,000<span class="sub">6건</span></td>
+      <td class="num">12억 2,800</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>명일GS</b><span class="sub">명일동 · 1999년</span></td>
+      <td class="num">772</td>
+      <td class="num strong">11억 8,000</td>
+      <td class="num rng">11억 ~ 12억 4,000<span class="sub">7건</span></td>
+      <td class="num">12억 9,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>천호태영</b><span class="sub">천호동 · 1999년</span></td>
+      <td class="num">649</td>
+      <td class="num strong">11억 9,500</td>
+      <td class="num rng">11억 9,500 ~ 11억 9,500<span class="sub">1건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>삼익파크맨숀</b><span class="sub">길동 · 1982년</span></td>
+      <td class="num">1,092</td>
+      <td class="num strong">12억</td>
+      <td class="num rng">12억 ~ 12억<span class="sub">1건</span></td>
+      <td class="num">13억</td>
+      <td class="num gap up">+8%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>강북구<em>11개 단지</em><i>중앙값 7억 7,000</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>번동주공4단지</b><span class="sub">번동 · 1991년</span></td>
+      <td class="num">900</td>
+      <td class="num strong">5억 1,000</td>
+      <td class="num rng">4억 9,000 ~ 5억 6,000<span class="sub">3건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>수유래미안</b><span class="sub">수유동 · 2001년</span></td>
+      <td class="num">690</td>
+      <td class="num strong">5억 8,750</td>
+      <td class="num rng">5억 7,300 ~ 6억 700<span class="sub">8건</span></td>
+      <td class="num">6억 2,500</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>벽산라이브파크</b><span class="sub">미아동 · 2004년</span></td>
+      <td class="num">1,585</td>
+      <td class="num strong">6억 800</td>
+      <td class="num rng">5억 7,500 ~ 6억 7,000<span class="sub">23건</span></td>
+      <td class="num">6억 9,000</td>
+      <td class="num gap up">+13%</td>
+    </tr><tr>
+      <td class="nm"><b>SK북한산시티</b><span class="sub">미아동 · 2004년</span></td>
+      <td class="num">3,830</td>
+      <td class="num strong">6억 8,000</td>
+      <td class="num rng">5억 9,000 ~ 8억 500<span class="sub">53건</span></td>
+      <td class="num">7억 7,000</td>
+      <td class="num gap up">+13%</td>
+    </tr><tr>
+      <td class="nm"><b>삼각산아이원</b><span class="sub">미아동 · 2003년</span></td>
+      <td class="num">1,344</td>
+      <td class="num strong">7억 400</td>
+      <td class="num rng">6억 400 ~ 8억<span class="sub">8건</span></td>
+      <td class="num">8억 1,000</td>
+      <td class="num gap up">+15%</td>
+    </tr><tr>
+      <td class="nm"><b>경남아너스빌(1356)</b><span class="sub">미아동 · 2003년</span></td>
+      <td class="num">860</td>
+      <td class="num strong">7억 7,000</td>
+      <td class="num rng">7억 2,000 ~ 8억 3,500<span class="sub">10건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>두산위브트레지움</b><span class="sub">미아동 · 2011년</span></td>
+      <td class="num">1,370</td>
+      <td class="num strong">8억 5,000</td>
+      <td class="num rng">8억 ~ 9억 5,500<span class="sub">15건</span></td>
+      <td class="num">9억 3,000</td>
+      <td class="num gap up">+9%</td>
+    </tr><tr>
+      <td class="nm"><b>꿈의숲롯데캐슬</b><span class="sub">미아동 · 2017년</span></td>
+      <td class="num">615</td>
+      <td class="num strong">9억</td>
+      <td class="num rng">9억 ~ 9억<span class="sub">1건</span></td>
+      <td class="num">9억 5,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>꿈의숲해링턴플레이스</b><span class="sub">미아동 · 2019년</span></td>
+      <td class="num">1,028</td>
+      <td class="num strong">9억</td>
+      <td class="num rng">7억 2,000 ~ 9억 3,400<span class="sub">17건</span></td>
+      <td class="num">9억 9,000</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>래미안트리베라1차</b><span class="sub">미아동 · 2010년</span></td>
+      <td class="num">1,247</td>
+      <td class="num strong">9억 2,600</td>
+      <td class="num rng">9억 ~ 9억 6,000<span class="sub">8건</span></td>
+      <td class="num">9억 8,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr><tr>
+      <td class="nm"><b>삼성래미안트리베라2차</b><span class="sub">미아동 · 2010년</span></td>
+      <td class="num">1,330</td>
+      <td class="num strong">9억 4,800</td>
+      <td class="num rng">6억 9,000 ~ 10억 1,500<span class="sub">13건</span></td>
+      <td class="num">9억 5,000</td>
+      <td class="num gap flat">0%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>강서구<em>10개 단지</em><i>중앙값 10억 6,000</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>마곡중앙하이츠</b><span class="sub">방화동 · 1994년</span></td>
+      <td class="num">930</td>
+      <td class="num strong">6억 3,500</td>
+      <td class="num rng">6억 ~ 6억 7,800<span class="sub">10건</span></td>
+      <td class="num">7억 6,000</td>
+      <td class="num gap up">+20%</td>
+    </tr><tr>
+      <td class="nm"><b>초록</b><span class="sub">화곡동 · 1998년</span></td>
+      <td class="num">625</td>
+      <td class="num strong">8억 1,500</td>
+      <td class="num rng">7억 1,000 ~ 9억 3,000<span class="sub">10건</span></td>
+      <td class="num">9억 5,000</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>등촌주공5단지</b><span class="sub">등촌동 · 1995년</span></td>
+      <td class="num">1,045</td>
+      <td class="num strong">9억 9,750</td>
+      <td class="num rng">7억 5,000 ~ 11억 2,500<span class="sub">30건</span></td>
+      <td class="num">10억 7,000</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>등촌주공10단지</b><span class="sub">등촌동 · 1995년</span></td>
+      <td class="num">566</td>
+      <td class="num strong">10억 1,500</td>
+      <td class="num rng">7억 5,000 ~ 11억 5,700<span class="sub">11건</span></td>
+      <td class="num">10억 7,000</td>
+      <td class="num gap flat">+5%</td>
+    </tr><tr>
+      <td class="nm"><b>염창동아1차</b><span class="sub">염창동 · 1998년</span></td>
+      <td class="num">778</td>
+      <td class="num strong">10억 2,500</td>
+      <td class="num rng">9억 3,000 ~ 11억<span class="sub">14건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap flat">+7%</td>
+    </tr><tr>
+      <td class="nm"><b>등촌주공3단지</b><span class="sub">등촌동 · 1995년</span></td>
+      <td class="num">1,016</td>
+      <td class="num strong">10억 6,000</td>
+      <td class="num rng">6억 ~ 11억 9,000<span class="sub">22건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap flat">+4%</td>
+    </tr><tr>
+      <td class="nm"><b>강나루현대</b><span class="sub">가양동 · 1999년</span></td>
+      <td class="num">642</td>
+      <td class="num strong">11억 2,000</td>
+      <td class="num rng">6억 7,000 ~ 12억 5,000<span class="sub">8건</span></td>
+      <td class="num">12억 3,000</td>
+      <td class="num gap up">+10%</td>
+    </tr><tr>
+      <td class="nm"><b>마곡수명산파크5단지</b><span class="sub">내발산동 · 2008년</span></td>
+      <td class="num">948</td>
+      <td class="num strong">11억 2,000</td>
+      <td class="num rng">8억 ~ 11억 7,000<span class="sub">11건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap flat">-2%</td>
+    </tr><tr>
+      <td class="nm"><b>마곡수명산파크4단지</b><span class="sub">내발산동 · 2008년</span></td>
+      <td class="num">919</td>
+      <td class="num strong">11억 3,250</td>
+      <td class="num rng">10억 5,000 ~ 11억 4,000<span class="sub">12건</span></td>
+      <td class="num">11억 3,000</td>
+      <td class="num gap flat">0%</td>
+    </tr><tr>
+      <td class="nm"><b>가양6단지</b><span class="sub">가양동 · 1992년</span></td>
+      <td class="num">1,476</td>
+      <td class="num strong">11억 8,000</td>
+      <td class="num rng">10억 3,000 ~ 12억 8,000<span class="sub">17건</span></td>
+      <td class="num">12억 5,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>금천구<em>10개 단지</em><i>중앙값 6억 2,400</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>벽산1단지</b><span class="sub">시흥동 · 2000년</span></td>
+      <td class="num">2,336</td>
+      <td class="num strong">3억 9,000</td>
+      <td class="num rng">3억 ~ 4억 2,700<span class="sub">13건</span></td>
+      <td class="num">3억 7,000</td>
+      <td class="num gap flat">-5%</td>
+    </tr><tr>
+      <td class="nm"><b>벽산5단지</b><span class="sub">시흥동 · 2004년</span></td>
+      <td class="num">2,810</td>
+      <td class="num strong">4억 4,900</td>
+      <td class="num rng">4억 800 ~ 4억 9,500<span class="sub">17건</span></td>
+      <td class="num">4억 3,000</td>
+      <td class="num gap flat">-4%</td>
+    </tr><tr>
+      <td class="nm"><b>관악우방</b><span class="sub">시흥동 · 2002년</span></td>
+      <td class="num">671</td>
+      <td class="num strong">4억 6,400</td>
+      <td class="num rng">3억 9,000 ~ 4억 9,400<span class="sub">12건</span></td>
+      <td class="num">4억 6,000</td>
+      <td class="num gap flat">-1%</td>
+    </tr><tr>
+      <td class="nm"><b>삼익</b><span class="sub">시흥동 · 1999년</span></td>
+      <td class="num">786</td>
+      <td class="num strong">4억 6,500</td>
+      <td class="num rng">4억 3,000 ~ 4억 8,000<span class="sub">8건</span></td>
+      <td class="num">4억 8,000</td>
+      <td class="num gap flat">+3%</td>
+    </tr><tr>
+      <td class="nm"><b>주공14단지</b><span class="sub">독산동 · 1990년</span></td>
+      <td class="num">840</td>
+      <td class="num strong">5억 9,500</td>
+      <td class="num rng">5억 3,000 ~ 6억 7,800<span class="sub">5건</span></td>
+      <td class="num">6억 6,000</td>
+      <td class="num gap up">+11%</td>
+    </tr><tr>
+      <td class="nm"><b>금천현대</b><span class="sub">독산동 · 2002년</span></td>
+      <td class="num">996</td>
+      <td class="num strong">6억 2,400</td>
+      <td class="num rng">5억 3,000 ~ 6억 6,500<span class="sub">15건</span></td>
+      <td class="num">6억 3,000</td>
+      <td class="num gap flat">+1%</td>
+    </tr><tr>
+      <td class="nm"><b>두산위브</b><span class="sub">가산동 · 1998년</span></td>
+      <td class="num">1,495</td>
+      <td class="num strong">6억 7,000</td>
+      <td class="num rng">5억 9,000 ~ 7억 4,000<span class="sub">25건</span></td>
+      <td class="num">7억 5,000</td>
+      <td class="num gap up">+12%</td>
+    </tr><tr>
+      <td class="nm"><b>남서울힐스테이트</b><span class="sub">시흥동 · 2014년</span></td>
+      <td class="num">1,764</td>
+      <td class="num strong">8억 3,000</td>
+      <td class="num rng">7억 7,000 ~ 8억 5,950<span class="sub">15건</span></td>
+      <td class="num">8억 2,000</td>
+      <td class="num gap flat">-1%</td>
+    </tr><tr>
+      <td class="nm"><b>롯데캐슬골드파크1차</b><span class="sub">독산동 · 2016년</span></td>
+      <td class="num">1,743</td>
+      <td class="num strong">10억 3,500</td>
+      <td class="num rng">9억 5,000 ~ 10억 6,500<span class="sub">4건</span></td>
+      <td class="num">10억 8,000</td>
+      <td class="num gap flat">+4%</td>
+    </tr><tr>
+      <td class="nm"><b>금천롯데캐슬골드파크3차(주상복합)</b><span class="sub">독산동 · 2018년</span></td>
+      <td class="num">1,236</td>
+      <td class="num strong">10억 4,700</td>
+      <td class="num rng">9억 5,000 ~ 10억 9,000<span class="sub">28건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap flat">0%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>양천구<em>8개 단지</em><i>중앙값 8억 2,500</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>신정이펜하우스4단지</b><span class="sub">신정동 · 2011년</span></td>
+      <td class="num">546</td>
+      <td class="num strong">6억 5,500</td>
+      <td class="num rng">6억 5,000 ~ 6억 6,000<span class="sub">3건</span></td>
+      <td class="num">8억</td>
+      <td class="num gap up">+22%</td>
+    </tr><tr>
+      <td class="nm"><b>신정이펜하우스3단지</b><span class="sub">신정동 · 2011년</span></td>
+      <td class="num">1,339</td>
+      <td class="num strong">6억 8,500</td>
+      <td class="num rng">6억 7,000 ~ 7억<span class="sub">2건</span></td>
+      <td class="num">8억</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>신정현대6차</b><span class="sub">신정동 · 2000년</span></td>
+      <td class="num">703</td>
+      <td class="num strong">6억 9,300</td>
+      <td class="num rng">6억 6,700 ~ 7억 3,500<span class="sub">5건</span></td>
+      <td class="num">8억 3,000</td>
+      <td class="num gap up">+20%</td>
+    </tr><tr>
+      <td class="nm"><b>학마을1단지</b><span class="sub">신정동 · 2000년</span></td>
+      <td class="num">639</td>
+      <td class="num strong">7억 7,500</td>
+      <td class="num rng">6억 9,700 ~ 7억 8,500<span class="sub">3건</span></td>
+      <td class="num">9억</td>
+      <td class="num gap up">+16%</td>
+    </tr><tr>
+      <td class="nm"><b>신월시영</b><span class="sub">신월동 · 1988년</span></td>
+      <td class="num">2,256</td>
+      <td class="num strong">8억 2,500</td>
+      <td class="num rng">8억 ~ 8억 4,500<span class="sub">7건</span></td>
+      <td class="num">8억 9,000</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>신트리4단지</b><span class="sub">신정동 · 2000년</span></td>
+      <td class="num">845</td>
+      <td class="num strong">8억 3,500</td>
+      <td class="num rng">4억 2,000 ~ 9억 5,000<span class="sub">14건</span></td>
+      <td class="num">9억</td>
+      <td class="num gap up">+8%</td>
+    </tr><tr>
+      <td class="nm"><b>신트리1단지</b><span class="sub">신정동 · 1999년</span></td>
+      <td class="num">997</td>
+      <td class="num strong">9억 8,000</td>
+      <td class="num rng">6억 6,000 ~ 10억 5,500<span class="sub">12건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap flat">+2%</td>
+    </tr><tr>
+      <td class="nm"><b>신정뉴타운롯데캐슬</b><span class="sub">신월동 · 2014년</span></td>
+      <td class="num">930</td>
+      <td class="num strong">10억 3,750</td>
+      <td class="num rng">9억 7,000 ~ 11억 5,000<span class="sub">12건</span></td>
+      <td class="num">11억</td>
+      <td class="num gap flat">+6%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>마포구<em>3개 단지</em><i>중앙값 10억 4,500</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>마포한화오벨리스크(주상복합)</b><span class="sub">도화동 · 2004년</span></td>
+      <td class="num">662</td>
+      <td class="num strong">9억 9,750</td>
+      <td class="num rng">9억 4,000 ~ 11억<span class="sub">4건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>상암월드컵파크10단지</b><span class="sub">상암동 · 2010년</span></td>
+      <td class="num">861</td>
+      <td class="num strong">10억 4,500</td>
+      <td class="num rng">10억 4,500 ~ 10억 4,500<span class="sub">1건</span></td>
+      <td class="num">10억</td>
+      <td class="num gap flat">-4%</td>
+    </tr><tr>
+      <td class="nm"><b>성산월드타운대림</b><span class="sub">성산동 · 2004년</span></td>
+      <td class="num">795</td>
+      <td class="num strong">10억 5,000</td>
+      <td class="num rng">9억 8,000 ~ 10억 9,000<span class="sub">5건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>동작구<em>2개 단지</em><i>중앙값 11억 9,500</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>대방현대1차</b><span class="sub">대방동 · 1994년</span></td>
+      <td class="num">514</td>
+      <td class="num strong">11억 8,500</td>
+      <td class="num rng">11억 3,000 ~ 12억 6,000<span class="sub">3건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>사당자이</b><span class="sub">사당동 · 1999년</span></td>
+      <td class="num">719</td>
+      <td class="num strong">11억 9,500</td>
+      <td class="num rng">10억 6,000 ~ 12억 2,800<span class="sub">16건</span></td>
+      <td class="num">12억 5,000</td>
+      <td class="num gap flat">+5%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>영등포구<em>2개 단지</em><i>중앙값 11억 3,600</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>삼성래미안</b><span class="sub">신길동 · 2001년</span></td>
+      <td class="num">1,213</td>
+      <td class="num strong">11억 2,500</td>
+      <td class="num rng">10억 8,700 ~ 12억 6,000<span class="sub">9건</span></td>
+      <td class="num"><span class="none">매물 없음</span></td>
+      <td class="num gap na">—</td>
+    </tr><tr>
+      <td class="nm"><b>현대3차</b><span class="sub">대림동 · 1997년</span></td>
+      <td class="num">1,162</td>
+      <td class="num strong">11억 3,600</td>
+      <td class="num rng">10억 8,400 ~ 12억 5,000<span class="sub">10건</span></td>
+      <td class="num">12억 4,000</td>
+      <td class="num gap up">+9%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>종로구<em>2개 단지</em><i>중앙값 11억 7,485</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>두산</b><span class="sub">창신동 · 1999년</span></td>
+      <td class="num">529</td>
+      <td class="num strong">9억</td>
+      <td class="num rng">5억 6,700 ~ 9억 2,000<span class="sub">16건</span></td>
+      <td class="num">10억 5,000</td>
+      <td class="num gap up">+17%</td>
+    </tr><tr>
+      <td class="nm"><b>무악현대</b><span class="sub">무악동 · 2000년</span></td>
+      <td class="num">964</td>
+      <td class="num strong">11억 7,485</td>
+      <td class="num rng">11억 6,990 ~ 11억 7,980<span class="sub">2건</span></td>
+      <td class="num">12억 5,000</td>
+      <td class="num gap flat">+6%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+    <section class="gu">
+      <h3>중구<em>1개 단지</em><i>중앙값 10억 2,000</i></h3>
+      <div class="tw"><table>
+        <thead><tr>
+          <th>단지</th><th class="num">세대</th><th class="num">실거래 중앙값</th>
+          <th class="num">거래 범위</th><th class="num">현재 최저 호가</th><th class="num">호가差</th>
+        </tr></thead>
+        <tbody><tr>
+      <td class="nm"><b>롯데캐슬베네치아(주상복합)</b><span class="sub">황학동 · 2008년</span></td>
+      <td class="num">1,870</td>
+      <td class="num strong">10억 2,000</td>
+      <td class="num rng">9억 5,000 ~ 10억 7,500<span class="sub">34건</span></td>
+      <td class="num">11억 2,000</td>
+      <td class="num gap up">+10%</td>
+    </tr></tbody>
+      </table></div>
+    </section>
+
+<footer>
+  <h2>이 목록을 어떻게 읽어야 하나</h2>
+  <ul>
+    <li><b>전용 59㎡는 한 숫자가 아닙니다.</b> 단지마다 58.7·59.2·59.9㎡ 등으로 갈려 있어
+        58.0~60.5㎡를 같은 타입으로 묶었습니다. 표의 면적은 그 단지 거래의 평균입니다.</li>
+    <li><b>중앙값이 12억 이하라는 뜻이지, 모든 집이 12억 이하라는 뜻은 아닙니다.</b>
+        같은 단지에서도 층·향·수리 상태에 따라 거래 범위가 넓습니다 — 그래서 최저·최고를 함께 실었습니다.</li>
+    <li><b>거래가 적은 단지는 중앙값도 흔들립니다.</b> 거래 건수를 같이 보시고, 3건 이하인 곳은
+        참고치로만 보시기 바랍니다.</li>
+    <li><b>실거래는 신고까지 최대 30일이 걸립니다.</b> 최근 한 달치는 아직 다 들어오지 않았을 수 있습니다.</li>
+    <li><b>해제(취소)된 거래는 뺐습니다.</b> 넣으면 없던 신고가가 시세처럼 섞입니다.</li>
+    <li><b>호가는 지금 광고 중인 매물</b> 기준이라 실제 거래 가능 가격과 다를 수 있습니다.
+        매물이 없는 단지는 ‘매물 없음’으로 뒀습니다.</li>
+  </ul>
+  <p class="sign">
+    자료 · 국토교통부 아파트 매매 실거래가, 단지 정보 및 매물 호가<br>
+    집계 · <b>콕집</b> koczip.com · 기준일 2026-08-07<br>
+    이 자료는 정보 제공을 위한 것이며 특정 단지의 매수·매도를 권유하지 않습니다.
+  </p>
+</footer>
+</div>
