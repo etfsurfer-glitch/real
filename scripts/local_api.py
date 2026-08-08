@@ -13911,6 +13911,8 @@ _QA_PROMPT = (
     "  만들어라. 매물번호에는 그 매물이 매물 배열의 몇 번째인지(0부터) 넣어라.\n"
     "  손님이 찾는 쪽이면 kind=구함이고 매물번호는 비운다.\n"
     "  중개사 본인·사무소·대표는 고객이 아니다. 넣지 마라.\n"
+    "★ 사람이 안 나오는 글(이름도 전화도 없음)은 **매물**이다. '전세 5억' 처럼 짧아도\n"
+    "  매물 배열에 넣고 고객은 비워라 — 누구의 요건인지 알 수 없는 것은 요건이 아니다.\n"
     "  문자·카톡이면 중개사 본인 발화('나')는 근거에서 뺀다.\n" + _QA_COMMON)
 
 
@@ -13962,6 +13964,13 @@ def _qa_tidy(out: dict, text: str = "") -> dict:
     # 알 수 없어 건드리지 않는다. 모델이 '1502호'·'임차인 만기'를 통째로 흘리는 일이 있다.
     if len(rows) == 1 and text:
         r0 = rows[0]
+        # 유형은 **중개사가 적은 말**이 먼저다. 비워 두면 뒤에서 건축물대장 주용도가
+        # 채우는데, 상가주택 1층 상가는 대장 주용도가 '다가구주택'이라 '단독'이 된다(실측).
+        # 글에 '1층 상가'라고 적혀 있으면 그 물건은 상가다.
+        if not str(r0.get("type") or "").strip():
+            _pt = _ptype_from_text(text)
+            if _pt:
+                r0["type"] = _pt
         if not str(r0.get("ho") or "").strip():
             hm = _re.search(r"(?<![\d\-])(\d{1,4})\s*호(?![\w])", text)
             if hm:
@@ -14014,11 +14023,23 @@ def _qa_tidy(out: dict, text: str = "") -> dict:
                 if 1 <= mo <= 12:
                     y = _now.year + (1 if mo < _now.month else 0)
                     r[k] = f"{y}-{mo:02d}" + (mm.group(2) or "")
-    for r in rows:
-        # 모델이 빈 값을 문자열 'null' 로 내놓을 때가 있다 — 그대로 두면 주소가 'null' 이 된다
-        for k, v in list(r.items()):
+    # 모델이 빈 값을 문자열 'null' 로 내놓을 때가 있다 — 그대로 두면 주소가 'null' 이 되고
+    # 이름이 'null' 인 고객이 생긴다. 매물만 닦고 있었다(실측).
+    def _denull(d):
+        for k, v in list(d.items()):
             if isinstance(v, str) and v.strip().lower() in ("null", "none", "undefined", "n/a"):
-                r[k] = None
+                d[k] = None
+
+    for _c in (out or {}).get("고객") or []:
+        _denull(_c)
+        for _nd in (_c.get("요건") or []):
+            _denull(_nd)
+            # ② 원문에 유형 단서가 없으면 모델이 지어낸 종류를 버린다.
+            #    '전세 5억' 에 ptype='아파트' 가 붙었다(실측) — 근거 없는 값은 안 넣는 게 낫다.
+            if (_nd.get("ptype") or "").strip() and text and not _ptype_from_text(text):
+                _nd["ptype"] = None
+    for r in rows:
+        _denull(r)
         t = str(r.get("feature_desc") or "")
         if len(t) < 60:
             continue
