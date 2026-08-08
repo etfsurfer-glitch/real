@@ -333,7 +333,10 @@ def to_ymd(v) -> str | None:
     t = cell_text(v)
     if not t:
         return None
-    m = re.search(r"(\d{4})\D?(\d{1,2})\D?(\d{1,2})", t)
+    # 구분자가 있는 형태와 8자리를 따로 본다. 느슨하게 하나로 두면 '2026-11'(연-월)이
+    # 2026-01-01 로 쪼개진다 — 정규식이 '11' 을 '1'+'1' 로 되짚기 때문이다(실측).
+    m = (re.search(r"(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})\s*일?", t)
+         or re.search(r"(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)", t))
     if m:
         y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
         if 1900 <= y <= 2100 and 1 <= mo <= 12 and 1 <= d <= 31:
@@ -341,7 +344,7 @@ def to_ymd(v) -> str | None:
     m = re.fullmatch(r"(\d{2})\D(\d{1,2})\D(\d{1,2})", t.strip())
     if m:
         return f"20{int(m.group(1)):02d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
-    m = re.search(r"(\d{4})\D?(\d{1,2})\s*월?$", t)
+    m = re.search(r"(\d{4})\D{0,3}(\d{1,2})\s*월?\s*$", t)   # '2026년 8월' 은 사이가 두 글자다
     if m and 1900 <= int(m.group(1)) <= 2100:
         return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}"
     return t[:20]

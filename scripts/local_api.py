@@ -13925,12 +13925,16 @@ def _qa_thin(out: dict, text: str) -> bool:
     rows = (out or {}).get("매물") or []
     if len(rows) != 1:
         return False
-    if not _re.search(r"매매|전세|월세|임대|반전세|세놓", text or ""):
-        return False
     r = rows[0]
-    if (r.get("trade_type") or "").strip():
-        return False
-    return True
+    if _re.search(r"매매|전세|월세|임대|반전세|세놓", text or "") \
+            and not (r.get("trade_type") or "").strip():
+        return True
+    # 거래유형을 채우고 금액을 통째로 흘리는 경우가 있다(실측: '보증금 3000 월세 300
+    # 부가세 별도 권리금 50' 인데 셋 다 비었다). 거래유형만 보면 그 재시도가 안 걸린다.
+    if _re.search(r"(보증금|보증|월세|매매가|매가|전세가|권리금)\s*[\d,]", text or "") \
+            and not any(r.get(k) for k in ("price", "deposit", "rent_price", "premium")):
+        return True
+    return False
 
 
 def _won_ko(t: str):
@@ -13996,6 +14000,33 @@ def _qa_tidy(out: dict, text: str = "") -> dict:
                     w = _won_ko(mm.group(1))
                     if w and w >= 1_000_000:      # 100만 원 미만은 금액이 아니라 다른 숫자다
                         r0[col] = w
+        # 보증금·월세·권리금도 낱말 뒤에 붙어 있으면 되찾는다. 모델이 이 셋을 칸에 넣지
+        # 않고 특징란에 문장으로 되풀이하는 실패가 있다(실측: '보증금 3000 월세 300
+        # 권리금 50' 인데 셋 다 비고 feature_desc 만 길었다. 두 번 돌려도 같았다).
+        for col, pat, lo in (
+                ("deposit", r"보증(?:금)?\s*[:은는]?\s*" + _MONEY, 1_000_000),
+                ("rent_price", r"(?:월세|월\s*임대료|차임)\s*[:은는]?\s*" + _MONEY, 10_000),
+                ("premium", r"권리(?:금)?\s*[:은는]?\s*" + _MONEY, 100_000),
+                ("maintenance_fee", r"관리비\s*[:은는]?\s*" + _MONEY, 10_000)):
+            if r0.get(col):
+                continue
+            mm = _re.search(pat, text)
+            if not mm:
+                continue
+            w = _won_ko(mm.group(1))      # 단위 없는 숫자는 _won_ko 가 이미 만원으로 읽는다
+            if w and w >= lo:
+                r0[col] = w
+        # 부가세와 현재 업종도 낱말이 분명한데 모델이 흘린다. 상가에서 이 둘은 값의 뜻을
+        # 바꾼다 — 부가세 별도면 월세 숫자가 실제로 내는 돈이 아니고, 업종은 권리금의 근거다.
+        if not str(r0.get("vat_separate") or "").strip():
+            vm = _re.search(r"부가\s*(?:세|가치세)\s*[:은는]?\s*(별도|포함|불포함|없음)", text)
+            if vm:
+                r0["vat_separate"] = "별도" if vm.group(1) in ("별도", "불포함") else "포함"
+        if not str(r0.get("current_biz") or "").strip():
+            bm = (_re.search(r"(?:현재|기존)\s*([가-힣A-Za-z]{2,10}?)\s*(?:영업|운영|장사)", text)
+                  or _re.search(r"업종\s*[:은는]?\s*([가-힣A-Za-z]{2,10})", text))
+            if bm:
+                r0["current_biz"] = bm.group(1)
         # 수익형은 '월세합계 450만' 처럼 딱 적어 주는데도 모델이 통째로 흘릴 때가 있다.
         # 낱말이 분명하니 원문에서 결정적으로 되찾는다(실행마다 흔들리던 실패의 정체).
         for col, pat in (("rent_income", r"월\s*(?:세|임대료)?\s*합계\s*[:은는]?\s*([\d,억천만.]+)"),
@@ -14030,6 +14061,17 @@ def _qa_tidy(out: dict, text: str = "") -> dict:
             if isinstance(v, str) and v.strip().lower() in ("null", "none", "undefined", "n/a"):
                 d[k] = None
 
+    # 날짜 표기는 listing_import.to_ymd 가 원본이다(엑셀 가져오기와 같은 규칙).
+    # '2026년 10월 15일' 이 그대로 남아 있었다 — 규칙이 두 곳에 갈려 있던 자리다.
+    from listing_import import to_ymd as _li_to_ymd
+    for r in rows:
+        for k in ("settle_ymd", "approve_ymd", "confirm_ymd"):
+            v = str(r.get(k) or "").strip()
+            if not v:
+                continue
+            got = _li_to_ymd(v) or ""
+            if _re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", got):
+                r[k] = got
     for _c in (out or {}).get("고객") or []:
         _denull(_c)
         for _nd in (_c.get("요건") or []):
