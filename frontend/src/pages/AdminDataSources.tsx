@@ -50,6 +50,12 @@ function DiskSection({ token }: { token: string | null }) {
         {worst >= 95 ? " 지금 정리가 필요한 디스크가 있어요."
           : worst >= 85 ? " 여유가 넉넉하지는 않아요." : " 현재는 여유가 있습니다."}
       </p>
+      {/* 볼륨마다 속도가 다르다 — 무엇을 어디에 두는지가 곧 서비스 속도다 */}
+      <p className="dsrc-note" style={{ marginTop: 2, marginBottom: 8 }}>
+        <Info size={12} strokeWidth={2.4} aria-hidden />
+        <b>본서버</b>는 빠르고(랜덤 읽기 0.1ms) <b>콜드·백업 볼륨</b>은 느립니다(1.2ms · 쓰기는 40배).
+        서빙에 쓰는 데이터는 본서버에만 둡니다.
+      </p>
       <div className="dsrc-grid">
         {all.map((x) => {
           const lv = diskLevel(x.pct);
@@ -80,7 +86,7 @@ function DiskSection({ token }: { token: string | null }) {
       {d.top.length > 0 && (
         <p className="dsrc-note" style={{ marginTop: 10 }}>
           <Info size={12} strokeWidth={2.4} aria-hidden /> 용량을 많이 쓰는 항목 —{" "}
-          {d.top.slice(0, 5).map((t, i) => (
+          {d.top.slice(0, 6).map((t, i) => (
             <span key={t.path}>{i > 0 && " · "}<b>{t.name}</b> {gb(t.size)}<span className="muted"> ({t.where})</span></span>
           ))}
         </p>

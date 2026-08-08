@@ -9770,8 +9770,11 @@ def admin_server_disk(_admin: dict = Depends(admin_user)):
         return {"name": name, "role": role, "mount": path, "total": t, "used": u,
                 "free": f, "pct": round(u * 100 / t, 1) if t else 0}
 
-    disks = [d for d in (_disk("/", "본서버", "수집·API·DB"),
-                         _disk("/mnt/backup", "백업 볼륨", "일일 백업(본서버에 부착)")) if d]
+    disks = [d for d in (
+        _disk("/", "본서버", "수집·API·서빙 DB — 속도가 필요한 것 전부"),
+        _disk("/mnt/cold", "콜드 볼륨", "아카이브·과거 보관 — 읽기가 느려도 되는 것"),
+        _disk("/mnt/backup", "백업 볼륨", "일일 백업 5일 순환"),
+    ) if d]
 
     # 큰 파일·폴더(30분 캐시) — du 는 느려서 매번 돌리지 않는다
     top = _disk_top_cached()
@@ -9803,22 +9806,37 @@ def _disk_top_cached() -> list:
     if _time.time() - _DISK_TOP["at"] < 1800 and _DISK_TOP["items"]:
         return _DISK_TOP["items"]
     import subprocess as _sp
-    items = []
+    items, seen = [], set()
     data_dir = str(DB_PATH.parent)
-    for base in (data_dir, "/mnt/backup"):
+
+    def _where(real: str) -> str:
+        if real.startswith("/mnt/cold"):
+            return "콜드 볼륨"
+        if real.startswith("/mnt/backup"):
+            return "백업 볼륨"
+        return "본서버 데이터"
+
+    for base in (data_dir, "/mnt/cold", "/mnt/backup"):
+        if not Path(base).is_dir():
+            continue
         try:
-            out = _sp.run(["du", "-sb"] + sorted(Path(base).glob("*"))[:300],
+            # -L 로 심볼릭 링크를 따라간다. 아카이브를 콜드로 옮기고 링크를 걸자
+            # du 가 링크 자체(17바이트)를 읽어 3.5GB 가 목록에서 사라졌다.
+            out = _sp.run(["du", "-sbL"] + sorted(Path(base).glob("*"))[:300],
                           capture_output=True, text=True, timeout=120).stdout
         except Exception:                              # noqa: BLE001
             continue
         for line in out.splitlines():
             try:
                 sz, path = line.split("\t", 1)
-                items.append({"path": path, "name": Path(path).name,
-                              "where": "본서버 데이터" if base == data_dir else "백업 볼륨",
-                              "size": int(sz)})
-            except Exception:                          # noqa: BLE001
+            except ValueError:
                 continue
+            real = os.path.realpath(path)
+            if real in seen:          # 링크와 원본을 두 번 세지 않는다
+                continue
+            seen.add(real)
+            items.append({"path": path, "name": Path(path).name,
+                          "where": _where(real), "size": int(sz)})
     items.sort(key=lambda x: -x["size"])
     _DISK_TOP.update({"at": _time.time(), "items": items[:10]})
     return _DISK_TOP["items"]
