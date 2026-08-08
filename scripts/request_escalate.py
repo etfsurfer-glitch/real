@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def main() -> int:
-    from scripts.local_api import escalate_due, _send_pending_sms
+    from scripts.local_api import escalate_due, _send_pending_sms, adjust_due
 
     # ① 아직 아무 알림도 못 받은 미가입 사무소부터 — 접수 직후 발송이 허용시간(08~21)
     #    밖이라 걸렀거나, 그때 실패한 건을 여기서 집어간다.
@@ -25,6 +25,13 @@ def main() -> int:
         print(f"최초발송: {p['requests']}건 요청 / {p['targets']}곳 중 {p['sent']}곳 성공")
     elif p.get("skipped"):
         print(f"최초발송 보류: {p['skipped']}")
+
+    # ③ 24시간이 지나도 제안이 없으면 신청자에게 조건을 넓히시라고 안내한다.
+    #    30곳에 보내고도 답이 없다는 건 더 보낼 곳이 아니라 조건이 문제라는 뜻이다.
+    a = adjust_due()
+    if a.get("results"):
+        ok = [x for x in a["results"] if x.get("ok")]
+        print(f"조건조정 안내: {len(ok)}건 발송 (검토 {a['checked']}건)")
 
     r = escalate_due()
     done = [x for x in r["results"] if x.get("ok")]

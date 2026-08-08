@@ -20999,7 +20999,9 @@ def engage_comment(body: dict):
 # 개인정보(이름·전화)는 '전달된 중개사'와 관리자만 볼 수 있다.
 # ===========================================================================
 
-_REQ_MIN_TARGETS, _REQ_MAX_TARGETS, _REQ_DEFAULT_TARGETS = 1, 10, 3
+# 처음부터 넓게 보낸다. 3곳으로 시작해 30분마다 넓히던 방식은 손님이 반나절을 기다리게
+# 했다 — 그 동네 사무소를 한 번에 훑고, 그래도 제안이 없으면 조건이 문제라고 본다.
+_REQ_MIN_TARGETS, _REQ_MAX_TARGETS, _REQ_DEFAULT_TARGETS = 1, 30, 30
 
 
 def _init_request_db() -> None:
@@ -21059,6 +21061,8 @@ def _init_request_db() -> None:
         """)
         for _col, _sql in (("escalated", "INTEGER NOT NULL DEFAULT 0"),
                            ("last_escalated_at", "TEXT"),
+                           # 24시간 무응답 안내를 보낸 시각 — 두 번 보내지 않기 위해
+                           ("adjust_notified_at", "TEXT"),
                            # 문자로 받은 기기에서 로그인 없이 제안을 볼 수 있게 하는 열쇠
                            ("cust_token", "TEXT"),
                            # 내부 발송 점검용 요청. 처음 고른 곳엔 보내되(그게 점검 목적),
@@ -21610,6 +21614,112 @@ def escalate_due(limit: int = 20) -> dict:
         except Exception as e:  # noqa: BLE001
             out.append({"id": rid, "ok": False, "reason": str(e)[:80]})
     return {"checked": len(rows), "results": out}
+
+
+# ── 24시간 무응답 — 조건을 넓혀 다시 요청하시라고 안내한다 ───────────────────
+# 처음부터 30곳에 보내므로 그 동네 사무소는 사실상 다 훑은 셈이다. 그래도 제안이 없으면
+# 더 보낼 곳이 문제가 아니라 **조건이 문제**다. 손님이 그걸 모른 채 기다리게 두지 않는다.
+_ADJUST_AFTER_HOURS = 24
+
+
+def _request_adjust_link(cust_token: str) -> str:
+    return (f"https://koczip.com/koczip-request?adjust={cust_token}" if cust_token
+            else "https://koczip.com/me/requests")
+
+
+def _notify_adjust(req_id: int) -> dict:
+    """조건 조정 안내를 신청자에게 보낸다 — 웹푸시 + 문자(허용 시간에만)."""
+    with _reviews_db() as c:
+        q = c.execute("SELECT user_id, phone, region_name, asset, trade, area_txt, "
+                      "       budget_txt, cust_token FROM koczip_requests WHERE id=?",
+                      (req_id,)).fetchone()
+    if not q:
+        return {"ok": False, "reason": "요청을 찾을 수 없습니다"}
+    cond = " · ".join(x for x in [q[2], _ASSET_LB.get(q[3], q[3]),
+                                  _TRADE_LB.get(q[4], q[4]), q[5], q[6]] if x)
+    link = _request_adjust_link(q[7] or "")
+    title = "아직 제안이 없어요"
+    body = (f"{cond} 조건으로 하루가 지났는데 제안이 오지 않았어요. "
+            f"면적·예산을 조금 넓히면 연락이 옵니다.")
+    pushed = 0
+    try:
+        if q[0]:
+            pushed = _send_web_push([q[0]], title, body, link, tag="req-adjust") or 0
+    except Exception:  # noqa: BLE001
+        pass
+    # 문자는 08~21시에만. 새벽 문자는 민폐이자 신고 사유다(확대 발송과 같은 규칙).
+    sms_ok = False
+    import datetime as _dtm2
+    _h = (_dtm2.datetime.utcnow() + _dtm2.timedelta(hours=9)).hour
+    if q[1] and _ESC_HOURS[0] <= _h < _ESC_HOURS[1]:
+        txt = ("[콕집] 요청하신 조건에 아직 제안이 없습니다.\n"
+               f"조건: {cond}\n"
+               "면적이나 예산을 조금 넓히면 제안이 오는 경우가 많습니다.\n"
+               "아래에서 조건을 고쳐 다시 요청하실 수 있어요.\n"
+               f"{link}\n"
+               "콕집 koczip.com")
+        try:
+            sms_ok = bool(_aligo_send_sms(q[1], txt, "제안 없음 안내"))
+        except Exception:  # noqa: BLE001
+            sms_ok = False
+    with _reviews_db() as c:
+        c.execute("UPDATE koczip_requests SET adjust_notified_at=datetime('now','+9 hours') "
+                  "WHERE id=?", (req_id,))
+        c.commit()
+    return {"ok": True, "push": pushed, "sms": sms_ok, "link": link}
+
+
+def adjust_due(limit: int = 30) -> dict:
+    """제안이 0건인 채로 24시간이 지난 요청을 찾아 신청자에게 안내한다(크론이 부른다).
+
+    한 번만 보낸다 — 같은 안내를 반복하면 알림이 아니라 소음이 된다.
+    """
+    with _reviews_db() as c:
+        rows = c.execute(
+            "SELECT q.id FROM koczip_requests q "
+            "LEFT JOIN koczip_request_offers o ON o.request_id=q.id "
+            "WHERE q.status='sent' AND COALESCE(q.is_test,0)=0 "
+            "  AND q.adjust_notified_at IS NULL "
+            "  AND q.created_at <= datetime('now','+9 hours', ?) "
+            "GROUP BY q.id HAVING COUNT(o.realtor_id)=0 ORDER BY q.id LIMIT ?",
+            (f"-{_ADJUST_AFTER_HOURS} hours", limit)).fetchall()
+    out = []
+    for (rid,) in rows:
+        try:
+            out.append({"id": rid, **_notify_adjust(rid)})
+        except Exception as e:  # noqa: BLE001
+            out.append({"id": rid, "ok": False, "reason": str(e)[:80]})
+    return {"checked": len(rows), "results": out}
+
+
+@app.get("/requests/adjust/{token}")
+def request_adjust_prefill(token: str):
+    """조건 조정 링크 — 로그인 없이 **자기가 적은 조건만** 돌려준다.
+
+    이름·전화는 돌려주지 않는다. 토큰이 새더라도 개인정보가 나가지 않게.
+    """
+    t = (token or "").strip()
+    if len(t) < 20:
+        raise HTTPException(404, "잘못된 링크입니다")
+    with _reviews_db() as c:
+        r = c.execute("SELECT id, sido, sigungu, cortar, region_name, asset, trade, "
+                      "       area_txt, budget_txt, memo, created_at "
+                      "FROM koczip_requests WHERE cust_token=?", (t,)).fetchone()
+        if not r:
+            raise HTTPException(404, "링크를 찾을 수 없습니다")
+        n_off = c.execute("SELECT COUNT(*) FROM koczip_request_targets WHERE request_id=?",
+                          (r[0],)).fetchone()[0]
+        n_prop = c.execute("SELECT COUNT(*) FROM koczip_request_offers WHERE request_id=?",
+                           (r[0],)).fetchone()[0]
+    return {"sido": r[1], "sigungu": r[2], "cortar": r[3], "region_name": r[4],
+            "asset": r[5], "trade": r[6], "area_txt": r[7], "budget_txt": r[8],
+            "memo": r[9], "at": r[10], "sent_to": n_off, "proposals": n_prop}
+
+
+@app.post("/admin/requests/adjust-due")
+def admin_requests_adjust_due(_admin: dict = Depends(admin_user)):
+    """24시간 무응답 요청에 조건 조정 안내를 보낸다(수동 실행용)."""
+    return adjust_due()
 
 
 @app.post("/admin/requests/{req_id}/escalate")

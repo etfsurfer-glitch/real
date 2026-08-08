@@ -53,9 +53,13 @@ export default function KoczipRequest() {
   const [memo, setMemo] = useState(draft.memo || "");
   const aiQuery = sp.get("q") || "";
   const [prefill, setPrefill] = useState("");
+  // 24시간이 지나도 제안이 없어 '조건을 넓혀 보시라'는 안내를 받고 들어온 경우.
+  // 예전에 적은 조건을 그대로 채워 준다 — 처음부터 다시 입력하게 하면 아무도 안 한다.
+  const adjustTok = sp.get("adjust") || "";
+  const [adjustInfo, setAdjustInfo] = useState<{ sent_to: number; at: string } | null>(null);
 
   const [mode, setMode] = useState<"recommend" | "choose">(draft.mode ?? "recommend");
-  const [count, setCount] = useState<number>(draft.count ?? 3);
+  const [count, setCount] = useState<number>(draft.count ?? 30);
   const [picked, setPicked] = useState<string[]>(draft.picked ?? []);
   const [cands, setCands] = useState<Cand[]>([]);
   const [candsLoading, setCandsLoading] = useState(false);
@@ -97,6 +101,26 @@ export default function KoczipRequest() {
       try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* */ }
     }
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 조건 조정 링크(?adjust=토큰) — 예전에 적은 조건을 그대로 되살린다.
+  // 로그인 없이도 열리는 링크지만 이름·전화는 돌려주지 않는다(서버에서 뺀다).
+  useEffect(() => {
+    if (!adjustTok || draft.sido) return;
+    fetch(`${API}/requests/adjust/${encodeURIComponent(adjustTok)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("링크를 찾을 수 없어요"))))
+      .then((d) => {
+        if (d.sido) reg.setSido(d.sido);
+        if (d.sigungu) reg.setSigungu(d.sigungu);
+        if (d.cortar) reg.setDong(d.cortar);
+        if (d.asset) setAsset(d.asset);
+        if (d.trade) setTrade(d.trade);
+        if (d.area_txt) setAreaTxt(d.area_txt);
+        if (d.budget_txt) setBudgetTxt(d.budget_txt);
+        if (d.memo) setMemo(d.memo);
+        setAdjustInfo({ sent_to: d.sent_to || 0, at: (d.at || "").slice(0, 10) });
+      })
+      .catch(() => setErr("조건 조정 링크가 만료되었거나 잘못되었어요. 새로 요청해 주세요."));
+  }, [adjustTok]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // AI에 물어본 문장을 조건으로 풀어 채운다.
   // 지역 드롭다운은 10자리 코드를 쓴다 — 2·5자리를 넣으면 아무것도 안 골라진다(실측).
@@ -229,6 +253,17 @@ export default function KoczipRequest() {
             동까지 고르시면 그 동네에서 실제로 매물을 가진 사무소로 전달됩니다.
           </p>
           <div className="kreq-region"><RegionSelect {...reg} /></div>
+          {/* 왜 여기 왔는지부터 알려 준다 — 안내 문자만 보고 들어오면 맥락이 없다 */}
+          {adjustInfo && (
+            <div className="kreq-q" style={{ borderColor: "#f6e0bd", background: "#fff8ec" }}>
+              <div><b>지난번 조건으로는 제안이 오지 않았어요</b>
+                <div className="kreq-q-sub">
+                  {adjustInfo.at} 요청 · {adjustInfo.sent_to}곳에 보냈지만 제안이 없었습니다.
+                  적어 두신 조건을 그대로 채워 뒀어요 — <b>면적이나 예산을 조금 넓히면</b> 제안이 오는 경우가 많습니다.
+                </div>
+              </div>
+            </div>
+          )}
           {prefill && (
             <div className="kreq-q">
               <div>AI에 물어보신 <b>「{aiQuery}」</b>
@@ -293,13 +328,13 @@ export default function KoczipRequest() {
             <>
               <div className="kreq-lbl">몇 곳에 보낼까요?</div>
               <div className="kreq-chips">
-                {[3, 5, 7, 10].map((n) => (
+                {[5, 10, 20, 30].map((n) => (
                   <button key={n} className={`kreq-chip ${count === n ? "on" : ""}`}
                     onClick={() => setCount(n)}>{n}곳</button>
                 ))}
               </div>
               <p className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>
-                정하지 않으시면 3곳입니다. 많이 보낼수록 연락도 많이 옵니다.
+                정하지 않으시면 <b>30곳</b>입니다. 그 동네 사무소를 한 번에 훑어야 답이 빨리 옵니다.
                 <b> 받는 곳은 다음 화면에서 확인하실 수 있어요.</b>
               </p>
               {/* 추천받기에서도 후보를 다 받아야 '다음'이 열린다 — 왜 안 눌리는지 보이게 한다 */}
