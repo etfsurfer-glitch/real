@@ -13331,7 +13331,10 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                    "COALESCE(same_addr_min_price, json_extract(raw,'$.sameAddrMinPrc')),"
                    "COALESCE(same_addr_max_price, json_extract(raw,'$.sameAddrMaxPrc')),"
                    "COALESCE(verification_type, json_extract(raw,'$.verificationTypeName'),"
-                   "         json_extract(raw,'$.verificationTypeCode')) "
+                   "         json_extract(raw,'$.verificationTypeCode')),"
+                   "COALESCE(cp_name, json_extract(raw,'$.cpName')),"
+                   "COALESCE(cp_pc_article_url, json_extract(raw,'$.cpPcArticleUrl')),"
+                   "COALESCE(price_change_state, json_extract(raw,'$.priceChangeState')) "
                    "FROM listings ")
         _snap = "snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"
         _tc = " AND trade_type=?" if code else ""
@@ -13393,7 +13396,9 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                 "building_name": r[9] or "", "tags": tags, "same_addr_cnt": sa_cnt, "same_addr_min": sa_min,
                 "same_addr_max": sa_max, "feature_desc": feat,
                 "naver_url": f"https://m.land.naver.com/article/info/{r[0]}",
-                "cp_name": "", "verification_type": vtype, "lat": r[11], "lng": r[12],
+                "cp_name": r[22] or "", "cp_pc_article_url": r[23] or "",
+                "price_change_state": r[24] or "",
+                "verification_type": vtype, "lat": r[11], "lng": r[12],
                 "dong": dong, "address": full_addr,
                 "bld_name": _bld_name_of(r[13] or "", full_addr),
                 "parking_total": None, "parking_per": None, "households": None,

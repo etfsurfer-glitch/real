@@ -124,6 +124,12 @@ def _schema(premium: bool) -> str:
       same_addr_min_price   INTEGER,
       same_addr_max_price   INTEGER,
       verification_type     TEXT,
+      -- 단지형(listings_current)이 실제로 쓰는 값들. 비단지만 못 쓰면 같은 매물을 두고
+      -- 화면이 달라진다. raw 를 버리면 나중에 올릴 수 없으므로 지금 함께 남긴다.
+      cp_name               TEXT,      -- 제휴사(CP) 이름 — 광고 점검·사무소 귀속에 쓴다
+      cp_pc_article_url     TEXT,      -- CP 원본 링크
+      price_change_state    TEXT,      -- 호가 변동(SAME·UP·DOWN)
+      rep_img               TEXT,      -- 대표 사진 경로
       raw                   TEXT,      -- 더는 채우지 않는다. 옛 행에만 남아 있다
       first_seen_date       TEXT,
       snapshot_date         TEXT NOT NULL
@@ -137,7 +143,8 @@ def _schema(premium: bool) -> str:
 
 
 def _won_or_none(v):
-    """'11억 5,000' → 1150000000. 비단지 원천은 동일주소 최저·최고가를 **한글 금액 문자열**로 준다
+    """'11억 5,000' → 1150000000. 월세는 '3,000/280' 꼴이라 **보증금만** 읽는다
+    (단지형 same_addr_min_price 도 보증금 축이라 뜻이 같다). 비단지 원천은 동일주소 최저·최고가를 **한글 금액 문자열**로 준다
     (실측: 69만 행 100%). 예전 코드는 int() 로 바로 바꾸다 터졌고, 그 예외를 삼키느라
     검증유형과 최고가까지 조용히 버려지고 있었다. 단지형(원 단위 정수)과 맞춰 원으로 담는다.
     """
@@ -176,7 +183,9 @@ def _open(cat: str) -> sqlite3.Connection:
     # 즉시 끝나고 파일이 커지지 않는다(기존 행은 NULL 로 읽힌다).
     for _col, _typ in (("article_feature_desc", "TEXT"), ("tag_list_json", "TEXT"),
                        ("same_addr_cnt", "INTEGER"), ("same_addr_min_price", "INTEGER"),
-                       ("same_addr_max_price", "INTEGER"), ("verification_type", "TEXT")):
+                       ("same_addr_max_price", "INTEGER"), ("verification_type", "TEXT"),
+                       ("cp_name", "TEXT"), ("cp_pc_article_url", "TEXT"),
+                       ("price_change_state", "TEXT"), ("rep_img", "TEXT")):
         try:
             c.execute(f"ALTER TABLE listings ADD COLUMN {_col} {_typ}")
         except sqlite3.OperationalError:
@@ -243,6 +252,13 @@ def _upsert(conns: dict, cat: str, it: dict, cortar: str, today: str, has_premiu
         # 비단지는 article_no 로 갱신되므로 오래 걸린 매물의 raw 는 영영 안 지워진다
         # (실측: 하루에 5,952개만 빠져 100일 넘게 걸릴 자리였다).
         # 값은 위 여섯 칸에 다 옮겼고, 같은 응답에서 뽑았으므로 잃는 것이 없다.
+        "cp_name": it.get("cpName"),
+        "cp_pc_article_url": it.get("cpPcArticleUrl"),
+        "price_change_state": it.get("priceChangeState"),
+        "rep_img": it.get("representativeImgUrl"),
+        # ★ 매도인 이름·전화(sellerName·sellerPhoneNum)는 **일부러 안 올린다.**
+        #   raw 안에 770건이 들어 있었다(실측) — 우리가 쓸 일이 없는 개인정보라
+        #   raw 를 비우는 것이 보관 최소화에도 맞다.
         "raw": None,
         "snapshot_date": today,
     }
