@@ -239,6 +239,11 @@ def _upsert(conns: dict, cat: str, it: dict, cortar: str, today: str, has_premiu
         "same_addr_max_price": _won_or_none(it.get("sameAddrMaxPrc")),
         "verification_type": (it.get("verificationTypeName")
                               or it.get("verificationTypeCode") or None),
+        # raw 를 명시적으로 비운다. 빼기만 하면 UPSERT 가 그 칸을 안 건드려 옛 값이 남는다 —
+        # 비단지는 article_no 로 갱신되므로 오래 걸린 매물의 raw 는 영영 안 지워진다
+        # (실측: 하루에 5,952개만 빠져 100일 넘게 걸릴 자리였다).
+        # 값은 위 여섯 칸에 다 옮겼고, 같은 응답에서 뽑았으므로 잃는 것이 없다.
+        "raw": None,
         "snapshot_date": today,
     }
     if has_premium:
