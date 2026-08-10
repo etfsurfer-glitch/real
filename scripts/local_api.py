@@ -7451,12 +7451,14 @@ def region_compare(days: int = 30, trade: str = "A1"):
 
 @app.get("/stats/today-deals")
 def today_deals(trade: str = "A1", min_discount: float = 0.05, limit: int = 24,
-                sort: str = "price"):
+                sort: str = "price", sido: str | None = None,
+                sigungu: str | None = None, dong: str | None = None):
     """오늘 신규 등록 매물 중 '급매' — 오늘의매물 카드뉴스용.
 
     article_confirm_ymd(네이버 매물 확인일)가 최신일자인 매물 중, 같은 단지·평형의
     최근 180일 실거래 평균(tx_avg_rollup) 대비 min_discount 이상 싼 것.
     sort: price(호가 높은 순, 기본) / discount(할인율 큰 순).
+    sido/sigungu/dong: 지역 한정(카드뉴스에서 '서울 급매'처럼 지역별로 뽑을 때).
     """
     if trade not in ("A1", "B1", "B2"):
         raise HTTPException(400, "trade must be A1|B1|B2")
@@ -7470,13 +7472,22 @@ def today_deals(trade: str = "A1", min_discount: float = 0.05, limit: int = 24,
     # 월세(B2)는 '가격'이 월세료(rent_price)고 rollup wolse도 monthly_rent 기준.
     # 매매/전세는 deal_or_warrant_price(매매가/보증금). trade별로 비교 컬럼을 맞춘다.
     pcol = "l.rent_price" if trade == "B2" else "l.deal_or_warrant_price"
+    # 지역 한정 — 좁은 것부터 하나만 쓴다(special_deals 와 같은 규칙)
+    region_cte, rp = "", []
+    if dong:
+        region_cte, rp = " AND cx.cortar_no = ?", [dong]
+    elif sigungu:
+        region_cte, rp = " AND substr(cx.cortar_no,1,5) = substr(?,1,5)", [sigungu]
+    elif sido:
+        region_cte, rp = " AND substr(cx.cortar_no,1,2) = substr(?,1,2)", [sido]
     # av(실거래평균) CTE 를 '오늘 신규 매물이 있는 단지'로 스코핑 → 전국 전체 집계(콜드 38s)
     # 회피. today_cx 가 작아 rollup 조회가 인덱스 시크로 빨라진다.
     sql = f"""
         WITH today_cx AS (
-          SELECT DISTINCT complex_no FROM listings_current
-          WHERE article_confirm_ymd=(SELECT MAX(article_confirm_ymd) FROM listings_current)
-            AND trade_type=? AND complex_no IS NOT NULL
+          SELECT DISTINCT l.complex_no FROM listings_current l
+          JOIN complexes cx ON cx.complex_no = l.complex_no
+          WHERE l.article_confirm_ymd=(SELECT MAX(article_confirm_ymd) FROM listings_current)
+            AND l.trade_type=? AND l.complex_no IS NOT NULL{region_cte}
         ),
         av AS (
           SELECT complex_no, pyeong, SUM(sum_amt)*1.0/SUM(n) avg_real, SUM(n) n_real
@@ -7501,7 +7512,7 @@ def today_deals(trade: str = "A1", min_discount: float = 0.05, limit: int = 24,
         LIMIT ?
     """
     with _open_db() as c:
-        rows = c.execute(sql, (trade, kind, trade, md, limit)).fetchall()
+        rows = c.execute(sql, (trade, *rp, kind, trade, md, limit)).fetchall()
     items = [{
         "article_no": r[0], "complex_no": r[1], "complex_name": r[2],
         "area_name": r[3], "area1_m2": r[4], "price": r[5],
@@ -7510,7 +7521,8 @@ def today_deals(trade: str = "A1", min_discount: float = 0.05, limit: int = 24,
         "region_name": r[12], "area2_m2": r[13],   # 전용면적(㎡) — 표준 면적표기용
         "naver_url": f"https://new.land.naver.com/complexes/{r[1]}?articleNo={r[0]}",
     } for r in rows]
-    return {"trade": trade, "min_discount": md, "count": len(items), "items": items}
+    return {"trade": trade, "min_discount": md, "count": len(items), "items": items,
+            "region": {"sido": sido, "sigungu": sigungu, "dong": dong}}
 
 
 # 중개사가 설명란에 적어 광고하는 특수조건 매매(주인전세·세안고·대출승계).
@@ -22767,6 +22779,131 @@ def engage_report(body: dict):
                    1 if body.get("followed") else 0, 1 if body.get("verified") else 0))
         c.commit()
     return {"ok": True}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 카드뉴스 v2 (carosell) — nfind 박스로 프록시
+#
+#   렌더에 헤드리스 크롬이 필요해 본서버(디스크·RAM 빠듯)에 올리지 않고,
+#   이미 브라우저와 SNS 발행이 도는 nfind 박스에서 돌린다.
+#   nfind 의 대시보드는 루프백에만 열려 있고, 본서버는
+#   koczip-carosell-tunnel.service 가 유지하는 SSH 터널로 붙는다.
+#
+#   관리자 화면(/admin/cardnews-v2) → 여기 → 127.0.0.1:4300(터널) → nfind
+# ══════════════════════════════════════════════════════════════════════════
+_CAROSELL_BASE = os.environ.get("CAROSELL_BASE", "http://127.0.0.1:4300")
+_CAROSELL_TIMEOUT = 20          # 생성 자체는 비동기(jobId)라 짧게 잡아도 된다
+
+
+def _carosell(path: str, method: str = "GET", body: dict | None = None,
+              timeout: int | None = None):
+    """nfind 의 carosell API 를 부른다. 터널이 끊겨 있으면 503 으로 알려준다."""
+    import urllib.error as _ue
+    import urllib.request as _ur
+    url = f"{_CAROSELL_BASE}{path}"
+    data = _json.dumps(body).encode() if body is not None else None
+    req = _ur.Request(url, data=data, method=method,
+                      headers={"Content-Type": "application/json"} if data else {})
+    try:
+        with _ur.urlopen(req, timeout=timeout or _CAROSELL_TIMEOUT) as r:
+            return r.status, r.read(), r.headers.get("Content-Type", "application/json")
+    except _ue.HTTPError as e:                     # 원격이 준 에러는 그대로 넘긴다
+        return e.code, e.read(), e.headers.get("Content-Type", "application/json")
+    except Exception as e:
+        raise HTTPException(503, f"카드뉴스 생성기에 연결할 수 없습니다(nfind 터널 확인): {e}")
+
+
+def _carosell_json(path: str, method: str = "GET", body: dict | None = None,
+                   timeout: int | None = None):
+    st, raw, _ = _carosell(path, method, body, timeout)
+    try:
+        out = _json.loads(raw or b"{}")
+    except Exception:
+        raise HTTPException(502, "카드뉴스 생성기 응답을 해석할 수 없습니다")
+    if st >= 400:
+        raise HTTPException(st, out.get("error") or "카드뉴스 생성기 오류")
+    return out
+
+
+@app.get("/admin/cardnews2/catalog")
+def cardnews2_catalog(_admin: dict = Depends(admin_user)):
+    """만들 수 있는 카드와 각 카드가 받는 선택지. 화면은 이걸 그대로 그린다."""
+    return _carosell_json("/api/catalog")
+
+
+@app.get("/admin/cardnews2/runs")
+def cardnews2_runs(_admin: dict = Depends(admin_user)):
+    """만들어 둔 초안 목록."""
+    return _carosell_json("/api/runs")
+
+
+@app.get("/admin/cardnews2/runs/{folder}")
+def cardnews2_run(folder: str, _admin: dict = Depends(admin_user)):
+    """초안 하나의 카드 구성·카피."""
+    if not _re.fullmatch(r"\d{6}_\d{4}", folder):
+        raise HTTPException(400, "잘못된 초안 이름입니다")
+    return _carosell_json(f"/api/runs/{folder}")
+
+
+class CardNews2Body(BaseModel):
+    """card 를 주면 그 카드 한 장만, 없으면 예전처럼 여러 장을 만든다."""
+    card: str | None = None
+    options: dict = Field(default_factory=dict)
+    cardCount: int = Field(9, ge=1, le=10)      # 인스타 캐러셀 최대 10장
+    itemLimit: int = Field(6, ge=4, le=8)       # 장당 건수 — 적을수록 숫자가 커진다
+    skipNews: bool = False
+    style: str = "onepage"
+
+
+@app.post("/admin/cardnews2/runs")
+def cardnews2_create(body: CardNews2Body, _admin: dict = Depends(admin_user)):
+    """새 초안 생성 시작. 즉시 jobId 를 돌려주고 진행은 로그로 따라간다."""
+    if body.card and not _re.fullmatch(r"[a-zA-Z]{2,20}", body.card):
+        raise HTTPException(400, "잘못된 카드 종류입니다")
+    # 선택지 값은 생성기 쪽 catalog.normalize 가 다시 다듬는다 — 여기선 크기만 막는다
+    if len(body.options) > 12:
+        raise HTTPException(400, "선택 항목이 너무 많습니다")
+    return _carosell_json("/api/runs", "POST", body.model_dump())
+
+
+@app.get("/admin/cardnews2/jobs/{job_id}")
+def cardnews2_job(job_id: str, _admin: dict = Depends(admin_user)):
+    """진행 로그. 원본은 SSE 지만 관리자 화면에서 폴링해 쓰도록 한 번에 모아 준다."""
+    if not job_id.isdigit():
+        raise HTTPException(400, "잘못된 작업 번호입니다")
+    st, raw, _ = _carosell("/api/jobs/" + job_id, timeout=8)
+    if st >= 400:
+        raise HTTPException(st, "작업을 찾을 수 없습니다")
+    lines, folder, error, done = [], None, None, False
+    for chunk in (raw or b"").decode("utf-8", "replace").split("\n\n"):
+        ev = _re.search(r"^event: (\w+)", chunk, _re.M)
+        dt = _re.search(r"^data: (.*)$", chunk, _re.M)
+        if not dt:
+            continue
+        try:
+            val = _json.loads(dt.group(1))
+        except Exception:
+            continue
+        kind = ev.group(1) if ev else "log"
+        if kind == "log":
+            lines.append(val)
+        elif kind in ("done", "failed"):
+            done = True
+            folder = (val or {}).get("folder")
+            error = (val or {}).get("error")
+    return {"lines": lines, "done": done, "folder": folder, "error": error}
+
+
+@app.get("/admin/cardnews2/file/{folder}/{name}")
+def cardnews2_file(folder: str, name: str, _admin: dict = Depends(admin_user)):
+    """카드 PNG 를 그대로 흘려 준다(관리자만)."""
+    if not _re.fullmatch(r"\d{6}_\d{4}", folder) or not _re.fullmatch(r"[\w.\-]+", name):
+        raise HTTPException(400, "잘못된 파일 이름입니다")
+    st, raw, ctype = _carosell(f"/files/{folder}/{name}", timeout=30)
+    if st >= 400:
+        raise HTTPException(404, "파일이 없습니다")
+    return Response(content=raw, media_type=ctype,
+                    headers={"Cache-Control": "private, max-age=300"})
 
 
 if __name__ == "__main__":

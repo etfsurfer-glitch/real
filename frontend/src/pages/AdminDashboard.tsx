@@ -47,6 +47,7 @@ const TOOLS: { to: string; label: string; icon: typeof Users; desc: string;
   { to: "/admin/suspicious", label: "의심 중개사", icon: ShieldAlert, desc: "허위/중복 의심 탐지" },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck, desc: "표시·광고 체크리스트 자동점검 (가오픈)" },
   { to: "/admin/cardnews", label: "카드뉴스 생성", icon: ImageIcon, desc: "인스타용 신고가·급매·맞춤단지 카드 이미지" },
+  { to: "/admin/cardnews-v2", label: "카드뉴스 v2", icon: ImageIcon, desc: "데이터·청약·뉴스를 모아 카드 여러 장 자동 생성(카피 AI)" },
 ];
 
 export default function AdminDashboard() {

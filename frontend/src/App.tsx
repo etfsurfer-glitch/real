@@ -36,6 +36,7 @@ import AdminRealtorMatch from "./pages/AdminRealtorMatch";
 import AdminUsers from "./pages/AdminUsers";
 import AdminLogs from "./pages/AdminLogs";
 import CardNews from "./pages/CardNews";
+import CardNewsV2 from "./pages/CardNewsV2";
 import AdminNewsletter from "./pages/AdminNewsletter";
 import RenderNewsletter from "./pages/RenderNewsletter";
 import RenderBrag from "./pages/RenderBrag";
@@ -446,6 +447,7 @@ function AppShell() {
         <Route path="/admin/push" element={<RequireAdmin><AdminPush /></RequireAdmin>} />
         <Route path="/admin/audit" element={<RequireAdmin><AuditRealtor /></RequireAdmin>} />
         <Route path="/admin/cardnews" element={<RequireAdmin><CardNews /></RequireAdmin>} />
+        <Route path="/admin/cardnews-v2" element={<RequireAdmin><CardNewsV2 /></RequireAdmin>} />
         <Route path="/admin/newsletter" element={<RequireAdmin><AdminNewsletter /></RequireAdmin>} />
         <Route path="/admin/sns" element={<RequireAdmin><AdminSns /></RequireAdmin>} />
         <Route path="/buy-calculator" element={<BuyWizard />} />
@@ -529,6 +531,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/realtor-requests", label: "중개사 라운지", icon: Building2 },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck },
   { to: "/admin/cardnews", label: "카드뉴스 생성", icon: ImageIcon },
+  { to: "/admin/cardnews-v2", label: "카드뉴스 v2", icon: ImageIcon },
   { to: "/admin/newsletter", label: "뉴스레터 이미지", icon: ImageIcon },
   { to: "/admin/sns", label: "SNS 자동포스팅", icon: ImageIcon },
   { to: "/buy-calculator", label: "아파트매수계산기", icon: Calculator },
