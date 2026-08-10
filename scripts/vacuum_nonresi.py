@@ -241,3 +241,9 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+# ── 참고: naverreal.sqlite 에서 지운 인덱스 ──────────────────────────────────
+# article_events_date_idx (414 MB) — 2026-08-10 삭제.
+# API·배치의 article_events 쿼리 9개를 전부 EXPLAIN 해 어느 것도 쓰지 않음을 확인했다.
+# (event_type, event_date) 인덱스가 날짜 조건까지 커버하기 때문이다.
+# 되돌리려면: data/DROPPED_INDEX_RESTORE.sql 을 실행한다(재생성 수 분).
