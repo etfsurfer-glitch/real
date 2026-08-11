@@ -28,6 +28,10 @@ sys.path.insert(0, "/opt/koczip-sns")
 
 SEARCH = "https://www.threads.com/search?q={q}&serp_type=default&filter={f}"
 ME = "koczip_news"                       # 내 글은 소재가 아니다
+FEED_KW = "(피드)"                        # 키워드 없이 홈 피드에서 주운 글의 표시
+# 발행 워커(koczip-sns-engage)가 상시로 도는 탓에 같은 크롬 프로필을 쓰면 충돌한다.
+# 로그인 세션만 복사한 별도 프로필을 써서 둘이 동시에 떠도 되게 한다.
+PROFILE = "threads_radar"
 
 
 def log(*a):
@@ -147,6 +151,52 @@ def scores(like, reply, repost, quote, age_min):
     return eng, velocity, eng * time_weight + velocity * 0.5
 
 
+def to_post(it: dict, kw: str) -> dict | None:
+    """카드 하나 → 저장 형태. 못 쓰는 카드면 None."""
+    href = (it.get("href") or "").strip()
+    au = (it.get("author") or "").strip()
+    if not href or not au or au == ME:
+        return None
+    am = age_minutes(it.get("time_attr", ""), it.get("time_txt", ""))
+    like, reply = to_num(it.get("like")), to_num(it.get("reply"))
+    repost, quote = to_num(it.get("repost")), to_num(it.get("quote"))
+    eng, vel, _ = scores(like, reply, repost, quote, am)
+    return {
+        "post_key": href.split("?")[0],
+        "author": au,
+        "text": clean_text(it.get("text"), au, it.get("time_txt", "")),
+        "url": "https://www.threads.com" + href.split("?")[0],
+        "like": like, "reply": reply, "repost": repost, "quote": quote,
+        "age_min": am, "engagement": eng, "velocity": vel,
+        "keyword": kw,
+    }
+
+
+async def feed(page, rounds: int = 12) -> list[dict]:
+    """홈 'For you' 피드 — 키워드에 묶이지 않은 소재를 줍는다.
+
+    검색만 돌면 우리가 미리 정한 낱말 밖의 글은 영영 안 보인다. 알고리즘이
+    밀어주는 글에는 주제와 무관하게 지금 터지는 것이 섞여 있다.
+    (다만 로그인 계정 취향이 반영되므로 완전히 중립은 아니다 — 그래서 검색과 병행한다)
+    """
+    await page.goto("https://www.threads.com/")
+    await asyncio.sleep(5)
+    seen: dict[str, dict] = {}
+    for i in range(rounds):
+        try:
+            items = json.loads(await page.evaluate(COLLECT_JS) or "[]")
+        except Exception as e:                                  # noqa: BLE001
+            log(f"  ! 피드 추출 실패: {e}")
+            break
+        for it in items:
+            p = to_post(it, FEED_KW)
+            if p:
+                seen.setdefault(p["post_key"], p)
+        await page.evaluate("() => window.scrollBy(0, 2000)")
+        await asyncio.sleep(1.6)
+    return list(seen.values())
+
+
 async def search(page, kw: str, mode: str, limit: int) -> list[dict]:
     url = SEARCH.format(q=urllib.parse.quote(kw), f=mode)
     await page.goto(url)
@@ -163,23 +213,9 @@ async def search(page, kw: str, mode: str, limit: int) -> list[dict]:
         return []
     out = []
     for it in items:
-        href = (it.get("href") or "").strip()
-        au = (it.get("author") or "").strip()
-        if not href or not au or au == ME:
-            continue
-        am = age_minutes(it.get("time_attr", ""), it.get("time_txt", ""))
-        like, reply = to_num(it.get("like")), to_num(it.get("reply"))
-        repost, quote = to_num(it.get("repost")), to_num(it.get("quote"))
-        eng, vel, _ = scores(like, reply, repost, quote, am)
-        out.append({
-            "post_key": href.split("?")[0],
-            "author": au,
-            "text": clean_text(it.get("text"), au, it.get("time_txt", "")),
-            "url": "https://www.threads.com" + href.split("?")[0],
-            "like": like, "reply": reply, "repost": repost, "quote": quote,
-            "age_min": am, "engagement": eng, "velocity": vel,
-            "keyword": kw,
-        })
+        p = to_post(it, kw)
+        if p:
+            out.append(p)
         if len(out) >= limit:
             break
     return out
@@ -232,6 +268,8 @@ async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=12, help="검색·모드당 최대 글 수")
     ap.add_argument("--max-keywords", type=int, default=8, help="한 번에 볼 키워드 수")
+    ap.add_argument("--feed", action="store_true", help="홈 피드도 같이 훑는다(키워드 무관)")
+    ap.add_argument("--feed-rounds", type=int, default=12, help="피드 스크롤 횟수")
     a = ap.parse_args()
 
     from sns_worker import open_browser, is_logged_in       # noqa: E402
@@ -240,18 +278,22 @@ async def main():
     run = c.execute("INSERT INTO runs DEFAULT VALUES").lastrowid
     c.commit()
     kws = due_keywords(c, a.max_keywords)
-    if not kws:
+    if not kws and not a.feed:
         log("돌 차례인 키워드가 없다")
         c.execute("UPDATE runs SET ended_at=datetime('now','+9 hours') WHERE id=?", (run,))
         c.commit()
         return
-    log(f"키워드 {len(kws)}개: {', '.join(k for _, k in kws)}")
+    if kws:
+        log(f"키워드 {len(kws)}개: {', '.join(k for _, k in kws)}")
+    if a.feed:
+        log("홈 피드도 함께 훑는다")
 
     found = fresh = 0
-    b = await open_browser("threads")
+    b = await open_browser(PROFILE)
     try:
         # 빈 탭에서 시작하면 로그인 판정이 안 된다 — 첫 검색 URL 로 바로 연다
-        first = SEARCH.format(q=urllib.parse.quote(kws[0][1]), f="recent")
+        first = (SEARCH.format(q=urllib.parse.quote(kws[0][1]), f="recent")
+                 if kws else "https://www.threads.com/")
         page = await b.new_page(first)
         await asyncio.sleep(6)
         if not await is_logged_in(page, "threads"):
@@ -273,6 +315,12 @@ async def main():
             fresh += save(c, list(uniq.values()))
             c.execute("UPDATE keywords SET last_run_at=datetime('now','+9 hours') WHERE id=?", (kid,))
             c.commit()
+
+        if a.feed:
+            fp = await feed(page, a.feed_rounds)
+            found += len(fp)
+            fresh += save(c, fp)
+            log(f"  피드: {len(fp)}건")
     except Exception as e:                                  # noqa: BLE001
         c.execute("UPDATE runs SET ended_at=datetime('now','+9 hours'), error=? WHERE id=?",
                   (str(e)[:300], run))

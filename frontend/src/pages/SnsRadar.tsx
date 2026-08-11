@@ -43,8 +43,6 @@ type Post = {
   realestate: number | null;
   ai_score: number | null;
   categories: string | null;
-  ai_reason: string | null;
-  content_idea: string | null;
   final_score: number;
   saved: number;
   first_seen_at: string;
@@ -187,8 +185,9 @@ export default function SnsRadar() {
         </span>
       </div>
       <p className="rd-lead">
-        Threads 를 키워드로 훑어 <b>반응이 빠르게 붙는 글</b>을 찾는다. 좋아요 총량이 아니라
-        올라온 지 얼마 만에 얼마나 붙었는지로 줄을 세우고, 그중 쓸 만한 것만 AI 가 분석한다.
+        Threads 를 키워드로 훑고 <b>홈 피드까지 같이 긁어</b> 반응이 빠르게 붙는 글을 찾는다.
+        좋아요 총량이 아니라 올라온 지 얼마 만에 얼마나 붙었는지로 줄을 세운다.
+        자동 수집은 3시간마다, 급하면 <b>지금 수집</b>을 누른다.
       </p>
 
       {err && <div className="rd-err"><AlertCircle size={15} strokeWidth={2.3} /><span>{err}</span></div>}
@@ -201,10 +200,10 @@ export default function SnsRadar() {
         <div className="rd-stat-run">
           {lastRun?.error
             ? <em className="bad">마지막 수집 실패 — {lastRun.error.slice(0, 60)}</em>
-            : <em>마지막 수집 {lastRun?.ended_at?.slice(5, 16) ?? "-"} · 새 글 {lastRun?.fresh ?? 0}건</em>}
+            : <em>마지막 수집 {lastRun?.ended_at?.slice(5, 16) ?? "-"} · 새 글 {lastRun?.fresh ?? 0}건 · 자동 3시간</em>}
           <button onClick={runNow} disabled={running}>
             {running ? <Loader2 size={13} className="rd-spin" /> : <Zap size={13} strokeWidth={2.4} />}
-            {running ? "수집 중" : "지금 수집"}
+            {running ? "수집 중…" : "지금 수집"}
           </button>
           <button onClick={load}><RefreshCw size={13} strokeWidth={2.4} /> 새로고침</button>
         </div>
@@ -290,6 +289,7 @@ export default function SnsRadar() {
                       <i><Repeat2 size={11} /> {n(p.repost_count)}</i>
                       <em>{ago(p.age_min)} 전</em>
                       {p.velocity > 0 && <em className="hot">시간당 {Math.round(p.velocity)}</em>}
+                      {(p.keywords_all || "").includes("(피드)") && <em className="feed">피드</em>}
                       {!p.analyzed_at && <em className="pend">분석 대기</em>}
                     </span>
                   </span>
@@ -332,19 +332,17 @@ export default function SnsRadar() {
                               </div>
                             ))}
                         </div>
-                        {p.ai_reason && (
-                          <div className="rd-why"><b>왜 읽히나</b><p>{p.ai_reason}</p></div>
-                        )}
-                        {p.content_idea && (
-                          <div className="rd-idea"><b>콘텐츠 아이디어</b><p>{p.content_idea}</p></div>
-                        )}
                       </>
                     ) : (
                       <p className="rd-pending">아직 AI 분석 전이다(반응이 더 붙으면 분석 대상이 된다).</p>
                     )}
 
                     <div className="rd-acts">
-                      <span className="rd-kwtag">검색어 {p.keywords_all || p.keyword}</span>
+                      <span className="rd-kwtag">
+                        {(p.keywords_all || p.keyword) === "(피드)"
+                          ? "홈 피드에서 주움(키워드 무관)"
+                          : `검색어 ${p.keywords_all || p.keyword}`}
+                      </span>
                       <a href={p.url} target="_blank" rel="noreferrer">
                         <ExternalLink size={13} strokeWidth={2.3} /> 원문
                       </a>
@@ -383,6 +381,8 @@ const css = `
 .rd-stat-run{margin-left:auto;flex-direction:row!important;align-items:center;gap:8px!important}
 .rd-stat-run em{font-style:normal;font-size:11.5px;color:var(--c-faint)}
 .rd-stat-run em.bad{color:var(--c-sale)}
+.rd-stat-run button:first-of-type{border-color:var(--c-primary);background:var(--c-primary);color:#fff}
+.rd-stat-run button:first-of-type:hover:not(:disabled){background:var(--c-primary-strong);color:#fff}
 .rd-stat-run button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c-border);
   background:#fff;border-radius:var(--r-pill);padding:5px 12px;font:inherit;font-size:11.5px;
   font-weight:700;color:#42506a;cursor:pointer}
@@ -439,6 +439,7 @@ const css = `
 .rd-meta em{font-style:normal;color:var(--c-faint)}
 .rd-meta em.hot{color:var(--c-sale);font-weight:700}
 .rd-meta em.pend{color:var(--c-warn)}
+.rd-meta em.feed{color:var(--c-wolse);font-weight:700}
 .rd-cats{flex:none;display:flex;flex-wrap:wrap;gap:4px;max-width:150px;justify-content:flex-end}
 .rd-cats span{font-size:11px;font-weight:700;color:#0b4ea2;background:var(--c-primary-tint);
   border-radius:var(--r-pill);padding:2px 8px}

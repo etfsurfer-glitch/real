@@ -37,40 +37,27 @@ SCHEMA = {
            ("humor", "satire", "gossip", "controversy", "surprise", "empathy", "hook",
             "realestate_relevance")},
         "categories": {"type": "array", "items": {"type": "string", "enum": CATEGORIES}},
-        "reason": {"type": "string"},
-        "content_idea": {"type": "string"},
     },
+    # 설명 문장(왜 읽히나 / 콘텐츠 아이디어)은 받지 않는다 — 점수와 분류만으로
+    # 목록을 세우는 데 충분하고, 문장 생성이 출력 토큰의 대부분을 먹었다.
     "required": ["humor", "satire", "gossip", "controversy", "surprise", "empathy",
-                 "hook", "realestate_relevance", "categories", "reason"],
+                 "hook", "realestate_relevance", "categories"],
 }
 
-PROMPT = """너는 SNS 바이럴 콘텐츠 분석가다. 아래 Threads 게시물이 사람들의 관심을 끌
-가능성을 분석한다.
+PROMPT = """SNS 게시물의 관심 유발 가능성을 점수로만 매긴다. 설명은 쓰지 않는다.
 
 게시물:
 ---
 {text}
 ---
 
-각 항목을 0~10 으로 매긴다.
-humor 웃기거나 재미있는 정도
-satire 풍자성
-gossip 남들이 궁금해할 이야기인 정도
-controversy 논쟁을 일으킬 가능성
-surprise 의외성·반전
-empathy 공감 가능성
-hook 첫 문장이 관심을 끄는 정도
-realestate_relevance 부동산 콘텐츠로 연결할 수 있는 정도
+0~10 점: humor 재미 / satire 풍자 / gossip 남들이 궁금해할 이야기 /
+controversy 논쟁 가능성 / surprise 의외성·반전 / empathy 공감 /
+hook 첫 문장이 끄는 힘 / realestate_relevance 부동산으로 연결 가능한 정도.
 
-categories 는 다음 중 해당하는 것만 고른다(복수 가능):
-{cats}
+categories 는 해당하는 것만 고른다(복수 가능): {cats}
 
-reason 은 왜 관심을 끌 수 있는지 한 문장.
-content_idea 는 부동산 SNS 콘텐츠로 바꿀 수 있다면 그 아이디어 한 줄.
-부동산과 이어붙일 여지가 없으면 content_idea 는 빈 문자열로 둔다.
-억지로 부동산에 갖다 붙이지 않는다 — realestate_relevance 를 낮게 주면 된다.
-
-광고·홍보·판매글이면 모든 점수를 낮게 준다.
+광고·홍보·판매글은 모든 점수를 낮게.
 """
 
 
@@ -87,7 +74,7 @@ def db():
 def gemini(text: str, key: str) -> dict | None:
     body = {
         "contents": [{"parts": [{"text": PROMPT.format(
-            text=text[:1500], cats=", ".join(CATEGORIES))}]}],
+            text=text[:800], cats=", ".join(CATEGORIES))}]}],
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseSchema": SCHEMA,
@@ -161,7 +148,7 @@ def main():
         pid, _pk, text = r[0], r[1], r[2] or ""
         if len(text.strip()) < 20:
             c.execute("UPDATE posts SET analyzed_at=datetime('now','+9 hours'), ai_score=0,"
-                      " ai_reason='본문이 너무 짧아 분석하지 않음' WHERE id=?", (pid,))
+                      " WHERE id=?", (pid,))
             c.commit()
             continue
         d = gemini(text, key)
@@ -176,13 +163,11 @@ def main():
         c.execute(
             "UPDATE posts SET analyzed_at=datetime('now','+9 hours'),"
             " humor=?, satire=?, gossip=?, controversy=?, surprise=?, empathy=?, hook=?,"
-            " realestate=?, ai_score=?, categories=?, ai_reason=?, content_idea=?, final_score=?"
-            " WHERE id=?",
+            " realestate=?, ai_score=?, categories=?, final_score=? WHERE id=?",
             (d.get("humor"), d.get("satire"), d.get("gossip"), d.get("controversy"),
              d.get("surprise"), d.get("empathy"), d.get("hook"),
              d.get("realestate_relevance"), round(ai, 1),
-             ",".join(d.get("categories") or []), (d.get("reason") or "")[:400],
-             (d.get("content_idea") or "")[:400], round(final, 1), pid))
+             ",".join(d.get("categories") or []), round(final, 1), pid))
         c.commit()
         done += 1
         if done % 10 == 0:
