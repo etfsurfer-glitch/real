@@ -54,7 +54,18 @@ COLLECT_JS = r"""() => {
   const cards = document.querySelectorAll('div[data-pressable-container=true]');
   cards.forEach((el, i) => {
     const txt = (el.innerText || '').trim();
-    if (!txt || txt.length < 20) return;
+    // 밈은 사진이 본체라 글이 거의 없다 — 글자수로만 자르면 통째로 버려진다.
+    // 미디어가 있으면 짧아도 남긴다.
+    const media = [];
+    el.querySelectorAll('img').forEach(m => {
+      const r = m.getBoundingClientRect();
+      // 프로필 사진은 화면에서 36x36 로 그려진다. 본문 이미지는 200px 이상.
+      if (r.width < 80 || m.naturalWidth <= 150) return;
+      const src = m.getAttribute('src') || '';
+      if (src) media.push(src);
+    });
+    const hasVideo = !!el.querySelector('video');
+    if ((!txt || txt.length < 20) && !media.length && !hasVideo) return;
     const a  = el.querySelector('a[href*="/post/"]');
     const au = el.querySelector('a[href^="/@"]');
     // 반응 숫자는 아이콘 옆 텍스트에 있다. aria-label 로 종류를 가른다.
@@ -79,6 +90,9 @@ COLLECT_JS = r"""() => {
       quote:  stat(/^(quote|인용)$/i),
       time_attr: tm ? (tm.getAttribute('datetime') || '') : '',
       time_txt:  tm ? (tm.innerText || '').trim() : '',
+      image: media[0] || '',
+      n_media: media.length,
+      video: hasVideo,
     });
   });
   return JSON.stringify(out.slice(0, 25));
@@ -169,6 +183,9 @@ def to_post(it: dict, kw: str) -> dict | None:
         "like": like, "reply": reply, "repost": repost, "quote": quote,
         "age_min": am, "engagement": eng, "velocity": vel,
         "keyword": kw,
+        "image": (it.get("image") or "")[:600],
+        "n_media": int(it.get("n_media") or 0),
+        "video": 1 if it.get("video") else 0,
     }
 
 
@@ -235,17 +252,20 @@ def save(c, posts: list[dict]) -> int:
             c.execute(
                 "UPDATE posts SET like_count=?, reply_count=?, repost_count=?, quote_count=?,"
                 " age_min=?, engagement=?, velocity=?, time_weight=?, collected_at=datetime('now','+9 hours'),"
-                " keywords_all=? WHERE post_key=?",
+                " keywords_all=?, image_url=COALESCE(NULLIF(?,''), image_url),"
+                " n_media=?, has_video=? WHERE post_key=?",
                 (p["like"], p["reply"], p["repost"], p["quote"], p["age_min"],
-                 eng, vel, tw, ",".join(sorted(kws)), p["post_key"]))
+                 eng, vel, tw, ",".join(sorted(kws)), p["image"], p["n_media"],
+                 p["video"], p["post_key"]))
         else:
             c.execute(
                 "INSERT INTO posts(post_key,author,text,url,like_count,reply_count,"
-                " repost_count,quote_count,age_min,keyword,keywords_all,engagement,velocity,time_weight)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " repost_count,quote_count,age_min,keyword,keywords_all,engagement,velocity,"
+                " time_weight,image_url,n_media,has_video)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (p["post_key"], p["author"], p["text"], p["url"], p["like"], p["reply"],
                  p["repost"], p["quote"], p["age_min"], p["keyword"], p["keyword"],
-                 eng, vel, tw))
+                 eng, vel, tw, p["image"], p["n_media"], p["video"]))
             fresh += 1
         c.execute("INSERT OR IGNORE INTO post_snapshots(post_key,like_count,reply_count,"
                   "repost_count,quote_count) VALUES(?,?,?,?,?)",

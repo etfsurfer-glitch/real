@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS posts (
     age_min        INTEGER,                    -- 수집 시점 기준 경과(분)
     first_seen_at  TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
     collected_at   TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+    -- 밈·짤은 사진이 본체다. 목록에서 바로 보이도록 대표 이미지를 들고 있는다.
+    image_url      TEXT,
+    n_media        INTEGER NOT NULL DEFAULT 0,
+    has_video      INTEGER NOT NULL DEFAULT 0,
+
     keyword        TEXT,                       -- 처음 걸린 키워드
     keywords_all   TEXT,                       -- 걸린 키워드 전부(쉼표)
 

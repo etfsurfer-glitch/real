@@ -10,8 +10,8 @@
 // ══════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlertCircle, ExternalLink, Heart, Loader2, MessageCircle, Radar, RefreshCw,
-  Repeat2, Star, Trash2, Zap,
+  AlertCircle, ExternalLink, Heart, Image as ImageIcon, Loader2, MessageCircle,
+  PlayCircle, Radar, RefreshCw, Repeat2, Star, Trash2, Zap,
 } from "lucide-react";
 import { useAuth } from "../auth";
 
@@ -28,6 +28,9 @@ type Post = {
   repost_count: number;
   quote_count: number;
   age_min: number | null;
+  image_url: string | null;
+  n_media: number;
+  has_video: number;
   keyword: string;
   keywords_all: string;
   engagement: number;
@@ -280,8 +283,16 @@ export default function SnsRadar() {
                 >
                   <span className="rd-rank">{i + 1}</span>
                   <span className="rd-score" title="반응 + AI 종합">{Math.round(p.final_score)}</span>
+                  {p.image_url && (
+                    <span className="rd-thumb">
+                      <img src={p.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                      {!!p.has_video && <PlayCircle size={16} strokeWidth={2.4} />}
+                    </span>
+                  )}
                   <span className="rd-main">
-                    <span className="rd-text">{p.text || "(본문 없음)"}</span>
+                    <span className="rd-text">
+                      {p.text || (p.image_url ? "(사진이 본체인 글)" : "(본문 없음)")}
+                    </span>
                     <span className="rd-meta">
                       <b>@{p.author}</b>
                       <i><Heart size={11} /> {n(p.like_count)}</i>
@@ -289,6 +300,9 @@ export default function SnsRadar() {
                       <i><Repeat2 size={11} /> {n(p.repost_count)}</i>
                       <em>{ago(p.age_min)} 전</em>
                       {p.velocity > 0 && <em className="hot">시간당 {Math.round(p.velocity)}</em>}
+                      {p.n_media > 1 && (
+                        <em className="media"><ImageIcon size={11} /> {p.n_media}</em>
+                      )}
                       {(p.keywords_all || "").includes("(피드)") && <em className="feed">피드</em>}
                       {!p.analyzed_at && <em className="pend">분석 대기</em>}
                     </span>
@@ -313,6 +327,9 @@ export default function SnsRadar() {
                         loading="lazy"
                         referrerPolicy="no-referrer-when-downgrade"
                       />
+                    )}
+                    {raw && p.image_url && (
+                      <img className="rd-rawimg" src={p.image_url} alt="" referrerPolicy="no-referrer" />
                     )}
                     <button className="rd-rawbtn" onClick={() => setRaw((v) => !v)}>
                       {raw ? "원문 보기" : "수집한 텍스트 보기"}
@@ -440,6 +457,13 @@ const css = `
 .rd-meta em.hot{color:var(--c-sale);font-weight:700}
 .rd-meta em.pend{color:var(--c-warn)}
 .rd-meta em.feed{color:var(--c-wolse);font-weight:700}
+.rd-meta em.media{display:inline-flex;align-items:center;gap:3px;color:var(--c-muted)}
+/* 밈·짤은 그림이 본체라 목록에서 바로 보여야 훑을 수 있다 */
+.rd-thumb{position:relative;flex:none;width:56px;height:56px;border-radius:9px;overflow:hidden;
+  background:#eef1f5}
+.rd-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.rd-thumb svg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  color:#fff;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
 .rd-cats{flex:none;display:flex;flex-wrap:wrap;gap:4px;max-width:150px;justify-content:flex-end}
 .rd-cats span{font-size:11px;font-weight:700;color:#0b4ea2;background:var(--c-primary-tint);
   border-radius:var(--r-pill);padding:2px 8px}
@@ -448,6 +472,7 @@ const css = `
 .rd-body{padding:2px 16px 14px 60px;border-top:1px solid var(--c-border-soft)}
 .rd-embed{display:block;width:100%;max-width:560px;height:620px;margin:12px 0;border:0;
   border-radius:var(--r-md);background:#fff;box-shadow:var(--sh-sm)}
+.rd-rawimg{display:block;max-width:420px;width:100%;border-radius:var(--r-md);margin:0 0 10px}
 .rd-rawbtn{border:none;background:none;padding:0;font:inherit;font-size:11.5px;font-weight:700;
   color:var(--c-muted);text-decoration:underline;cursor:pointer}
 .rd-rawbtn:hover{color:var(--c-primary)}

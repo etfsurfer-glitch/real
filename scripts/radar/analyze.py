@@ -10,6 +10,7 @@
 Run: python3 analyze.py [--limit 40]
 """
 import argparse
+import base64
 import json
 import os
 import sqlite3
@@ -21,6 +22,10 @@ from pathlib import Path
 BASE = Path("/opt/koczip-radar")
 DB = BASE / "radar.sqlite"
 MODEL = "gemini-flash-latest"
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
+MAX_IMG_BYTES = 3_000_000        # 이보다 크면 그림 없이 분석한다
+IMG_TEXT_LIMIT = 120             # 글이 이보다 짧으면 사진이 본체로 보고 함께 보낸다
 
 CATEGORIES = ["풍자", "주접", "가십", "팩폭", "논쟁", "황당", "밈", "반전", "공감",
               "정보", "사건", "경험담"]
@@ -45,6 +50,7 @@ SCHEMA = {
 }
 
 PROMPT = """SNS 게시물의 관심 유발 가능성을 점수로만 매긴다. 설명은 쓰지 않는다.
+사진이 함께 오면 사진이 본체다(밈·짤). 사진을 보고 판단한다.
 
 게시물:
 ---
@@ -71,10 +77,29 @@ def db():
     return c
 
 
-def gemini(text: str, key: str) -> dict | None:
+def fetch_image(url: str) -> tuple[str, str] | None:
+    """이미지를 받아 (base64, mime). 실패하면 None — 그림 없이 글만으로 분석한다."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            mime = r.headers.get("Content-Type", "image/jpeg").split(";")[0]
+            raw = r.read(MAX_IMG_BYTES + 1)
+        if not raw or len(raw) > MAX_IMG_BYTES or not mime.startswith("image/"):
+            return None
+        return base64.b64encode(raw).decode(), mime
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
+def gemini(text: str, key: str, image: tuple[str, str] | None = None) -> dict | None:
+    parts: list[dict] = [{"text": PROMPT.format(
+        text=text[:800] or "(글 없음 — 사진이 본체다)", cats=", ".join(CATEGORIES))}]
+    if image:
+        # 밈은 사진이 본체라 글만 보면 점수를 매길 수 없다.
+        # 다만 그림 한 장이 토큰을 먹으므로 글이 짧을 때만 붙인다(호출부에서 판단).
+        parts.append({"inlineData": {"mimeType": image[1], "data": image[0]}})
     body = {
-        "contents": [{"parts": [{"text": PROMPT.format(
-            text=text[:800], cats=", ".join(CATEGORIES))}]}],
+        "contents": [{"parts": parts}],
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseSchema": SCHEMA,
@@ -134,7 +159,7 @@ def main():
     c = db()
     rows = c.execute(
         "SELECT id, post_key, text, like_count, reply_count, repost_count, quote_count,"
-        "       age_min, engagement, time_weight, velocity"
+        "       age_min, engagement, time_weight, velocity, image_url, has_video"
         "  FROM posts WHERE analyzed_at IS NULL AND excluded=0"
         "  ORDER BY engagement DESC, first_seen_at DESC LIMIT ?", (a.limit * 4,)).fetchall()
 
@@ -146,12 +171,17 @@ def main():
     done = 0
     for r in todo:
         pid, _pk, text = r[0], r[1], r[2] or ""
-        if len(text.strip()) < 20:
-            c.execute("UPDATE posts SET analyzed_at=datetime('now','+9 hours'), ai_score=0,"
+        img_url, has_video = r[11], r[12]
+        # 글이 짧아도 사진이 있으면 밈일 수 있다 — 사진을 보고 판단한다
+        img = None
+        if img_url and len(text.strip()) < IMG_TEXT_LIMIT:
+            img = fetch_image(img_url)
+        if len(text.strip()) < 20 and not img:
+            c.execute("UPDATE posts SET analyzed_at=datetime('now','+9 hours'), ai_score=0"
                       " WHERE id=?", (pid,))
             c.commit()
             continue
-        d = gemini(text, key)
+        d = gemini(text, key, img)
         if not d:
             continue
         ai = sum(int(d.get(k if k != "realestate" else "realestate_relevance", 0)) * w
