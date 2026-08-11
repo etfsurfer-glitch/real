@@ -31,10 +31,14 @@ CATS = ["redev", "knowledge", "factory", "oneroom", "building", "land",
         "office", "villa", "house", "sangga"]
 MIN_FREE_GB = 3.0          # 이 아래면 아예 시작하지 않는다
 MIN_GAIN_PCT = 5.0         # 회수 여지가 이보다 작으면 건드리지 않는다
-# 피해야 할 시간대(KST). 수집 11·19시, 비단지 집계·아카이브 22:30, 사무소귀속 23:15,
-# 빌라 지오코딩 23:30, daily 00:30, 좌표 04:30, 백업 07:30, 실거래 08·15·18시.
-# 안전한 창은 새벽 01~04시와 오전 09~10시뿐이다.
-SAFE_HOURS = (1, 2, 3, 9)
+# 피해야 할 시간대(KST) — 비단지 DB 를 건드리는 것만 추린다.
+#   collect_region_listings : 매물수집 11~14시·19~22시 안(step 7), daily_run 00:30~05:00 안(step 13)
+#   nonresi_daily_agg + archive : 22:30      사무소귀속 23:15      빌라 지오코딩 23:30
+#   백업(전 DB .backup) 07:30
+# ⚠ 처음엔 새벽 01~03시를 안전하다고 뒀는데 그게 daily_run 한복판이었다
+#   (실측: 매일 00:30 시작 → 05:00~05:13 종료). 그대로 뒀으면 수집 중에 VACUUM 이 걸렸다.
+# 실제로 비는 창은 오전 09~10시와 오후 16~17시뿐이다.
+SAFE_HOURS = (9, 10, 16, 17)
 _SELF_LOCK = "/opt/koczip/data/vacuum_nonresi.lock"
 
 
