@@ -22906,6 +22906,97 @@ def cardnews2_file(folder: str, name: str, _admin: dict = Depends(admin_user)):
                     headers={"Cache-Control": "private, max-age=300"})
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# SNS 소재 레이더 — nfind 박스로 프록시
+#
+#   Threads 검색은 로그인 세션이 있는 브라우저가 필요해 nfind 에서 돈다
+#   (/opt/koczip-radar). 카드뉴스 v2 와 같은 구조 — 루프백 API + SSH 터널.
+#   관리자 화면(/admin/sns-radar) → 여기 → 127.0.0.1:4310(터널) → nfind
+# ══════════════════════════════════════════════════════════════════════════
+_RADAR_BASE = os.environ.get("RADAR_BASE", "http://127.0.0.1:4310")
+
+
+def _radar(path: str, method: str = "GET", body: dict | None = None, timeout: int = 20):
+    import urllib.error as _ue
+    import urllib.request as _ur
+    data = _json.dumps(body).encode() if body is not None else None
+    req = _ur.Request(f"{_RADAR_BASE}{path}", data=data, method=method,
+                      headers={"Content-Type": "application/json"} if data else {})
+    try:
+        with _ur.urlopen(req, timeout=timeout) as r:
+            raw, st = r.read(), r.status
+    except _ue.HTTPError as e:
+        raw, st = e.read(), e.code
+    except Exception as e:
+        raise HTTPException(503, f"SNS 레이더에 연결할 수 없습니다(nfind 터널 확인): {e}")
+    try:
+        out = _json.loads(raw or b"{}")
+    except Exception:
+        raise HTTPException(502, "SNS 레이더 응답을 해석할 수 없습니다")
+    if st >= 400:
+        raise HTTPException(st, out.get("error") or "SNS 레이더 오류")
+    return out
+
+
+@app.get("/admin/sns-radar/posts")
+def radar_posts(_admin: dict = Depends(admin_user), hours: int = 24, category: str = "",
+                mode: str = "top", limit: int = 50):
+    """수집·분석된 게시물. mode=top(점수순)/fresh(최신순)/saved(저장한 것)."""
+    if mode not in ("top", "fresh", "saved"):
+        raise HTTPException(400, "mode must be top|fresh|saved")
+    q = f"?hours={int(hours)}&mode={mode}&limit={int(limit)}"
+    if category:
+        import urllib.parse as _up
+        q += "&category=" + _up.quote(category)
+    return _radar("/api/posts" + q)
+
+
+@app.get("/admin/sns-radar/stats")
+def radar_stats(_admin: dict = Depends(admin_user)):
+    """수집 현황·마지막 실행·카테고리 분포."""
+    return _radar("/api/stats")
+
+
+@app.get("/admin/sns-radar/keywords")
+def radar_keywords(_admin: dict = Depends(admin_user)):
+    return _radar("/api/keywords")
+
+
+class RadarKeyword(BaseModel):
+    keyword: str
+    category: str = "etc"
+    priority: int = Field(5, ge=1, le=10)
+    every_min: int = Field(30, ge=10, le=1440)
+
+
+@app.post("/admin/sns-radar/keywords")
+def radar_add_keyword(body: RadarKeyword, _admin: dict = Depends(admin_user)):
+    if not body.keyword.strip():
+        raise HTTPException(400, "키워드가 비었습니다")
+    return _radar("/api/keywords", "POST", body.model_dump())
+
+
+@app.post("/admin/sns-radar/keywords/{kid}/toggle")
+def radar_toggle_keyword(kid: int, _admin: dict = Depends(admin_user)):
+    return _radar(f"/api/keywords/{int(kid)}/toggle", "POST", {})
+
+
+@app.post("/admin/sns-radar/posts/{pid}/{action}")
+def radar_mark(pid: int, action: str, body: dict | None = None,
+               _admin: dict = Depends(admin_user)):
+    """⭐ 저장 / 🗑 제외."""
+    if action not in ("save", "exclude"):
+        raise HTTPException(400, "action must be save|exclude")
+    on = True if body is None else bool(body.get("on", True))
+    return _radar(f"/api/posts/{int(pid)}/{action}", "POST", {"on": on})
+
+
+@app.post("/admin/sns-radar/run")
+def radar_run(_admin: dict = Depends(admin_user)):
+    """지금 한 번 수집한다. 오래 걸리므로 띄우고 바로 응답한다."""
+    return _radar("/api/run", "POST", {})
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

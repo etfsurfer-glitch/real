@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Users, ScrollText, Wrench, ShieldAlert, ClipboardCheck, Home as HomeIcon,
   UserCheck, Coins, Bot, LogIn, MessagesSquare, Star, Layers, ShieldCheck,
-  Image as ImageIcon,
+  Image as ImageIcon, Radar as RadarIcon,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { Loading } from "../components/Loading";
@@ -47,7 +47,8 @@ const TOOLS: { to: string; label: string; icon: typeof Users; desc: string;
   { to: "/admin/suspicious", label: "의심 중개사", icon: ShieldAlert, desc: "허위/중복 의심 탐지" },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck, desc: "표시·광고 체크리스트 자동점검 (가오픈)" },
   { to: "/admin/cardnews", label: "카드뉴스 생성", icon: ImageIcon, desc: "인스타용 신고가·급매·맞춤단지 카드 이미지" },
-  { to: "/admin/cardnews-v2", label: "카드뉴스 v2", icon: ImageIcon, desc: "데이터·청약·뉴스를 모아 카드 여러 장 자동 생성(카피 AI)" },
+  { to: "/admin/cardnews-v2", label: "카드뉴스 v2", icon: ImageIcon, desc: "카드 하나를 골라 조건까지 정해 만든다(카피 AI)" },
+  { to: "/admin/sns-radar", label: "SNS 분석", icon: RadarIcon, desc: "Threads 에서 반응이 빠르게 붙는 소재를 찾아 AI 로 분석" },
 ];
 
 export default function AdminDashboard() {
