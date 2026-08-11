@@ -86,6 +86,7 @@ export default function SnsRadar() {
   const [cat, setCat] = useState("");
   const [mode, setMode] = useState<"top" | "fresh" | "saved">("top");
   const [open, setOpen] = useState<number | null>(null);
+  const [raw, setRaw] = useState(false);          // 임베드 대신 수집한 원문 텍스트 보기
   const [running, setRunning] = useState(false);
   const [showKw, setShowKw] = useState(false);
 
@@ -274,7 +275,10 @@ export default function SnsRadar() {
             const isOpen = open === p.id;
             return (
               <li key={p.id} className={`rd-item${isOpen ? " open" : ""}`}>
-                <button className="rd-head" onClick={() => setOpen(isOpen ? null : p.id)}>
+                <button
+                  className="rd-head"
+                  onClick={() => { setRaw(false); setOpen(isOpen ? null : p.id); }}
+                >
                   <span className="rd-rank">{i + 1}</span>
                   <span className="rd-score" title="반응 + AI 종합">{Math.round(p.final_score)}</span>
                   <span className="rd-main">
@@ -296,7 +300,23 @@ export default function SnsRadar() {
 
                 {isOpen && (
                   <div className="rd-body">
-                    <p className="rd-full">{p.text}</p>
+                    {/* Threads 공식 임베드. curl 로 받으면 x-frame-options: DENY 지만
+                        실제 iframe 요청에는 그 헤더가 붙지 않는다(koczip.com 오리진에서 확인).
+                        높이를 알려주는 postMessage 는 오지 않아 넉넉히 잡고 안에서 스크롤한다. */}
+                    {raw ? (
+                      <p className="rd-full">{p.text}</p>
+                    ) : (
+                      <iframe
+                        className="rd-embed"
+                        src={`${p.url}/embed/`}
+                        title={`@${p.author} 게시물`}
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                      />
+                    )}
+                    <button className="rd-rawbtn" onClick={() => setRaw((v) => !v)}>
+                      {raw ? "원문 보기" : "수집한 텍스트 보기"}
+                    </button>
 
                     {p.analyzed_at ? (
                       <>
@@ -425,6 +445,11 @@ const css = `
 
 /* 상세 */
 .rd-body{padding:2px 16px 14px 60px;border-top:1px solid var(--c-border-soft)}
+.rd-embed{display:block;width:100%;max-width:560px;height:620px;margin:12px 0;border:0;
+  border-radius:var(--r-md);background:#fff;box-shadow:var(--sh-sm)}
+.rd-rawbtn{border:none;background:none;padding:0;font:inherit;font-size:11.5px;font-weight:700;
+  color:var(--c-muted);text-decoration:underline;cursor:pointer}
+.rd-rawbtn:hover{color:var(--c-primary)}
 .rd-full{margin:12px 0;font-size:13.5px;line-height:1.75;color:var(--c-text-soft);white-space:pre-wrap;
   word-break:break-word}
 .rd-bars{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:5px 18px;
