@@ -6,7 +6,7 @@ import {
   Sparkles, LayoutDashboard, BadgePercent,
   TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon } from "lucide-react";
+  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginKakao, loginGoogle, isInAppBrowser, authClient } from "./auth";
@@ -38,6 +38,7 @@ import AdminLogs from "./pages/AdminLogs";
 import CardNews from "./pages/CardNews";
 import CardNewsV2 from "./pages/CardNewsV2";
 import SnsRadar from "./pages/SnsRadar";
+import AiCost from "./pages/AiCost";
 import AdminNewsletter from "./pages/AdminNewsletter";
 import RenderNewsletter from "./pages/RenderNewsletter";
 import RenderBrag from "./pages/RenderBrag";
@@ -450,6 +451,7 @@ function AppShell() {
         <Route path="/admin/cardnews" element={<RequireAdmin><CardNews /></RequireAdmin>} />
         <Route path="/admin/cardnews-v2" element={<RequireAdmin><CardNewsV2 /></RequireAdmin>} />
         <Route path="/admin/sns-radar" element={<RequireAdmin><SnsRadar /></RequireAdmin>} />
+        <Route path="/admin/ai-cost" element={<RequireAdmin><AiCost /></RequireAdmin>} />
         <Route path="/admin/newsletter" element={<RequireAdmin><AdminNewsletter /></RequireAdmin>} />
         <Route path="/admin/sns" element={<RequireAdmin><AdminSns /></RequireAdmin>} />
         <Route path="/buy-calculator" element={<BuyWizard />} />
@@ -535,6 +537,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/cardnews", label: "카드뉴스 생성", icon: ImageIcon },
   { to: "/admin/cardnews-v2", label: "카드뉴스 v2", icon: ImageIcon },
   { to: "/admin/sns-radar", label: "SNS 분석", icon: RadarIcon },
+  { to: "/admin/ai-cost", label: "AI 비용", icon: Coins },
   { to: "/admin/newsletter", label: "뉴스레터 이미지", icon: ImageIcon },
   { to: "/admin/sns", label: "SNS 자동포스팅", icon: ImageIcon },
   { to: "/buy-calculator", label: "아파트매수계산기", icon: Calculator },

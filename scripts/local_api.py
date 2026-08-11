@@ -8483,6 +8483,7 @@ def ai_ask(q: str, request: Request,
     try:
         from scripts.ai_agent import run_agent
         res = run_agent(q)
+        _ai_cost_from_usage("ai-ask", res)
         _ai_quota_release(quota)
         return {**(res or {}), "remaining": quota["remaining"]}
     except Exception as e:
@@ -8815,6 +8816,7 @@ def ai_ask_post(body: AiAskBody, request: Request,
         from scripts.ai_agent import run_agent
         res = run_agent(q, history=body.history, nickname=nick,
                         user_region=_ask_user_region(request))
+        _ai_cost_from_usage("ai-ask", res)
         _log_ai(user, q, answer=(res or {}).get("answer"),
                 tools=(res or {}).get("tools_used") or (res or {}).get("tools"),
                 usage=(res or {}).get("usage"),
@@ -14225,6 +14227,8 @@ def _qa_parse(text: str) -> dict:
                 response_mime_type="application/json", response_schema=schema,
                 max_output_tokens=8192),
         )
+        _ai_cost_resp("contract-parse", resp,
+                      os.getenv("GEMINI_PARSE_MODEL", "gemini-2.5-flash"))
         raw = (resp.text or "").strip()
         try:
             got = _qa_tidy(_json.loads(raw), text)
@@ -18175,6 +18179,7 @@ def _parse_contract_gemini(data: bytes, mime: str) -> dict:
                 contents=[_gt.Part.from_bytes(data=data, mime_type=mime),
                           _gt.Part.from_text(text=_CONTRACT_PROMPT)],
                 config=cfg)
+            _ai_cost_resp("contract-parse", resp, model)
             return _authjson.loads(resp.text)
         except Exception as e:  # noqa: BLE001
             last = e
@@ -20985,6 +20990,7 @@ def engage_comment(body: dict):
             resp = client.models.generate_content(
                 model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                 contents=[_gt.Part.from_text(text=prompt)], config=cfg)
+            _ai_cost_resp("sns-post", resp, os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
             out = _authjson.loads(resp.text)
         except Exception as e:  # noqa: BLE001
             return {"skip": True, "reason": f"생성 실패: {str(e)[:80]}"}
@@ -22621,6 +22627,7 @@ def _brag_text(theme: str, region: str) -> str:
         resp = client.models.generate_content(
             model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             contents=[_gt.Part.from_text(text=prompt)], config=cfg)
+        _ai_cost_resp("sns-brag", resp, os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
         t = str(_authjson.loads(resp.text).get("text") or "").strip()
         t = _engage_fix_link(t)
         if 40 <= len(t) <= 240 and "koczip.com" in t and not _engage_bad_comment(t):
@@ -22995,6 +23002,159 @@ def radar_mark(pid: int, action: str, body: dict | None = None,
 def radar_run(_admin: dict = Depends(admin_user)):
     """지금 한 번 수집한다. 오래 걸리므로 띄우고 바로 응답한다."""
     return _radar("/api/run", "POST", {})
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# AI 비용 — 호출 한 건마다 토큰을 적어 두고 원화로 환산해 보여준다
+#
+#   단가는 바뀐다. 그래서 계산한 달러값을 행에 함께 저장한다 —
+#   나중에 단가표를 고쳐도 과거 비용이 소급해 흔들리지 않는다.
+#   환율은 표시 시점 값을 쓴다(원화는 참고치이고 청구는 달러로 온다).
+# ══════════════════════════════════════════════════════════════════════════
+# 모델 → ($/1M 입력, $/1M 출력). 생각(thinking) 토큰은 출력으로 과금된다.
+_AI_PRICE = {
+    "gemini-3.6-flash":      (1.50, 7.50),
+    "gemini-3.5-flash":      (1.50, 9.00),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+    "gemini-2.5-flash":      (0.30, 2.50),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
+    "gemini-2.5-pro":        (1.25, 10.00),
+    # 별칭 — 호출부가 실제 모델을 못 실어 보낼 때를 위한 보험(현재 3.6-flash 로 해석된다)
+    "gemini-flash-latest":   (1.50, 7.50),
+}
+_AI_PRICE_DEFAULT = (1.50, 7.50)          # 모르는 모델은 가장 비싼 flash 로 본다(과소평가 방지)
+_USD_KRW = float(os.environ.get("USD_KRW", "1400"))
+
+
+def _ai_price(model: str) -> tuple[float, float]:
+    m = (model or "").strip().lower()
+    if m in _AI_PRICE:
+        return _AI_PRICE[m]
+    for k, v in _AI_PRICE.items():         # gemini-3.6-flash-001 같은 변형
+        if m.startswith(k):
+            return v
+    return _AI_PRICE_DEFAULT
+
+
+def _ai_cost_init(c) -> None:
+    c.execute("""CREATE TABLE IF NOT EXISTS ai_cost(
+        id     INTEGER PRIMARY KEY,
+        ts     TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+        day    TEXT NOT NULL,
+        feature TEXT NOT NULL,             -- ai-ask / cardnews / sns-radar / contract …
+        model  TEXT,
+        in_tokens INTEGER NOT NULL DEFAULT 0,
+        out_tokens INTEGER NOT NULL DEFAULT 0,
+        think_tokens INTEGER NOT NULL DEFAULT 0,
+        calls  INTEGER NOT NULL DEFAULT 1,
+        usd    REAL NOT NULL DEFAULT 0,
+        note   TEXT)""")
+    c.execute("CREATE INDEX IF NOT EXISTS ai_cost_day_idx ON ai_cost(day, feature)")
+
+
+def _ai_cost_log(feature: str, model: str, in_tok, out_tok, think_tok=0,
+                 calls: int = 1, note: str = "") -> None:
+    """AI 호출 한 건을 기록한다. 실패해도 본 기능을 막지 않는다."""
+    try:
+        i = int(in_tok or 0)
+        o = int(out_tok or 0)
+        t = int(think_tok or 0)
+        if not (i or o or t):
+            return
+        pin, pout = _ai_price(model)
+        usd = (i * pin + (o + t) * pout) / 1_000_000
+        with _logs_db() as c:
+            _ai_cost_init(c)
+            c.execute("INSERT INTO ai_cost(day,feature,model,in_tokens,out_tokens,"
+                      "think_tokens,calls,usd,note) VALUES("
+                      "date('now','+9 hours'),?,?,?,?,?,?,?,?)",
+                      (feature[:40], (model or "")[:60], i, o, t, int(calls or 1),
+                       round(usd, 8), (note or "")[:120]))
+            c.commit()
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+def _ai_cost_resp(feature: str, resp, model: str) -> None:
+    """google-genai 응답 객체에서 토큰을 뽑아 적는다."""
+    try:
+        um = getattr(resp, "usage_metadata", None)
+        if not um:
+            return
+        _ai_cost_log(feature, model,
+                     getattr(um, "prompt_token_count", 0),
+                     getattr(um, "candidates_token_count", 0),
+                     getattr(um, "thoughts_token_count", 0))
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+def _ai_cost_from_usage(feature: str, res: dict | None, model: str = "") -> None:
+    """run_agent 류가 돌려주는 usage 를 그대로 받아 적는다."""
+    u = ((res or {}).get("usage") or {}) if isinstance(res, dict) else {}
+    if not u:
+        return
+    _ai_cost_log(feature, model or (res or {}).get("model") or "",
+                 u.get("input_tokens"), u.get("output_tokens"), u.get("thinking_tokens"))
+
+
+class AiCostReport(BaseModel):
+    """다른 박스(nfind)의 AI 호출을 받아 적는다."""
+    key: str
+    feature: str
+    model: str = ""
+    in_tokens: int = 0
+    out_tokens: int = 0
+    think_tokens: int = 0
+    calls: int = 1
+    note: str = ""
+
+
+@app.post("/ai-cost/report")
+def ai_cost_report(body: AiCostReport):
+    _sns_require_worker(body.key)
+    _ai_cost_log(body.feature, body.model, body.in_tokens, body.out_tokens,
+                 body.think_tokens, body.calls, body.note)
+    return {"ok": True}
+
+
+@app.get("/admin/ai-cost")
+def admin_ai_cost(_admin: dict = Depends(admin_user), days: int = 30):
+    """기능별·일별 AI 비용. 달러로 적어 두고 표시할 때 원화로 환산한다."""
+    days = min(max(int(days), 1), 365)
+    with _logs_db() as c:
+        _ai_cost_init(c)
+        by_feature = c.execute(
+            "SELECT feature, COUNT(*) rows, SUM(calls) calls, SUM(in_tokens) i,"
+            " SUM(out_tokens+think_tokens) o, SUM(usd) usd FROM ai_cost"
+            " WHERE day >= date('now','+9 hours', ?) GROUP BY feature"
+            " ORDER BY usd DESC", (f"-{days} days",)).fetchall()
+        by_day = c.execute(
+            "SELECT day, SUM(calls) calls, SUM(usd) usd FROM ai_cost"
+            " WHERE day >= date('now','+9 hours', ?) GROUP BY day ORDER BY day", (f"-{days} days",)
+        ).fetchall()
+        by_model = c.execute(
+            "SELECT model, SUM(calls) calls, SUM(in_tokens) i, SUM(out_tokens+think_tokens) o,"
+            " SUM(usd) usd FROM ai_cost WHERE day >= date('now','+9 hours', ?)"
+            " GROUP BY model ORDER BY usd DESC", (f"-{days} days",)).fetchall()
+        today = c.execute("SELECT COALESCE(SUM(usd),0), COALESCE(SUM(calls),0) FROM ai_cost"
+                          " WHERE day = date('now','+9 hours')").fetchone()
+        month = c.execute("SELECT COALESCE(SUM(usd),0), COALESCE(SUM(calls),0) FROM ai_cost"
+                          " WHERE day >= date('now','+9 hours','start of month')").fetchone()
+        first = c.execute("SELECT MIN(day) FROM ai_cost").fetchone()
+    return {
+        "usd_krw": _USD_KRW,
+        "since": first[0] if first else None,
+        "today": {"usd": round(today[0], 6), "calls": today[1]},
+        "month": {"usd": round(month[0], 6), "calls": month[1]},
+        "by_feature": [{"feature": r[0], "calls": r[2], "in_tokens": r[3],
+                        "out_tokens": r[4], "usd": round(r[5], 6)} for r in by_feature],
+        "by_day": [{"day": r[0], "calls": r[1], "usd": round(r[2], 6)} for r in by_day],
+        "by_model": [{"model": r[0], "calls": r[1], "in_tokens": r[2],
+                      "out_tokens": r[3], "usd": round(r[4], 6)} for r in by_model],
+        "prices": [{"model": k, "in": v[0], "out": v[1]} for k, v in _AI_PRICE.items()],
+    }
 
 
 if __name__ == "__main__":

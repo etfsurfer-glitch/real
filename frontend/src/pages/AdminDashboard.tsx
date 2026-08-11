@@ -49,6 +49,7 @@ const TOOLS: { to: string; label: string; icon: typeof Users; desc: string;
   { to: "/admin/cardnews", label: "카드뉴스 생성", icon: ImageIcon, desc: "인스타용 신고가·급매·맞춤단지 카드 이미지" },
   { to: "/admin/cardnews-v2", label: "카드뉴스 v2", icon: ImageIcon, desc: "카드 하나를 골라 조건까지 정해 만든다(카피 AI)" },
   { to: "/admin/sns-radar", label: "SNS 분석", icon: RadarIcon, desc: "Threads 에서 반응이 빠르게 붙는 소재를 찾아 AI 로 분석" },
+  { to: "/admin/ai-cost", label: "AI 비용", icon: Coins, desc: "기능별 AI 사용량과 요금(원화 환산)" },
 ];
 
 export default function AdminDashboard() {

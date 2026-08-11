@@ -26,6 +26,8 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 MAX_IMG_BYTES = 3_000_000        # 이보다 크면 그림 없이 분석한다
 IMG_TEXT_LIMIT = 120             # 글이 이보다 짧으면 사진이 본체로 보고 함께 보낸다
+API = os.environ.get("KOCZIP_API", "https://api.koczip.com")
+WORKER_KEY = ""                  # .env 의 SNS_WORKER_KEY — 비용 보고에 쓴다
 
 CATEGORIES = ["풍자", "주접", "가십", "팩폭", "논쟁", "황당", "밈", "반전", "공감",
               "정보", "사건", "경험담"]
@@ -91,6 +93,24 @@ def fetch_image(url: str) -> tuple[str, str] | None:
         return None
 
 
+def report_cost(u: dict, model: str = "") -> None:
+    """토큰 사용량을 본서버로 보낸다(관리자 AI 비용 화면 집계용). 실패해도 무시한다."""
+    if not (API and WORKER_KEY and u):
+        return
+    try:
+        body = json.dumps({
+            "key": WORKER_KEY, "feature": "sns-radar", "model": model or MODEL,
+            "in_tokens": u.get("promptTokenCount", 0),
+            "out_tokens": u.get("candidatesTokenCount", 0),
+            "think_tokens": u.get("thoughtsTokenCount", 0),
+        }).encode()
+        req = urllib.request.Request(f"{API}/ai-cost/report", data=body,
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=8).read()
+    except Exception:                                       # noqa: BLE001
+        pass
+
+
 def gemini(text: str, key: str, image: tuple[str, str] | None = None) -> dict | None:
     parts: list[dict] = [{"text": PROMPT.format(
         text=text[:800] or "(글 없음 — 사진이 본체다)", cats=", ".join(CATEGORIES))}]
@@ -117,6 +137,8 @@ def gemini(text: str, key: str, image: tuple[str, str] | None = None) -> dict | 
         try:
             with urllib.request.urlopen(req, timeout=45) as r:
                 d = json.loads(r.read())
+            # 별칭(gemini-flash-latest)이 아니라 실제 해석된 모델을 적어야 단가가 맞는다
+            report_cost(d.get("usageMetadata") or {}, d.get("modelVersion") or "")
             raw = d["candidates"][0]["content"]["parts"][0]["text"]
             return json.loads(raw)
         except Exception as e:                              # noqa: BLE001
@@ -155,6 +177,12 @@ def main():
                     key = line.split("=", 1)[1].strip()
     if not key:
         raise SystemExit("GEMINI_API_KEY 가 없다")
+    global WORKER_KEY
+    env = BASE / ".env"
+    if env.exists():
+        for line in env.read_text(encoding="utf-8").splitlines():
+            if line.startswith("SNS_WORKER_KEY="):
+                WORKER_KEY = line.split("=", 1)[1].strip()
 
     c = db()
     rows = c.execute(
