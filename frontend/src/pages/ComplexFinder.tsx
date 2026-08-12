@@ -52,12 +52,20 @@ const normLines = (swl?: string | null): string[] =>
 type Preset = { label: string; min?: number; max?: number };
 type Dim = { key: string; label: string; presets: Preset[]; get: (r: Row, asset: string) => number | null | undefined; cap?: string };
 const DIMS: Dim[] = [
-  { key: "py10", label: "평형대", cap: "공급면적 기준 · 공급면적이 없는 평형은 전용면적으로 환산(아파트 78%, 오피스텔 50%)",
+  { key: "py10", label: "공급 평형", cap: "공급면적 기준 · 공급면적이 없는 평형은 전용면적으로 환산(아파트 78%, 오피스텔 50%)",
     presets: [
       { label: "10평대", min: 10, max: 20 }, { label: "20평대", min: 20, max: 30 },
       { label: "30평대", min: 30, max: 40 }, { label: "40평대", min: 40, max: 50 },
       { label: "50평대", min: 50, max: 60 }, { label: "60평 이상", min: 60 }],
     get: (r, asset) => supPyeong(r, asset) },
+  // 전용은 ㎡ 로 고른다 — 매물·실거래가 전용 ㎡ 로 표기돼 그쪽이 바로 읽힌다.
+  // 구간은 실제 주력 타입에 맞췄다(59·84·115가 국민평형 계열).
+  { key: "ea", label: "전용 ㎡", cap: "전용면적 기준 · 매물·실거래 표기와 같은 값",
+    presets: [
+      { label: "40㎡ 이하", max: 40 }, { label: "40~60㎡", min: 40, max: 60 },
+      { label: "60~85㎡", min: 60, max: 85 }, { label: "85~115㎡", min: 85, max: 115 },
+      { label: "115~135㎡", min: 115, max: 135 }, { label: "135㎡ 이상", min: 135 }],
+    get: (r) => r.ea ?? null },
   { key: "ask", label: "매매가",
     presets: [
       { label: "3억 이하", max: 3 }, { label: "3~5억", min: 3, max: 5 },
@@ -119,8 +127,8 @@ const SP_OPTS = [
   { k: "t", label: "세안고" },
   { k: "l", label: "주인대출" },
 ];
-const GROUPS: { id: string; label: string; dims: string[]; et?: boolean; lines?: boolean; askInput?: boolean; sp?: boolean }[] = [
-  { id: "py10", label: "평형대", dims: ["py10"] },
+const GROUPS: { id: string; label: string; dims: string[]; et?: boolean; lines?: boolean; askInput?: boolean; sp?: boolean; area?: boolean }[] = [
+  { id: "area", label: "면적", dims: [], area: true },
   { id: "ask", label: "매매가", dims: ["ask"], askInput: true },
   { id: "age", label: "입주년차", dims: ["age"] },
   { id: "hh", label: "세대수", dims: ["hh"] },
@@ -167,6 +175,12 @@ export default function ComplexFinder() {
   const [selEt, setSelEt] = useStickyState<string[]>("finder:et", []);
   const [selSp, setSelSp] = useStickyState<string[]>("finder:sp", []);
   const [selLine, setSelLine] = useStickyState<string[]>("finder:line", []);
+  // 면적은 공급(평)·전용(㎡) 두 기준으로 고른다. 탭·직접입력값은 각각 따로 기억한다.
+  const [areaTab, setAreaTab] = useStickyState<"py10" | "ea">("finder:areaTab", "py10");
+  const [pyMin, setPyMin] = useStickyState("finder:pyMin", "");
+  const [pyMax, setPyMax] = useStickyState("finder:pyMax", "");
+  const [eaMin, setEaMin] = useStickyState("finder:eaMin", "");
+  const [eaMax, setEaMax] = useStickyState("finder:eaMax", "");
   const [askMin, setAskMin] = useStickyState("finder:askMin", "");
   const [askMax, setAskMax] = useStickyState("finder:askMax", "");
   const [hlC, setHlC] = useState<string | null>(null);   // 지도에서 고른 단지 — 표 하이라이트
@@ -192,6 +206,11 @@ export default function ComplexFinder() {
       if (p.selSp) setSelSp(p.selSp);
       if (p.selLine) setSelLine(p.selLine);
       if (p.askMin != null) setAskMin(p.askMin);
+      if (p.pyMin != null) setPyMin(p.pyMin);
+      if (p.pyMax != null) setPyMax(p.pyMax);
+      if (p.eaMin != null) setEaMin(p.eaMin);
+      if (p.eaMax != null) setEaMax(p.eaMax);
+      if (p.areaTab) setAreaTab(p.areaTab);
       if (p.askMax != null) setAskMax(p.askMax);
       if (p.sortKey) setSortKey(p.sortKey);
       if (p.sortDir) setSortDir(p.sortDir);
@@ -216,7 +235,8 @@ export default function ComplexFinder() {
   }, []);
 
   const buildShareUrl = async (): Promise<string> => {
-    const json = JSON.stringify({ sido, sigungu, asset, sel, selEt, selSp, selLine, askMin, askMax, sortKey, sortDir });
+    const json = JSON.stringify({ sido, sigungu, asset, sel, selEt, selSp, selLine, askMin, askMax,
+                                  pyMin, pyMax, eaMin, eaMax, areaTab, sortKey, sortDir });
     const enc = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
     const base = `${window.location.origin}${window.location.pathname}`;
     try {
@@ -263,11 +283,15 @@ export default function ComplexFinder() {
     set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   };
   const resetAll = () => {
-    setSel({}); setSelEt([]); setSelLine([]); setAskMin(""); setAskMax(""); setLimit(300);
+    setSel({}); setSelEt([]); setSelLine([]); setAskMin(""); setAskMax("");
+    setPyMin(""); setPyMax(""); setEaMin(""); setEaMax(""); setLimit(300);
   };
   const askCustom = askMin.trim() !== "" || askMax.trim() !== "";
+  const pyCustom = pyMin.trim() !== "" || pyMax.trim() !== "";
+  const eaCustom = eaMin.trim() !== "" || eaMax.trim() !== "";
   const nActive = Object.values(sel).filter((v) => v.length).length
-    + (selEt.length ? 1 : 0) + (selSp.length ? 1 : 0) + (selLine.length ? 1 : 0) + (askCustom ? 1 : 0);
+    + (selEt.length ? 1 : 0) + (selSp.length ? 1 : 0) + (selLine.length ? 1 : 0) + (askCustom ? 1 : 0)
+    + (pyCustom ? 1 : 0) + (eaCustom ? 1 : 0);
 
   const lineOpts = useMemo(() => {
     const cnt = new Map<string, number>();
@@ -285,11 +309,18 @@ export default function ComplexFinder() {
 
   const rows = useMemo(() => {
     let rs = dataQ.data?.rows ?? [];
-    const cMn = askMin.trim() === "" ? null : Number(askMin);
-    const cMx = askMax.trim() === "" ? null : Number(askMax);
+    // 직접입력 범위 — 빈 칸은 '제한 없음'으로 본다
+    const num = (v: string) => (v.trim() === "" ? null : Number(v));
+    const RANGE: Record<string, [number | null, number | null] | undefined> = {
+      ask: askCustom ? [num(askMin), num(askMax)] : undefined,
+      py10: pyCustom ? [num(pyMin), num(pyMax)] : undefined,
+      ea: eaCustom ? [num(eaMin), num(eaMax)] : undefined,
+    };
     for (const dim of DIMS) {
       const picked = sel[dim.key] ?? [];
-      const custom = dim.key === "ask" && askCustom;
+      const rg = RANGE[dim.key];
+      const custom = !!rg;
+      const [cMn, cMx] = rg ?? [null, null];
       if (picked.length === 0 && !custom) continue;
       rs = rs.filter((r) => {
         const v = dim.get(r, asset);
@@ -312,7 +343,8 @@ export default function ComplexFinder() {
       if (vb == null) return -1;
       return (va < vb ? -1 : va > vb ? 1 : 0) * sortDir;
     });
-  }, [dataQ.data, sel, selEt, selSp, selLine, sortKey, sortDir, asset, askMin, askMax, askCustom]);
+  }, [dataQ.data, sel, selEt, selSp, selLine, sortKey, sortDir, asset, askMin, askMax, askCustom,
+      pyMin, pyMax, pyCustom, eaMin, eaMax, eaCustom]);
 
   // 지도 마커 클릭 → 표에서 그 단지 위치로 스크롤 + 반짝 하이라이트
   const pickFromMap = (cno: string) => {
@@ -373,6 +405,12 @@ export default function ComplexFinder() {
             ...(g.et ? selEt : []),
             ...(g.lines ? selLine : []),
             ...(g.askInput && askCustom ? [`${askMin || ""}~${askMax || ""}억`] : []),
+            ...(g.area ? [
+              ...(sel.py10 ?? []).map((i) => dimOf("py10").presets[i].label),
+              ...(sel.ea ?? []).map((i) => dimOf("ea").presets[i].label),
+              ...(pyCustom ? [`${pyMin || ""}~${pyMax || ""}평`] : []),
+              ...(eaCustom ? [`${eaMin || ""}~${eaMax || ""}㎡`] : []),
+            ] : []),
           ];
           const on = picked.length > 0;
           const label = on ? `${g.label} · ${picked.length === 1 ? picked[0] : `${picked.length}`}` : g.label;
@@ -403,6 +441,60 @@ export default function ComplexFinder() {
                       </div>
                     );
                   })}
+                  {g.area && (() => {
+                    const dim = dimOf(areaTab);
+                    const isPy = areaTab === "py10";
+                    const mn = isPy ? pyMin : eaMin;
+                    const mx = isPy ? pyMax : eaMax;
+                    const setMn = isPy ? setPyMin : setEaMin;
+                    const setMx = isPy ? setPyMax : setEaMax;
+                    const cur = isPy ? pyCustom : eaCustom;
+                    return (
+                      <div className="cf-fpop-sec">
+                        {/* 공급·전용은 부르는 단위가 달라(평 vs ㎡) 탭으로 갈랐다 */}
+                        <div className="cf-areatab">
+                          {([["py10", "공급 평형"], ["ea", "전용 ㎡"]] as const).map(([k, lb]) => (
+                            <button key={k} type="button" className={areaTab === k ? "on" : ""}
+                              onClick={() => setAreaTab(k)}>
+                              {lb}
+                              {(sel[k] ?? []).length + ((k === "py10" ? pyCustom : eaCustom) ? 1 : 0) > 0 && (
+                                <i>{(sel[k] ?? []).length + ((k === "py10" ? pyCustom : eaCustom) ? 1 : 0)}</i>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="cf-fchips" style={{ marginTop: 10 }}>
+                          {dim.presets.map((pp, i) => (
+                            <button key={pp.label} type="button"
+                              className={(sel[areaTab] ?? []).includes(i) ? "on" : ""}
+                              onClick={() => togglePreset(areaTab, i)}>
+                              {pp.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="cf-fpop-t" style={{ marginTop: 12 }}>
+                          직접 입력 ({isPy ? "평" : "㎡"})
+                        </div>
+                        <div className="cf-askrow">
+                          <input type="number" inputMode="decimal" placeholder="최소" value={mn}
+                            onChange={(e) => { setMn(e.target.value); setLimit(300); }} />
+                          <span>~</span>
+                          <input type="number" inputMode="decimal" placeholder="최대" value={mx}
+                            onChange={(e) => { setMx(e.target.value); setLimit(300); }} />
+                          {cur && (
+                            <button type="button" className="cf-askclr"
+                              onClick={() => { setMn(""); setMx(""); }}>지움</button>
+                          )}
+                        </div>
+                        <div className="cf-fcap">
+                          {isPy
+                            ? "공급면적이 없는 평형은 전용면적으로 환산(아파트 78%, 오피스텔 50%)"
+                            : "전용면적 기준 · 매물·실거래 표기와 같은 값"}
+                          {" · 버튼과 직접입력을 함께 쓰면 어느 한쪽만 맞아도 포함돼요"}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {g.askInput && (
                     <div className="cf-fpop-sec">
                       <div className="cf-fpop-t">직접 입력 (억)</div>
@@ -570,6 +662,16 @@ export default function ComplexFinder() {
         .cf-fchips button:hover{border-color:#1268d3;color:#1268d3}
         .cf-fchips button.on{background:#1268d3;border-color:#1268d3;color:#fff;font-weight:700}
         .cf-fcap{font-size:10.5px;color:#8fa0b8;margin-top:6px}
+        /* 공급/전용 탭 — 부르는 단위가 달라(평 vs ㎡) 한 화면에 섞으면 헷갈린다 */
+        .cf-areatab{display:flex;gap:5px;padding:4px;background:#f1f4f8;border-radius:10px}
+        .cf-areatab button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+          border:none;background:none;border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;
+          font-weight:800;color:#64748b;cursor:pointer;transition:background .15s ease,color .15s ease}
+        .cf-areatab button:hover{color:#334155}
+        .cf-areatab button.on{background:#fff;color:#1268d3;box-shadow:0 1px 3px rgba(20,40,80,.12)}
+        .cf-areatab button i{font-style:normal;min-width:17px;height:17px;display:inline-flex;
+          align-items:center;justify-content:center;border-radius:9px;background:#1268d3;color:#fff;
+          font-size:10.5px;font-weight:800}
         .cf-askrow{display:flex;align-items:center;gap:6px}
         .cf-askrow input{width:78px;padding:5px 8px;border:1px solid #d9e2ef;border-radius:7px;font-size:13px}
         .cf-askclr{border:1px solid #d9e2ef;background:#fff;border-radius:7px;padding:5px 9px;font-size:11.5px;color:#66748a;cursor:pointer}
