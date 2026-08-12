@@ -66,6 +66,8 @@ hook 첫 문장이 끄는 힘 / realestate_relevance 부동산으로 연결 가�
 categories 는 해당하는 것만 고른다(복수 가능): {cats}
 
 광고·홍보·판매글은 모든 점수를 낮게.
+정당·정치인·선거·탄핵 등 정치 이야기면 모든 점수를 0 으로 준다
+(부동산 정책 자체를 다루는 글은 정치가 아니다).
 """
 
 
@@ -149,6 +151,42 @@ def gemini(text: str, key: str, image: tuple[str, str] | None = None) -> dict | 
     return None
 
 
+# ── 정치 글 제외 ─────────────────────────────────────────────────────────
+# 정당·정치인·선거 이야기는 콕집 소재가 아니고, 잘못 인용하면 브랜드가 다친다.
+# 다만 '부동산 정책'은 우리 본업이라 살려야 한다 — 정책 낱말만으로는 자르지 않고,
+# 정치 낱말이 있을 때 그 글을 버린다.
+# 낱말만으로 자르면 어미·지명에 걸린다(실측). 두 벌로 나눈다.
+#   HARD  — 이 낱말이 있으면 정치로 본다
+#   REGEX — 어미에 얹히는 낱말은 앞뒤 경계를 봐야 한다
+POLITICS = (
+    # 정당·진영
+    "국민의힘", "더불어민주당", "민주당", "조국혁신당", "정의당", "개혁신당", "진보당",
+    "여당", "야당", "좌파", "우파", "보수정권", "진보정권", "친문", "친윤", "친명",
+    # 정치 행위·기관
+    "대통령", "대선", "총선", "지방선거", "국회의원", "탄핵", "특검",
+    "내란", "청문회", "국정감사", "국정조사", "개헌", "정계", "정치권", "표심",
+    "지지율", "여론조사", "공천", "청와대", "영부인", "구청장", "시장 후보",
+    # ⚠ 부동산 문맥에서 흔해 뺀 낱말(실측 오탐):
+    #   후보 "세입자 후보"   용산·송파 등 자치구명   장관 "국토부 장관"
+    #   정당 "정당한 사유"   국회 "국회의사당역"     계엄 — 일상 비유로도 쓰임
+)
+# '여야'는 "자유여야 한다", "먹여야 되서" 처럼 어미에 얹힌다 — 낱말 경계를 본다.
+# '정권'은 "이재명 정권"처럼 앞에 사람·정당이 붙을 때만 정치다.
+import re as _re
+POLITICS_RE = (
+    _re.compile(r"(?:^|[\s\W])여야(?:가|는|의|와|도|에|를|$|[\s\W])"),
+    _re.compile(r"(?:정권\s*(?:교체|퇴진|심판)|[가-힣]{2,3}\s*정권)"),
+)
+
+
+def is_politics(text: str) -> bool:
+    """정치 글이면 True. 부동산 정책 이야기는 통과시킨다."""
+    t = (text or "")
+    if any(w in t for w in POLITICS):
+        return True
+    return any(r.search(t) for r in POLITICS_RE)
+
+
 def worth_analyzing(like, reply, repost, quote, age_min) -> bool:
     """1차 필터 — 경과 시간을 감안해 '반응이 붙고 있는가'로 본다."""
     eng = like + reply * 4 + repost * 7 + quote * 6
@@ -190,6 +228,16 @@ def main():
         "       age_min, engagement, time_weight, velocity, image_url, has_video"
         "  FROM posts WHERE analyzed_at IS NULL AND excluded=0"
         "  ORDER BY engagement DESC, first_seen_at DESC LIMIT ?", (a.limit * 4,)).fetchall()
+
+    # 정치 글은 분석하지 않는다. 지우지 않고 excluded 로 표시해 다음 회차에도 안 걸리게 한다
+    # (AI 에 보내기 전에 걸러야 토큰도 아낀다).
+    pol = [r for r in rows if is_politics(r[2])]
+    if pol:
+        c.executemany("UPDATE posts SET excluded=1, analyzed_at=datetime('now','+9 hours'),"
+                      " ai_score=0, categories='정치제외' WHERE id=?", [(r[0],) for r in pol])
+        c.commit()
+        log(f"정치 글 {len(pol)}건 제외")
+    rows = [r for r in rows if not is_politics(r[2])]
 
     todo = [r for r in rows if worth_analyzing(r[3], r[4], r[5], r[6], r[7])][:a.limit]
     log(f"미분석 {len(rows)}건 중 1차 통과 {len(todo)}건")

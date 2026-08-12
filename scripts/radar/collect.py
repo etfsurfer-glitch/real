@@ -165,11 +165,22 @@ def scores(like, reply, repost, quote, age_min):
     return eng, velocity, eng * time_weight + velocity * 0.5
 
 
+# 정치 판정은 analyze.py 한 곳에만 둔다(규칙이 두 벌이면 반드시 어긋난다).
+try:
+    from analyze import is_politics
+except Exception:                                           # noqa: BLE001
+    def is_politics(_t):                                    # 분석기를 못 읽으면 거르지 않는다
+        return False
+
+
 def to_post(it: dict, kw: str) -> dict | None:
     """카드 하나 → 저장 형태. 못 쓰는 카드면 None."""
     href = (it.get("href") or "").strip()
     au = (it.get("author") or "").strip()
     if not href or not au or au == ME:
+        return None
+    txt = clean_text(it.get("text"), au, it.get("time_txt", ""))
+    if is_politics(txt):            # 정치 글은 담지도 않는다 — 저장·AI 토큰 모두 아낀다
         return None
     am = age_minutes(it.get("time_attr", ""), it.get("time_txt", ""))
     like, reply = to_num(it.get("like")), to_num(it.get("reply"))
@@ -178,7 +189,7 @@ def to_post(it: dict, kw: str) -> dict | None:
     return {
         "post_key": href.split("?")[0],
         "author": au,
-        "text": clean_text(it.get("text"), au, it.get("time_txt", "")),
+        "text": txt,
         "url": "https://www.threads.com" + href.split("?")[0],
         "like": like, "reply": reply, "repost": repost, "quote": quote,
         "age_min": am, "engagement": eng, "velocity": vel,
