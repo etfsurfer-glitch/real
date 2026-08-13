@@ -104,7 +104,8 @@ def band(p):
 
 
 def blank():
-    return {"n": 0, "dn": 0, "up": 0, "flat": 0, "chg": [], "base": []}
+    return {"n": 0, "dn": 0, "up": 0, "flat": 0, "chg": [], "base": [],
+            "dn_amt": [], "dn_pct": [], "up_amt": [], "up_pct": []}
 
 
 def feed(acc, p0, p1):
@@ -113,8 +114,12 @@ def feed(acc, p0, p1):
     a["base"].append(p0)
     if p1 < p0:
         a["dn"] += 1
+        a["dn_amt"].append(p0 - p1)
+        a["dn_pct"].append((p0 - p1) / p0 * 100)
     elif p1 > p0:
         a["up"] += 1
+        a["up_amt"].append(p1 - p0)
+        a["up_pct"].append((p1 - p0) / p0 * 100)
     else:
         a["flat"] += 1
         return
@@ -170,6 +175,13 @@ def stat(a):
         "전체_평균변동률": round(sum(allch) / len(allch), 2),
         "고친것만_중앙변동률": md,
         "기준_중앙호가_억": round(st.median(a["base"]) / 1e8, 2),
+        # 값을 내린 집만 놓고 '얼마를 깎았나' — 퍼센트보다 그림이 그려진다
+        "인하폭_중앙_만원": round(st.median(a["dn_amt"]) / 1e4) if a["dn_amt"] else None,
+        "인하폭_중앙_률": round(st.median(a["dn_pct"]), 1) if a["dn_pct"] else None,
+        "인상폭_중앙_만원": round(st.median(a["up_amt"]) / 1e4) if a["up_amt"] else None,
+        "인상폭_중앙_률": round(st.median(a["up_pct"]), 1) if a["up_pct"] else None,
+        # 내린 집이 올린 집보다 몇 배 많나
+        "인하대인상_배": round(a["dn"] / a["up"], 2) if a["up"] else None,
     }
 
 
@@ -192,7 +204,9 @@ def write(fn, keyname, group, order=None, minn=0):
             vals[lab] = s
             if s is None:
                 continue
-            for f in ("물건수", "인하비율", "인상비율", "전체_평균변동률"):
+            for f in ("물건수", "인하비율", "인상비율", "전체_평균변동률",
+                      "인하폭_중앙_만원", "인하폭_중앙_률", "인상폭_중앙_만원",
+                      "인상폭_중앙_률", "인하대인상_배"):
                 row[f"{lab}_{f}"] = s[f]
         b, c, d = vals[PANELS[1][0]], vals[PANELS[2][0]], vals[PANELS[0][0]]
         if b and c:
