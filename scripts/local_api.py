@@ -20,6 +20,7 @@ import sqlite3
 import threading as _threading
 import sys
 import hashlib as _hashlib
+import hmac as _hmac
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23155,6 +23156,134 @@ def admin_ai_cost(_admin: dict = Depends(admin_user), days: int = 30):
                       "out_tokens": r[3], "usd": round(r[4], 6)} for r in by_model],
         "prices": [{"model": k, "in": v[0], "out": v[1]} for k, v in _AI_PRICE.items()],
     }
+
+
+# ── 메모리 진단 ─────────────────────────────────────────────────────────
+# API 프로세스가 몇 시간 만에 5GB 까지 부푸는 원인을 잡기 위한 도구(2026-08-13).
+# 14:03 커널 OOM 이 매물수집을 죽인 근인이 이 누적이었다.
+#
+# 상시 켜 두지 않는다 — tracemalloc 은 켠 시점 **이후**의 할당만 기록하고 CPU·메모리를
+# 조금 쓴다. 켜 두고 한두 시간 지난 뒤 /admin/memdiag/top 을 보면 그 사이 무엇이
+# 자랐는지 파일·줄 단위로 나온다. 다 보고 나면 반드시 off 로 끈다.
+_memdiag: dict = {"snap": None, "started_at": None}
+
+
+def memdiag_auth(x_diag_key: str | None = Header(default=None),
+                 authorization: str | None = Header(default=None)) -> dict:
+    """관리자 로그인 **또는** 서버에만 있는 진단 키.
+
+    누수 추적은 박스에서 바로 불러야 쓸모가 있는데 관리자 토큰은 브라우저에만 있다.
+    키는 systemd 드롭인(root 만 읽음)에 두고 프런트 번들엔 넣지 않는다.
+    KOCZIP_DIAG_KEY 가 비어 있으면 키 경로 자체가 닫힌다.
+    """
+    key = os.environ.get("KOCZIP_DIAG_KEY") or ""
+    if key and x_diag_key and _hmac.compare_digest(x_diag_key, key):
+        return {"via": "diag_key", "is_admin": True}
+    return admin_user(current_user(authorization))
+
+
+def _proc_mem() -> dict:
+    """이 프로세스의 실제 메모리(MB). cgroup 통계는 페이지캐시가 섞여 헷갈린다."""
+    out: dict = {}
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                k, _, v = line.partition(":")
+                if k in ("VmRSS", "VmSwap", "VmSize"):
+                    out[k] = int(v.split()[0]) // 1024
+    except OSError:
+        pass
+    return out
+
+
+@app.get("/admin/memdiag")
+def admin_memdiag(_who: dict = Depends(memdiag_auth)):
+    """지금 이 프로세스가 무엇을 붙들고 있나 — 켜 두지 않아도 바로 볼 수 있는 것들."""
+    import gc
+
+    big, lru = [], []
+    for name, obj in list(globals().items()):
+        if name.startswith("__"):
+            continue
+        if isinstance(obj, (dict, list, set)) and len(obj) > 100:
+            big.append({"name": name, "len": len(obj), "type": type(obj).__name__})
+        ci = getattr(obj, "cache_info", None)
+        if callable(ci):
+            try:
+                i = ci()
+                lru.append({"name": name, "size": i.currsize, "max": i.maxsize,
+                            "hits": i.hits, "misses": i.misses})
+            except Exception:
+                pass
+    big.sort(key=lambda r: -r["len"])
+    return {
+        "mem_mb": _proc_mem(),
+        "gc_counts": gc.get_count(),      # 객체 총수는 비싸다 — /admin/memdiag/types 에서만
+        "big_globals": big[:30],
+        "lru_caches": lru,
+        "tracemalloc": {"on": _memdiag["started_at"] is not None,
+                        "since": _memdiag["started_at"]},
+    }
+
+
+@app.post("/admin/memdiag/trace")
+def admin_memdiag_trace(_who: dict = Depends(memdiag_auth), on: int = 1):
+    """tracemalloc 을 켜고 기준 스냅샷을 잡는다. frames=1 — 호출 스택은 안 쌓고
+    '할당한 줄'만 본다(오버헤드를 줄이려는 것). 끌 때는 on=0."""
+    import tracemalloc
+
+    if not on:
+        if tracemalloc.is_tracing():
+            tracemalloc.stop()
+        _memdiag["snap"] = None
+        _memdiag["started_at"] = None
+        return {"on": False}
+    if not tracemalloc.is_tracing():
+        tracemalloc.start(1)
+    _memdiag["snap"] = tracemalloc.take_snapshot()
+    _memdiag["started_at"] = _time.strftime("%Y-%m-%d %H:%M:%S")
+    return {"on": True, "started_at": _memdiag["started_at"], "mem_mb": _proc_mem()}
+
+
+@app.get("/admin/memdiag/top")
+def admin_memdiag_top(_who: dict = Depends(memdiag_auth), n: int = 25, rebase: int = 0):
+    """기준 스냅샷 이후 **늘어난** 할당을 큰 순으로. rebase=1 이면 지금을 새 기준으로 삼는다."""
+    import tracemalloc
+
+    if not tracemalloc.is_tracing():
+        raise HTTPException(400, "tracemalloc 이 꺼져 있다 — POST /admin/memdiag/trace 로 먼저 켤 것")
+    cur = tracemalloc.take_snapshot()
+    base = _memdiag["snap"]
+    stats = cur.compare_to(base, "lineno") if base else cur.statistics("lineno")
+    n = min(max(int(n), 1), 100)
+    rows = []
+    for s in stats[:n]:
+        fr = s.traceback[0] if s.traceback else None
+        rows.append({
+            "where": f"{fr.filename.split('/')[-1]}:{fr.lineno}" if fr else "?",
+            "size_mb": round(getattr(s, "size_diff", s.size) / 1048576, 2),
+            "count": getattr(s, "count_diff", s.count),
+        })
+    if rebase:
+        _memdiag["snap"] = cur
+    tot = sum(s.size for s in cur.statistics("filename"))
+    return {"mem_mb": _proc_mem(), "traced_mb": round(tot / 1048576, 1),
+            "since": _memdiag["started_at"], "top": rows}
+
+
+@app.get("/admin/memdiag/types")
+def admin_memdiag_types(_who: dict = Depends(memdiag_auth), n: int = 25):
+    """살아 있는 객체를 타입별로 센다. gc.get_objects() 가 힙 크기에 비례해 무겁다
+    (5GB 힙이면 수 초 + 수십 MB). 자주 부르지 말 것."""
+    import gc
+    from collections import Counter
+
+    c: "Counter[str]" = Counter()
+    for o in gc.get_objects():
+        c[type(o).__name__] += 1
+    n = min(max(int(n), 1), 100)
+    return {"mem_mb": _proc_mem(), "total_objects": sum(c.values()),
+            "by_type": [{"type": k, "count": v} for k, v in c.most_common(n)]}
 
 
 if __name__ == "__main__":
