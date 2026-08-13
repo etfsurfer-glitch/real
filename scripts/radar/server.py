@@ -21,6 +21,9 @@ BASE = Path("/opt/koczip-radar")
 DB = BASE / "radar.sqlite"
 PORT = 4310
 
+# 서비스 유닛의 --limit 과 맞춰 둔다(화면 예상시간 계산에 쓴다)
+ANALYZE_LIMIT = 50
+
 FIELDS = ("id, post_key, author, text, url, like_count, reply_count, repost_count,"
           " quote_count, age_min, keyword, keywords_all, engagement, velocity,"
           " analyzed_at, humor, satire, gossip, controversy, surprise, empathy, hook,"
@@ -98,9 +101,24 @@ class H(BaseHTTPRequestHandler):
                     for t in (r["categories"] or "").split(","):
                         if t:
                             cnt[t] = cnt.get(t, 0) + 1
+                # 진행 안내 — 화면이 '지금 어느 단계이고 얼마나 남았는지'를 말할 수 있게
+                # 필요한 재료를 함께 준다. 예상 시간은 실측 기준이다(아래 상수 주석).
+                lr = dict(last) if last else None
+                running = bool(lr and not lr.get("ended_at"))
+                elapsed = None
+                if running:
+                    with db() as c2:
+                        elapsed = c2.execute(
+                            "SELECT CAST((julianday('now','+9 hours')"
+                            " - julianday(?)) * 86400 AS INT)", (lr["started_at"],)).fetchone()[0]
                 return self._send(200, {
                     "stats": dict(s) if s else {},
-                    "last_run": dict(last) if last else None,
+                    "last_run": lr,
+                    "running": running,
+                    "elapsed_sec": elapsed,
+                    # 실측(2026-08-13, 3회 평균): 수집 223초(키워드 10 + 피드),
+                    # 분석 건당 3.3초. 상한 50 이면 총 6~7분.
+                    "eta": {"collect_sec": 225, "per_post_sec": 3.4, "limit": ANALYZE_LIMIT},
                     "categories": sorted(cnt.items(), key=lambda x: -x[1]),
                 })
 

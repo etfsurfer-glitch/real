@@ -53,6 +53,9 @@ type Post = {
 type Stats = {
   stats: { total?: number; day?: number; analyzed?: number; saved?: number };
   last_run: { started_at?: string; ended_at?: string; found?: number; fresh?: number; error?: string } | null;
+  running?: boolean;
+  elapsed_sec?: number | null;
+  eta?: { collect_sec: number; per_post_sec: number; limit: number };
   categories: [string, number][];
 };
 type Keyword = {
@@ -174,10 +177,10 @@ export default function SnsRadar() {
             return;
           }
         } catch { /* 일시 오류는 무시하고 다음 확인을 기다린다 */ }
-        if (tries < 45) setTimeout(poll, 20000);   // 최대 15분
+        if (tries < 60) setTimeout(poll, tries < 3 ? 4000 : 20000);   // 최대 ~20분
         else { setRunning(false); load(); }
       };
-      setTimeout(poll, 20000);
+      setTimeout(poll, 3000);   // 첫 확인은 빨리 — 진행 막대가 바로 떠야 한다
     } catch (e) {
       setErr(String(e));
       setRunning(false);
@@ -195,6 +198,28 @@ export default function SnsRadar() {
   };
 
   const lastRun = stats?.last_run;
+
+  // 진행 안내 — 수집(고정 ~225초) → 분석(건당 ~3.4초 × 상한)의 2단계다.
+  // 실측값은 서버가 내려준다(eta). 남은 시간은 넉넉하게 올림해 말한다.
+  const prog = useMemo(() => {
+    if (!stats?.running) return null;
+    const e = stats.eta ?? { collect_sec: 225, per_post_sec: 3.4, limit: 50 };
+    const el = stats.elapsed_sec ?? 0;
+    const total = e.collect_sec + e.per_post_sec * e.limit;
+    const inCollect = el < e.collect_sec;
+    const left = Math.max(0, total - el);
+    const mm = Math.floor(left / 60);
+    const ss = Math.round(left % 60);
+    return {
+      step: inCollect ? "Threads 수집 중" : "AI 분석 중",
+      sub: inCollect
+        ? "키워드 10개와 홈 피드를 훑는다"
+        : `반응이 빠른 글 ${e.limit}건을 분석한다`,
+      pct: Math.min(99, Math.round((el / total) * 100)),
+      leftText: left > 60 ? `약 ${mm}분 ${ss > 30 ? "30초" : ""} 남음`.trim() : `약 ${ss}초 남음`,
+      elapsedText: `${Math.floor(el / 60)}분 ${el % 60}초 지남`,
+    };
+  }, [stats]);
   const topCats = useMemo(() => (stats?.categories ?? []).slice(0, 8), [stats]);
 
   return (
@@ -210,7 +235,8 @@ export default function SnsRadar() {
       <p className="rd-lead">
         Threads 를 키워드로 훑고 <b>홈 피드까지 같이 긁어</b> 반응이 빠르게 붙는 글을 찾는다.
         좋아요 총량이 아니라 올라온 지 얼마 만에 얼마나 붙었는지로 줄을 세운다.
-        수집은 <b>지금 수집</b>을 누를 때만 돈다(자동 수집 없음). 한 번에 5분 안팎 걸린다.
+        수집은 <b>지금 수집</b>을 누를 때만 돈다(자동 수집 없음).
+        수집 4분 + 분석 3분, 한 번에 7분 안팎 걸린다.
       </p>
 
       {err && <div className="rd-err"><AlertCircle size={15} strokeWidth={2.3} /><span>{err}</span></div>}
@@ -226,11 +252,26 @@ export default function SnsRadar() {
             : <em>마지막 수집 {lastRun?.ended_at?.slice(5, 16) ?? "-"} · 새 글 {lastRun?.fresh ?? 0}건 · 수동 실행</em>}
           <button onClick={runNow} disabled={running}>
             {running ? <Loader2 size={13} className="rd-spin" /> : <Zap size={13} strokeWidth={2.4} />}
-            {running ? "수집 중…" : "지금 수집"}
+            {running ? "수집 중…" : "지금 수집 (약 7분)"}
           </button>
           <button onClick={load}><RefreshCw size={13} strokeWidth={2.4} /> 새로고침</button>
         </div>
       </div>
+
+      {prog && (
+        <div className="rd-prog">
+          <div className="rd-prog-h">
+            <Loader2 size={14} className="rd-spin" />
+            <b>{prog.step}</b>
+            <span>{prog.sub}</span>
+            <em>{prog.leftText}</em>
+          </div>
+          <div className="rd-prog-bar"><i style={{ width: `${prog.pct}%` }} /></div>
+          <div className="rd-prog-f">
+            {prog.elapsedText} · 이 창을 닫아도 수집은 계속된다
+          </div>
+        </div>
+      )}
 
       {/* ── 필터 ─────────────────────────────────────────────────────── */}
       <div className="rd-bar">
@@ -429,6 +470,19 @@ const css = `
 @keyframes rdspin{to{transform:rotate(360deg)}}
 
 /* 필터 */
+/* 진행 안내 — 자동 수집이 없으니 지금 어느 단계인지 보여야 한다 */
+.rd-prog{margin:0 0 14px;padding:13px 16px;border:1px solid #b9d0ee;background:var(--c-primary-tint);
+  border-radius:var(--r-md)}
+.rd-prog-h{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:13px}
+.rd-prog-h b{font-weight:800;color:var(--c-text)}
+.rd-prog-h span{color:var(--c-muted);font-size:12px}
+.rd-prog-h em{margin-left:auto;font-style:normal;font-weight:800;color:var(--c-primary);
+  font-variant-numeric:tabular-nums}
+.rd-prog-bar{height:6px;margin-top:10px;border-radius:3px;background:#dbe7f8;overflow:hidden}
+.rd-prog-bar i{display:block;height:100%;border-radius:3px;background:var(--c-primary);
+  transition:width .8s linear}
+.rd-prog-f{margin-top:7px;font-size:11.5px;color:var(--c-faint)}
+
 .rd-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .rd-seg{display:inline-flex;border:1px solid #cdd9ea;border-radius:9px;overflow:hidden}
 .rd-seg button{border:none;background:#fff;padding:7px 13px;font:inherit;font-size:12.5px;
