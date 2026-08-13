@@ -153,11 +153,31 @@ export default function SnsRadar() {
 
   const runNow = async () => {
     setRunning(true);
+    setErr("");
     try {
       await api("/admin/sns-radar/run", { method: "POST" });
-      // 수집은 몇 분 걸린다 — 주기적으로 현황만 다시 읽는다
-      setTimeout(load, 60000);
-      setTimeout(() => setRunning(false), 60000);
+      // 수집은 5분 안팎 걸린다. 자동 수집을 껐으니 진행이 보여야 한다 —
+      // 마지막 실행 기록(started_at)이 바뀌고 끝날 때까지 20초마다 현황을 다시 읽는다.
+      const began = stats?.last_run?.started_at ?? "";
+      let tries = 0;
+      const poll = async () => {
+        tries += 1;
+        try {
+          const s = await api("/admin/sns-radar/stats");
+          setStats(s);
+          const lr = s.last_run;
+          // 새 실행이 시작됐고(started_at 이 바뀜) 끝났으면(ended_at 이 있음) 완료
+          if (lr?.started_at && lr.started_at !== began && lr.ended_at) {
+            await load();
+            setRunning(false);
+            if (lr.error) setErr(`수집 실패: ${lr.error}`);
+            return;
+          }
+        } catch { /* 일시 오류는 무시하고 다음 확인을 기다린다 */ }
+        if (tries < 45) setTimeout(poll, 20000);   // 최대 15분
+        else { setRunning(false); load(); }
+      };
+      setTimeout(poll, 20000);
     } catch (e) {
       setErr(String(e));
       setRunning(false);
@@ -190,7 +210,7 @@ export default function SnsRadar() {
       <p className="rd-lead">
         Threads 를 키워드로 훑고 <b>홈 피드까지 같이 긁어</b> 반응이 빠르게 붙는 글을 찾는다.
         좋아요 총량이 아니라 올라온 지 얼마 만에 얼마나 붙었는지로 줄을 세운다.
-        자동 수집은 3시간마다, 급하면 <b>지금 수집</b>을 누른다.
+        수집은 <b>지금 수집</b>을 누를 때만 돈다(자동 수집 없음). 한 번에 5분 안팎 걸린다.
       </p>
 
       {err && <div className="rd-err"><AlertCircle size={15} strokeWidth={2.3} /><span>{err}</span></div>}
@@ -203,7 +223,7 @@ export default function SnsRadar() {
         <div className="rd-stat-run">
           {lastRun?.error
             ? <em className="bad">마지막 수집 실패 — {lastRun.error.slice(0, 60)}</em>
-            : <em>마지막 수집 {lastRun?.ended_at?.slice(5, 16) ?? "-"} · 새 글 {lastRun?.fresh ?? 0}건 · 자동 3시간</em>}
+            : <em>마지막 수집 {lastRun?.ended_at?.slice(5, 16) ?? "-"} · 새 글 {lastRun?.fresh ?? 0}건 · 수동 실행</em>}
           <button onClick={runNow} disabled={running}>
             {running ? <Loader2 size={13} className="rd-spin" /> : <Zap size={13} strokeWidth={2.4} />}
             {running ? "수집 중…" : "지금 수집"}
