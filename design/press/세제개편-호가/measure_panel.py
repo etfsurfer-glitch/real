@@ -204,7 +204,8 @@ def write(fn, keyname, group, order=None, minn=0):
             vals[lab] = s
             if s is None:
                 continue
-            for f in ("물건수", "인하비율", "인상비율", "전체_평균변동률",
+            for f in ("물건수", "인하물건", "인상물건", "무변동",
+                      "인하비율", "인상비율", "전체_평균변동률",
                       "인하폭_중앙_만원", "인하폭_중앙_률", "인상폭_중앙_만원",
                       "인상폭_중앙_률", "인하대인상_배"):
                 row[f"{lab}_{f}"] = s[f]
