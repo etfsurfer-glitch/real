@@ -130,3 +130,20 @@ print("\n■ 요약 — 발표 후 인상률(발표전 대비)")
 for r in t2:
     print(f"  {r['가격대']:<9} {r['발표전_인상률']:>5}% → {r['발표후_인상률']:>5}%"
           f"  ({r['발표전후_변화p']:+.1f}p)  [대조군 {r['대조군_인상률']}%]")
+
+# ── 권역별(부동산 기사 표준 묶음) ────────────────────────────────────────
+ZONE = {"강남구": "강남3구", "서초구": "강남3구", "송파구": "강남3구",
+        "마포구": "마용성", "용산구": "마용성", "성동구": "마용성",
+        "노원구": "노도강", "도봉구": "노도강", "강북구": "노도강",
+        "양천구": "양천·강서", "강서구": "양천·강서"}
+agg_zone = defaultdict(blank)
+for r in rows:
+    w = win(r["event_date"])
+    if not w or r["sido"] != "11":
+        continue
+    k = "up" if r["new_price"] > r["old_price"] else "dn" if r["new_price"] < r["old_price"] else None
+    if not k:
+        continue
+    agg_zone[ZONE.get(r["gu"] or "", "그 외 서울")][w][k] += 1
+write("press_tax_zone.csv", "권역", agg_zone,
+      order=["강남3구", "마용성", "양천·강서", "노도강", "그 외 서울"])
