@@ -26,6 +26,13 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 MAX_IMG_BYTES = 3_000_000        # 이보다 크면 그림 없이 분석한다
 IMG_TEXT_LIMIT = 120             # 글이 이보다 짧으면 사진이 본체로 보고 함께 보낸다
+MAX_AGE_MIN = 1440               # 하루 넘은 글은 분석하지 않는다(통과율 0.1%)
+# ③ 사진은 유머·밈 계열에서만 본다. 부동산 글의 사진은 대개 시세표·매물 사진이라
+#    글만으로 충분한데 입력 토큰이 3.6배(358→1307) 든다.
+#    홈 피드는 주제가 섞여 있지만 사진이 본체인 밈이 가장 많이 들어오는 통로라 포함한다
+#    (실측: 사진 동반 39건 중 피드 20 · 짤 12 · 밈 2).
+IMG_KEYWORDS = ("밈", "짤", "웃긴", "유머", "웃픈", "현타", "어이없", "황당", "레전드",
+                "주접", "(피드)")
 API = os.environ.get("KOCZIP_API", "https://api.koczip.com")
 WORKER_KEY = ""                  # .env 의 SNS_WORKER_KEY — 비용 보고에 쓴다
 
@@ -223,11 +230,26 @@ def main():
                 WORKER_KEY = line.split("=", 1)[1].strip()
 
     c = db()
+    # ① 순서는 velocity(시간당 반응). engagement 내림차순으로 뽑으면 '오래됐지만 총량이
+    #    큰 글'이 앞자리를 차지해, 정작 이 도구의 목적인 '아직 안 터진 글'이 뒤로 밀린다
+    #    (실측: 다음 회차 40건 중 1시간 이내 글이 1건뿐이었다).
+    # ② 하루 넘은 글은 아예 빼둔다 — 통과율이 0.1% 인데 매번 정렬 대상에 들어간다.
     rows = c.execute(
         "SELECT id, post_key, text, like_count, reply_count, repost_count, quote_count,"
-        "       age_min, engagement, time_weight, velocity, image_url, has_video"
+        "       age_min, engagement, time_weight, velocity, image_url, has_video, keywords_all"
         "  FROM posts WHERE analyzed_at IS NULL AND excluded=0"
-        "  ORDER BY engagement DESC, first_seen_at DESC LIMIT ?", (a.limit * 4,)).fetchall()
+        "    AND (age_min IS NULL OR age_min <= ?)"
+        "  ORDER BY velocity DESC, first_seen_at DESC LIMIT ?",
+        (MAX_AGE_MIN, a.limit * 4)).fetchall()
+
+    # 하루 넘도록 분석 대기에 남은 글은 다시 볼 이유가 없다 — 대기열에서 내린다.
+    # (지우지 않고 analyzed_at 만 찍어 목록엔 반응 점수로 남는다)
+    stale = c.execute(
+        "UPDATE posts SET analyzed_at=datetime('now','+9 hours'), ai_score=0"
+        " WHERE analyzed_at IS NULL AND excluded=0 AND age_min > ?", (MAX_AGE_MIN,)).rowcount
+    if stale:
+        c.commit()
+        log(f"하루 지난 미분석 {stale}건 대기열에서 내림")
 
     # 정치 글은 분석하지 않는다. 지우지 않고 excluded 로 표시해 다음 회차에도 안 걸리게 한다
     # (AI 에 보내기 전에 걸러야 토큰도 아낀다).
@@ -247,10 +269,13 @@ def main():
     done = 0
     for r in todo:
         pid, _pk, text = r[0], r[1], r[2] or ""
-        img_url, has_video = r[11], r[12]
-        # 글이 짧아도 사진이 있으면 밈일 수 있다 — 사진을 보고 판단한다
+        img_url, has_video, kws = r[11], r[12], (r[13] or "")
+        # 글이 짧고 사진이 있으면 밈일 수 있다 — 그때만 사진을 함께 본다.
+        # 단 유머·밈 계열 키워드에서 온 글로 한정한다(부동산 글의 사진은 시세표·매물
+        # 사진이라 글만으로 충분한데 입력 토큰이 3.6배 든다).
         img = None
-        if img_url and len(text.strip()) < IMG_TEXT_LIMIT:
+        if (img_url and len(text.strip()) < IMG_TEXT_LIMIT
+                and any(k in kws for k in IMG_KEYWORDS)):
             img = fetch_image(img_url)
         if len(text.strip()) < 20 and not img:
             c.execute("UPDATE posts SET analyzed_at=datetime('now','+9 hours'), ai_score=0"
