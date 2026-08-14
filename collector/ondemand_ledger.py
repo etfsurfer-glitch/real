@@ -18,6 +18,8 @@ import xml.etree.ElementTree as ET
 
 VW_URL = "https://api.vworld.kr/req/address"
 BR_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
+# 총괄표제부 — 다동 건물은 주차·세대수가 여기에 잡히고 동별 표제부는 0 이다.
+RECAP_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrRecapTitleInfo"
 BR_EXPOS_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
 BR_FLR_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrFlrOulnInfo"
 
@@ -599,6 +601,50 @@ def title_sets_for_pnu(pnu, datago_keys):
     floors = sorted({f for f in (_int(g(it, "grndFlrCnt")) for it in main) if f})
     useaps = sorted({g(it, "useAprDay") for it in main if g(it, "useAprDay")})
     v = {"grnd_flr_all": floors, "use_apr_all": useaps} if (floors or useaps) else None
+    _cput(ck, v)
+    _cache[ck] = v
+    return v
+
+
+def recap_for_pnu(pnu, datago_keys):
+    """PNU → 총괄표제부의 주차·세대수. 없으면 None(단일동 건물엔 총괄표제부가 없다).
+
+    왜 필요한가 — 다동 건물은 주차가 총괄표제부에만 잡히고 동별 표제부는 전부 0 이다.
+    표제부만 보고 '공부상 주차 0' 으로 판정해 광고의 정상 표기를 위반으로 찍던 오탐이
+    있었다(서초동 1619-7 위더스하임 2차: 표제부 0 / 총괄표제부 totPkngCnt=15, 광고 15대,
+    2026-08-14). 캐시 키 RC1(영속). 없음확정=None 캐시, 일시오류=캐시 금지."""
+    j = _pnu_to_jibun(pnu)
+    if not j:
+        return None
+    sgg, bjd, plat, bun, ji = j
+    ck = f"RC1{sgg}{bjd}{plat}{bun}{ji}"
+    if ck in _cache:
+        return _cache[ck]
+    v = _cget(ck)
+    if v is not _MISS:
+        _cache[ck] = v
+        return v
+    if isinstance(datago_keys, str):
+        datago_keys = [datago_keys]
+    items = _br_items(RECAP_URL, {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
+                                  "bun": bun, "ji": ji}, datago_keys)
+    if items is _ERR:
+        return None                    # 일시 실패 — 캐시 금지(재시도)
+
+    def g(it, tag):
+        return (it.findtext(tag) or "").strip()
+
+    v = None
+    if items:
+        it = items[0]
+        # totPkngCnt 가 비면 4항목 합으로 폴백(표제부와 같은 계산)
+        tot = _int(g(it, "totPkngCnt"))
+        if not tot:
+            tot = sum(filter(None, (_int(g(it, k)) for k in
+                      ("indrMechUtcnt", "oudrMechUtcnt", "indrAutoUtcnt", "oudrAutoUtcnt"))))
+        v = {"parking": tot or None,
+             "hhld_cnt": _int(g(it, "hhldCnt")),
+             "bld_nm": g(it, "bldNm") or None} if tot else None
     _cput(ck, v)
     _cache[ck] = v
     return v

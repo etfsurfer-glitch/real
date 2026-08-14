@@ -110,8 +110,10 @@ def _inline_ledger(detail: dict):
         "main_purps": purps,
         "bld_nm": (bld if isinstance(bld, str) and bld else None) or ad.get("buildingName"),
         "grnd_flr": grnd,
-        # inline 대장의 totalParkingCnt는 항상 숫자로 옴 → 0 = 공부상 주차 없음(신뢰 가능).
-        # ⑩에서 '공부상 0인데 주차 가능/대수 표시' 위반 판정에 사용(전문가 확인 기준).
+        # ⚠ 0 을 '공부상 주차 없음'으로 믿으면 안 된다(2026-08-14 정정).
+        # 다동 건물은 주차가 **총괄표제부**에만 잡히고 동별 표제부·inline 대장은 전부 0 이다
+        # (서초동 1619-7: inline 0 / 총괄표제부 15대, 광고 15대 → 정상 광고가 위반으로 찍혔다).
+        # 그래서 점검 쪽(_audit_nonresi_one)에서 0·미확보일 때 recap_for_pnu 로 보정한다.
         "parking": park,
         "use_apr_day": use_apr,
         "pnu": br.get("pnu") or None,

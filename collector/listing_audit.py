@@ -311,7 +311,9 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     #    표시(대수 없음) = 위반 ③'불가' 표시 = 통과 ④정보 전무 = 위반.
     led_pk = f.get("led_parking")              # 대장 총주차(None=미확보, 0=공부상 없음)
     pk_possible = f.get("parking_possible")    # 네이버 parkingPossibleYN
-    _led_note = f" (건축물대장 기준 총 {led_pk}대)" if (led_pk and led_comparable) else ""
+    # 총괄표제부에서 보정한 값이면 어디서 확인했는지 밝힌다(중개사가 근거를 되짚을 수 있게).
+    _pk_src = f.get("led_parking_src") or "건축물대장"
+    _led_note = f" ({_pk_src} 기준 총 {led_pk}대)" if (led_pk and led_comparable) else ""
     if cp_autofilled:
         add(10, "주차", "통과", "CP 자동입력(확인)")
     elif pk_possible == "N":

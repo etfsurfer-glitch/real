@@ -17644,6 +17644,8 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
         f["led_main_purps"] = led.get("main_purps")     # 대장 주용도(상가 대조 가능여부 판별)
         if not dong_set:
             f["led_parking"] = led.get("parking")
+            # 총괄표제부에서 보정한 값이면 사유에 출처를 밝힌다
+            f["led_parking_src"] = led.get("parking_src")
     if expos:
         f["led_expos_areas"] = expos
     return f
@@ -17715,7 +17717,8 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
     from collector.listing_audit import audit_listing
     from collector.ondemand_ledger import (ledger_for_coord, expos_areas_for_coord,
                                            expos_areas_for_pnu, flr_ouln_for_pnu,
-                                           commercial_for_pnu, title_sets_for_pnu)
+                                           commercial_for_pnu, title_sets_for_pnu,
+                                           recap_for_pnu)
     det = fetch_and_extract(r["article_no"], None, creds)
     if det is None or det.get("_delisted"):
         return _audit_skip_result(r, _NONRESI_LABEL.get(cat, cat), delisted=bool(det))
@@ -17757,6 +17760,14 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
                 led["use_apr_all"] = _ts["use_apr_all"]
     # ⑬ 층별 용도(층별개요) — inline 대장의 pnu로 온디맨드(혼합건물 정밀 점검).
     floors = flr_ouln_for_pnu(led["pnu"], dks) if (dks and led and led.get("pnu")) else None
+    # ⑩ 주차 보정 — 다동 건물은 주차가 **총괄표제부**에만 잡히고 동별 표제부는 전부 0 이다.
+    #    표제부의 0 을 '공부상 주차 없음'으로 읽어 광고의 정상 표기를 위반으로 찍던 오탐이
+    #    있었다(서초동 1619-7: 표제부 0 / 총괄표제부 15대, 광고 15대 — 2026-08-14).
+    #    0 이거나 미확보일 때만 총괄표제부를 본다(있는 값은 건드리지 않는다).
+    if dks and led and led.get("pnu") and not led.get("parking"):
+        _rc = recap_for_pnu(led["pnu"], dks)
+        if _rc and _rc.get("parking"):
+            led = dict(led, parking=_rc["parking"], parking_src="총괄표제부")
     # ⑨ 사용승인일 2차 출처 — 네이버 광고 화면은 이 값을 매물 자체 필드가 아니라 '건축물 정보'
     #    블록(fin.land 단지/건물 API)에서 보여준다. new.land 매물상세에 그 필드가 없는 매물이
     #    있는데(제휴 전송이 시설정보를 빼먹은 경우 등) 그걸 '광고 미표시'로 찍어 멀쩡한 매물이
