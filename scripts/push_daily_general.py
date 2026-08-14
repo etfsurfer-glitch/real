@@ -44,27 +44,45 @@ def _greeting_by_hour():
     return "오늘 아침" if h < 13 else "오늘"
 
 
+# 수도권 우선순위(사용자 지시 2026-08-14). sido 코드 앞 2자리로 매칭한다.
+#   11 서울 · 41 경기 · 28 인천. 서울부터 훑어 첫 후보를 잡는다.
+CAPITAL_SIDO = ["1100000000", "4100000000", "2800000000"]
+MIN_PRICE = 100_000_000          # 억 단위 이상만 — 지방 저가 매물이 대표로 나가지 않게
+
+
+def _pick_deal():
+    """수도권 급매 1건 — 억 이상, 서울>경기>인천 순, 할인율 큰 것."""
+    for sido in CAPITAL_SIDO:
+        try:
+            items = A.today_deals(trade="A1", min_discount=0.1, limit=10,
+                                  sort="discount", sido=sido)["items"]
+        except Exception:                                     # noqa: BLE001
+            continue
+        for d in items:
+            if (d.get("price") or 0) >= MIN_PRICE:
+                disc = abs(round(d["discount"] * 100))
+                return f"급매 {d['complex_name']} {_won(d['price'])}(실거래보다 {disc}%↓)"
+    return None
+
+
+def _pick_high():
+    """수도권 신고가 경신 1건 — 억 이상, 서울>경기>인천 순, 상승률 큰 것."""
+    for sido in CAPITAL_SIDO:
+        try:
+            items = A.tx_record_high(days=7, trade="A1", order="premium",
+                                    limit=15, sido=sido)["items"]
+        except Exception:                                     # noqa: BLE001
+            continue
+        for h in items:
+            if (h.get("record_price") or 0) >= MIN_PRICE:
+                prem = round(h["premium"] * 100)
+                return f"신고가 {h['complex_name']} {_won(h['record_price'])}(직전보다 {prem}%↑)"
+    return None
+
+
 def _summary():
-    """전국 오늘의 급매 1건 + 신고가 1건을 한 줄로. 데이터 없으면 None."""
-    parts = []
-    # ① 오늘의 급매(할인율 큰 순 1건)
-    try:
-        deals = A.today_deals(trade="A1", min_discount=0.1, limit=1, sort="discount")["items"]
-        if deals:
-            d = deals[0]
-            disc = abs(round(d["discount"] * 100))          # discount 는 이미 음수(-0.29)
-            parts.append(f"급매 {d['complex_name']} {_won(d['price'])}(실거래보다 {disc}%↓)")
-    except Exception:                                          # noqa: BLE001
-        pass
-    # ② 신고가 경신(상승률 큰 순 1건)
-    try:
-        highs = A.tx_record_high(days=7, trade="A1", order="premium", limit=1)["items"]
-        if highs:
-            h = highs[0]
-            prem = round(h["premium"] * 100)
-            parts.append(f"신고가 {h['complex_name']} {_won(h['record_price'])}(직전보다 {prem}%↑)")
-    except Exception:                                          # noqa: BLE001
-        pass
+    """수도권 오늘의 급매 1건 + 신고가 1건을 한 줄로. 데이터 없으면 None."""
+    parts = [x for x in (_pick_deal(), _pick_high()) if x]
     return " · ".join(parts) if parts else None
 
 
