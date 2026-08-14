@@ -80,7 +80,7 @@ export default function ShareFab() {
         )}
         <button className="share-fab" onClick={() => setOpen((v) => !v)} aria-label="공유하기" aria-expanded={open}>
           {open ? <X size={19} strokeWidth={2.4} aria-hidden /> : <Share2 size={18} strokeWidth={2.4} aria-hidden />}
-          <span>공유하기</span>
+          <span>공유</span>
         </button>
       </div>
     </>
