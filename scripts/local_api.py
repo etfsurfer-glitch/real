@@ -17623,6 +17623,8 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
         "room_count": det.get("room_count"),
         "bathroom_count": det.get("bathroom_count"),
         "use_approve_ymd": det.get("use_approve_ymd") or r.get("use_approve_ymd"),
+        # 값을 매물 필드가 아니라 광고의 '건축물 정보' 블록에서 가져왔으면 사유에 밝힌다
+        "ua_source": det.get("_ua_source"),
         "parking_count": det.get("parking_count"),
         "parking_possible": det.get("parking_possible"),
         "monthly_management_cost": det.get("monthly_management_cost"),
@@ -17755,6 +17757,20 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
                 led["use_apr_all"] = _ts["use_apr_all"]
     # ⑬ 층별 용도(층별개요) — inline 대장의 pnu로 온디맨드(혼합건물 정밀 점검).
     floors = flr_ouln_for_pnu(led["pnu"], dks) if (dks and led and led.get("pnu")) else None
+    # ⑨ 사용승인일 2차 출처 — 네이버 광고 화면은 이 값을 매물 자체 필드가 아니라 '건축물 정보'
+    #    블록(fin.land 단지/건물 API)에서 보여준다. new.land 매물상세에 그 필드가 없는 매물이
+    #    있는데(제휴 전송이 시설정보를 빼먹은 경우 등) 그걸 '광고 미표시'로 찍어 멀쩡한 매물이
+    #    위반으로 뜨는 오탐이 있었다(빌라 2643364583·2643352573, 2026-08-14).
+    #    광고에 실제로 노출되는 값이 판정 기준이므로, 비어 있을 때만 2차 조회해 채운다.
+    #    (대부분 매물은 1차에 값이 있어 이 경로를 타지 않는다 — 표본 8/8 정상)
+    if not det.get("use_approve_ymd"):
+        try:
+            from collector.finland import building_for_article
+            _fl = building_for_article(r["article_no"])
+            if _fl and _fl.get("ok") and _fl.get("use_approve_ymd"):
+                det = dict(det, use_approve_ymd=_fl["use_approve_ymd"], _ua_source="건축물 정보")
+        except Exception:                                   # noqa: BLE001
+            pass                                            # 브리지 장애는 점검을 막지 않는다
     res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos, floors=floors))
     res["kind"] = _NONRESI_LABEL.get(cat, cat)
     res["building"] = r.get("building_name")

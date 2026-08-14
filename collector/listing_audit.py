@@ -296,7 +296,15 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         add(9, "사용승인일", "위반",
             f"광고({_fmt_ymd(ua)}) ≠ 건축물대장 기준 {_fmt_led_ymd(led_ua)} — 공부와 불일치")
     else:
-        add(9, "사용승인일", "통과", f"건축물대장 기준 {_fmt_led_ymd(led_ua)} 일치" if led_ua else "")
+        # ua_source='건축물 정보': 매물 입력값이 아니라 광고 화면의 건축물 정보 블록에서 확인한 값.
+        # 중개사가 '난 입력했는데 왜 위반이냐'로 오해하지 않게 어디서 확인했는지 밝힌다.
+        src = f.get("ua_source")
+        base = f"건축물대장 기준 {_fmt_led_ymd(led_ua)} 일치" if led_ua else ""
+        if src:
+            note = f"광고 ‘{src}’에 {_fmt_ymd(ua)} 노출"
+            add(9, "사용승인일", "통과", f"{note} · {base}" if base else note)
+        else:
+            add(9, "사용승인일", "통과", base)
 
     # ⑩ 주차 — 세부기준상 '주차대수(공부 기준 숫자)' 명시가 원칙(전문가 확인: '가능'만은
     #    신고 시 적발 대상). ①공부상 0인데 가능/대수 표시 = 공부 불일치 위반 ②'가능'만
