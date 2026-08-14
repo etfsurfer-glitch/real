@@ -1859,8 +1859,8 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .hood-seg button{border:none;background:none;padding:6px 15px;border-radius:999px;font-size:13px;font-weight:700;color:rgba(255,255,255,.85);cursor:pointer}
 .hood-seg button.on{background:#fff;color:#1f56b0}
 .hood-h1{font-size:24px;line-height:1.3;font-weight:800;margin:0 0 16px;letter-spacing:-.4px}
-.hood-region{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}
-.hood-region select{padding:10px 13px;border:none;border-radius:11px;font-size:14px;font-weight:700;background:rgba(255,255,255,.96);color:#15315e;min-width:118px;flex:1;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.hood-region{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;position:relative;z-index:1}
+.hood-region select{padding:10px 13px;border:none;border-radius:11px;font-size:14px;font-weight:700;background:rgba(255,255,255,.96);color:#15315e;min-width:0;width:100%;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.08)}
 .hood-region select:disabled{opacity:.55;cursor:default}
 /* 랜딩 히어로 단지 직접 검색 — 지역 3단을 모르는 사용자의 진입점.
    히어로가 어두운 그라데이션이라 입력·목록은 밝은 면으로 명시 지정한다. */
@@ -1987,10 +1987,10 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 
 /* 급매 카드 */
 .deal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:11px}
-.deal-card{position:relative;display:block;background:#fff;border:1px solid var(--c-border);border-radius:15px;padding:14px;text-decoration:none;color:inherit;transition:transform .12s,box-shadow .12s,border-color .12s}
+.deal-card{position:relative;display:block;min-width:0;background:#fff;border:1px solid var(--c-border);border-radius:15px;padding:14px;text-decoration:none;color:inherit;transition:transform .12s,box-shadow .12s,border-color .12s}
 .deal-card:hover{transform:translateY(-3px);box-shadow:0 12px 24px -14px rgba(20,40,75,.35);border-color:#ffc9d8}
 .deal-badge{display:inline-flex;align-items:center;gap:3px;background:linear-gradient(135deg,#ff5d73,#e6376e);color:#fff;font-size:11px;font-weight:800;padding:3px 9px 3px 7px;border-radius:999px;margin-bottom:9px}
-.deal-name{font-size:14.5px;font-weight:700;color:#13294b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deal-name{display:flex;align-items:center;gap:4px;min-width:0;font-size:14.5px;font-weight:700;color:#13294b;overflow:hidden}
 .deal-area{font-size:12px;color:#94a3b8;margin-top:2px}
 .deal-price{font-size:19px;font-weight:800;color:#13294b;margin-top:8px;letter-spacing:-.4px}
 .deal-cmp{font-size:11.5px;color:#aab4c2;margin-top:2px;text-decoration:line-through}
@@ -4626,7 +4626,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .om-tip-a{font-size:11px;color:var(--c-muted);margin-top:3px}
 
 /* ===== 단지 비교 담기 (버튼·하단바·팝업) ===== */
-.fav-cmp-wrap{display:inline-flex;align-items:center;gap:2px;vertical-align:-2px}
+.fav-cmp-wrap{display:inline-flex;align-items:center;gap:2px;vertical-align:-2px;flex-shrink:0}
 .fav-cmp-wrap .fav-heart{vertical-align:0}
 .cmp-btn{display:inline-flex;align-items:center;justify-content:center;gap:2px;position:relative;
   height:20px;padding:0 4px;border:1px solid var(--c-border);border-radius:6px;
