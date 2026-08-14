@@ -11051,6 +11051,25 @@ def _init_reviews_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS push_user_idx ON push_subscriptions(user_id);
 
+            -- 알림함 — 웹푸시를 보낼 때마다 '구독 endpoint 단위'로 한 줄 기록한다.
+            -- 알림을 놓쳤거나 지난 알림을 /me/alerts 에서 다시 보게 하는 용도.
+            -- endpoint 기준이라 비회원(익명 구독)도 자기 기기가 받은 알림을 그대로 본다
+            -- (사용자 결정 2026-08-14: 익명 식별자 없이 구독 endpoint 로 식별).
+            CREATE TABLE IF NOT EXISTS notifications (
+              id          INTEGER PRIMARY KEY AUTOINCREMENT,
+              endpoint    TEXT NOT NULL,           -- 어느 기기 구독으로 갔나
+              user_id     TEXT NOT NULL DEFAULT '',-- 발송 시점의 소유자('' = 익명)
+              title       TEXT NOT NULL,
+              body        TEXT NOT NULL,
+              url         TEXT NOT NULL DEFAULT '/',
+              tag         TEXT NOT NULL DEFAULT 'koczip',
+              icon        TEXT,
+              read_at     TEXT,                    -- NULL = 안 읽음
+              created_at  TEXT NOT NULL DEFAULT (datetime('now','+9 hours'))
+            );
+            CREATE INDEX IF NOT EXISTS notif_ep_idx ON notifications(endpoint, id DESC);
+            CREATE INDEX IF NOT EXISTS notif_user_idx ON notifications(user_id, id DESC);
+
             -- 직원(소속공인중개사·중개보조원) 초대장 — 대표가 발송, 해당 번호가 전화인증하면 자동 승인
             CREATE TABLE IF NOT EXISTS realtor_staff_invites (
               id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -11617,6 +11636,10 @@ def _send_web_push(user_ids, title: str, body: str, url: str = "/", tag: str = "
         subs = c.execute(
             f"SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id IN ({ph})",
             ids).fetchall()
+        delivered = []                       # 실제로 도달한 (endpoint, user_id) — 알림함에 기록
+        # subs 는 endpoint 별 행이지만 user_id 가 필요해 다시 매핑
+        ep_uid = {r["endpoint"]: r["user_id"] for r in c.execute(
+            f"SELECT endpoint, user_id FROM push_subscriptions WHERE user_id IN ({ph})", ids)}
         for s in subs:
             try:
                 webpush(
@@ -11627,6 +11650,7 @@ def _send_web_push(user_ids, title: str, body: str, url: str = "/", tag: str = "
                     vapid_claims={"sub": subject},
                     timeout=10)
                 sent += 1
+                delivered.append(s["endpoint"])
             except WebPushException as e:
                 failed += 1
                 code = getattr(getattr(e, "response", None), "status_code", None)
@@ -11636,6 +11660,12 @@ def _send_web_push(user_ids, title: str, body: str, url: str = "/", tag: str = "
                 failed += 1
         for ep in dead:
             c.execute("DELETE FROM push_subscriptions WHERE endpoint=?", (ep,))
+        # 알림함 기록 — 도달한 기기별로 한 줄(엔드포인트가 곧 기기, 로그인 여부 무관)
+        if delivered:
+            c.executemany(
+                "INSERT INTO notifications(endpoint,user_id,title,body,url,tag,icon)"
+                " VALUES(?,?,?,?,?,?,?)",
+                [(ep, ep_uid.get(ep, ""), title, body, url, tag, icon) for ep in delivered])
     return {"sent": sent, "failed": failed, "pruned": len(dead)}
 
 
@@ -11665,6 +11695,61 @@ def push_subscribe(body: dict, request: Request, user: dict | None = Depends(cur
             "p256dh=excluded.p256dh, auth=excluded.auth",
             (uid, ep, keys["p256dh"], keys["auth"],
              (request.headers.get("user-agent") or "")[:200]))
+    return {"ok": True}
+
+
+# ─── 알림함 (endpoint 기준 — 비회원 기기도 자기 알림을 본다) ───────────────
+def _notif_scope(uid: str, endpoint: str) -> tuple[str, list]:
+    """조회 범위 — 로그인 계정 알림 + 이 기기(endpoint) 알림을 합친다.
+    로그인 전 익명으로 받은 알림도 같은 기기면 그대로 보이고, 로그인하면 계정 알림까지 더한다."""
+    conds, params = [], []
+    if endpoint:
+        conds.append("endpoint=?")
+        params.append(endpoint)
+    if uid:
+        conds.append("user_id=?")
+        params.append(uid)
+    if not conds:
+        return "0", []                       # 식별 정보 없음 → 빈 결과
+    return "(" + " OR ".join(conds) + ")", params
+
+
+@app.get("/me/alerts")
+def my_alerts(endpoint: str = "", limit: int = 40,
+              user: dict | None = Depends(current_user_optional)):
+    """내 알림함. 로그인 계정 + 이 기기(endpoint)가 받은 알림, 최신순.
+    로그인 안 해도 endpoint 만 주면 그 기기 알림을 본다(비회원 지원)."""
+    uid = user["id"] if user else ""
+    where, params = _notif_scope(uid, (endpoint or "").strip())
+    limit = min(max(int(limit), 1), 100)
+    with _reviews_db() as c:
+        rows = c.execute(
+            f"SELECT id, title, body, url, tag, icon, read_at, created_at"
+            f" FROM notifications WHERE {where} ORDER BY id DESC LIMIT ?",
+            (*params, limit)).fetchall()
+        unread = c.execute(
+            f"SELECT COUNT(*) FROM notifications WHERE {where} AND read_at IS NULL",
+            params).fetchone()[0]
+    return {
+        "unread": unread,
+        "items": [{"id": r[0], "title": r[1], "body": r[2], "url": r[3], "tag": r[4],
+                   "icon": r[5], "read": bool(r[6]), "created_at": r[7]} for r in rows],
+    }
+
+
+@app.post("/me/alerts/read")
+def my_alerts_read(body: dict, user: dict | None = Depends(current_user_optional)):
+    """읽음 처리. id 하나(id) 또는 전체(all=true). endpoint 로 본인 기기 알림만 대상."""
+    uid = user["id"] if user else ""
+    endpoint = (body.get("endpoint") or "").strip()
+    where, params = _notif_scope(uid, endpoint)
+    with _reviews_db() as c:
+        if body.get("all"):
+            c.execute(f"UPDATE notifications SET read_at=datetime('now','+9 hours')"
+                      f" WHERE {where} AND read_at IS NULL", params)
+        elif body.get("id"):
+            c.execute(f"UPDATE notifications SET read_at=datetime('now','+9 hours')"
+                      f" WHERE id=? AND {where}", (int(body["id"]), *params))
     return {"ok": True}
 
 

@@ -63,6 +63,9 @@ import CompareBar from "./components/CompareBar";
 import ShareFab from "./components/ShareFab";
 import IntroSplash from "./components/IntroSplash";
 import Onboarding from "./components/Onboarding";
+import RealtorEntryChoice from "./components/RealtorEntryChoice";
+import AlertBell from "./components/AlertBell";
+import Alerts from "./pages/Alerts";
 // import UpdateNotice from "./components/UpdateNotice";  // 당분간 숨김(2026-07-14) — 복원 시 함께 해제
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
@@ -237,8 +240,10 @@ function AppShell() {
   }
   // /biz — 콕집 중개사 앱(TWA 전용 셸). 소비자용 크롬 없이 독립 렌더.
   if (location.pathname === "/biz" || location.pathname.startsWith("/biz/")) {
-    // 일반앱에서 중개사 셸 접근 → 중개사앱 설치 안내(브라우저·중개사앱은 정상 렌더)
-    if (isGeneralApp()) return <CrossAppGate target="realtor" />;
+    // 일반앱에서 /biz 로 들어오면 라운지로 보낸다(2026-08-14 앱 통합).
+    // /biz 는 중개사앱 전용 셸(소비자 크롬 없는 그리드 홈)이라 일반앱에서 그대로 띄우면
+    // 상단 메뉴가 사라져 빠져나올 길이 없다. 같은 기능은 /lounge 가 레이아웃 안에서 준다.
+    if (isGeneralApp()) return <Navigate to="/lounge" replace />;
     return (
       <ErrorBoundary key={location.pathname}>
         <InAppAutoExternal />
@@ -274,8 +279,11 @@ function AppShell() {
     const _p = location.pathname;
     const _shared = _p === "/terms" || _p === "/privacy" || _p === "/biz-terms"
       || _p === "/delete-account" || _p.startsWith("/r/");
-    // 일반앱이 중개사라운지 접근 → 중개사앱 설치
-    if (isGeneralApp() && _p.startsWith("/lounge")) return <CrossAppGate target="realtor" />;
+    // 일반앱에서도 중개사라운지를 그대로 쓴다(2026-08-14 앱 통합).
+    // 중개사앱을 따로 내지 않고 한 앱에 담기로 했다 — 라운지 API 는 전부 _require_member 로
+    // 막혀 있어 문을 열어도 데이터는 안 나가고, 미연결 사용자에겐 라운지가 스스로
+    // '사무소 연결' 안내를 띄운다. 그래서 여기서 막을 이유가 없다.
+    // (통화감지처럼 네이티브 권한이 필요한 기능만 중개사앱 전용으로 남긴다)
     // 중개사앱이 일반 기능(중개사 콘텐츠·공용 제외) 접근 → 일반앱 설치
     if (isRealtorApp() && !_p.startsWith("/lounge") && !_p.startsWith("/biz") && !_shared) {
       return <CrossAppGate target="general" />;
@@ -285,6 +293,7 @@ function AppShell() {
     <div className="layout">
       <IntroSplash />
       <Onboarding />
+      <RealtorEntryChoice />
       {/* 업데이트 공지 팝업 — 당분간 숨김(사용자 지시 2026-07-14). 진짜 공지 시
           UpdateNotice.tsx의 version 갱신 후 아래 한 줄 복원. */}
       {/* <UpdateNotice /> */}
@@ -333,6 +342,7 @@ function AppShell() {
         </button>
         {/* 하트+계정을 한 묶음으로 — 헤더가 좁으면 묶음째 다음 줄로 내려가 nav가 로고 옆을 지킨다 */}
         <span className="auth-wrap">
+          <AlertBell />
           <FavDashLink variant="head" />
           <AuthControl />
         </span>
@@ -423,6 +433,7 @@ function AppShell() {
         <Route path="/biz-terms" element={<BizTerms />} />
         <Route path="/delete-account" element={<DeleteAccount />} />
         <Route path="/forum" element={<ForumList />} />
+        <Route path="/alerts" element={<Alerts />} />
         <Route path="/forum/new" element={<ForumCompose />} />
         <Route path="/forum/:id" element={<ForumPost />} />
         <Route path="/lounge" element={<Lounge />} />

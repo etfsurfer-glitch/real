@@ -109,6 +109,16 @@ export async function disablePush(token: string): Promise<void> {
   } catch { /* ignore */ }
 }
 
+/** 이 기기의 구독 endpoint — 알림함이 '이 기기가 받은 알림'을 식별하는 키. 없으면 "". */
+export async function currentEndpoint(): Promise<string> {
+  if (!pushSupported()) return "";
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    return sub?.endpoint || "";
+  } catch { return ""; }
+}
+
 /** 현재 구독돼 있는지(브라우저 기준). */
 export async function isPushSubscribed(): Promise<boolean> {
   if (!pushSupported() || Notification.permission !== "granted") return false;
