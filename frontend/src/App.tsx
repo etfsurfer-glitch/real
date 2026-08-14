@@ -6,7 +6,7 @@ import {
   Sparkles, LayoutDashboard, BadgePercent,
   TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins } from "lucide-react";
+  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins, Settings as SettingsIcon } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginKakao, loginGoogle, isInAppBrowser, authClient } from "./auth";
@@ -14,7 +14,7 @@ import { setAuthReturn } from "./lib/authreturn";
 import { logPageview } from "./lib/pageview";
 import PhoneVerify from "./components/PhoneVerify";
 import CrossAppGate from "./components/CrossAppGate";
-import { isGeneralApp, isRealtorApp } from "./lib/appmode";
+import { isGeneralApp, isRealtorApp, isInstalledApp } from "./lib/appmode";
 import AccountMenu from "./components/AccountMenu";
 import Overview from "./pages/Overview";
 import ComplexDetail from "./pages/ComplexDetail";
@@ -66,6 +66,7 @@ import Onboarding from "./components/Onboarding";
 import RealtorEntryChoice from "./components/RealtorEntryChoice";
 import AlertBell from "./components/AlertBell";
 import Alerts from "./pages/Alerts";
+import Settings from "./pages/Settings";
 // import UpdateNotice from "./components/UpdateNotice";  // 당분간 숨김(2026-07-14) — 복원 시 함께 해제
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
@@ -379,6 +380,13 @@ function AppShell() {
                 )}
               </div>
             ))}
+            {isInstalledApp() && (
+              <NavLink to="/settings"
+                className={({ isActive }) => "mdrawer-parent mdrawer-settings" + (isActive ? " active" : "")}
+                onClick={() => setMenuOpen(false)}>
+                <SettingsIcon size={17} strokeWidth={2.2} aria-hidden /> 설정
+              </NavLink>
+            )}
           </nav>
         </div>,
         document.body,
@@ -434,6 +442,7 @@ function AppShell() {
         <Route path="/delete-account" element={<DeleteAccount />} />
         <Route path="/forum" element={<ForumList />} />
         <Route path="/alerts" element={<Alerts />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="/forum/new" element={<ForumCompose />} />
         <Route path="/forum/:id" element={<ForumPost />} />
         <Route path="/lounge" element={<Lounge />} />
