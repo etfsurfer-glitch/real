@@ -4,6 +4,7 @@ import { Search, Building2, ChevronRight, Bell } from "lucide-react";
 import { useAuth, loginKakao, loginGoogle } from "../auth";
 import { PhoneModal } from "./PhoneVerify";
 import { acceptPush, pushSupported } from "../lib/push";
+import AppleLoginButton from "./AppleLoginButton";
 
 // 안드로이드 '앱'(TWA/설치형) 첫 실행 1회만 — 사용자 구분 온보딩.
 //  1) 일반(실거래·급매 조회) → 로그인 없이 바로 사용. AI는 이용 시 로그인 안내(AiChat 게이트가 처리).
@@ -113,6 +114,7 @@ export default function Onboarding() {
               <button className="auth-btn google" onClick={() => loginGoogle()}>
                 <GoogleIcon /> 구글로 시작하기
               </button>
+              <AppleLoginButton label="Apple로 시작하기" />
             </div>
             <button className="onb-back" onClick={() => setStep("choose")}>← 뒤로</button>
           </>

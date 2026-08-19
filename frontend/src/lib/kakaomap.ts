@@ -139,8 +139,11 @@ export async function coordToRegion(lat: number, lng: number):
 export function wonShort(v: number | null | undefined): string {
   if (v == null || v <= 0) return "-";
   const eok = v / 1e8;
-  if (eok >= 10) return `${Math.round(eok)}억`;
-  if (eok >= 1) return `${eok.toFixed(1)}억`;
+  if (eok >= 100) return `${Math.round(eok)}억`;         // 100억↑ 은 정수(공간 절약)
+  if (eok >= 1) {                                        // 12.5억 → "12.5억", 13.0억 → "13억"
+    const s = eok.toFixed(1);
+    return `${s.endsWith(".0") ? s.slice(0, -2) : s}억`;
+  }
   return `${Math.round(v / 1e4).toLocaleString()}만`;
 }
 

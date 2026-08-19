@@ -25,12 +25,24 @@ const STATIC_ROUTES = {
   "/privacy": ["개인정보처리방침 | 콕집", "콕집 개인정보처리방침."],
 };
 
+// 중개사라운지 하위메뉴별 OG(제목·부제·설명) — 백엔드 _LOUNGE_OG 와 동일하게 유지.
+const LOUNGE_OG = {
+  dashboard: ["중개사라운지", "내 사무소 매물·실적을 한눈에", "매물장·매물점검·상담관리·사무소 홈페이지까지 — 공인중개사 업무를 콕집 라운지에서."],
+  listings: ["내 매물장", "내 매물을 다이어리처럼 관리", "네이버에 올린 내 매물을 콕집이 자동 수집·정리. 매물 현황과 시세를 한 화면에서."],
+  audit: ["매물점검", "표시·광고 위반(과태료) 사전 자가점검", "중개대상물 표시·광고 의무사항을 자동 점검. 과태료 리스크를 미리 걸러냅니다."],
+  leads: ["상담신청 관리", "고객 상담 문의를 라운지에서", "홈페이지·매물로 들어온 고객 상담을 놓치지 않고 한 곳에서 관리."],
+  homepage: ["사무소 홈페이지", "무료 중개사무소 홈페이지 제작", "real.koczip.com/내주소 — 매물·소개·연락처를 담은 사무소 전용 홈페이지를 무료로."],
+  staff: ["직원관리", "소속 공인중개사·중개보조원 관리", "사무소 소속 직원을 등록·관리하고 매물·상담을 함께 운영하세요."],
+  edit: ["정보수정요청", "사무소 정보 수정 요청", "대표·연락처·주소 등 사무소 정보를 최신으로 유지하도록 수정 요청."],
+};
+
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function page(title, desc, canonical, h1, bodyHtml) {
+function page(title, desc, canonical, h1, bodyHtml, ogImage) {
+  const img = ogImage || OG_IMG;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${esc(title)}</title>
@@ -43,7 +55,13 @@ function page(title, desc, canonical, h1, bodyHtml) {
 <meta property="og:title" content="${esc(title)}"/>
 <meta property="og:description" content="${esc(desc)}"/>
 <meta property="og:url" content="${esc(canonical)}"/>
-<meta property="og:image" content="${OG_IMG}"/>
+<meta property="og:image" content="${img}"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="${esc(title)}"/>
+<meta name="twitter:description" content="${esc(desc)}"/>
+<meta name="twitter:image" content="${img}"/>
 <meta name="naver-site-verification" content="3f4e9fd612c3c9dff35fd9a54c6689636326e375"/>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"콕집","alternateName":"koczip","url":"https://koczip.com/","inLanguage":"ko-KR","publisher":{"@type":"Organization","name":"콕집","alternateName":"koczip","url":"https://koczip.com/","logo":"https://koczip.com/icon-512.png"}}</script>
 </head><body>
@@ -69,7 +87,8 @@ async function renderComplex(no, canonical) {
   const body = `<p>${esc(region)}<strong>${esc(name)}</strong> (${esc(d.kind || "아파트")})${facts ? " — " + esc(facts) : ""}</p>
 <p>${esc(name)}의 최근 실거래가와 매물 호가, 평형별 평균 시세, 전세·월세 현황을 콕집에서 매일 갱신해 제공합니다.</p>
 <p><a href="${canonical}">${esc(name)} 상세 보기 →</a></p>`;
-  return page(title, desc, canonical, `${region}${name} 시세·실거래가`, body);
+  const ogImg = `${API}/complex/${encodeURIComponent(no)}/og.png`;   // 단지별 동적 OG 카드
+  return page(title, desc, canonical, `${region}${name} 시세·실거래가`, body, ogImg);
 }
 
 // 중개사 홈페이지(real.koczip.com/{slug}) OG — 중개사 인적사항을 명함처럼, 콕집은 작게.
@@ -135,6 +154,13 @@ export async function onRequest(context) {
     const mComplex = path.match(/^\/complex\/([^/]+)/);
     if (mComplex) {
       html = await renderComplex(mComplex[1], canonical);
+    } else if (path === "/lounge") {
+      const tab = url.searchParams.get("tab") || "dashboard";
+      const [t, sub, desc] = LOUNGE_OG[tab] || LOUNGE_OG.dashboard;
+      const title = `${t} | 콕집 중개사라운지`;
+      const cano = SITE + "/lounge" + (tab === "dashboard" ? "" : `?tab=${tab}`);
+      const ogImg = `${API}/public/lounge/og.png?tab=${encodeURIComponent(tab)}`;
+      html = page(title, `${sub} — ${desc}`, cano, t, `<p>${esc(desc)}</p>`, ogImg);
     } else if (STATIC_ROUTES[path]) {
       const [t, dsc] = STATIC_ROUTES[path];
       html = page(t, dsc, canonical, t.split(" | ")[0].split(" — ")[0], `<p>${esc(dsc)}</p>`);

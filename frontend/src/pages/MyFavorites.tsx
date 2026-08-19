@@ -8,7 +8,7 @@ import {
   Heart, MapPin, Flame, Trophy, ReceiptText,
   MessageSquareText, ChevronRight, Search, X, Map as MapIcon, TrainFront, BarChart3, School,
 } from "lucide-react";
-import { useAuth } from "../auth";
+import { useAuth, loginKakao } from "../auth";
 import { Loading } from "../components/Loading";
 import { toggleFav } from "../lib/favstore";
 import SubwayModal from "../components/SubwayModal";
@@ -48,10 +48,31 @@ function eok(won: number | null | undefined): string {
   return `${Math.round(won / 10_000).toLocaleString()}만`;
 }
 
+// 카드 안 초소형 가격 흐름 스파크라인 — 축·격자·값라벨 없이 '흐름'만(공간이 작다).
+// 단일 시계열. 색은 카드 관례(상승=빨강·하락=파랑)를 따라 순변화 방향으로.
+function Sparkline({ data }: { data: number[] }) {
+  if (!data || data.length < 2) return null;
+  const n = data.length;
+  const min = Math.min(...data), max = Math.max(...data);
+  const span = max - min || 1;
+  const X = (i: number) => (i / (n - 1)) * 100;
+  const Y = (v: number) => 4 + (1 - (v - min) / span) * 22;   // 30높이 안 4~26
+  const line = data.map((v, i) => `${X(i).toFixed(2)},${Y(v).toFixed(2)}`).join(" ");
+  const col = data[n - 1] >= data[0] ? "#c0392b" : "#1268d3";   // 상승 빨강 / 하락 파랑
+  return (
+    <svg className="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden>
+      <polygon points={`0,30 ${line} 100,30`} fill={col} fillOpacity="0.10" />
+      <polyline points={line} fill="none" stroke={col} strokeWidth="1.6"
+        vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function MyFavorites() {
   const { token } = useAuth();
   const [items, setItems] = useState<Dash[] | null>(null);
   const [err, setErr] = useState("");
+  const [spark, setSpark] = useState<Record<string, number[]>>({});   // 단지별 ㎡당 실거래 시계열
 
   const load = useCallback(() => {
     if (!token) return;
@@ -61,6 +82,31 @@ export default function MyFavorites() {
       .catch((e) => setErr(e instanceof Error ? e.message : "불러오기 실패"));
   }, [token]);
   useEffect(load, [load]);
+
+  // 관심단지 집합이 바뀔 때만 가격 흐름 시계열을 한 번에 받아둔다(면적 전환엔 재요청 안 함).
+  // /stats/px-series 는 호출당 최대 6단지 → 6개씩 나눠 조회. 공개 엔드포인트(토큰 불필요).
+  const sparkKey = (items || []).map((i) => i.complex_no).join(",");
+  useEffect(() => {
+    const nos = sparkKey ? sparkKey.split(",") : [];
+    if (nos.length === 0) return;
+    const chunks: string[][] = [];
+    for (let i = 0; i < nos.length; i += 6) chunks.push(nos.slice(i, i + 6));
+    let alive = true;
+    Promise.all(chunks.map((c) =>
+      fetch(`${API}/stats/px-series?nos=${c.join(",")}&years=3&mode=sqm`)
+        .then((r) => r.json()).catch(() => ({ items: [] })),
+    )).then((results) => {
+      if (!alive) return;
+      const map: Record<string, number[]> = {};
+      for (const res of results)
+        for (const it of (res.items || [])) {
+          const vals = (it.series || []).map((p: [string, number]) => p[1]);
+          if (vals.length >= 2) map[it.complex_no] = vals;
+        }
+      setSpark(map);
+    });
+    return () => { alive = false; };
+  }, [sparkKey]);
 
   const [nearbyOf, setNearbyOf] = useState<{ no: string; name: string } | null>(null);
   const [subwayOf, setSubwayOf] = useState<string | null>(null);
@@ -96,6 +142,26 @@ export default function MyFavorites() {
     await toggleFav(token, cno);
     setItems((prev) => prev?.filter((x) => x.complex_no !== cno) ?? prev);
   };
+
+  if (!token) {
+    return (
+      <section>
+        <div className="myfav-head">
+          <h2 style={{ display: "flex", alignItems: "center", gap: 7, margin: 0 }}>
+            <Heart size={19} strokeWidth={2.4} fill="currentColor" style={{ color: "#d6336c" }} aria-hidden />
+            나의 관심단지
+          </h2>
+        </div>
+        <div className="myfav-empty">
+          <p>로그인하면 관심단지의 매물·급매·신고가·실거래를 한눈에 볼 수 있어요.</p>
+          <button className="auth-btn kakao" onClick={loginKakao}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "none", cursor: "pointer" }}>
+            <span className="kakao-icon" aria-hidden>💬</span> 카카오로 로그인
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section>
@@ -213,6 +279,13 @@ export default function MyFavorites() {
                   <span className="mft-x" />
                 </div>
               </div>
+
+              {spark[it.complex_no] && (
+                <div className="myfav-spark" title="최근 3년 ㎡당 실거래가 흐름">
+                  <span className="myfav-spark-k">시세 흐름<em>3년·㎡당</em></span>
+                  <Sparkline data={spark[it.complex_no]} />
+                </div>
+              )}
 
               <div className="myfav-stats four">
                 <div className="mf-stat">

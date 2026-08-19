@@ -5,6 +5,7 @@ import { useAuth, loginKakao, loginGoogle } from "../auth";
 import { subscribeFavs, loadFavs, isFav, toggleFav } from "../lib/favstore";
 import { flyToHeart, FavAddedPop } from "./favfx";
 import CompareButton from "./CompareButton";
+import AppleLoginButton from "./AppleLoginButton";
 
 // 목록용 미니 관심단지 하트 — 단지명이 나오는 어디에나 끼워 넣는다.
 // 비로그인: 하트는 보이되, 누르면 회원가입 안내 모달.
@@ -82,6 +83,7 @@ export function FavLoginModal({ onClose }: { onClose: () => void }) {
         </p>
         <button className="auth-btn kakao modal-cta" onClick={() => loginKakao()}>카카오로 시작하기</button>
         <button className="auth-btn google modal-cta" style={{ marginTop: 8 }} onClick={() => loginGoogle()}>구글로 시작하기</button>
+        <AppleLoginButton className="modal-cta" style={{ marginTop: 8 }} label="Apple로 시작하기" />
       </div>
     </div>,
     document.body,

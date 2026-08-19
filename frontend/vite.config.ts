@@ -28,8 +28,11 @@ export default defineConfig({
       // service worker just precaches the app shell and lets data requests
       // pass through to the network. Static assets get cache-first.
       workbox: {
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,  // 번들 2.1MB — 기본 2MiB 한도 초과
         navigateFallback: "/index.html",
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
+        // OCR 마스킹 자산(tess/*)은 계약서 업로드 때만 지연 로드 — 전 방문자 precache 금지(~8MB)
+        globIgnores: ["tess/**"],
         // 웹푸시 핸들러(push/notificationclick)를 생성된 SW에 주입
         importScripts: ["push-sw.js"],
         // 새 배포 시 새 SW가 즉시 대기 해제·클라이언트 장악하고 옛 캐시 정리.

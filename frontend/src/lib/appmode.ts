@@ -10,6 +10,9 @@ export function appMode(): AppMode {
   if (_cached) return _cached;
   let m: AppMode = "browser";
   try {
+    const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+    // iOS 콕집 앱(Capacitor WKWebView) — capacitor.config.ts 의 appendUserAgent 꼬리표로 판별.
+    if (ua.includes("KoczipApp/iOS")) { _cached = "general"; return _cached; }
     const ref = (typeof document !== "undefined" && document.referrer) || "";
     if (ref.startsWith("android-app://com.koczip.realtor")) m = "realtor";
     else if (ref.startsWith("android-app://com.koczip.app")) m = "general";
@@ -32,6 +35,17 @@ export const isInstalledApp = () => appMode() !== "browser";
 
 // 스토어 링크 — 앱 미게시 상태에선 설치 페이지가 준비중일 수 있으나 게시 즉시 연결된다.
 export const STORE = {
-  general: "https://play.google.com/store/apps/details?id=com.koczip.app",
-  realtor: "https://play.google.com/store/apps/details?id=com.koczip.realtor",
+  general: "https://play.google.com/store/apps/details?id=com.koczip.app&hl=ko",
+  realtor: "https://play.google.com/store/apps/details?id=com.koczip.realtor&hl=ko",
+  ios: "",   // TODO: App Store 게시 후 https://apps.apple.com/app/id{APP_ID} 로 교체
 };
+
+// 기기 플랫폼에 맞는 일반앱 스토어 링크. iOS Safari 는 App Store, 그 외는 Play.
+// (iOS 앱 미게시 동안 STORE.ios 가 비어 있으면 Play 로 폴백 — 게시 후 STORE.ios 채우면 자동 전환.)
+export function generalStoreUrl(): string {
+  try {
+    const ua = navigator.userAgent || "";
+    if (/iPhone|iPad|iPod/i.test(ua) && STORE.ios) return STORE.ios;
+  } catch { /* SSR */ }
+  return STORE.general;
+}

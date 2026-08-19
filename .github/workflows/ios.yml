@@ -1,0 +1,94 @@
+name: iOS Build & Upload (App Store Connect)
+
+# 로컬 맥이 macOS 베타라 App Store 빌드가 거부됨(ITMS-90111).
+# GitHub의 정식 macOS 러너에서 빌드·서명·업로드해 우회한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select latest stable Xcode (>= 26)
+        run: |
+          XC="$(ls -d /Applications/Xcode_*.app /Applications/Xcode.app 2>/dev/null | sort -V | tail -1)"
+          echo "Using $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build web + Capacitor sync
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          npx cap sync ios
+
+      - name: Import signing assets
+        env:
+          DIST_P12_BASE64: ${{ secrets.DIST_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.PROFILE_BASE64 }}
+        run: |
+          set -e
+          KC="$RUNNER_TEMP/koczip.keychain-db"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings "$KC"
+          security unlock-keychain -p ci "$KC"
+          echo "$DIST_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KC" -P "$P12_PASSWORD" -T /usr/bin/codesign -A
+          curl -sL https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer -o "$RUNNER_TEMP/g3.cer"
+          curl -sL https://www.apple.com/certificateauthority/AppleWWDRCAG6.cer -o "$RUNNER_TEMP/g6.cer"
+          security import "$RUNNER_TEMP/g3.cer" -k "$KC" || true
+          security import "$RUNNER_TEMP/g6.cer" -k "$KC" || true
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ci "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KC"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$PROFILE_BASE64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/koczip.mobileprovision"
+
+      - name: Archive, export & upload to App Store Connect
+        working-directory: frontend/ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set -e
+          KC="$RUNNER_TEMP/koczip.keychain-db"
+          security unlock-keychain -p ci "$KC"
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          BUILD_NUMBER=$(( 100 + GITHUB_RUN_NUMBER ))
+          echo "Build number: $BUILD_NUMBER"
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/koczip.xcarchive" \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="Koczip App Store" DEVELOPMENT_TEAM=V8BX9MKLJS \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KC" archive
+          cat > "$RUNNER_TEMP/export.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>V8BX9MKLJS</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key><dict>
+              <key>com.koczip.app</key><string>Koczip App Store</string>
+            </dict>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>destination</key><string>export</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/koczip.xcarchive" \
+            -exportPath "$RUNNER_TEMP/ipa" -exportOptionsPlist "$RUNNER_TEMP/export.plist" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KC"
+          xcrun altool --upload-app -f "$RUNNER_TEMP/ipa/App.ipa" -t ios \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"

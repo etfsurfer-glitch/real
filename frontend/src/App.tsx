@@ -6,7 +6,7 @@ import {
   Sparkles, LayoutDashboard, BadgePercent,
   TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins, Settings as SettingsIcon } from "lucide-react";
+  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins, Settings as SettingsIcon, Gift } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginKakao, loginGoogle, isInAppBrowser, authClient } from "./auth";
@@ -56,17 +56,23 @@ import AdminTodayStats from "./pages/AdminTodayStats";
 import AdminBotStats from "./pages/AdminBotStats";
 import AdminOps from "./pages/AdminOps";
 import AdminKpi from "./pages/AdminKpi";
+import AdminEvent from "./pages/AdminEvent";
 import NonResi from "./pages/NonResi";
 import JeonseCheck from "./pages/JeonseCheck";
 import Tutorial from "./components/Tutorial";
 import CompareBar from "./components/CompareBar";
 import ShareFab from "./components/ShareFab";
 import IntroSplash from "./components/IntroSplash";
+import EventFab from "./components/EventFab";
+import EventPopup from "./components/EventPopup";
+import AppleLoginButton from "./components/AppleLoginButton";
 import Onboarding from "./components/Onboarding";
 import RealtorEntryChoice from "./components/RealtorEntryChoice";
 import AlertBell from "./components/AlertBell";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
+import Event from "./pages/Event";
+import Coupons from "./pages/Coupons";
 // import UpdateNotice from "./components/UpdateNotice";  // 당분간 숨김(2026-07-14) — 복원 시 함께 해제
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
@@ -443,6 +449,8 @@ function AppShell() {
         <Route path="/forum" element={<ForumList />} />
         <Route path="/alerts" element={<Alerts />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/event" element={<Event />} />
+        <Route path="/me/coupons" element={<Coupons />} />
         <Route path="/forum/new" element={<ForumCompose />} />
         <Route path="/forum/:id" element={<ForumPost />} />
         <Route path="/lounge" element={<Lounge />} />
@@ -452,7 +460,8 @@ function AppShell() {
         <Route path="/proposals/:token" element={<ProposalsByLink />} />
         <Route path="/admin/requests" element={<AdminRequests />} />
         <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
-        <Route path="/my/favorites" element={<RequireAdmin><MyFavorites /></RequireAdmin>} />
+        <Route path="/my/favorites" element={<MyFavorites />} />
+        <Route path="/favorites" element={<Navigate to="/my/favorites" replace />} />
         <Route path="/similar" element={<RequireAdmin><SimilarComplexes /></RequireAdmin>} />
         <Route path="/finder" element={<ComplexFinder />} />
         <Route path="/finder/compare" element={<ComplexCompare />} />
@@ -480,6 +489,7 @@ function AppShell() {
         <Route path="/admin/bots" element={<RequireAdmin><AdminBotStats /></RequireAdmin>} />
         <Route path="/admin/ops" element={<RequireAdmin><AdminOps /></RequireAdmin>} />
         <Route path="/admin/kpi" element={<RequireAdmin><AdminKpi /></RequireAdmin>} />
+        <Route path="/admin/event" element={<RequireAdmin><AdminEvent /></RequireAdmin>} />
         <Route path="/nonresi/:cat" element={<NonResi />} />
         <Route path="/nonresi" element={<NonResi />} />
         <Route path="/jeonse-check" element={<JeonseCheck />} />
@@ -508,6 +518,8 @@ function AppShell() {
       <Tutorial />
       <AiFab />
       <ShareFab />
+      <EventFab />
+      <EventPopup />
       <CompareBar />
     </div>
   );
@@ -545,6 +557,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/bots", label: "봇 차단 현황", icon: ShieldX },
   { to: "/admin/ops", label: "업무관리", icon: ClipboardList },
   { to: "/admin/kpi", label: "KPI 목표", icon: Target },
+  { to: "/admin/event", label: "이벤트 경품", icon: Gift },
   { to: "/admin/data-sources", label: "수집 현황", icon: Database },
   { to: "/admin/push", label: "알림 발송", icon: Bell },
   { to: "/admin/realtor-match", label: "중개사 매칭", icon: Wrench },
@@ -604,6 +617,7 @@ function AuthControl() {
         </svg>
         로그인
       </button>
+      <AppleLoginButton label="Apple" />
     </span>
   );
 }

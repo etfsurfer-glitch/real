@@ -4,6 +4,7 @@ import { useAuth, loginKakao, loginGoogle, logout } from "../auth";
 import CallDetectCard from "../components/CallDetectCard";
 import BizCalls, { QuickAddCustomer } from "../components/BizCalls";
 import { STORE, isRealtorApp } from "../lib/appmode";
+import AppleLoginButton from "../components/AppleLoginButton";
 import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
@@ -224,7 +225,7 @@ function openConsumerApp() {
     window.location.href =
       "intent://koczip.com/#Intent;scheme=https;package=com.koczip.app;" +
       "S.browser_fallback_url=" +
-      encodeURIComponent("https://play.google.com/store/apps/details?id=com.koczip.app") + ";end";
+      encodeURIComponent("https://play.google.com/store/apps/details?id=com.koczip.app&hl=ko") + ";end";
   } else {
     window.open("https://koczip.com/", "_blank", "noopener");
   }
@@ -269,6 +270,7 @@ function BizLanding() {
       <div className="biz-login-btns">
         <button className="biz-login kakao" onClick={() => loginKakao()}>카카오로 시작</button>
         <button className="biz-login google" onClick={() => loginGoogle()}>구글로 시작</button>
+        <AppleLoginButton className="biz-login" label="Apple로 시작" />
       </div>
       <p className="muted" style={{ fontSize: 12, textAlign: "center" }}>
         로그인 후 휴대폰 인증으로 사무소가 자동 연결됩니다 · 일반 사용자는 <a href="https://koczip.com/">콕집 홈</a>으로

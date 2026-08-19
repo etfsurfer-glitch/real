@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ShieldCheck, ShieldAlert, LogOut, BadgeCheck, Gift, ListOrdered, Bell, BellOff } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ChevronDown, ShieldCheck, ShieldAlert, LogOut, BadgeCheck, Gift, ListOrdered, Bell, BellOff, Ticket } from "lucide-react";
 import { useAuth, logout } from "../auth";
 import { PhoneModal } from "./PhoneVerify";
 import { LevelBadge } from "./LevelBadge";
@@ -10,6 +11,7 @@ import { enablePush, disablePush, isPushSubscribed, pushSupported } from "../lib
 // 로그인 사용자 계정 메뉴 — 회원번호·전화인증 상태 표시, 인증/취소/로그아웃.
 export default function AccountMenu() {
   const { user, token, refreshMe, isAdmin } = useAuth();
+  const nav = useNavigate();
   const [open, setOpen] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [rankOpen, setRankOpen] = useState(false);
@@ -106,6 +108,10 @@ export default function AccountMenu() {
               <Gift size={13} strokeWidth={2.2} /> 친구 초대 링크 복사 {inviteMsg && <span className="acct-flash">{inviteMsg}</span>}
             </button>
           )}
+
+          <button className="acct-item" onClick={() => { setOpen(false); nav("/me/coupons"); }}>
+            <Ticket size={13} strokeWidth={2.2} /> 쿠폰함
+          </button>
 
           <div className={`acct-phone ${verified ? "ok" : "no"}`}>
             {verified ? (

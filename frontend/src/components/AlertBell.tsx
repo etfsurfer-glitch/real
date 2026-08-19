@@ -32,8 +32,15 @@ export default function AlertBell() {
     // 앱으로 돌아왔을 때(알림 눌러 진입 포함) 즉시 갱신 + 완만한 폴링.
     const onVis = () => { if (document.visibilityState === "visible") poll(); };
     document.addEventListener("visibilitychange", onVis);
+    // 알림함에서 읽음 처리하면 즉시 배지를 다시 계산한다(90초 폴링을 기다리지 않게).
+    const onChanged = () => poll();
+    window.addEventListener("koczip:alerts-changed", onChanged);
     const t = setInterval(poll, 90_000);
-    return () => { document.removeEventListener("visibilitychange", onVis); clearInterval(t); };
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("koczip:alerts-changed", onChanged);
+      clearInterval(t);
+    };
   }, [poll]);
 
   return (

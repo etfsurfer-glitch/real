@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isInstalledApp } from "../lib/appmode";
 
 // 인앱 브라우저(카카오톡 등 웹뷰) 차단 게이트.
 // 웹뷰에서는 구글 로그인 등이 정책상 막히거나, OAuth가 외부 브라우저로 핸드오프되며
@@ -7,6 +8,9 @@ type Kind = "kakaotalk" | "android-inapp" | "ios-inapp" | null;
 
 function detectInApp(): Kind {
   if (typeof navigator === "undefined") return null;
+  // 우리 앱(설치형: iOS Capacitor·안드로이드 TWA·홈화면 PWA) 안에서는 인앱브라우저가 아니다 →
+  // 절대 이 게이트를 띄우지 않는다(Capacitor WKWebView 는 UA 에 Safari 가 없어 오판됨).
+  if (isInstalledApp()) return null;
   const ua = navigator.userAgent || "";
   // 네이버 앱 인앱 브라우저는 로그인이 정상 작동 → 외부브라우저 안내 게이트 제외(사용자 요청).
   if (/NAVER\(/i.test(ua)) return null;

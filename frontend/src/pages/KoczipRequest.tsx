@@ -4,6 +4,7 @@ import { Building2, Check, ChevronLeft, Lock, Phone, ShieldCheck } from "lucide-
 import { useAuth, loginKakao, loginGoogle } from "../auth";
 import { PhoneModal } from "../components/PhoneVerify";
 import { RegionSelect, useRegionFilter } from "../components/RegionSelect";
+import AppleLoginButton from "../components/AppleLoginButton";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -419,6 +420,7 @@ export default function KoczipRequest() {
                   <button className="kreq-ghost" onClick={() => { saveDraft(); loginGoogle(); }}>
                     구글로 계속하기
                   </button>
+                  <AppleLoginButton label="Apple로 계속하기" />
                 </div>
               </>
             ) : phoneOK ? (

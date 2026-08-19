@@ -780,6 +780,76 @@ input.search:focus { outline: none; border-color: var(--c-primary); box-shadow: 
 .inapp-gate-btn:hover { background: #0f59b8; }
 .inapp-gate-hint { margin-top: 14px !important; font-size: 12.5px !important; color: #8b97a5 !important; }
 
+/* ── 앱 전용 화면 게이트(이벤트·쿠폰함) — 앱 설치 유도 인페이지 카드 ── */
+.appgate { display: flex; align-items: center; justify-content: center; min-height: 62vh; padding: 32px 20px; }
+.appgate-box {
+  max-width: 360px; width: 100%; text-align: center;
+  background: var(--c-surface, #fff); border: 1px solid var(--c-border, #e3e8ef);
+  border-radius: 18px; padding: 36px 26px; box-shadow: 0 12px 40px rgba(18, 104, 211, 0.10);
+}
+.appgate-ic {
+  display: inline-flex; width: 72px; height: 72px; align-items: center; justify-content: center;
+  border-radius: 20px; background: var(--c-primary-soft, #eaf2fd); color: var(--c-primary, #1268d3); margin-bottom: 16px;
+}
+.appgate-box h2 { margin: 0 0 10px; font-size: 19px; font-weight: 800; color: var(--c-text, #18233a); }
+.appgate-box p { margin: 0 0 18px; font-size: 14px; line-height: 1.65; color: var(--c-text-soft, #4b5a6b); word-break: keep-all; }
+.appgate-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  background: var(--c-primary, #1268d3); color: #fff; text-decoration: none;
+  border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 800;
+}
+.appgate-btn:hover { background: #0f59b8; }
+.appgate-hint { margin-top: 14px; font-size: 12.5px; color: var(--c-text-soft, #8b97a5); }
+
+/* ── 출시 이벤트 플로팅 버튼(좌하단) ── */
+.event-fab{position:fixed;left:18px;bottom:18px;z-index:81;display:inline-flex;align-items:center;gap:7px;
+  background:var(--c-primary,#1268d3);color:#fff;border:none;border-radius:30px;padding:12px 17px;
+  font-weight:800;font-size:14.5px;cursor:pointer;box-shadow:0 6px 22px rgba(18,104,211,.30);
+  animation:evfab-bob 3.2s ease-in-out infinite}
+.event-fab:hover{transform:translateY(-2px)}
+.event-fab-ic{display:inline-flex;transform-origin:60% 40%;animation:evfab-wiggle 3.2s ease-in-out infinite}
+.event-fab-dot{position:absolute;top:-2px;right:-2px;width:11px;height:11px;border-radius:50%;
+  background:#ff5b5b;border:2px solid #fff;animation:evfab-ping 1.9s ease-out infinite}
+@keyframes evfab-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes evfab-wiggle{0%,86%,100%{transform:rotate(0)}90%{transform:rotate(-13deg)}95%{transform:rotate(11deg)}}
+@keyframes evfab-ping{0%{box-shadow:0 0 0 0 rgba(255,91,91,.5)}70%,100%{box-shadow:0 0 0 7px rgba(255,91,91,0)}}
+@media(max-width:600px){.event-fab{left:12px;bottom:14px;padding:9px 13px;font-size:12.5px;gap:5px}}
+@media (prefers-reduced-motion:reduce){.event-fab,.event-fab-ic,.event-fab-dot{animation:none}}
+
+/* ── 출시 이벤트 접속 팝업 ── */
+.evpop-ov{position:fixed;inset:0;z-index:10000;background:rgba(20,15,8,.5);backdrop-filter:blur(3px);
+  display:flex;align-items:center;justify-content:center;padding:22px;animation:evpop-fade .18s ease}
+.evpop{position:relative;max-width:340px;width:100%;text-align:center;background:#fffdf8;
+  border:1px solid #efe7d6;border-radius:22px;padding:28px 24px 22px;box-shadow:0 20px 60px rgba(20,15,8,.28);
+  animation:evpop-rise .22s cubic-bezier(.2,.9,.3,1.2)}
+.evpop-x{position:absolute;top:12px;right:12px;background:none;border:none;color:#b7a988;cursor:pointer;padding:4px;line-height:0}
+.evpop-kicker{font-size:12px;font-weight:800;color:#1268d3;letter-spacing:.01em}
+.evpop-title{margin:7px 0 16px;font-size:22px;line-height:1.32;font-weight:800;color:#241d13;letter-spacing:-.01em}
+.evpop-rewards{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px}
+.evpop-rw{display:inline-flex;flex-direction:column;align-items:center;gap:5px;font-size:12.5px;color:#5a4d38}
+.evpop-rw b{font-size:12.5px;font-weight:800;color:#241d13}
+.evpop-rw>svg{width:40px;height:40px;padding:9px;border-radius:14px;box-sizing:content-box}
+.evpop-rw.coffee>svg{background:#f6ecdb;color:#8a5320}
+.evpop-rw.candy>svg{background:#fdeef4;color:#c0396f}
+.evpop-plus{font-size:18px;font-weight:800;color:#c3b18e}
+.evpop-desc{margin:0 0 16px;font-size:13px;color:#8a7c62;line-height:1.6}
+.evpop-cta{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:100%;
+  background:#1268d3;color:#fff;border:none;border-radius:13px;padding:14px;font-size:15px;font-weight:800;cursor:pointer}
+.evpop-cta:hover{background:#0f59b8}
+.evpop-later{margin-top:9px;background:none;border:none;color:#a2947a;font-size:12.5px;font-weight:700;cursor:pointer;padding:6px}
+.evpop-dont{display:inline-flex;align-items:center;gap:7px;margin-top:13px;font-size:12.5px;font-weight:700;
+  color:#a2947a;cursor:pointer;user-select:none}
+.evpop-dont input{position:absolute;opacity:0;width:0;height:0}
+.evpop-dont-box{width:17px;height:17px;border-radius:5px;border:1.6px solid #d3c6ab;background:#fff;
+  display:inline-flex;align-items:center;justify-content:center;color:#fff;transition:all .12s}
+.evpop-dont-box svg{opacity:0}
+.evpop-dont input:checked+.evpop-dont-box{background:#1268d3;border-color:#1268d3}
+.evpop-dont input:checked+.evpop-dont-box svg{opacity:1}
+.evpop-dont input:focus-visible+.evpop-dont-box{outline:2px solid #1268d3;outline-offset:2px}
+@keyframes evpop-fade{from{opacity:0}to{opacity:1}}
+@keyframes evpop-rise{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.evpop,.evpop-ov{animation:none}}
+
 /* ── 내 정보(계정메뉴) 약관·사업자 링크 ── */
 .acct-legal { padding: 10px 12px 4px; border-top: 1px solid #eef1f5; margin-top: 4px; font-size: 11.5px; }
 .acct-legal a { color: var(--c-primary, #1268d3); text-decoration: none; }
@@ -1254,6 +1324,8 @@ input.search:focus { outline: none; border-color: var(--c-primary); box-shadow: 
 .auth-btn.ghost:hover { color: var(--c-text); }
 .auth-btn.google { background: #fff; color: #3c4043; border: 1px solid #dadce0; }
 .auth-btn.google:hover { background: #f7f8f8; }
+.auth-btn.apple { background: #000; color: #fff; }
+.auth-btn.apple:hover { background: #1a1a1a; }
 .kakao-icon, .google-icon { flex: 0 0 auto; }
 /* 비로그인 상태에서 로그인 버튼 2개(231px)가 메뉴를 밀어 '중개사라운지'가 2줄로 넘어갔다.
    실측 부족분은 9px뿐이지만, 레이아웃이 1180px 고정이라 화면을 키워도 그대로다.
@@ -3782,19 +3854,20 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 @media(max-width:680px){.ops-board{grid-template-columns:1fr}.ops-exp-table{font-size:12px}.ops-exp-table th:nth-child(3),.ops-exp-table td:nth-child(3){max-width:120px}}
 
 /* 앱 첫 실행 인트로(콕집 마크 → 위아래로 열림 → 주요기능 스치듯) */
-.intro{position:fixed;inset:0;z-index:99999;overflow:hidden;animation:introFade .35s ease 1.92s forwards}
+.intro{position:fixed;inset:0;z-index:99999;overflow:hidden;animation:introFade .4s ease 2.95s forwards}
 .intro-reveal{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
   background:radial-gradient(120% 120% at 50% 40%,#fff 0%,#eef3fb 100%)}
 .intro-brand{display:flex;align-items:center;gap:9px;font-size:30px;font-weight:900;color:#13294b;letter-spacing:-1px;
   animation:introFeat .5s ease 1.0s both}
-.intro-feats{display:flex;flex-direction:column;align-items:center;gap:9px}
-/* 알약 너비 통일 — 글자 길이가 달라도(급매찾기 vs 빌라 깡통전세지수) 같은 폭으로 */
-.intro-feat{display:flex;align-items:center;justify-content:center;gap:6px;width:200px;box-sizing:border-box;
-  background:#fff;border:1px solid #d8e3f2;color:#1268d3;
-  border-radius:30px;padding:8px 14px;font-size:13.5px;font-weight:800;box-shadow:0 3px 10px rgba(18,104,211,.12);
-  white-space:nowrap;opacity:0;animation:introFeat .42s cubic-bezier(.2,.7,.3,1) both}
-.intro-feat svg{flex:none}
-.intro-feat svg{color:#1268d3}
+/* 블럭이 위에서 하나씩 떨어져 쌓이는 인트로. 폭 통일(글자 길이 달라도 같은 블럭) */
+.intro-feats{display:flex;flex-direction:column;align-items:stretch;gap:8px;width:250px}
+.intro-block{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;
+  background:#fff;border:1px solid #dce7f5;color:#13294b;
+  border-radius:13px;padding:12px 15px;font-size:14px;font-weight:800;letter-spacing:-.2px;
+  box-shadow:0 7px 18px rgba(19,41,75,.10);
+  white-space:nowrap;opacity:0;transform-origin:50% 0;
+  animation:introBlock .46s cubic-bezier(.22,1.2,.36,1) both}
+.intro-block svg{flex:none;color:#1268d3}
 .intro-panel{position:absolute;left:0;width:100%;height:50%;z-index:2;
   background:linear-gradient(135deg,#13294b,#1268d3)}
 .intro-panel.top{top:0;animation:introOpenTop .58s cubic-bezier(.65,0,.3,1) .88s forwards}
@@ -3808,6 +3881,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 @keyframes introOpenTop{to{transform:translateY(-100%)}}
 @keyframes introOpenBottom{to{transform:translateY(100%)}}
 @keyframes introFeat{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes introBlock{0%{opacity:0;transform:translateY(-30px) scale(.95)}60%{opacity:1}100%{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes introFade{to{opacity:0;visibility:hidden}}
 @media(prefers-reduced-motion:reduce){.intro{display:none}}
 
@@ -4359,6 +4433,13 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .myfav-sumline em.up{color:#c0392b}
 .myfav-sumline em.down{color:#1268d3}
 .myfav-types{border:1px solid #edf1f6;border-radius:10px;overflow:hidden;margin-bottom:10px}
+/* 가격 흐름 스파크라인 스트립 — 라벨 + 흐름선(축 없음) */
+.myfav-spark{display:flex;align-items:center;gap:9px;margin:0 0 10px;padding:6px 10px;
+  border:1px solid #edf1f6;border-radius:10px;background:#fafbfd}
+.myfav-spark-k{flex:none;font-size:11px;font-weight:800;color:#66748a;line-height:1.15;
+  display:flex;flex-direction:column}
+.myfav-spark-k em{font-style:normal;font-weight:700;font-size:9.5px;color:#9aa8bd}
+.myfav-spark .spark{flex:1;min-width:0;height:30px;display:block}
 .mft-row{display:grid;grid-template-columns:44px 62px 1fr auto;align-items:center;gap:6px;padding:7px 10px;font-size:12.5px}
 .mft-row + .mft-row{border-top:1px solid #f1f4f8}
 .mft-t{font-size:11px;font-weight:800;border-radius:6px;text-align:center;padding:2px 0}

@@ -1,0 +1,6 @@
+
+# Capacitor iOS (cap add ios 산출물)
+/ios/App/Pods/
+/ios/App/App/public/
+/ios/DerivedData/
+/ios/App/build/

@@ -1,0 +1,13 @@
+import { chromium } from "playwright";
+const BIN = process.env.HOME + "/Library/Caches/ms-playwright/chromium-1223/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
+const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36";
+const b = await chromium.launch({ executablePath: BIN });
+const p = await (await b.newContext({ viewport: { width: 1280, height: 720 }, userAgent: UA, locale: "ko-KR" })).newPage();
+const fails = [];
+p.on("response", r => { if (r.url().includes("api.koczip.com") && r.status() !== 200) fails.push(r.status() + " " + r.url().slice(0, 70)); });
+await p.goto("https://koczip.com/request", { waitUntil: "networkidle" });
+await p.waitForTimeout(3500);
+const s = await p.$$(".kreq-region select");
+console.log("시도 옵션:", (await s[0].$$eval("option", o => o.map(x => x.label))).slice(0, 5));
+console.log("실패 응답:", fails.slice(0, 3));
+await b.close();

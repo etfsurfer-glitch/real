@@ -212,9 +212,12 @@ export async function loginKakao() {
     provider: "kakao",
     options: {
       redirectTo: window.location.origin,
-      // 카카오 동의항목 — 닉네임·프로필사진·이메일만 요청. 전화번호(phone_number)는
-      // 비즈 검수가 필요한 항목이라 요청하지 않음(전화 인증은 알리고 SMS로 별도 처리).
-      scopes: "profile_nickname profile_image account_email",
+      // 카카오 동의항목 — 닉네임·프로필사진·이메일. 전화번호(phone_number)는
+      // 비즈 검수가 필요해 요청하지 않음(전화 인증은 알리고 SMS로 별도 처리).
+      // plusfriends: 콕집 카톡채널(_ackPX) 친구 추가 상태를 읽어 친구톡 발송 대상
+      // 관리에 쓴다. 자동 채널 추가 자체는 카카오 콘솔[간편가입] 설정으로 동작하고,
+      // 이 동의항목은 "친구인지"를 읽기 위한 것(선택 동의라 거부해도 로그인은 됨).
+      scopes: "profile_nickname profile_image account_email plusfriends",
     },
   });
 }
@@ -267,6 +270,23 @@ export async function loginGoogle() {
   await authClient.auth.signInWithOAuth({
     provider: "google",
     options: { redirectTo: window.location.origin, scopes: "openid email profile" },
+  });
+}
+
+// Sign in with Apple — App Store 심사지침 4.8(소셜로그인 제공 시 애플 로그인 동등 제공) 대응.
+// Supabase Auth 의 Apple provider 를 켠 뒤 아래 플래그를 true 로 바꾸면 버튼이 노출된다.
+// (provider 미설정 상태에서 노출하면 로그인이 실패하므로 기본 false.)
+export const APPLE_LOGIN_ENABLED = false;
+
+export async function loginApple() {
+  if (!authClient) {
+    alert("로그인 서버(Supabase)가 설정되지 않았습니다.");
+    return;
+  }
+  setAuthReturn();
+  await authClient.auth.signInWithOAuth({
+    provider: "apple",
+    options: { redirectTo: window.location.origin, scopes: "name email" },
   });
 }
 
