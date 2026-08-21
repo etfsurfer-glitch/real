@@ -136,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     captureReferral();   // 진입 시 ?ref 캡처
     if (!authClient) return;
+    initNativeAuthDeepLink();   // iOS 앱 OAuth 딥링크 복귀 리스너 등록
     let alive = true;
     const apply = async (session: Session | null, event?: string) => {
       const { user, token } = sessionToUser(session);
@@ -202,12 +203,59 @@ export function useAuth() {
   return useContext(AuthCtx);
 }
 
+// ── iOS 앱(Capacitor) 네이티브 OAuth ───────────────────────────────────────
+// 앱 웹뷰에서 signInWithOAuth 전체 리다이렉트를 쓰면 Google 이 accounts.google.com 을
+// 외부 사파리로 열어(정책상 embedded webview 차단) 세션이 사파리에 갇힌다. 그래서
+// iOS 앱에서는 인앱 SFSafariViewController(@capacitor/browser)로 열고, 인증 후
+// 커스텀 스킴(com.koczip.app://oauth) 딥링크로 앱에 복귀해 코드를 교환한다.
+const isIOSApp = () =>
+  typeof navigator !== "undefined" && /KoczipApp\/iOS/.test(navigator.userAgent);
+const OAUTH_REDIRECT = "com.koczip.app://oauth";
+
+async function nativeOAuth(provider: "google" | "kakao" | "apple", scopes: string) {
+  const { data, error } = await authClient!.auth.signInWithOAuth({
+    provider,
+    options: { redirectTo: OAUTH_REDIRECT, skipBrowserRedirect: true, scopes },
+  });
+  if (error || !data?.url) { alert("로그인을 시작할 수 없습니다. 잠시 후 다시 시도해주세요."); return; }
+  const { Browser } = await import("@capacitor/browser");
+  await Browser.open({ url: data.url, presentationStyle: "popover" });
+}
+
+// 딥링크(com.koczip.app://oauth?code=…) 수신 → 세션 교환. 앱 시작 시 1회 등록.
+let _deepLinkInited = false;
+export function initNativeAuthDeepLink() {
+  if (_deepLinkInited || !isIOSApp() || !authClient) return;
+  _deepLinkInited = true;
+  import("@capacitor/app").then(({ App }) => {
+    App.addListener("appUrlOpen", async ({ url }) => {
+      if (!url || !url.startsWith("com.koczip.app://oauth")) return;
+      try {
+        const code = new URLSearchParams(url.split("?")[1] || "").get("code");
+        if (code) {
+          await authClient!.auth.exchangeCodeForSession(code);
+        } else if (url.includes("access_token")) {   // implicit 폴백
+          const p = new URLSearchParams(url.split("#")[1] || "");
+          const at = p.get("access_token"), rt = p.get("refresh_token");
+          if (at && rt) await authClient!.auth.setSession({ access_token: at, refresh_token: rt });
+        }
+      } catch (e) {
+        console.error("oauth deeplink", e);
+        alert("로그인 처리 중 문제가 발생했어요. 다시 시도해주세요.");
+      } finally {
+        try { const { Browser } = await import("@capacitor/browser"); await Browser.close(); } catch { /* 이미 닫힘 */ }
+      }
+    });
+  }).catch(() => { _deepLinkInited = false; });
+}
+
 export async function loginKakao() {
   if (!authClient) {
     alert("로그인 서버(Supabase)가 설정되지 않았습니다.");
     return;
   }
   setAuthReturn();   // 돌아올 화면 기억 — 콕집요청처럼 흐름 중간에 로그인하는 경우
+  if (isIOSApp()) { await nativeOAuth("kakao", "profile_nickname profile_image account_email plusfriends"); return; }
   await authClient.auth.signInWithOAuth({
     provider: "kakao",
     options: {
@@ -258,6 +306,7 @@ export async function loginGoogle() {
     return;
   }
   setAuthReturn();   // 돌아올 화면 기억
+  if (isIOSApp()) { await nativeOAuth("google", "openid email profile"); return; }
   // 인앱 브라우저면: Google이 webview를 막으므로(PKCE도 같은 브라우저서 시작·완료돼야 함)
   // 앱 자체를 외부 브라우저로 열고, 거기서 자동으로 Google 로그인을 트리거한다(?login=google).
   // 이 경우엔 브라우저 자체가 바뀌어 sessionStorage 가 안 따라가므로 URL 로 넘긴다.
@@ -284,6 +333,7 @@ export async function loginApple() {
     return;
   }
   setAuthReturn();
+  if (isIOSApp()) { await nativeOAuth("apple", "name email"); return; }
   await authClient.auth.signInWithOAuth({
     provider: "apple",
     options: { redirectTo: window.location.origin, scopes: "name email" },

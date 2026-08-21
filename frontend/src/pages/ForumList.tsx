@@ -43,9 +43,10 @@ export default function ForumList() {
     if (!API) return;
     setItems(null);
     const qs = `sort=${sort}&limit=40${q ? `&q=${encodeURIComponent(q)}` : ""}`;
-    fetch(`${API}/forum/posts?${qs}`)
+    const h = token ? { Authorization: `Bearer ${token}` } : undefined;  // 로그인 시 차단 사용자 글 필터링
+    fetch(`${API}/forum/posts?${qs}`, { headers: h })
       .then((r) => r.json()).then((d) => setItems(d.items ?? [])).catch(() => setItems([]));
-  }, [sort, q]);
+  }, [sort, q, token]);
   useEffect(() => { load(); }, [load]);
 
   const write = () => {
