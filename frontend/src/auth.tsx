@@ -325,7 +325,7 @@ export async function loginGoogle() {
 // Sign in with Apple — App Store 심사지침 4.8(소셜로그인 제공 시 애플 로그인 동등 제공) 대응.
 // Supabase Auth 의 Apple provider 를 켠 뒤 아래 플래그를 true 로 바꾸면 버튼이 노출된다.
 // (provider 미설정 상태에서 노출하면 로그인이 실패하므로 기본 false.)
-export const APPLE_LOGIN_ENABLED = true;
+export const APPLE_LOGIN_ENABLED = false;
 
 export async function loginApple() {
   if (!authClient) {
