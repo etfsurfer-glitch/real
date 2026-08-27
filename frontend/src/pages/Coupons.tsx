@@ -34,7 +34,7 @@ export default function Coupons() {
   if (!isInstalledApp()) {
     return (
       <AppOnlyGate title="쿠폰함은 앱에서 열려요"
-        desc={<>받은 쿠폰은 <b>콕집 안드로이드 앱</b>에서만 확인·사용할 수 있어요.<br />앱을 설치하고 다시 열어주세요.</>} >
+        desc={<>받은 쿠폰은 <b>콕집 앱</b>에서만 확인·사용할 수 있어요.<br />앱에서 다시 열어주세요.</>} >
         <></>
       </AppOnlyGate>
     );

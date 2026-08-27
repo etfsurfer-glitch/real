@@ -32,6 +32,9 @@ export function appMode(): AppMode {
 export const isGeneralApp = () => appMode() === "general";
 export const isRealtorApp = () => appMode() === "realtor";
 export const isInstalledApp = () => appMode() !== "browser";
+// iOS 콕집 앱(Capacitor WKWebView) 여부 — 타 플랫폼 스토어 링크 노출 차단용(심사지침 2.3.10).
+export const isIOSApp = () =>
+  typeof navigator !== "undefined" && /KoczipApp\/iOS/.test(navigator.userAgent);
 
 // 스토어 링크 — 앱 미게시 상태에선 설치 페이지가 준비중일 수 있으나 게시 즉시 연결된다.
 export const STORE = {
@@ -45,7 +48,8 @@ export const STORE = {
 export function generalStoreUrl(): string {
   try {
     const ua = navigator.userAgent || "";
-    if (/iPhone|iPad|iPod/i.test(ua) && STORE.ios) return STORE.ios;
+    // iOS 는 App Store 만 안내(미게시 시 빈 값 → 타 플랫폼 스토어 링크를 노출하지 않는다, 심사지침 2.3.10).
+    if (/iPhone|iPad|iPod/i.test(ua)) return STORE.ios;
   } catch { /* SSR */ }
   return STORE.general;
 }

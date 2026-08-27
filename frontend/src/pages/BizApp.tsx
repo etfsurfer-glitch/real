@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useAuth, loginKakao, loginGoogle, logout } from "../auth";
 import CallDetectCard from "../components/CallDetectCard";
 import BizCalls, { QuickAddCustomer } from "../components/BizCalls";
-import { STORE, isRealtorApp } from "../lib/appmode";
+import { STORE, isRealtorApp, isIOSApp } from "../lib/appmode";
 import AppleLoginButton from "../components/AppleLoginButton";
 import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
@@ -138,7 +138,7 @@ export default function BizApp() {
           )}
 
           {/* 중개사가 아니면 일반 앱으로 — 인증 흐름 중(승인대기·관리자 제외)에만 노출 */}
-          {(st.state === "need_phone" || st.state === "select" || st.state === "no_match") && (
+          {(st.state === "need_phone" || st.state === "select" || st.state === "no_match") && !isIOSApp() && (
             <div className="biz-notrealtor">
               <span>중개사가 아니신가요?</span>
               <a href={STORE.general} target="_blank" rel="noopener noreferrer">

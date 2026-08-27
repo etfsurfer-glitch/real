@@ -46,7 +46,7 @@ export default function EventPopup() {
     <div className="evpop-ov" onClick={close} role="presentation">
       <div className="evpop" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="출시 기념 이벤트">
         <button className="evpop-x" onClick={close} aria-label="닫기"><X size={17} /></button>
-        <div className="evpop-kicker">콕집 안드로이드 출시 기념</div>
+        <div className="evpop-kicker">콕집 앱 출시 기념</div>
         <h2 className="evpop-title">미션 깨고<br />커피 쿠폰 받아가세요</h2>
         <div className="evpop-rewards">
           <span className="evpop-rw coffee"><Coffee size={22} strokeWidth={2.2} aria-hidden /><b>커피 최대 2잔</b></span>

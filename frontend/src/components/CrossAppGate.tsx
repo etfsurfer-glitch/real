@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Building2, Home, Download } from "lucide-react";
-import { STORE } from "../lib/appmode";
+import { STORE, isIOSApp } from "../lib/appmode";
 
 // 앱 분리 안내 — 현재 앱에서 '다른 앱 전용' 기능에 들어왔을 때만 표시.
 // 중요: 브라우저(홈페이지)에서는 절대 호출하지 않는다 — 웹은 모든 기능을 그대로 쓴다.
@@ -33,9 +33,11 @@ export default function CrossAppGate({ target }: { target: "realtor" | "general"
         <div className="xgate-ic"><Icon size={30} strokeWidth={2} /></div>
         <h2>{info.title}</h2>
         <p>{info.desc}</p>
-        <a className="xgate-cta" href={info.store} target="_blank" rel="noopener noreferrer">
-          <Download size={17} strokeWidth={2.4} /> {info.app} 앱 설치하기
-        </a>
+        {!isIOSApp() && (
+          <a className="xgate-cta" href={info.store} target="_blank" rel="noopener noreferrer">
+            <Download size={17} strokeWidth={2.4} /> {info.app} 앱 설치하기
+          </a>
+        )}
         <Link to={info.back} className="xgate-back">{info.backLabel}</Link>
       </div>
     </div>

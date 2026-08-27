@@ -60,11 +60,11 @@ export default function Event() {
 
   return (
     <AppOnlyGate title="이벤트는 앱에서 참여해요"
-      desc={<>커피·추파춥스 보상 이벤트는 <b>콕집 안드로이드 앱</b>에서만 참여할 수 있어요.<br />앱을 설치하고 다시 열어주세요.</>}>
+      desc={<>커피·추파춥스 보상 이벤트는 <b>콕집 앱</b>에서만 참여할 수 있어요.<br />앱에서 다시 열어주세요.</>}>
     <div className="ev2">
       <div className="ev2-ticket">
         <div className="ev2-head">
-          <span className="ev2-kicker">콕집 안드로이드 오픈 기념</span>
+          <span className="ev2-kicker">콕집 앱 오픈 기념</span>
           <h1>미션 스탬프<br />커피 쿠폰</h1>
           <p className="ev2-lede">
             미션을 깨서 도장을 모으세요. <b>커피 최대 2잔</b>과 <b>추파춥스</b>가
