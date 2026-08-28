@@ -57,6 +57,7 @@ import AdminBotStats from "./pages/AdminBotStats";
 import AdminOps from "./pages/AdminOps";
 import AdminKpi from "./pages/AdminKpi";
 import AdminEvent from "./pages/AdminEvent";
+import AdminHiddenRealtors from "./pages/AdminHiddenRealtors";
 import NonResi from "./pages/NonResi";
 import JeonseCheck from "./pages/JeonseCheck";
 import Tutorial from "./components/Tutorial";
@@ -470,6 +471,7 @@ function AppShell() {
         <Route path="/suspicious" element={<Navigate to="/admin/suspicious" replace />} />
         <Route path="/admin/reviews" element={<RequireAdmin><AdminReviews /></RequireAdmin>} />
         <Route path="/admin/realtor-match" element={<RequireAdmin><AdminRealtorMatch /></RequireAdmin>} />
+        <Route path="/admin/hidden-realtors" element={<RequireAdmin><AdminHiddenRealtors /></RequireAdmin>} />
         <Route path="/admin/users" element={<RequireAdmin><AdminUsers /></RequireAdmin>} />
         <Route path="/admin/resident" element={<RequireAdmin><AdminResident /></RequireAdmin>} />
         <Route path="/admin/realtor-requests" element={<RequireAdmin><AdminRealtorRequests /></RequireAdmin>} />

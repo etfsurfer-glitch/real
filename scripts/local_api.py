@@ -2275,6 +2275,9 @@ def realtors_national(limit: int = 20, scope: str = "complex"):
             "staff_count": e.get("staff_count"),
             "established_year": e.get("established_year"),
         })
+    _h = _hidden_realtor_ids()
+    if _h:
+        items = [it for it in items if it.get("realtor_id") not in _h]
     out = {"limit": limit, "scope": scope, "items": items}
     _cache_put(ck, out)
     return out
@@ -2374,6 +2377,9 @@ def realtors_by_staff(limit: int = 20, region: str = "", by: str = "staff"):
                 "licensed_ratio": (round(lic / emp, 2) if emp else None),
                 "established_year": (br[1][:4] if (br and br[1] and len(br[1]) >= 4) else None),
             })
+    _h = _hidden_realtor_ids()
+    if _h:
+        items = [it for it in items if it.get("realtor_id") not in _h]
     out = {"limit": limit, "by": by, "items": items}
     _cache_put(ck, out)
     return out
@@ -2426,6 +2432,9 @@ def realtors_by_tenure(limit: int = 20, region: str = ""):
                 "established_year": reg[:4] if reg and len(reg) >= 4 else None,
                 "established_date": reg if reg and len(reg) >= 8 else None,
             })
+    _h = _hidden_realtor_ids()
+    if _h:
+        items = [it for it in items if it.get("realtor_id") not in _h]
     out = {"limit": limit, "items": items}
     _cache_put(ck, out)
     return out
@@ -3527,6 +3536,9 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
            "tenure": lambda x: x["tenure_years"] or 0}.get(sort, lambda x: x["listings"])
     items.sort(key=key, reverse=True)
     items = items[:limit]
+    _h = _hidden_realtor_ids()
+    if _h:
+        items = [it for it in items if it.get("realtor_id") not in _h]
     out = {"cortar_no": cortar, "dong_name": (dn[0] if dn else None),
            "sort": sort, "scope": scope, "count": len(items),
            "top": (items[0] if items else None), "items": items}
@@ -3589,6 +3601,9 @@ def realtors_by_sido(limit: int = 10, scope: str = "complex"):
         grouped.setdefault(name, []).append(
             {"realtor_id": rid, "realtor_name": names.get(rid) or "공인중개사", "count": n,
              "total_count": totals.get(rid, n)})
+    _h = _hidden_realtor_ids()
+    if _h:
+        grouped = {k: [it for it in v if it.get("realtor_id") not in _h] for k, v in grouped.items()}
     out = {"limit": limit, "scope": scope, "groups": grouped}
     _cache_put(ck, out)
     return out
@@ -3766,6 +3781,9 @@ def _live_realtor_counts(rids: list[str]) -> dict[str, int]:
 
 
 def _realtors_search_finish(q: str, sido: str, items: list, limit: int) -> dict:
+    hidden = _hidden_realtor_ids()          # 노출차단 중개사 제외(통계 무관, 검색 노출만)
+    if hidden:
+        items = [it for it in items if it[0] not in hidden]
     # 비단지 전용 사무소 보정: 랭킹 count는 단지형(listings_current) 기반이라 상가·사무실·지산만
     # 취급하는 사무소는 count=0 → 동명 사무소에 밀려 limit에서 잘림(금천 참공인 69건 사례).
     # realtor_region_counts(비단지 10종)로 채워 정상 랭크되게 한다.
@@ -4068,6 +4086,8 @@ def _office_region_cats(realtor_id: str) -> dict:
 @app.get("/realtor/{realtor_id}")
 def realtor_detail(realtor_id: str):
     """중개사 상세: 전국 등수, 시도별 등수, 단지별 매물 집계."""
+    if realtor_id in _hidden_realtor_ids():   # 노출차단 사무소는 상세 비공개
+        raise HTTPException(404, "not found")
     # vw{sys_regno}(vworld-only 사무소)는 상세 접근 시 naver_realtors에 자동등록(멱등) →
     # 검색엔 뜨는데 상세는 404나던 문제 해결(2026-07-14). CP제휴 매물은 아래 region_listings로.
     if realtor_id.startswith("vw") and realtor_id[2:].isdigit():
@@ -5050,6 +5070,9 @@ def complex_realtors(complex_no: str, limit: int = 10):
             "tel": e.get("tel"),
             "total_listings": total_by_id.get(r[0]),
         })
+    _h = _hidden_realtor_ids()
+    if _h:
+        items = [it for it in items if it.get("realtor_id") not in _h]
     return {"complex_no": complex_no, "items": items}
 
 
@@ -6593,6 +6616,56 @@ def tx_yield(days: int = 365, asset: str = "apt", area_class: str = "all",
             for r in rows
         ],
     }
+
+
+class HideRealtorBody(BaseModel):
+    realtor_id: str
+    name: str | None = None
+    reason: str | None = None
+
+
+@app.get("/admin/hidden-realtors")
+def admin_hidden_realtors(admin: dict = Depends(admin_user)) -> dict:
+    """노출차단 중개사 목록(관리자). 최근 추가순."""
+    with _reviews_db() as c:
+        rows = c.execute(
+            "SELECT realtor_id, name, reason, hidden_by, created_at "
+            "FROM hidden_realtors ORDER BY created_at DESC").fetchall()
+    return {"items": [dict(r) for r in rows]}
+
+
+@app.post("/admin/hidden-realtors")
+def admin_hide_realtor(body: HideRealtorBody, admin: dict = Depends(admin_user)) -> dict:
+    """중개사 노출차단 추가(관리자). 통계엔 영향 없고 사이트 노출만 가린다."""
+    rid = (body.realtor_id or "").strip()
+    if not rid:
+        raise HTTPException(400, "realtor_id required")
+    name = body.name
+    if not name:  # 이름 미제공 시 naver_realtors 에서 보강
+        try:
+            with _open_db() as d:
+                r = d.execute("SELECT realtor_name FROM naver_realtors WHERE realtor_id=?", (rid,)).fetchone()
+                name = r[0] if r else None
+        except Exception:
+            pass
+    with _reviews_db() as c:
+        c.execute(
+            "INSERT INTO hidden_realtors(realtor_id, name, reason, hidden_by) VALUES(?,?,?,?) "
+            "ON CONFLICT(realtor_id) DO UPDATE SET name=excluded.name, reason=excluded.reason",
+            (rid, name, body.reason, admin.get("email") or admin.get("id")))
+        c.commit()
+    _hidden_realtors_cache["at"] = 0.0  # 캐시 즉시 무효화
+    return {"ok": True, "realtor_id": rid, "name": name}
+
+
+@app.delete("/admin/hidden-realtors/{realtor_id}")
+def admin_unhide_realtor(realtor_id: str, admin: dict = Depends(admin_user)) -> dict:
+    """중개사 노출차단 해제(관리자)."""
+    with _reviews_db() as c:
+        c.execute("DELETE FROM hidden_realtors WHERE realtor_id=?", (realtor_id,))
+        c.commit()
+    _hidden_realtors_cache["at"] = 0.0
+    return {"ok": True, "realtor_id": realtor_id}
 
 
 @app.get("/admin/suspicious-realtors")
@@ -10365,6 +10438,90 @@ def _txmap_ledger_full(cortar_no: str | None, addr: str | None) -> tuple:
         return None, None
 
 
+# 시군구 중심좌표(단지 좌표 평균) — 줌아웃(구) 버블 위치용. 1회 계산 후 메모리 캐시.
+_SGG_CENTROID = None
+
+
+def _sgg_centroids():
+    global _SGG_CENTROID
+    if _SGG_CENTROID is None:
+        with _open_db() as d:
+            _SGG_CENTROID = {r[0]: (r[1], r[2], r[3]) for r in d.execute(
+                "SELECT substr(cx.cortar_no,1,5) sgg, AVG(cx.latitude) la, AVG(cx.longitude) lo, "
+                "  (SELECT cortar_name FROM regions WHERE cortar_no=substr(cx.cortar_no,1,5)||'00000') nm "
+                "FROM complexes cx WHERE cx.latitude>0 GROUP BY sgg")}
+    return _SGG_CENTROID
+
+
+@app.get("/stats/tx-map/agg")
+def tx_map_agg(level: str = "gu", asset: str = "apt", trade: str = "A1",
+               sw_lat: float = 0, sw_lng: float = 0, ne_lat: float = 0, ne_lng: float = 0,
+               window_days: int = 120, min_n: int = 3):
+    """실거래 지도 줌아웃 집계 — 구(sgg)/동(dong)별 '평당가 변동률'(최근 window vs 이전 window)
+    + 중심좌표. 변동률 색칠 버블용(빨강=하락, 파랑=상승). asset=apt|offi, trade=A1(매매) MVP.
+    · gu: t.sgg_cd로 그룹(전국). 좌표는 사전캐시. bounds 주면 그 안의 구만.
+    · dong: bounds(뷰포트)로 단지 좁혀 cx.cortar_no[:10]로 그룹."""
+    if level not in ("gu", "dong"):
+        raise HTTPException(400, "level must be gu|dong")
+    if asset not in ("apt", "offi") or trade != "A1":
+        raise HTTPException(400, "MVP는 asset=apt|offi, trade=A1(매매)만 지원")
+    window_days = min(max(int(window_days), 30), 365)
+    table = "transactions" if asset == "apt" else "offi_transactions"
+    r0 = f"date('now','+9 hours','-{window_days} days')"           # 최근 창 시작
+    p0 = f"date('now','+9 hours','-{2 * window_days} days')"       # 이전 창 시작
+    ppy = "t.deal_amount/NULLIF(t.excl_use_ar,0)*3.3"             # 평당가(크기 보정)
+    rec = f"CASE WHEN t.deal_ymd>={r0} THEN {ppy} END"
+    pri = f"CASE WHEN t.deal_ymd>={p0} AND t.deal_ymd<{r0} THEN {ppy} END"
+    _ck = f"txagg:{level}:{asset}:{window_days}:{sw_lat:.2f}:{sw_lng:.2f}:{ne_lat:.2f}:{ne_lng:.2f}:{min_n}"
+    _hit = _cache_get(_ck)
+    if _hit is not None:
+        return _hit
+
+    def mk(code, name, lat, lng, rec_v, pri_v, recn):
+        return {"code": code, "name": name or code, "lat": lat, "lng": lng,
+                "change": round((rec_v / pri_v - 1) * 100, 1), "ppy": int(rec_v), "n": recn}
+
+    items = []
+    with _open_db() as d:
+        if level == "gu":
+            rows = d.execute(
+                f"SELECT t.sgg_cd, AVG({rec}) rec, AVG({pri}) pri, "
+                f"  SUM(CASE WHEN t.deal_ymd>={r0} THEN 1 ELSE 0 END) recn "
+                f"FROM {table} t "
+                f"WHERE t.is_cancelled=0 AND t.matched_complex_no IS NOT NULL "
+                f"  AND t.excl_use_ar>0 AND t.deal_ymd>={p0} "
+                f"GROUP BY t.sgg_cd").fetchall()
+            cen = _sgg_centroids()
+            for sgg, rec_v, pri_v, recn in rows:
+                if not rec_v or not pri_v or recn < min_n:
+                    continue
+                c = cen.get((sgg or "")[:5])
+                if not c or not c[0]:
+                    continue
+                lat, lng, name = c
+                if ne_lat and not (sw_lat <= lat <= ne_lat and sw_lng <= lng <= ne_lng):
+                    continue
+                items.append(mk(sgg[:5], name, lat, lng, rec_v, pri_v, recn))
+        else:
+            rows = d.execute(
+                f"SELECT substr(cx.cortar_no,1,10) dcode, AVG(cx.latitude), AVG(cx.longitude), "
+                f"  AVG({rec}) rec, AVG({pri}) pri, "
+                f"  SUM(CASE WHEN t.deal_ymd>={r0} THEN 1 ELSE 0 END) recn, "
+                f"  (SELECT cortar_name FROM regions WHERE cortar_no=substr(cx.cortar_no,1,10)) nm "
+                f"FROM {table} t JOIN complexes cx ON cx.complex_no=t.matched_complex_no "
+                f"WHERE t.is_cancelled=0 AND t.matched_complex_no IS NOT NULL AND t.excl_use_ar>0 "
+                f"  AND t.deal_ymd>={p0} AND cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ? "
+                f"GROUP BY dcode", (sw_lat, ne_lat, sw_lng, ne_lng)).fetchall()
+            for dcode, lat, lng, rec_v, pri_v, recn, nm in rows:
+                if not rec_v or not pri_v or recn < min_n or not lat:
+                    continue
+                items.append(mk(dcode, nm, lat, lng, rec_v, pri_v, recn))
+    res = {"level": level, "asset": asset, "trade": trade, "window_days": window_days,
+           "items": sorted(items, key=lambda x: -x["n"])[:500]}
+    _cache_put(_ck, res)
+    return res
+
+
 @app.get("/stats/tx-map/detail")
 def tx_map_detail(asset: str = "apt", trade: str = "A1", ref: str = "",
                   sigungu: str = "", months: int = 6, limit: int = 60):
@@ -10957,6 +11114,39 @@ def _init_reviews_db() -> None:
               PRIMARY KEY (user_id, target_type, target_id)
             );
 
+            -- 이용자 콘텐츠 신고(글·댓글·리뷰) — App Store 지침 1.2. 관리자 검수용.
+            CREATE TABLE IF NOT EXISTS content_reports (
+              id               INTEGER PRIMARY KEY AUTOINCREMENT,
+              reporter_user_id TEXT NOT NULL,
+              target_type      TEXT NOT NULL,   -- forum_post|forum_comment|realtor_review|complex_review
+              target_id        TEXT NOT NULL,
+              target_user_id   TEXT,            -- 작성자
+              reason           TEXT,
+              status           TEXT NOT NULL DEFAULT 'open',  -- open|reviewed|actioned
+              created_at       TEXT NOT NULL DEFAULT (datetime('now','+9 hours'))
+            );
+            CREATE INDEX IF NOT EXISTS creport_status_idx ON content_reports(status, created_at DESC);
+            -- 사용자 차단 — 차단하면 그 사람 글·댓글·리뷰가 안 보인다.
+            CREATE TABLE IF NOT EXISTS user_blocks (
+              id               INTEGER PRIMARY KEY AUTOINCREMENT,
+              blocker_user_id  TEXT NOT NULL,
+              blocked_user_id  TEXT NOT NULL,
+              blocked_nickname TEXT,
+              created_at       TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+              UNIQUE (blocker_user_id, blocked_user_id)
+            );
+            CREATE INDEX IF NOT EXISTS ublk_blocker_idx ON user_blocks(blocker_user_id);
+
+            -- 중개사 노출차단 리스트 — 통계·내부데이터엔 계속 쓰되, 사이트 노출(검색·랭킹·상세·
+            -- 단지별 중개사·매물 귀속명)에서만 가린다. 관리자가 검색해서 자유롭게 추가/해제.
+            CREATE TABLE IF NOT EXISTS hidden_realtors (
+              realtor_id  TEXT PRIMARY KEY,
+              name        TEXT,
+              reason      TEXT,
+              hidden_by   TEXT,
+              created_at  TEXT NOT NULL DEFAULT (datetime('now','+9 hours'))
+            );
+
             -- ── 중개사 라운지 ──────────────────────────────────────────
             -- 계정 ↔ 중개사무소 1:1 연동(전화매칭 또는 서류승인). 여러 곳 매칭 시 사용자가
             -- 하나를 골라 여기 저장 → 라운지 입장 시 이 선택을 사용.
@@ -11069,6 +11259,33 @@ def _init_reviews_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS notif_ep_idx ON notifications(endpoint, id DESC);
             CREATE INDEX IF NOT EXISTS notif_user_idx ON notifications(user_id, id DESC);
+
+            -- 앱 출시 기념 이벤트 — 스탬프 미션 달성 시 쿠폰함에 커피/추파춥스 쿠폰 지급.
+            -- 실 기프티콘 발급은 상용 KEY(기프티쇼) 승인 후 연결. 그 전엔 status='pending'으로 보유.
+            CREATE TABLE IF NOT EXISTS event_coupons (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id      TEXT NOT NULL,
+              kind         TEXT NOT NULL,            -- coffee | lollipop
+              source       TEXT NOT NULL,            -- 미션 key
+              status       TEXT NOT NULL DEFAULT 'pending',  -- pending | issued(기프티콘발급) | used
+              gifticon_ref TEXT,                     -- 기프티쇼 주문번호(orderNo)
+              code         TEXT,                     -- 쿠폰 핀번호(pinNo)
+              barcode_url  TEXT,                     -- 바코드 이미지 URL(couponImgUrl)
+              created_at   TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+              issued_at    TEXT, used_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS ev_coupon_user ON event_coupons(user_id, id DESC);
+            CREATE TABLE IF NOT EXISTS event_claims (
+              user_id      TEXT NOT NULL,
+              mission_key  TEXT NOT NULL,
+              claimed_at   TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+              PRIMARY KEY (user_id, mission_key)
+            );
+            CREATE TABLE IF NOT EXISTS event_attendance (
+              user_id      TEXT NOT NULL,
+              day          TEXT NOT NULL,            -- YYYY-MM-DD (KST)
+              PRIMARY KEY (user_id, day)
+            );
 
             -- 직원(소속공인중개사·중개보조원) 초대장 — 대표가 발송, 해당 번호가 전화인증하면 자동 승인
             CREATE TABLE IF NOT EXISTS realtor_staff_invites (
@@ -11606,6 +11823,54 @@ def _reviews_db() -> sqlite3.Connection:
     return c
 
 
+# ─── 중개사 노출차단 리스트 ────────────────────────────────────────────
+# 통계·내부데이터엔 그대로 쓰되, 사이트 노출(검색·랭킹·상세·단지별 중개사)에서만 가린다.
+_hidden_realtors_cache = {"ids": frozenset(), "at": 0.0}
+
+def _hidden_realtor_ids() -> frozenset:
+    """노출차단 중개사 id 집합(30초 캐시). 통계엔 영향 없고 노출 필터에만 쓴다."""
+    now = time.time()
+    if now - _hidden_realtors_cache["at"] > 30:
+        try:
+            with _reviews_db() as c:
+                ids = frozenset(r[0] for r in c.execute("SELECT realtor_id FROM hidden_realtors"))
+            _hidden_realtors_cache.update(ids=ids, at=now)
+        except Exception:
+            pass  # 조회 실패 시 직전 캐시 유지
+    return _hidden_realtors_cache["ids"]
+
+
+def _strip_hidden(resp):
+    """응답에서 노출차단 중개사(items/groups[].items 의 realtor_id)를 제거한다.
+    캐시된 dict 를 손상시키지 않도록 필요할 때만 복사한다(차단 없으면 원본 그대로)."""
+    h = _hidden_realtor_ids()
+    if not h or not isinstance(resp, dict):
+        return resp
+    def _drop(lst):
+        return [it for it in lst if not (isinstance(it, dict) and it.get("realtor_id") in h)]
+    out = resp
+    its = resp.get("items")
+    if isinstance(its, list) and any(isinstance(it, dict) and it.get("realtor_id") in h for it in its):
+        out = dict(resp)
+        out["items"] = _drop(its)
+        if "top" in out:
+            out["top"] = out["items"][0] if out["items"] else None
+    grp = resp.get("groups")
+    if isinstance(grp, list):
+        newg, changed = [], False
+        for g in grp:
+            gi = g.get("items") if isinstance(g, dict) else None
+            if isinstance(gi, list) and any(isinstance(it, dict) and it.get("realtor_id") in h for it in gi):
+                ng = dict(g); ng["items"] = _drop(gi); newg.append(ng); changed = True
+            else:
+                newg.append(g)
+        if changed:
+            if out is resp:
+                out = dict(resp)
+            out["groups"] = newg
+    return out
+
+
 # ─── 웹 푸시 알림 (TWA/PWA — VAPID) ─────────────────────────────────
 def _vapid():
     """(private, public, subject) — env. 미설정이면 None."""
@@ -11816,6 +12081,333 @@ def my_favorite_remove(complex_no: str, user: dict = Depends(current_user)):
         c.execute("DELETE FROM realtor_fav_complexes WHERE user_id=? AND complex_no=?",
                   (user["id"], complex_no))
     return {"ok": True}
+
+
+# ─── 앱 출시 기념 이벤트 (스탬프 → 쿠폰함) ──────────────────────────────────
+# 앱 전용. 미션 달성 → 쿠폰함에 커피/추파춥스 쿠폰 지급. 커피 실발급은 상용 KEY 승인 후.
+EVENT_MISSIONS = {
+    "user": [
+        {"key": "signup", "title": "앱 설치 + 회원가입", "desc": "번호 인증까지 완료하면 시작!",
+         "reward": "lollipop", "reward_label": "추파춥스"},
+        {"key": "fav5", "title": "관심단지 5개 등록", "desc": "관심 단지를 5곳 하트하기",
+         "reward": "coffee", "reward_label": "커피 1잔"},
+        {"key": "attend7", "title": "7일 출석 체크", "desc": "일주일 동안 앱 방문하기",
+         "reward": "coffee", "reward_label": "커피 1잔"},
+    ],
+    "realtor": [
+        {"key": "signup", "title": "앱 설치 + 회원가입", "desc": "중개사 회원으로 시작!",
+         "reward": "lollipop", "reward_label": "추파춥스"},
+        {"key": "audit_homepage", "title": "매물점검 + 홈페이지 만들기",
+         "desc": "매물 광고를 점검하고 내 홈페이지 개설",
+         "reward": "coffee", "reward_label": "커피 1잔"},
+        {"key": "attend7", "title": "7일 출석 체크", "desc": "일주일 동안 앱 방문하기",
+         "reward": "coffee", "reward_label": "커피 1잔"},
+    ],
+}
+
+
+def _event_audience(c, uid: str) -> str:
+    return "realtor" if c.execute(
+        "SELECT 1 FROM realtor_members WHERE user_id=?", (uid,)).fetchone() else "user"
+
+
+def _mission_done(c, uid: str, key: str) -> bool:
+    if key == "signup":
+        # 번호 인증까지 완료해야 추파춥스 지급 — 발급(기프티쇼)에 인증 전화가 필요하고,
+        # 인증 전에 claim 되면 쿠폰이 pending 에 갇혀 실제 지급이 안 되는 걸 막는다.
+        return bool(c.execute("SELECT 1 FROM user_profiles WHERE user_id=? AND phone_verified=1",
+                              (uid,)).fetchone())
+    if key == "fav5":
+        return c.execute("SELECT COUNT(*) FROM realtor_fav_complexes WHERE user_id=?",
+                         (uid,)).fetchone()[0] >= 5
+    if key == "attend7":
+        return c.execute("SELECT COUNT(*) FROM event_attendance WHERE user_id=?",
+                         (uid,)).fetchone()[0] >= 7
+    if key == "audit_homepage":
+        # 홈페이지: realtor_homepages 게시 / 매물점검: _audit_done 기록(라운지 점검 시 남김)
+        hp = c.execute("SELECT 1 FROM realtor_homepages WHERE user_id=? AND published=1",
+                       (uid,)).fetchone()
+        au = c.execute("SELECT 1 FROM event_claims WHERE user_id=? AND mission_key='_audit_done'",
+                       (uid,)).fetchone()
+        return bool(hp) and bool(au)
+    return False
+
+
+def _mission_progress(c, uid: str, key: str):
+    if key == "fav5":
+        n = c.execute("SELECT COUNT(*) FROM realtor_fav_complexes WHERE user_id=?", (uid,)).fetchone()[0]
+        return {"cur": min(n, 5), "goal": 5}
+    if key == "attend7":
+        n = c.execute("SELECT COUNT(*) FROM event_attendance WHERE user_id=?", (uid,)).fetchone()[0]
+        return {"cur": min(n, 7), "goal": 7}
+    if key == "audit_homepage":
+        # 복합 미션 — 어느 조건을 채웠는지 이벤트창에서 확인할 수 있게 하위 체크로 반환.
+        # 홈페이지는 기존 개설자도 인정(published=1), 매물점검은 신규 실행분만(_audit_done).
+        hp = c.execute("SELECT 1 FROM realtor_homepages WHERE user_id=? AND published=1",
+                       (uid,)).fetchone()
+        au = c.execute("SELECT 1 FROM event_claims WHERE user_id=? AND mission_key='_audit_done'",
+                       (uid,)).fetchone()
+        return {"checks": [
+            {"label": "내 홈페이지 개설", "done": bool(hp)},
+            {"label": "매물점검 실행(신규)", "done": bool(au)},
+        ]}
+    return None
+
+
+def _issue_coupon(c, uid: str, kind: str, source: str) -> int:
+    """쿠폰 발급 — 쿠폰함에 pending 으로 넣는다. 커피·추파춥스 모두 기프티쇼 모바일쿠폰이라
+    실발급은 트랜잭션 밖에서 _try_issue_gifticon 이 처리한다(네트워크 I/O 를 DB 락 안에서 안 함)."""
+    cur = c.execute(
+        "INSERT INTO event_coupons(user_id,kind,source,status) VALUES(?,?,?,'pending')",
+        (uid, kind, source))
+    return cur.lastrowid
+
+
+# ─── 기프티쇼 비즈 API (커피 기프티콘 실발송) ──────────────────────────────
+# 설정은 박스 전용 파일(git 밖): /opt/koczip/data/giftishow.json
+#   custom_auth_code(인증키)·custom_auth_token(토큰)·member_id(기프티쇼 회원ID)·
+#   callback_no(발신번호)·coffee_goods_code(메가커피)·base_url·dev_yn(운영=N)
+_GIFTISHOW_CFG_PATH = "/opt/koczip/data/giftishow.json"
+
+
+def _giftishow_cfg() -> dict:
+    try:
+        with open(_GIFTISHOW_CFG_PATH, encoding="utf-8") as f:
+            return _json.load(f)
+    except Exception:                                          # noqa: BLE001
+        return {}
+
+
+def _giftishow_call(api_code: str, endpoint: str, extra: dict) -> dict:
+    """기프티쇼 비즈 API 호출(form-urlencoded, JSON 응답). 반드시 운영 IP(박스)에서 나간다."""
+    import urllib.parse
+    import urllib.request
+    cfg = _giftishow_cfg()
+    if not cfg.get("custom_auth_code") or not cfg.get("custom_auth_token"):
+        return {"code": "NOCFG", "message": "기프티쇼 인증 설정 없음"}
+    body = {
+        "api_code": api_code,
+        "custom_auth_code": cfg["custom_auth_code"],
+        "custom_auth_token": cfg["custom_auth_token"],
+        "dev_yn": cfg.get("dev_yn", "N"),
+        **extra,
+    }
+    url = cfg.get("base_url", "https://bizapi.giftishow.com/bizApi").rstrip("/") + "/" + endpoint
+    req = urllib.request.Request(
+        url, data=urllib.parse.urlencode(body).encode(),
+        headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return _json.loads(r.read().decode("utf-8"))
+    except Exception as e:                                     # noqa: BLE001
+        return {"code": "NET", "message": str(e)[:150]}
+
+
+def _giftishow_balance() -> dict:
+    cfg = _giftishow_cfg()
+    return _giftishow_call("0301", "bizmoney", {"user_id": cfg.get("member_id", "")})
+
+
+# 쿠폰 종류 → (config 상품코드 키, mms_title 10자↓, mms_msg). 커피·추파춥스 모두 기프티쇼 모바일쿠폰.
+_GIFTISHOW_GOODS = {
+    "coffee": ("coffee_goods_code", "콕집 커피쿠폰", "콕집 출시 기념 이벤트 커피 기프티콘"),
+    "lollipop": ("lollipop_goods_code", "콕집 추파춥스", "콕집 출시 기념 이벤트 추파춥스 기프티콘"),
+}
+
+
+def _giftishow_issue(goods_code: str, mms_title: str, mms_msg: str, phone_digits: str, tr_id: str) -> tuple:
+    """기프티쇼 모바일쿠폰 발급(gubun=I: 문자 미발송, 바코드이미지+핀을 우리가 받는다).
+    goods_code 만 바꿔 커피·추파춥스 재사용. return (ok, order_no, pin_no, coupon_img_url, err_str)."""
+    cfg = _giftishow_cfg()
+    r = _giftishow_call("0204", "send", {
+        "goods_code": goods_code,
+        "mms_title": mms_title,                               # 10자 이하 필수(발송 안 해도 필수 파라미터)
+        "mms_msg": mms_msg,
+        "callback_no": "".join(ch for ch in cfg.get("callback_no", "") if ch.isdigit()),
+        "phone_no": phone_digits,
+        "tr_id": tr_id,
+        "user_id": cfg.get("member_id", ""),
+        "gubun": "I",                                          # 바코드이미지 수신(문자 미발송)
+    })
+    if r.get("code") == "0000":
+        res = r.get("result") or {}
+        inner = res.get("result") or {}
+        order = r.get("orderNo") or inner.get("orderNo") or res.get("orderNo")
+        pin = r.get("pinNo") or inner.get("pinNo")
+        img = inner.get("couponImgUrl") or res.get("couponImgUrl")
+        if img:
+            img = img.replace("http://", "https://")          # HTTPS 앱 mixed-content 방지
+        return True, order, pin, img, None
+    return False, None, None, None, f"{r.get('code')}:{r.get('message')}"
+
+
+def _try_issue_gifticon(coupon_id: int, app_uid: str, kind: str) -> None:
+    """기프티콘 발급 시도(트랜잭션 밖) — 커피·추파춥스 공통. 성공→쿠폰함에 핀·바코드 저장(issued),
+    실패(잔액부족·상품코드/설정없음)→pending 유지(충전 후 _flush 재시도). tr_id 는 쿠폰 id 기반이라 멱등."""
+    spec = _GIFTISHOW_GOODS.get(kind)
+    if not spec:
+        return                                                # 알 수 없는 종류 → pending 유지
+    goods_code = _giftishow_cfg().get(spec[0], "")
+    if not goods_code:
+        return                                                # 상품코드 미설정 → pending 유지(설정 후 재시도)
+    with _reviews_db() as c:
+        row = c.execute("SELECT phone FROM user_profiles WHERE user_id=? AND phone_verified=1",
+                        (app_uid,)).fetchone()
+    phone = "".join(ch for ch in ((row[0] if row else "") or "") if ch.isdigit())
+    if not phone:
+        return                                                # 인증 전화 없음 → pending 유지
+    tr_id = f"koczipev{coupon_id}"                            # ≤25자, 고유
+    ok, order, pin, img, err = _giftishow_issue(goods_code, spec[1], spec[2], phone, tr_id)
+    with _reviews_db() as c:
+        if ok:
+            c.execute("UPDATE event_coupons SET status='issued', gifticon_ref=?, code=?, "
+                      "barcode_url=?, issued_at=datetime('now','+9 hours') WHERE id=?",
+                      (order, pin, img, coupon_id))
+        elif err and "0015" in err:                           # 중복 tr_id = 이미 발급됨
+            c.execute("UPDATE event_coupons SET status='issued', gifticon_ref=?, "
+                      "issued_at=datetime('now','+9 hours') WHERE id=?", (f"dup:{tr_id}", coupon_id))
+        # 그 외(E0010 잔액부족·NOCFG 등)는 pending 유지 — 잔액 충전 후 _flush 로 재시도
+
+
+@app.get("/event/status")
+def event_status(user: dict = Depends(current_user)):
+    """이벤트 페이지용 — 대상(일반/중개사)·미션 진행·보상 수령 여부."""
+    uid = user["id"]
+    with _reviews_db() as c:
+        aud = _event_audience(c, uid)
+        claimed = {r[0] for r in c.execute(
+            "SELECT mission_key FROM event_claims WHERE user_id=?", (uid,))}
+        missions = [{**m, "done": _mission_done(c, uid, m["key"]),
+                     "claimed": m["key"] in claimed,
+                     "progress": _mission_progress(c, uid, m["key"])}
+                    for m in EVENT_MISSIONS[aud]]
+        coupons = c.execute("SELECT COUNT(*) FROM event_coupons WHERE user_id=?",
+                            (uid,)).fetchone()[0]
+    return {"audience": aud, "missions": missions, "coupon_count": coupons}
+
+
+@app.post("/event/attendance")
+def event_attendance(user: dict = Depends(current_user)):
+    """오늘 출석 1회 기록(멱등). 앱 진입/이벤트 페이지에서 호출."""
+    uid = user["id"]
+    with _reviews_db() as c:
+        day = c.execute("SELECT strftime('%Y-%m-%d', datetime('now','+9 hours'))").fetchone()[0]
+        c.execute("INSERT OR IGNORE INTO event_attendance(user_id,day) VALUES(?,?)", (uid, day))
+        n = c.execute("SELECT COUNT(*) FROM event_attendance WHERE user_id=?", (uid,)).fetchone()[0]
+    return {"ok": True, "days": n}
+
+
+@app.post("/event/claim")
+def event_claim(body: dict, user: dict = Depends(current_user)):
+    """미션 보상 수령 → 쿠폰함에 지급(중복 방지)."""
+    uid = user["id"]
+    key = (body.get("mission_key") or "").strip()
+    with _reviews_db() as c:
+        aud = _event_audience(c, uid)
+        m = next((x for x in EVENT_MISSIONS[aud] if x["key"] == key), None)
+        if not m:
+            raise HTTPException(404, "없는 미션이에요")
+        if not _mission_done(c, uid, key):
+            raise HTTPException(400, "아직 달성 전이에요")
+        if c.execute("SELECT 1 FROM event_claims WHERE user_id=? AND mission_key=?",
+                     (uid, key)).fetchone():
+            raise HTTPException(409, "이미 받은 보상이에요")
+        c.execute("INSERT INTO event_claims(user_id,mission_key) VALUES(?,?)", (uid, key))
+        cid = _issue_coupon(c, uid, m["reward"], key)
+    try:                                                      # 커피·추파춥스 모두 기프티쇼 실발급(트랜잭션 밖)
+        _try_issue_gifticon(cid, uid, m["reward"])
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[event] 기프티콘 발급 시도 실패 coupon={cid} kind={m['reward']}: {str(e)[:100]}",
+              file=_sys.stderr, flush=True)
+    return {"ok": True, "coupon_id": cid, "reward": m["reward"], "reward_label": m["reward_label"]}
+
+
+@app.get("/admin/giftishow/balance")
+def admin_giftishow_balance(_admin: dict = Depends(admin_user)):
+    """기프티쇼 비즈머니 잔액 조회(관리자). 응답 result.balance(원) 를 정수로 정규화."""
+    r = _giftishow_balance()
+    bal = None
+    try:
+        bal = int((r.get("result") or {}).get("balance"))
+    except Exception:                                         # noqa: BLE001
+        pass
+    return {"ok": r.get("code") == "0000", "balance": bal,
+            "code": r.get("code"), "message": r.get("message")}
+
+
+@app.get("/admin/event/coupons")
+def admin_event_coupons(kind: str = "", status: str = "", _admin: dict = Depends(admin_user)):
+    """이벤트 쿠폰 발급 현황(관리자) — 종류·상태별 요약 + 목록(회원번호·전화 포함).
+    커피·추파춥스 모두 기프티쇼 자동발급. status=pending 으로 발급 실패/대기분을 확인하고
+    /admin/giftishow/flush 로 재시도한다."""
+    where, args = ["1=1"], []
+    if kind:
+        where.append("ec.kind=?"); args.append(kind)
+    if status:
+        where.append("ec.status=?"); args.append(status)
+    with _reviews_db() as c:
+        rows = c.execute(
+            f"SELECT ec.id, ec.kind, ec.source, ec.status, ec.created_at, ec.used_at, "
+            f"       up.member_no, up.phone "
+            f"FROM event_coupons ec LEFT JOIN user_profiles up ON up.user_id=ec.user_id "
+            f"WHERE {' AND '.join(where)} ORDER BY ec.id DESC", args).fetchall()
+        summ = c.execute(
+            "SELECT kind, status, COUNT(*) FROM event_coupons GROUP BY kind, status").fetchall()
+    return {
+        "summary": [{"kind": k, "status": s, "n": n} for k, s, n in summ],
+        "items": [{"id": r[0], "kind": r[1], "source": r[2], "status": r[3],
+                   "created_at": r[4], "used_at": r[5], "member_no": r[6], "phone": r[7]}
+                  for r in rows],
+    }
+
+
+@app.post("/admin/giftishow/flush")
+def admin_giftishow_flush(_admin: dict = Depends(admin_user)):
+    """발급 대기(pending) 쿠폰(커피·추파춥스)을 재발급 시도(잔액 충전/상품코드 설정 후 호출)."""
+    with _reviews_db() as c:
+        rows = c.execute("SELECT id, user_id, kind FROM event_coupons "
+                         "WHERE status='pending' ORDER BY id").fetchall()
+    sent = 0
+    for cid, uid, kind in rows:
+        try:
+            _try_issue_gifticon(cid, uid, kind)
+            with _reviews_db() as c:
+                if c.execute("SELECT status FROM event_coupons WHERE id=?", (cid,)).fetchone()[0] == "issued":
+                    sent += 1
+        except Exception:                                     # noqa: BLE001
+            continue
+    return {"pending": len(rows), "issued": sent}
+
+
+@app.post("/admin/giftishow/test-send")
+def admin_giftishow_test_send(body: dict, _admin: dict = Depends(admin_user)):
+    """소액 실발송 테스트 — 지정 번호로 메가커피 1건 발송(관리자, 비즈머니 차감)."""
+    phone = "".join(ch for ch in (body.get("phone") or "") if ch.isdigit())
+    if len(phone) < 10:
+        raise HTTPException(400, "phone(숫자 10~11자) 필요")
+    import time as _t
+    tr_id = f"kocziptest{int(_t.time())}"
+    kind = (body.get("kind") or "coffee").strip()
+    spec = _GIFTISHOW_GOODS.get(kind, _GIFTISHOW_GOODS["coffee"])
+    goods_code = _giftishow_cfg().get(spec[0], "")
+    ok, order, pin, img, err = _giftishow_issue(goods_code, spec[1], spec[2], phone, tr_id)
+    return {"ok": ok, "order_no": order, "pin": pin, "barcode_url": img, "err": err, "tr_id": tr_id}
+
+
+@app.get("/me/coupons")
+def my_coupons(user: dict = Depends(current_user)):
+    """쿠폰함 — auth-avatar 드롭다운 바로가기 대상."""
+    uid = user["id"]
+    with _reviews_db() as c:
+        rows = c.execute(
+            "SELECT id,kind,source,status,code,barcode_url,gifticon_ref,created_at,used_at "
+            "FROM event_coupons WHERE user_id=? ORDER BY id DESC", (uid,)).fetchall()
+    KIND = {"coffee": "메가커피 아메리카노", "lollipop": "추파춥스"}
+    ST = {"pending": "발급 준비 중", "issued": "사용 가능", "used": "사용 완료"}
+    return {"items": [{"id": r[0], "kind": r[1], "kind_label": KIND.get(r[1], r[1]),
+                       "source": r[2], "status": r[3], "status_label": ST.get(r[3], r[3]),
+                       "code": r[4], "barcode_url": r[5], "gifticon_ref": r[6],
+                       "created_at": r[7], "used_at": r[8]} for r in rows]}
 
 
 def _fav_dash_item(d, cno: str, cname, rv_count: int, area_name: str = "") -> dict:
@@ -12187,6 +12779,93 @@ def _recount_votes(c: sqlite3.Connection, target_type: str, target_id: int) -> t
     return up, down
 
 
+# ── 이용자 콘텐츠 신고·차단 (App Store 지침 1.2) ────────────────────────────
+_REPORT_TYPES = ("forum_post", "forum_comment", "realtor_review", "complex_review")
+
+
+def _content_author(c, tt: str, tid: str):
+    """신고·차단 대상 콘텐츠의 (작성자 user_id, 닉네임). 없으면 (None, None)."""
+    spec = {
+        "forum_post": ("forum_posts", "user_id", "nickname"),
+        "forum_comment": ("forum_comments", "user_id", "nickname"),
+        "realtor_review": ("realtor_reviews", "author_id", "author_name"),
+        "complex_review": ("complex_reviews", "user_id", "nickname"),
+    }.get(tt)
+    if not spec:
+        return (None, None)
+    tbl, ucol, ncol = spec
+    try:
+        r = c.execute(f"SELECT {ucol}, {ncol} FROM {tbl} WHERE id=?", (tid,)).fetchone()
+    except Exception:                                         # noqa: BLE001 (닉네임 컬럼 없을 수도)
+        try:
+            r = c.execute(f"SELECT {ucol}, NULL FROM {tbl} WHERE id=?", (tid,)).fetchone()
+        except Exception:
+            r = None
+    return (r[0], r[1]) if r else (None, None)
+
+
+def _blocked_ids(c, uid) -> set:
+    """이 사용자가 차단한 작성자 id 집합(콘텐츠 필터용)."""
+    if not uid:
+        return set()
+    return {r[0] for r in c.execute(
+        "SELECT blocked_user_id FROM user_blocks WHERE blocker_user_id=?", (uid,))}
+
+
+@app.post("/content/report")
+def content_report(body: dict, user: dict = Depends(current_user)):
+    """콘텐츠 신고 — 관리자 검수 큐 + 텔레그램 알림(App Store 지침 1.2)."""
+    tt = str(body.get("target_type") or ""); tid = str(body.get("target_id") or "")
+    reason = (str(body.get("reason") or ""))[:500]
+    if tt not in _REPORT_TYPES or not tid:
+        raise HTTPException(400, "잘못된 신고 대상")
+    with _reviews_db() as c:
+        auth, _ = _content_author(c, tt, tid)
+        c.execute("INSERT INTO content_reports(reporter_user_id,target_type,target_id,target_user_id,reason) "
+                  "VALUES(?,?,?,?,?)", (user["id"], tt, tid, auth, reason))
+        c.commit()
+    try:
+        from scripts.tg_notify import tg_send_async
+        tg_send_async(f"🚩 콘텐츠 신고 접수\n· 유형: {tt} #{tid}\n· 사유: {reason[:80] or '(무)'}\n"
+                      f"→ koczip.com/admin 에서 확인")
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@app.post("/content/block")
+def content_block(body: dict, user: dict = Depends(current_user)):
+    """콘텐츠 작성자 차단 — 그 사람 글·댓글·리뷰가 안 보이게. 작성자 id는 서버 해석(비노출)."""
+    tt = str(body.get("target_type") or ""); tid = str(body.get("target_id") or "")
+    if tt not in _REPORT_TYPES or not tid:
+        raise HTTPException(400, "잘못된 대상")
+    with _reviews_db() as c:
+        auth, nick = _content_author(c, tt, tid)
+        if not auth or auth == user["id"]:
+            raise HTTPException(400, "차단할 수 없는 대상")
+        c.execute("INSERT OR IGNORE INTO user_blocks(blocker_user_id,blocked_user_id,blocked_nickname) "
+                  "VALUES(?,?,?)", (user["id"], auth, nick))
+        c.commit()
+    return {"ok": True}
+
+
+@app.get("/me/blocks")
+def my_blocks(user: dict = Depends(current_user)):
+    """내가 차단한 사용자 목록(차단 해제용)."""
+    with _reviews_db() as c:
+        rows = c.execute("SELECT id, blocked_nickname, created_at FROM user_blocks "
+                         "WHERE blocker_user_id=? ORDER BY id DESC", (user["id"],)).fetchall()
+    return {"items": [{"id": r[0], "nickname": r[1] or "(사용자)", "created_at": r[2]} for r in rows]}
+
+
+@app.delete("/content/block/{block_id}")
+def content_unblock(block_id: int, user: dict = Depends(current_user)):
+    with _reviews_db() as c:
+        c.execute("DELETE FROM user_blocks WHERE id=? AND blocker_user_id=?", (block_id, user["id"]))
+        c.commit()
+    return {"ok": True}
+
+
 @app.get("/forum/posts")
 def forum_list(sort: str = "recent", q: str | None = None, limit: int = 30, offset: int = 0,
                user: dict = Depends(current_user_optional)) -> dict:
@@ -12202,6 +12881,10 @@ def forum_list(sort: str = "recent", q: str | None = None, limit: int = 30, offs
         where += " AND (title LIKE ? OR body LIKE ? OR nickname LIKE ?)"
         like = f"%{kw}%"
         params += [like, like, like]
+    uid = user.get("id") if user else None
+    if uid:                                                   # 차단한 사용자 글 숨김
+        where += " AND user_id NOT IN (SELECT blocked_user_id FROM user_blocks WHERE blocker_user_id=?)"
+        params.append(uid)
     with _reviews_db() as c:
         rows = c.execute(
             f"SELECT id, user_id, nickname, title, body, image_path, up, down, comment_count, created_at "
@@ -12232,6 +12915,9 @@ def forum_get(post_id: int, user: dict = Depends(current_user_optional)) -> dict
         comments = c.execute(
             "SELECT * FROM forum_comments WHERE post_id=? AND status='published' "
             "ORDER BY created_at ASC", (post_id,)).fetchall()
+        blk = _blocked_ids(c, uid)                            # 차단한 사용자 댓글 숨김
+        if blk:
+            comments = [r for r in comments if r["user_id"] not in blk]
         pv = _vote_map(c, uid, "post", [post_id]).get(post_id, 0)
         cv = _vote_map(c, uid, "comment", [r["id"] for r in comments])
         rmap = _rank_map(c, [p["user_id"], *[r["user_id"] for r in comments]])
@@ -12402,9 +13088,9 @@ class ReviewCreate(BaseModel):
 
 
 @app.get("/realtor/{realtor_id}/reviews")
-def list_reviews(realtor_id: str):
+def list_reviews(realtor_id: str, user: dict = Depends(current_user_optional)):
     """공개 리뷰 목록 + 평점 요약. 게시된 일반리뷰 + 승인된 인증리뷰만 노출.
-    평점(avg_rating)은 승인된 인증리뷰 기준."""
+    평점(avg_rating)은 승인된 인증리뷰 기준. 로그인 시 차단한 작성자 리뷰는 숨김."""
     with _reviews_db() as c:
         rows = c.execute(
             """
@@ -12415,6 +13101,9 @@ def list_reviews(realtor_id: str):
             """,
             (realtor_id,),
         ).fetchall()
+        blk = _blocked_ids(c, user.get("id") if user else None)  # 차단한 작성자 리뷰 숨김
+        if blk:
+            rows = [r for r in rows if r["author_id"] not in blk]
         agg = c.execute(
             """
             SELECT COUNT(*) n, AVG(rating) avg_r
@@ -13060,7 +13749,7 @@ def lounge_staff_apply(body: dict, user: dict = Depends(current_user)):
         try:
             _send_web_push(owners, "직원 가입 승인 요청 👤",
                            f"{name or '직원'}({_STAFF_ROLE_KR.get(role, role)})님이 가입을 신청했어요. "
-                           "직원관리에서 승인해 주세요.", url="/biz/staff", tag="staff-apply")
+                           "직원관리에서 승인해 주세요.", url="/lounge?tab=staff", tag="staff-apply")
         except Exception:
             pass
     return {"ok": True, "status": "pending"}
@@ -13103,7 +13792,7 @@ def lounge_staff_approve(body: dict, user: dict = Depends(current_user)):
     try:
         _send_web_push([uid_target], "가입 승인 완료 🎉",
                        "대표님이 승인했어요. 이제 콕집 중개사의 모든 기능을 쓸 수 있습니다.",
-                       url="/biz", tag="staff-ok")
+                       url="/lounge", tag="staff-ok")
     except Exception:
         pass
     return {"ok": True}
@@ -18138,6 +18827,11 @@ def admin_audit_realtor(realtor_id: str, kind: str = "", trade: str = "",
 def lounge_audit_breakdown(user: dict = Depends(current_user)):
     with _reviews_db() as rc:
         rid = _require_member(rc, user["id"])
+        # 출시 이벤트(중개사 미션): 매물점검을 '지금 신규로' 실행한 사실을 기록한다.
+        # 과거 점검 이력은 인정하지 않고, 이 탭을 실제로 연 사람만 매물점검 조건을 채운다.
+        rc.execute("INSERT OR IGNORE INTO event_claims(user_id,mission_key) VALUES(?, '_audit_done')",
+                   (user["id"],))
+        rc.commit()
     return _audit_breakdown_for(rid)
 
 
@@ -19311,7 +20005,7 @@ def public_homepage_lead(slug: str, body: dict):
         try:
             _send_web_push(owner_ids, "새 상담 신청 📩",
                            f"{who}님이 상담을 신청했어요. 콕집 중개사에서 확인하세요.",
-                           url="/biz/leads", tag="lead")
+                           url="/lounge?tab=leads", tag="lead")
         except Exception:
             pass
     return {"ok": True}
@@ -19415,7 +20109,7 @@ def admin_resolve_verification(vid: int, body: dict, _admin: dict = Depends(admi
         try:
             _send_web_push([uid], "중개사 인증 승인 완료 🎉",
                            "관리자 확인이 끝났어요. 이제 콕집 중개사의 모든 기능을 쓸 수 있습니다.",
-                           url="/biz", tag="verify-ok")
+                           url="/lounge", tag="verify-ok")
         except Exception:
             pass
     return {"ok": True}
@@ -20002,7 +20696,7 @@ def biz_call_event(request: Request, body: dict):
             if owner_ids:
                 _send_web_push(owner_ids, "부재중 전화 📞",
                                f"{p[:3]}-{p[3:7]}-{p[7:]} 부재중 — 콜백이 필요해요.",
-                               url="/biz/leads", tag="lead")
+                               url="/lounge?tab=leads", tag="lead")
         except Exception:  # noqa: BLE001
             pass
     return {"ok": True, "lead_created": lead_created}
@@ -21485,7 +22179,7 @@ def _req_notify(rid: int, ids: list, names: dict) -> None:
         if uids:
             _send_web_push(uids, "새 콕집요청이 도착했어요",
                            "라운지 → 콕집요청에서 조건을 보고 매물을 제안해 주세요.",
-                           url="/lounge", tag="koczip-request")
+                           url="/lounge?tab=requests", tag="koczip-request")
     except Exception as e:  # noqa: BLE001
         print(f"[req] 푸시 실패: {str(e)[:100]}", file=_sys.stderr, flush=True)
     try:
