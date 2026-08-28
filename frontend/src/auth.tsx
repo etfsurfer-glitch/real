@@ -323,9 +323,48 @@ export async function loginGoogle() {
 }
 
 // Sign in with Apple — App Store 심사지침 4.8(소셜로그인 제공 시 애플 로그인 동등 제공) 대응.
-// Supabase Auth 의 Apple provider 를 켠 뒤 아래 플래그를 true 로 바꾸면 버튼이 노출된다.
-// (provider 미설정 상태에서 노출하면 로그인이 실패하므로 기본 false.)
+// 리다이렉트(signInWithOAuth) 플로우는 supabase.co 도메인 검증이 불가해 막힌다. 그래서
+// 앱=네이티브 ASAuthorization(플러그인), 웹=Apple JS 팝업 으로 identity token 을 받아
+// Supabase signInWithIdToken 으로 로그인한다(도메인 검증·Return URL 리다이렉트 불필요).
 export const APPLE_LOGIN_ENABLED = true;
+
+const APPLE_WEB_CLIENT_ID = "com.koczip.signin"; // Services ID — 웹 Apple JS 의 client_id
+const APPLE_BUNDLE_ID = "com.koczip.app";        // App ID — 앱 네이티브 flow
+const APPLE_REDIRECT = "https://koczip.com/auth/apple"; // Services ID 에 등록된 Return URL(팝업이라 실제 리다이렉트는 없음)
+
+function randomNonce(len = 32): string {
+  const a = new Uint8Array(len);
+  crypto.getRandomValues(a);
+  return Array.from(a, (b) => ("0" + b.toString(16)).slice(-2)).join("");
+}
+async function sha256hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf), (b) => ("0" + b.toString(16)).slice(-2)).join("");
+}
+
+// 웹: Apple JS SDK(팝업) → id_token. SDK 는 CDN 에서 1회 로드.
+async function webAppleIdToken(hashedNonce: string): Promise<string> {
+  await new Promise<void>((resolve, reject) => {
+    if ((window as any).AppleID) return resolve();
+    const s = document.createElement("script");
+    s.src = "https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js";
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("apple-js-load-fail"));
+    document.head.appendChild(s);
+  });
+  const AppleID = (window as any).AppleID;
+  AppleID.auth.init({
+    clientId: APPLE_WEB_CLIENT_ID,
+    scope: "name email",
+    redirectURI: APPLE_REDIRECT,
+    usePopup: true,
+    nonce: hashedNonce,
+  });
+  const data = await AppleID.auth.signIn();
+  const token = data?.authorization?.id_token;
+  if (!token) throw new Error("no-id-token");
+  return token;
+}
 
 export async function loginApple() {
   if (!authClient) {
@@ -333,11 +372,37 @@ export async function loginApple() {
     return;
   }
   setAuthReturn();
-  if (isIOSApp()) { await nativeOAuth("apple", "name email"); return; }
-  await authClient.auth.signInWithOAuth({
-    provider: "apple",
-    options: { redirectTo: window.location.origin, scopes: "name email" },
-  });
+  const rawNonce = randomNonce();
+  const hashedNonce = await sha256hex(rawNonce);
+  try {
+    let idToken: string | undefined;
+    if (isIOSApp()) {
+      const { SignInWithApple } = await import("@capacitor-community/apple-sign-in");
+      const res = await SignInWithApple.authorize({
+        clientId: APPLE_BUNDLE_ID,
+        redirectURI: APPLE_REDIRECT,
+        scopes: "name email",
+        nonce: hashedNonce,
+      });
+      idToken = res.response?.identityToken;
+    } else {
+      idToken = await webAppleIdToken(hashedNonce);
+    }
+    if (!idToken) throw new Error("no-identity-token");
+    const { error } = await authClient.auth.signInWithIdToken({
+      provider: "apple",
+      token: idToken,
+      nonce: rawNonce,
+    });
+    if (error) throw error;
+    // 성공 → onAuthStateChange(SIGNED_IN) 가 세션 반영·화면 처리
+  } catch (e: any) {
+    const msg = String(e?.message || e?.error || e || "");
+    // 사용자가 팝업/시트를 닫은 경우는 조용히 무시
+    if (/popup_closed|user_cancel|1001|1000|canceled|cancelled|closed|AuthorizationError/i.test(msg)) return;
+    console.error("apple login", e);
+    alert("Apple 로그인 중 문제가 발생했어요. 다시 시도해주세요.");
+  }
 }
 
 export async function logout() {
