@@ -1685,6 +1685,16 @@ a.news-card:hover { box-shadow: 0 6px 18px rgba(0,0,0,.09); transform: translate
 .forum-post-title { margin: 0; font-size: 20px; }
 .forum-post-meta { font-size: 12.5px; color: #8a94a2; margin-top: 5px; }
 .forum-post-meta b { color: #51606f; }
+/* 신고·차단 메뉴 (토론장·리뷰) */
+.rbmenu { position: relative; display: inline-flex; margin-left: auto; vertical-align: middle; }
+.rbmenu-btn { background: none; border: none; color: var(--c-muted, #8b95a5); cursor: pointer; padding: 2px 4px; line-height: 0; border-radius: 6px; }
+.rbmenu-btn:hover { background: var(--c-primary-tint, #eef4ff); color: var(--c-text, #33425a); }
+.rbmenu-btn:disabled { opacity: .5; }
+.rbmenu-ov { position: fixed; inset: 0; z-index: 40; }
+.rbmenu-pop { position: absolute; right: 0; top: 100%; margin-top: 3px; z-index: 41; background: var(--c-surface, #fff); border: 1px solid var(--c-border, #e3e8ef); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.14); padding: 4px; min-width: 128px; display: flex; flex-direction: column; }
+.rbmenu-pop button { display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 9px 11px; font-size: 13px; font-weight: 600; color: var(--c-text, #33425a); cursor: pointer; border-radius: 7px; text-align: left; white-space: nowrap; }
+.rbmenu-pop button:hover { background: var(--c-primary-tint, #eef4ff); }
+.rbmenu-pop button:last-child { color: #c0392b; }
 .forum-post-img { max-width: 100%; border: 1px solid #eef2f7; border-radius: 10px; margin-top: 12px; }
 .forum-post-body { margin-top: 12px; white-space: pre-wrap; line-height: 1.6; color: #2b3440; font-size: 14.5px; }
 
@@ -4862,6 +4872,16 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .txm-pin{display:flex;flex-direction:column;align-items:center;transform:translateY(-2px);
   background:#1268d3;color:#fff;padding:2px 7px;border-radius:11px;white-space:nowrap;
   box-shadow:0 2px 6px rgba(20,40,80,.28);border:1.5px solid #fff;cursor:pointer;line-height:1.15}
+/* 줌아웃 집계 버블 — 구/동별 실거래 변동률(색=변동률) */
+.txm-agg{transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-width:44px;padding:5px 8px;border-radius:12px;color:#fff;cursor:pointer;text-align:center;line-height:1.15;
+  box-shadow:0 2px 8px rgba(0,0,0,.28);border:1.5px solid rgba(255,255,255,.75);white-space:nowrap}
+.txm-agg b{font-size:11px;font-weight:800}
+.txm-agg span{font-size:12px;font-weight:800}
+.txm-agg.gu{min-width:54px;padding:6px 11px;border-radius:15px}
+.txm-agg.gu b{font-size:12.5px}
+.txm-agg.gu span{font-size:14px}
+.txm-agg:hover{filter:brightness(1.08)}
 .txm-pin-d{font-size:8.5px;font-weight:700;opacity:.82;letter-spacing:.02em}
 .txm-pin-p{display:flex;align-items:center;font-size:11.5px;font-weight:800}
 .txm-pin i{font-style:normal;font-weight:700;opacity:.85;margin-left:4px;font-size:10px;
@@ -5046,13 +5066,13 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .txd-none{padding:18px;text-align:center;color:var(--c-muted);font-size:13px}
 /* 구별 거래 현황 — 콕집 톤 미니 리스트 */
 .txd-gu{display:flex;flex-direction:column;gap:2px;padding:2px 2px 4px}
-.txd-guitem{display:grid;grid-template-columns:24px minmax(0,1fr) 56px 106px 84px;align-items:center;column-gap:8px;padding:8px 6px;border-radius:10px;color:inherit;text-decoration:none;cursor:pointer}
+.txd-guitem{display:grid;grid-template-columns:22px minmax(0,1fr) 40px 90px 68px;align-items:center;column-gap:6px;padding:8px 6px;border-radius:10px;color:inherit;text-decoration:none;cursor:pointer}
 .txd-guitem:hover{background:var(--c-primary-tint)}
 .txd-gunm{font-weight:700;color:var(--c-text);font-size:14px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .txd-gucnt{text-align:right;font-size:13px;color:var(--c-text-soft);font-weight:700;font-variant-numeric:tabular-nums}
 .txd-guavg{text-align:right;font-size:12.5px;color:var(--c-text-soft);font-variant-numeric:tabular-nums}
 .txd-gurec{text-align:right}
-.txd-guitem.txd-near{grid-template-columns:minmax(0,1fr) 56px 106px 84px}
+.txd-guitem.txd-near{grid-template-columns:minmax(0,1fr) 40px 90px 68px}
 .txd-gu-sub{padding-left:8px}
 
 /* 실거래 요약 미리보기 구분선 + 기간 세그먼트 */
@@ -5595,3 +5615,21 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   background:#fff4e2;border:1px solid #f6e0bd;color:#a35c00;font-size:12px;font-weight:600;line-height:1.5}
 .imp-warn svg{flex:none}
 .imp-warn b{font-weight:800}
+
+/* ── 축소형 로그인 (LoginIcons) — 브랜드 아이콘 버튼 ───────────────────────── */
+.loginicons { display:inline-flex; align-items:center; gap:8px; }
+.loginicons-lbl { font-size:13px; font-weight:700; color:var(--c-muted); white-space:nowrap; }
+.loginicons-row { display:inline-flex; align-items:center; gap:6px; }
+.li-btn {
+  width:34px; height:34px; padding:0; border-radius:9px; border:1px solid transparent;
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
+  box-shadow:0 1px 2px rgba(16,32,64,.08); transition:transform .08s, box-shadow .15s;
+}
+.li-btn:hover { transform:translateY(-1px); box-shadow:0 3px 8px rgba(16,32,64,.16); }
+.li-btn:active { transform:translateY(0); }
+.li-btn svg { display:block; }
+.li-btn.kakao  { background:#fee500; }
+.li-btn.google { background:#fff; border-color:#dadce0; }
+.li-btn.apple  { background:#000; }
+.loginicons.compact .li-btn { width:32px; height:32px; border-radius:8px; }
+.loginicons.compact .loginicons-lbl { font-size:12.5px; }

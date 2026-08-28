@@ -9,7 +9,7 @@ import {
   ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins, Settings as SettingsIcon, Gift } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
-import { AuthProvider, useAuth, logout, loginKakao, loginGoogle, isInAppBrowser, authClient } from "./auth";
+import { AuthProvider, useAuth, logout, loginGoogle, isInAppBrowser, authClient } from "./auth";
 import { setAuthReturn } from "./lib/authreturn";
 import { logPageview } from "./lib/pageview";
 import PhoneVerify from "./components/PhoneVerify";
@@ -65,7 +65,7 @@ import ShareFab from "./components/ShareFab";
 import IntroSplash from "./components/IntroSplash";
 import EventFab from "./components/EventFab";
 import EventPopup from "./components/EventPopup";
-import AppleLoginButton from "./components/AppleLoginButton";
+import LoginIcons from "./components/LoginIcons";
 import Onboarding from "./components/Onboarding";
 import RealtorEntryChoice from "./components/RealtorEntryChoice";
 import AlertBell from "./components/AlertBell";
@@ -600,24 +600,7 @@ function AuthControl() {
   if (user) return <AccountMenu />;
   return (
     <span className="auth-area">
-      <button className="auth-btn kakao" onClick={() => loginKakao()} aria-label="카카오로 로그인">
-        {/* 카카오 말풍선 심볼 (인라인 SVG) */}
-        <svg className="kakao-icon" aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 3C6.48 3 2 6.36 2 10.5c0 2.66 1.8 5 4.51 6.32-.15.52-.97 3.36-1 3.59 0 0-.02.17.09.24.11.07.24.02.24.02.32-.05 3.74-2.45 4.33-2.87.59.08 1.2.13 1.83.13 5.52 0 10-3.36 10-7.5S17.52 3 12 3z" />
-        </svg>
-        로그인
-      </button>
-      <button className="auth-btn google" onClick={() => loginGoogle()} aria-label="구글로 로그인">
-        {/* 구글 G 로고 (멀티컬러 SVG) */}
-        <svg className="google-icon" aria-hidden width="14" height="14" viewBox="0 0 48 48">
-          <path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/>
-          <path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/>
-          <path fill="#FBBC05" d="M11.69 28.18C11.25 26.86 11 25.45 11 24s.25-2.86.69-4.18v-5.7H4.34A21.99 21.99 0 0 0 2 24c0 3.55.85 6.91 2.34 9.88l7.35-5.7z"/>
-          <path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/>
-        </svg>
-        로그인
-      </button>
-      <AppleLoginButton label="Apple" />
+      <LoginIcons compact />
     </span>
   );
 }
