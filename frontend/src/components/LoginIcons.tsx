@@ -1,4 +1,4 @@
-import { loginKakao, loginGoogle, loginApple, APPLE_LOGIN_ENABLED } from "../auth";
+import { loginKakao, loginGoogle, loginApple, appleLoginVisible } from "../auth";
 
 // 축소형 로그인 — '로그인' 라벨 + 브랜드 아이콘 버튼(카카오·구글·Apple).
 // 3개 풀버튼이 헤더를 밀던 문제 해결: 마크로 즉시 인지, 클릭 1회로 로그인.
@@ -32,7 +32,7 @@ export default function LoginIcons(
       <span className="loginicons-row">
         <button className="li-btn kakao" onClick={() => loginKakao()} aria-label="카카오로 로그인" title="카카오로 로그인"><Kakao /></button>
         <button className="li-btn google" onClick={() => loginGoogle()} aria-label="구글로 로그인" title="구글로 로그인"><Google /></button>
-        {APPLE_LOGIN_ENABLED && (
+        {appleLoginVisible() && (
           <button className="li-btn apple" onClick={() => loginApple()} aria-label="Apple로 로그인" title="Apple로 로그인"><Apple /></button>
         )}
       </span>

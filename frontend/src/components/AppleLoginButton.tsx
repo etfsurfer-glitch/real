@@ -1,10 +1,10 @@
-import { APPLE_LOGIN_ENABLED, loginApple } from "../auth";
+import { appleLoginVisible, loginApple } from "../auth";
 
 // Apple 로그인 버튼 — App Store 심사지침 4.8(소셜로그인 제공 시 애플 로그인 동등 제공) 대응.
-// Apple HIG: 검정 배경·흰 애플 로고·"Apple로 로그인". Supabase Apple provider 설정 전엔 숨김.
+// Apple HIG: 검정 배경·흰 애플 로고·"Apple로 로그인". 웹 브라우저는 도메인검증 대기라 숨김(iOS 앱만 노출).
 export default function AppleLoginButton({ className = "", label = "Apple로 로그인", style }:
     { className?: string; label?: string; style?: React.CSSProperties }) {
-  if (!APPLE_LOGIN_ENABLED) return null;
+  if (!appleLoginVisible()) return null;
   return (
     <button className={`auth-btn apple ${className}`} style={style} onClick={() => loginApple()} aria-label="Apple로 로그인">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>

@@ -328,6 +328,11 @@ export async function loginGoogle() {
 // Supabase signInWithIdToken 으로 로그인한다(도메인 검증·Return URL 리다이렉트 불필요).
 export const APPLE_LOGIN_ENABLED = true;
 
+// Apple 로그인 버튼 노출 조건 — 현재 웹 브라우저 Apple(JS 팝업)은 Services ID 의
+// koczip.com 도메인 검증 대기(콘솔 피커 버그)라 눌러도 실패한다. 그래서 네이티브 시트가
+// 정상 동작하는 iOS 앱에서만 노출한다. 웹 검증 완료되면 이 조건을 확장(브라우저 포함)한다.
+export const appleLoginVisible = () => APPLE_LOGIN_ENABLED && isIOSApp();
+
 const APPLE_WEB_CLIENT_ID = "com.koczip.signin"; // Services ID — 웹 Apple JS 의 client_id
 const APPLE_BUNDLE_ID = "com.koczip.app";        // App ID — 앱 네이티브 flow
 const APPLE_REDIRECT = "https://koczip.com/auth/apple"; // Services ID 에 등록된 Return URL(팝업이라 실제 리다이렉트는 없음)
