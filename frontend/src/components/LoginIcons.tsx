@@ -24,7 +24,7 @@ const Apple = () => (
 );
 
 export default function LoginIcons(
-  { compact = false, label = "로그인" }: { compact?: boolean; label?: string | null },
+  { compact = false, label = "로그인/회원가입" }: { compact?: boolean; label?: string | null },
 ) {
   return (
     <span className={`loginicons${compact ? " compact" : ""}`}>

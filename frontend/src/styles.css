@@ -5617,8 +5617,8 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .imp-warn b{font-weight:800}
 
 /* ── 축소형 로그인 (LoginIcons) — 브랜드 아이콘 버튼 ───────────────────────── */
-.loginicons { display:inline-flex; align-items:center; gap:8px; }
-.loginicons-lbl { font-size:13px; font-weight:700; color:var(--c-muted); white-space:nowrap; }
+.loginicons { display:inline-flex; flex-direction:column; align-items:center; gap:4px; }
+.loginicons-lbl { font-size:12px; font-weight:700; color:var(--c-muted); white-space:nowrap; line-height:1; }
 .loginicons-row { display:inline-flex; align-items:center; gap:6px; }
 .li-btn {
   width:34px; height:34px; padding:0; border-radius:9px; border:1px solid transparent;
