@@ -2557,13 +2557,19 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .cs-chip.prog.on{border-color:#bf4e1b;color:#bf4e1b;background:#fff0e6}.cs-chip.prog.on i{background:#bf4e1b}
 .cs-chip.done.on{border-color:#0a7a55;color:#0a7a55;background:#e5f7ef}.cs-chip.done.on i{background:#0a7a55}
 
-/* 카드 단계 선택기(pill) */
-.c-stage{border:1px solid #e5e8eb;border-radius:999px;font-size:10.5px;font-weight:800;
-  padding:2px 6px;color:#4E5968;background:#f2f4f6;cursor:pointer;font-family:inherit;
-  -webkit-appearance:none;appearance:none;line-height:1.4;margin-left:2px}
-.c-stage.meet{background:#e9f2ff;color:#1e62c9;border-color:#cfe1fb}
-.c-stage.prog{background:#fff0e6;color:#bf4e1b;border-color:#f6d8c6}
-.c-stage.done{background:#e5f7ef;color:#0a7a55;border-color:#c3ecd8}
+/* 카드 단계 선택기(pill + 드롭다운 캐럿) */
+.c-stage{
+  -webkit-appearance:none;appearance:none;
+  border:1px solid #c3ccd6;border-radius:999px;
+  font-size:11px;font-weight:800;line-height:1.5;
+  padding:3px 20px 3px 10px;margin-left:3px;cursor:pointer;font-family:inherit;
+  color:#3f4b5b;background-color:#e9edf3;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%233f4b5b' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 7px center;
+}
+.c-stage.meet{background-color:#e2eeff;color:#1e5fc4;border-color:#b9d4f7}
+.c-stage.prog{background-color:#ffe9d8;color:#b8461a;border-color:#f2cdb6}
+.c-stage.done{background-color:#dcf3e8;color:#097a53;border-color:#b3e6cf}
 .cled-empty{border:1px dashed var(--c-border);border-radius:12px;padding:26px 18px;text-align:center;
   font-size:13px;color:#64748b;line-height:1.6}
 /* 고객 1명 = 행 1개가 아니다. 왼쪽에 고객, 오른쪽에 요건들 */
