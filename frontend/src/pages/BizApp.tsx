@@ -9,7 +9,7 @@ import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
 import { enablePush, pushOptedIn, pushSupported } from "../lib/push";
-import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid } from "lucide-react";
+import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp } from "lucide-react";
 import {
   DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
   DocSubmit, AdminPick, FavManager, OfficeFavManager, Card, StaffJoin, StaffManageTab,
@@ -19,6 +19,7 @@ import ContractCalendar from "../components/ContractCalendar";
 import CustomerLedger from "../components/CustomerLedger";
 import MatchBoard from "../components/MatchBoard";
 import BizContracts from "../components/BizContracts";
+import ListingAnalysis from "../components/ListingAnalysis";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -26,7 +27,7 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
 type Screen = "diary" | "ledger" | "match" | "calendar" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
-            | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more";
+            | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze";
 
 const SCREENS: Record<Screen, { title: string }> = {
   diary: { title: "매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
@@ -39,6 +40,7 @@ const SCREENS: Record<Screen, { title: string }> = {
   settings: { title: "설정" },
   calls: { title: "통화 기록" },
   more: { title: "더보기" },
+  analyze: { title: "실거래분석" },
 };
 
 export default function BizApp() {
@@ -164,7 +166,9 @@ export default function BizApp() {
       <div className="biz-shell">
         <BizTop backTo="/biz" title={SCREENS[screen].title} />
         <div className="biz-body">
+          {tabForScreen(screen) === "listings" && <BizSectionNav screen={screen} />}
           {screen === "diary" && <ListingsTab authH={authH} office={office} />}
+          {screen === "analyze" && <AnalyzeTab />}
           {screen === "ledger" && <CustomerLedger authH={authH} onGoListings={() => nav("/biz/diary")} />}
           {screen === "match" && <MatchBoard authH={authH} onGoLedger={() => nav("/biz/ledger")} />}
           {/* 계약캘린더·계약관리 = 관리자 가오픈. 타일뿐 아니라 화면도 막는다
@@ -362,7 +366,7 @@ function BizSettings({ office, authH, method, onUnlink }: {
 type BizTab = "home" | "listings" | "customers" | "contracts" | "more";
 function tabForScreen(screen?: string): BizTab {
   if (!screen) return "home";
-  if (screen === "diary" || screen === "audit") return "listings";
+  if (screen === "diary" || screen === "audit" || screen === "analyze") return "listings";
   if (screen === "ledger" || screen === "match" || screen === "leads") return "customers";
   if (screen === "contracts" || screen === "calendar") return "contracts";
   return "more";
@@ -469,6 +473,74 @@ function BizQuick({ to, icon, label }: { to: string; icon: React.ReactNode; labe
   );
 }
 
+// ── 매물 섹션 서브탭 ──
+function BizSectionNav({ screen }: { screen?: string }) {
+  const items = [
+    { key: "diary", to: "/biz/diary", label: "매물장" },
+    { key: "analyze", to: "/biz/analyze", label: "실거래분석" },
+    { key: "audit", to: "/biz/audit", label: "매물점검" },
+  ];
+  return (
+    <div className="biz-subnav">
+      {items.map((it) => (
+        <Link key={it.key} to={it.to} className={`biz-subnav-chip${screen === it.key ? " on" : ""}`}>{it.label}</Link>
+      ))}
+    </div>
+  );
+}
+
+// ── 실거래분석: 단지 검색 → 시세·급매·호가 분석(콕집 데이터) ──
+type CxHit = { complex_no: string; complex_name: string; region: string; households: number; type_name?: string };
+function AnalyzeTab() {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<CxHit[]>([]);
+  const [open, setOpen] = useState(false);
+  const [cx, setCx] = useState<CxHit | null>(null);
+  useEffect(() => {
+    if (!API_BASE || q.trim().length < 2 || (cx && q === cx.complex_name)) { setHits([]); return; }
+    const t = setTimeout(() => {
+      fetch(`${API_BASE}/complexes/search?q=${encodeURIComponent(q.trim())}&limit=8`)
+        .then((r) => r.json()).then((j) => { setHits(j.items ?? []); setOpen(true); }).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, cx]);
+  const pick = (h: CxHit) => { setCx(h); setQ(h.complex_name); setHits([]); setOpen(false); };
+  const region = (h: CxHit) => [h.region, h.households ? `${h.households.toLocaleString()}세대` : null].filter(Boolean).join(" · ");
+  return (
+    <div>
+      <div className="biz-analyze-search">
+        <input value={q} onChange={(e) => { setQ(e.target.value); setCx(null); }}
+          placeholder="단지명 검색 (예: 마포래미안푸르지오)" />
+        {open && hits.length > 0 && (
+          <div className="biz-analyze-hits">
+            {hits.map((h) => (
+              <button key={h.complex_no} onClick={() => pick(h)}>
+                <b>{h.complex_name}</b><span>{region(h)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {!cx && (
+        <div className="biz-analyze-empty">
+          단지를 검색하면 <b>실거래·시세·급매·호가</b> 분석을 보여드려요.<br />
+          계약 전 시세 검증, 손님 브리핑에 그대로 쓰세요.
+        </div>
+      )}
+      {cx && (
+        <div className="biz-analyze-result">
+          <div className="biz-analyze-head"><b>{cx.complex_name}</b><span>{region(cx)}</span></div>
+          <ListingAnalysis complexNo={cx.complex_no} compact />
+          <button className="biz-analyze-more"
+            onClick={() => window.open(`https://koczip.com/complex/${cx.complex_no}`, "_blank", "noopener")}>
+            전체 실거래·시세 자세히 보기 →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 더보기: 전체 메뉴(기존 그리드) ──
 function MoreHub({ authH, hasHomepage, role, isAdmin, onLogout }: {
   authH: () => Record<string, string>; hasHomepage: boolean; role: string; isAdmin: boolean; onLogout: () => void;
@@ -494,6 +566,7 @@ function MoreHub({ authH, hasHomepage, role, isAdmin, onLogout }: {
         {isAdmin && <BizBtn to="/biz/calendar" icon={<CalendarDays size={22} />} label="계약캘린더" desc="계약서 → 일정 (가오픈)" />}
         {isAdmin && <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="계약서·조건·당사자 (가오픈)" />}
         <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
+        <BizBtn to="/biz/analyze" icon={<TrendingUp size={22} />} label="실거래분석" desc="단지 시세·급매 분석" />
         <BizBtn to="/biz/audit" icon={<ShieldCheck size={22} />} label="매물점검" desc="표시광고 자가점검" />
         <BizBtn to="/biz/leads" icon={<MessageSquare size={22} />} label="상담신청" desc="고객 상담 리드" badge={leadNew || undefined} />
         <BizBtn to="/biz/favs" icon={<Star size={22} />} label="관심단지" desc="신고가·신규매물 체크" />

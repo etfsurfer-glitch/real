@@ -4394,6 +4394,31 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .biz-more-link { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 18px auto 4px;
   max-width: 220px; padding: 11px 16px; border: 1px solid #e6ebf2; border-radius: 999px; background: #fff;
   color: #4E5968; font-size: 13px; font-weight: 700; text-decoration: none; }
+
+/* 매물 섹션 서브탭 */
+.biz-subnav { display: flex; gap: 6px; margin: 0 0 14px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.biz-subnav-chip { flex: none; padding: 7px 14px; border-radius: 999px; border: 1px solid #e6ebf2;
+  background: #fff; color: #4E5968; font-size: 13px; font-weight: 700; text-decoration: none; }
+.biz-subnav-chip.on { background: #1268d3; border-color: #1268d3; color: #fff; }
+
+/* 실거래분석 */
+.biz-analyze-search { position: relative; margin-bottom: 12px; }
+.biz-analyze-search input { width: 100%; padding: 12px 14px; border: 1px solid #dbe1ea; border-radius: 12px;
+  font-size: 14px; font-family: inherit; }
+.biz-analyze-hits { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #fff;
+  border: 1px solid #e6ebf2; border-radius: 12px; box-shadow: 0 10px 30px rgba(15,26,43,.12); z-index: 5; overflow: hidden; }
+.biz-analyze-hits button { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  padding: 10px 14px; background: none; border: 0; border-bottom: 1px solid #f2f4f6; cursor: pointer; font-family: inherit; }
+.biz-analyze-hits button:last-child { border-bottom: 0; }
+.biz-analyze-hits button b { font-size: 13.5px; }
+.biz-analyze-hits button span { font-size: 11.5px; color: #8b95a1; }
+.biz-analyze-empty { text-align: center; color: #8b95a1; font-size: 13px; padding: 44px 16px; line-height: 1.8; }
+.biz-analyze-empty b { color: #4E5968; }
+.biz-analyze-head { margin-bottom: 10px; }
+.biz-analyze-head b { font-size: 16px; font-weight: 800; }
+.biz-analyze-head span { display: block; font-size: 12px; color: #8b95a1; margin-top: 2px; }
+.biz-analyze-more { display: block; width: 100%; margin-top: 12px; padding: 12px; border: 1px solid #dbe6fb;
+  border-radius: 12px; background: #eef4ff; color: #1268d3; font-weight: 700; font-size: 13.5px; cursor: pointer; font-family: inherit; }
 .biz-btn { position: relative; display: flex; flex-direction: column; gap: 3px; background: #fff;
   border: 1px solid var(--c-border, #e4e9f0); border-radius: 14px; padding: 15px 14px 13px;
   color: inherit; box-shadow: 0 1px 2px rgba(15,47,92,.04); transition: transform .1s, box-shadow .1s; }
