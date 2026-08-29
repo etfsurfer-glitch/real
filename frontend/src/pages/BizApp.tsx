@@ -9,7 +9,7 @@ import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
 import { enablePush, pushOptedIn, pushSupported } from "../lib/push";
-import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles } from "lucide-react";
+import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid } from "lucide-react";
 import {
   DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
   DocSubmit, AdminPick, FavManager, OfficeFavManager, Card, StaffJoin, StaffManageTab,
@@ -26,7 +26,7 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
 type Screen = "diary" | "ledger" | "match" | "calendar" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
-            | "office" | "edit" | "dash" | "staff" | "settings" | "calls";
+            | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more";
 
 const SCREENS: Record<Screen, { title: string }> = {
   diary: { title: "매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
@@ -38,6 +38,7 @@ const SCREENS: Record<Screen, { title: string }> = {
   staff: { title: "직원관리" },
   settings: { title: "설정" },
   calls: { title: "통화 기록" },
+  more: { title: "더보기" },
 };
 
 export default function BizApp() {
@@ -181,7 +182,9 @@ export default function BizApp() {
           {screen === "dash" && <DashboardTab authH={authH} office={office} onGoTab={goTab} />}
           {screen === "settings" && <BizSettings office={office} authH={authH} method={st.method} onUnlink={unlink} />}
           {screen === "calls" && <BizCalls />}
+          {screen === "more" && <MoreHub authH={authH} hasHomepage={!!st.has_homepage} role={st.role ?? "owner"} isAdmin={isAdmin} onLogout={logout} />}
         </div>
+        <BizTabBar active={tabForScreen(screen)} isAdmin={isAdmin} />
       </div>
     );
   }
@@ -189,7 +192,7 @@ export default function BizApp() {
   // ── ④ 홈: 버튼 그리드 ──
   return (
     <>
-      <BizHome office={office} authH={authH} hasHomepage={!!st.has_homepage} role={st.role ?? "owner"} staffName={st.staff_name ?? null} onLogout={logout} />
+      <BizHome office={office} authH={authH} role={st.role ?? "owner"} staffName={st.staff_name ?? null} />
       {callPhone && <QuickAddCustomer phone={callPhone} onClose={closeCallAdd} />}
     </>
   );
@@ -355,9 +358,38 @@ function BizSettings({ office, authH, method, onUnlink }: {
   );
 }
 
-function BizHome({ office, authH, hasHomepage, role, staffName, onLogout }: {
-  office: Office; authH: () => Record<string, string>; hasHomepage: boolean; role: string;
-  staffName: string | null; onLogout: () => void;
+// ── 하단 5탭 네비 ──
+type BizTab = "home" | "listings" | "customers" | "contracts" | "more";
+function tabForScreen(screen?: string): BizTab {
+  if (!screen) return "home";
+  if (screen === "diary" || screen === "audit") return "listings";
+  if (screen === "ledger" || screen === "match" || screen === "leads") return "customers";
+  if (screen === "contracts" || screen === "calendar") return "contracts";
+  return "more";
+}
+function BizTabBar({ active, isAdmin }: { active: BizTab; isAdmin: boolean }) {
+  const items: { key: BizTab; to: string; icon: React.ReactNode; label: string }[] = [
+    { key: "home", to: "/biz", icon: <Home size={20} />, label: "홈" },
+    { key: "listings", to: "/biz/diary", icon: <Building2 size={20} />, label: "매물" },
+    { key: "customers", to: "/biz/ledger", icon: <Users size={20} />, label: "고객" },
+    { key: "contracts", to: isAdmin ? "/biz/contracts" : "/biz/calendar", icon: <FileText size={20} />, label: "계약" },
+    { key: "more", to: "/biz/more", icon: <LayoutGrid size={20} />, label: "더보기" },
+  ];
+  return (
+    <nav className="biz-tabbar" aria-label="중개사 앱 탭">
+      {items.map((it) => (
+        <Link key={it.key} to={it.to} className={`biz-tab${active === it.key ? " on" : ""}`} aria-current={active === it.key ? "page" : undefined}>
+          <span className="biz-tab-ic">{it.icon}</span>
+          <span className="biz-tab-lbl">{it.label}</span>
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+// ── 홈(요약) ──
+function BizHome({ office, authH, role, staffName }: {
+  office: Office; authH: () => Record<string, string>; role: string; staffName: string | null;
 }) {
   const [leadNew, setLeadNew] = useState(0);
   const [total, setTotal] = useState<number | null>(null);
@@ -386,45 +418,107 @@ function BizHome({ office, authH, hasHomepage, role, staffName, onLogout }: {
         <div className="biz-greet">
           <div className="biz-greet-name"><b>{role === "owner" ? `${office.representative || "대표"} 대표님` : `${staffName || "직원"}님`}</b>, 안녕하세요</div>
           <div className="biz-greet-office">{office.realtor_name}</div>
-          <div className="biz-greet-date">{dateStr}{total != null && <> · 우리 매물 <b>{total.toLocaleString()}</b>건</>}</div>
+          <div className="biz-greet-date">{dateStr}</div>
+        </div>
+
+        {/* 오늘 요약 */}
+        <div className="biz-today">
+          <div className="biz-today-h">오늘 · 이번주</div>
+          <Link to="/biz/leads" className="biz-today-row">
+            <span>새 상담신청</span>
+            <b className={leadNew ? "hot" : ""}>{leadNew ? `${leadNew}건` : "없음"}</b>
+          </Link>
+          <div className="biz-today-row">
+            <span>우리 매물</span>
+            <b>{total != null ? `${total.toLocaleString()}건` : "—"}</b>
+          </div>
+          {pushSupported() && (
+            <button className="biz-today-row asbtn" onClick={togglePush} disabled={pushOn}>
+              <span>매일 10·16시 브리핑 알림</span>
+              <b className={pushOn ? "" : "hot"}>{pushOn ? "켜짐" : "켜기"}</b>
+            </button>
+          )}
         </div>
 
         <CallDetectCard token={token} />
 
-        <div className="biz-grid">
-          <BizBtn to="/biz/diary" icon={<ClipboardList size={22} />} label="매물장" desc="내 매물 다이어리" primary />
-          <BizBtn to="/biz/ledger" icon={<Users size={22} />} label="고객원장" desc="손님 요건·내놓은 물건" primary />
-          <BizBtn to="/biz/match" icon={<Sparkles size={22} />} label="고객·물건매칭" desc="손님 조건에 맞는 매물 찾기" primary />
-          {isAdmin && <BizBtn to="/biz/calendar" icon={<CalendarDays size={22} />} label="계약캘린더" desc="계약서 → 일정 (가오픈)" />}
-          {isAdmin && <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="계약서·조건·당사자 (가오픈)" />}
-          <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
-          <BizBtn to="/biz/audit" icon={<ShieldCheck size={22} />} label="매물점검" desc="표시광고 자가점검" />
-          <BizBtn to="/biz/leads" icon={<MessageSquare size={22} />} label="상담신청" desc="고객 상담 리드" badge={leadNew || undefined} />
-          <BizBtn to="/biz/favs" icon={<Star size={22} />} label="관심단지" desc="신고가·신규매물 체크" />
-          <BizBtn to="/biz/fav-offices" icon={<Store size={22} />} label="관심중개사" desc="주변 사무소 증감" />
-          {role === "owner" && <BizBtn to="/biz/staff" icon={<Users size={22} />} label="직원관리" desc="소속공인·보조원 승인" />}
-          <BizBtn to="/biz/office" icon={<Building2 size={22} />} label="내 사무소" desc="연결·리뷰 관리" />
-          <BizBtn to="/biz/dash" icon={<LayoutDashboard size={22} />} label="대시보드" desc="오늘의 사무소 현황" />
-          <BizBtn to="/biz/edit" icon={<Pencil size={22} />} label="정보수정요청" desc="사무소 정보 정정" />
-          <button className="biz-btn" onClick={openConsumerApp}>
-            <span className="biz-btn-ic"><Home size={22} /></span>
-            <b>콕집 (일반)</b>
-            <span className="biz-btn-desc">일반 사용자 앱 열기</span>
-          </button>
+        {/* 빠른 실행 */}
+        <div className="biz-quick-h">빠른 실행</div>
+        <div className="biz-quick">
+          <BizQuick to="/biz/diary" icon={<ClipboardList size={20} />} label="매물장" />
+          <BizQuick to="/biz/ledger" icon={<Users size={20} />} label="고객원장" />
+          {isAdmin
+            ? <BizQuick to="/biz/contracts" icon={<FileText size={20} />} label="AI 계약" />
+            : <BizQuick to="/biz/match" icon={<Sparkles size={20} />} label="물건매칭" />}
+          <BizQuick to="/biz/audit" icon={<ShieldCheck size={20} />} label="매물점검" />
         </div>
 
-        {pushSupported() && (
-          <button className={`biz-push ${pushOn ? "on" : ""}`} onClick={togglePush} disabled={pushOn}>
-            {pushOn ? <><CheckCircle2 size={16} /> 매일 10시·16시 매물 브리핑 알림 켜짐</>
-                    : <><Bell size={16} /> 매일 10시·16시 매물 브리핑 알림 받기</>}
-          </button>
-        )}
-
-        <div className="biz-foot" style={{ justifyContent: "flex-end" }}>
-          <button onClick={onLogout}><LogOut size={12} /> 로그아웃</button>
-        </div>
+        <Link to="/biz/more" className="biz-more-link"><LayoutGrid size={16} /> 전체 메뉴 보기</Link>
       </div>
+      <BizTabBar active="home" isAdmin={isAdmin} />
     </div>
+  );
+}
+
+function BizQuick({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
+  return (
+    <Link to={to} className="biz-quick-tile">
+      <span className="biz-quick-ic">{icon}</span>
+      <b>{label}</b>
+    </Link>
+  );
+}
+
+// ── 더보기: 전체 메뉴(기존 그리드) ──
+function MoreHub({ authH, hasHomepage, role, isAdmin, onLogout }: {
+  authH: () => Record<string, string>; hasHomepage: boolean; role: string; isAdmin: boolean; onLogout: () => void;
+}) {
+  const [leadNew, setLeadNew] = useState(0);
+  const [pushOn, setPushOn] = useState(pushOptedIn());
+  const { token } = useAuth();
+  useEffect(() => {
+    fetch(`${API_BASE}/lounge/dashboard`, { headers: authH() })
+      .then((r) => r.json()).then((d) => setLeadNew(d?.leads?.new_count || 0)).catch(() => {});
+  }, [authH]);
+  async function togglePush() {
+    const r = await enablePush(token);
+    if (r.ok) { setPushOn(true); alert("알림이 켜졌습니다. 매일 10시·16시 매물 브리핑을 보내드려요."); }
+    else alert("알림 설정에 실패했어요. 브라우저 알림 권한을 확인해 주세요.");
+  }
+  return (
+    <>
+      <div className="biz-grid">
+        <BizBtn to="/biz/diary" icon={<ClipboardList size={22} />} label="매물장" desc="내 매물 다이어리" primary />
+        <BizBtn to="/biz/ledger" icon={<Users size={22} />} label="고객원장" desc="손님 요건·내놓은 물건" primary />
+        <BizBtn to="/biz/match" icon={<Sparkles size={22} />} label="고객·물건매칭" desc="손님 조건에 맞는 매물 찾기" primary />
+        {isAdmin && <BizBtn to="/biz/calendar" icon={<CalendarDays size={22} />} label="계약캘린더" desc="계약서 → 일정 (가오픈)" />}
+        {isAdmin && <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="계약서·조건·당사자 (가오픈)" />}
+        <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
+        <BizBtn to="/biz/audit" icon={<ShieldCheck size={22} />} label="매물점검" desc="표시광고 자가점검" />
+        <BizBtn to="/biz/leads" icon={<MessageSquare size={22} />} label="상담신청" desc="고객 상담 리드" badge={leadNew || undefined} />
+        <BizBtn to="/biz/favs" icon={<Star size={22} />} label="관심단지" desc="신고가·신규매물 체크" />
+        <BizBtn to="/biz/fav-offices" icon={<Store size={22} />} label="관심중개사" desc="주변 사무소 증감" />
+        {role === "owner" && <BizBtn to="/biz/staff" icon={<Users size={22} />} label="직원관리" desc="소속공인·보조원 승인" />}
+        <BizBtn to="/biz/office" icon={<Building2 size={22} />} label="내 사무소" desc="연결·리뷰 관리" />
+        <BizBtn to="/biz/dash" icon={<LayoutDashboard size={22} />} label="대시보드" desc="오늘의 사무소 현황" />
+        <BizBtn to="/biz/edit" icon={<Pencil size={22} />} label="정보수정요청" desc="사무소 정보 정정" />
+        <BizBtn to="/biz/settings" icon={<Settings size={22} />} label="설정" desc="알림·계정" />
+        <button className="biz-btn" onClick={openConsumerApp}>
+          <span className="biz-btn-ic"><Home size={22} /></span>
+          <b>콕집 (일반)</b>
+          <span className="biz-btn-desc">일반 사용자 앱 열기</span>
+        </button>
+      </div>
+      {pushSupported() && (
+        <button className={`biz-push ${pushOn ? "on" : ""}`} onClick={togglePush} disabled={pushOn}>
+          {pushOn ? <><CheckCircle2 size={16} /> 매일 10시·16시 매물 브리핑 알림 켜짐</>
+                  : <><Bell size={16} /> 매일 10시·16시 매물 브리핑 알림 받기</>}
+        </button>
+      )}
+      <div className="biz-foot" style={{ justifyContent: "flex-end" }}>
+        <button onClick={onLogout}><LogOut size={12} /> 로그아웃</button>
+      </div>
+    </>
   );
 }
 

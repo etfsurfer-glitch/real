@@ -4360,6 +4360,40 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .biz-greet-office { font-size: 13px; color: #475569; font-weight: 700; margin-top: 2px; }
 .biz-greet-date { font-size: 12px; color: #94a3b8; margin-top: 3px; }
 .biz-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+
+/* ── 재설계: 하단 5탭 네비 ── */
+.biz-tabbar { position: sticky; bottom: 0; z-index: 30; display: flex; background: #fff;
+  border-top: 1px solid #e6ebf2; padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+  box-shadow: 0 -2px 12px rgba(15,26,43,.05); }
+.biz-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 4px 0; color: #8b95a1; text-decoration: none; }
+.biz-tab-ic { display: flex; }
+.biz-tab-lbl { font-size: 10.5px; font-weight: 700; }
+.biz-tab.on { color: #1268d3; }
+
+/* 오늘 요약 카드 */
+.biz-today { background: #fff; border: 1px solid #e6ebf2; border-radius: 14px; padding: 6px 14px 10px; margin-bottom: 12px; }
+.biz-today-h { font-size: 11px; font-weight: 800; color: #8b95a1; letter-spacing: .02em; padding: 8px 0 2px; }
+.biz-today-row { display: flex; justify-content: space-between; align-items: center; width: 100%;
+  padding: 9px 0; border-top: 1px solid #f2f4f6; font-size: 13.5px; color: #4E5968;
+  background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left;
+  font-family: inherit; cursor: pointer; text-decoration: none; }
+.biz-today-row b { font-size: 13.5px; color: #111418; font-weight: 800; }
+.biz-today-row b.hot { color: #d23b3b; }
+.biz-today-row:disabled { cursor: default; }
+
+/* 빠른 실행 */
+.biz-quick-h { font-size: 11px; font-weight: 800; color: #8b95a1; margin: 14px 2px 8px; }
+.biz-quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.biz-quick-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; background: #fff;
+  border: 1px solid #e6ebf2; border-radius: 14px; padding: 14px 4px; text-decoration: none; color: #111418; }
+.biz-quick-ic { width: 40px; height: 40px; border-radius: 12px; background: #eef4ff; color: #1268d3;
+  display: flex; align-items: center; justify-content: center; }
+.biz-quick-tile b { font-size: 12px; font-weight: 700; }
+
+.biz-more-link { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 18px auto 4px;
+  max-width: 220px; padding: 11px 16px; border: 1px solid #e6ebf2; border-radius: 999px; background: #fff;
+  color: #4E5968; font-size: 13px; font-weight: 700; text-decoration: none; }
 .biz-btn { position: relative; display: flex; flex-direction: column; gap: 3px; background: #fff;
   border: 1px solid var(--c-border, #e4e9f0); border-radius: 14px; padding: 15px 14px 13px;
   color: inherit; box-shadow: 0 1px 2px rgba(15,47,92,.04); transition: transform .1s, box-shadow .1s; }
