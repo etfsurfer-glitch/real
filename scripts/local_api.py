@@ -11416,6 +11416,7 @@ def _init_reviews_db() -> None:
         # 기존 테이블에 신규 컬럼 보강(있으면 무시) — 전화번호=유니크 비즈니스키, 회원번호=내부키
         for ddl in (
             "ALTER TABLE biz_contracts ADD COLUMN doc_hash TEXT",   # 동일 파일 재파싱 방지(비용 0)
+            "ALTER TABLE biz_customers ADD COLUMN stage TEXT",       # 고객 파이프라인 단계(신규·미팅·계약중·잔금완료)
             # biz_needs 는 먼저 배포된 적이 있다 — CREATE TABLE IF NOT EXISTS 는 기존
             # 테이블에 no-op 이라 새 컬럼은 여기서 붙여야 한다.
             "ALTER TABLE biz_needs ADD COLUMN listing_id INTEGER",
@@ -16563,7 +16564,7 @@ def lounge_activity_delete(aid: int, user: dict = Depends(current_user)):
 
 @app.patch("/lounge/customers/{cid}")
 def lounge_customer_update(cid: int, body: dict, user: dict = Depends(current_user)):
-    """고객 정보 수정. 이름·전화·메모만."""
+    """고객 정보 수정. 이름·전화·메모·단계(stage)."""
     with _reviews_db() as rc:
         rid = _require_member(rc, user["id"])
         row = rc.execute("SELECT id FROM biz_customers WHERE id=? AND realtor_id=?",
@@ -16571,7 +16572,7 @@ def lounge_customer_update(cid: int, body: dict, user: dict = Depends(current_us
         if not row:
             raise HTTPException(404, "고객을 찾을 수 없어요")
         vals, cols = [], []
-        for k in ("name", "phone", "memo"):
+        for k in ("name", "phone", "memo", "stage"):
             if k in body:
                 v = (body.get(k) or "").strip()
                 if k == "phone":
@@ -16884,7 +16885,7 @@ def lounge_customers(user: dict = Depends(current_user), q: str = "", limit: int
         rc.row_factory = sqlite3.Row
         _ensure_private_listings(rc)
         cust = rc.execute(
-            "SELECT id, name, phone, memo, updated_at FROM biz_customers "
+            "SELECT id, name, phone, memo, stage, updated_at FROM biz_customers "
             "WHERE realtor_id=? ORDER BY updated_at DESC LIMIT ?", (rid, max(1, min(limit, 1000)))
         ).fetchall()
         cids = [c["id"] for c in cust]

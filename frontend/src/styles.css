@@ -2544,6 +2544,26 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .cled-seg button{border:none;background:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
   color:#64748b;padding:6px 14px;border-radius:999px}
 .cled-seg button.on{background:#fff;color:#13294b;box-shadow:var(--sh-xs)}
+
+/* 파이프라인 단계 필터 칩 */
+.cled-stages{display:flex;gap:7px;flex-wrap:wrap;margin:-2px 0 12px}
+.cs-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid #e5e8eb;background:#fff;
+  border-radius:999px;padding:6px 12px;font-size:12.5px;font-weight:700;color:#4E5968;cursor:pointer;font-family:inherit}
+.cs-chip i{font-style:normal;font-size:11px;font-weight:800;background:#eef2f7;color:#64748b;border-radius:999px;padding:1px 6px}
+.cs-chip.on{border-color:#1268d3;color:#1268d3;background:#eef4ff}
+.cs-chip.on i{background:#1268d3;color:#fff}
+.cs-chip.new.on{border-color:#8b95a1;color:#4E5968;background:#f2f4f6}.cs-chip.new.on i{background:#8b95a1}
+.cs-chip.meet.on{border-color:#1e62c9;color:#1e62c9;background:#e9f2ff}.cs-chip.meet.on i{background:#1e62c9}
+.cs-chip.prog.on{border-color:#bf4e1b;color:#bf4e1b;background:#fff0e6}.cs-chip.prog.on i{background:#bf4e1b}
+.cs-chip.done.on{border-color:#0a7a55;color:#0a7a55;background:#e5f7ef}.cs-chip.done.on i{background:#0a7a55}
+
+/* 카드 단계 선택기(pill) */
+.c-stage{border:1px solid #e5e8eb;border-radius:999px;font-size:10.5px;font-weight:800;
+  padding:2px 6px;color:#4E5968;background:#f2f4f6;cursor:pointer;font-family:inherit;
+  -webkit-appearance:none;appearance:none;line-height:1.4;margin-left:2px}
+.c-stage.meet{background:#e9f2ff;color:#1e62c9;border-color:#cfe1fb}
+.c-stage.prog{background:#fff0e6;color:#bf4e1b;border-color:#f6d8c6}
+.c-stage.done{background:#e5f7ef;color:#0a7a55;border-color:#c3ecd8}
 .cled-empty{border:1px dashed var(--c-border);border-radius:12px;padding:26px 18px;text-align:center;
   font-size:13px;color:#64748b;line-height:1.6}
 /* 고객 1명 = 행 1개가 아니다. 왼쪽에 고객, 오른쪽에 요건들 */

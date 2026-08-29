@@ -31,8 +31,15 @@ type Contract = {
 };
 type Customer = {
   id: number; name?: string; phone?: string; memo?: string; updated_at?: string;
+  stage?: string | null;
   ctype: string; needs: Need[]; contracts?: Contract[];
 };
+
+// 고객 파이프라인 단계(부비서식) — 신규 문의 → 미팅 → 계약중 → 잔금완료
+const STAGES = ["신규", "미팅", "계약중", "잔금완료"] as const;
+const stageOf = (c: Customer) => c.stage || "신규";
+const stageCls = (s: string) =>
+  s === "잔금완료" ? "done" : s === "계약중" ? "prog" : s === "미팅" ? "meet" : "new";
 
 const TRADE_KOR: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세", B3: "단기임대" };
 const won = (v: any): string => {
@@ -93,6 +100,7 @@ export default function CustomerLedger({ authH, onGoListings }: {
   const [q, setQ] = useState("");
   const [ct, setCt] = useState("");
   const [pt, setPt] = useState("");          // 물건 종류 — '_none' 은 종류를 아직 안 정한 것
+  const [stage, setStage] = useState("");    // 파이프라인 단계 필터('' = 전체)
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<EditCustomer | null>(null);
@@ -121,9 +129,18 @@ export default function CustomerLedger({ authH, onGoListings }: {
   }, [authH]);
   useEffect(() => { load(); }, [load]);
 
+  const changeStage = useCallback((id: number, s: string) => {
+    setItems((prev) => prev ? prev.map((c) => c.id === id ? { ...c, stage: s } : c) : prev);
+    fetch(`${API_BASE}/lounge/customers/${id}`, {
+      method: "PATCH", headers: { ...authH(), "Content-Type": "application/json" },
+      body: JSON.stringify({ stage: s }),
+    }).catch(() => { /* 실패해도 다음 로드에서 정정 */ });
+  }, [authH]);
+
   const shown = useMemo(() => {
     const ql = q.trim();
     return (items || []).filter((c) => {
+      if (stage && stageOf(c) !== stage) return false;
       if (ct && c.ctype !== ct) return false;
       // 요건 하나만 맞아도 그 고객은 남긴다 — 한 사람이 상가도 보고 아파트도 본다
       if (pt && !c.needs.some((n) => (pt === "_none" ? !n.ptype : n.ptype === pt))) return false;
@@ -133,7 +150,13 @@ export default function CustomerLedger({ authH, onGoListings }: {
         ...(c.contracts ?? []).map((x) => [x.title, x.address, x.role].join(" "))].join(" ");
       return hay.includes(ql);
     });
-  }, [items, q, ct, pt]);
+  }, [items, q, ct, pt, stage]);
+
+  const stageCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    (items || []).forEach((c) => { const s = stageOf(c); m[s] = (m[s] || 0) + 1; });
+    return m;
+  }, [items]);
 
   const ptypes = useMemo(() => {
     const m = new Map<string, number>();
@@ -187,6 +210,19 @@ export default function CustomerLedger({ authH, onGoListings }: {
         </span>
       </div>
 
+      {/* 파이프라인 단계 필터 */}
+      <div className="cled-stages">
+        <button className={"cs-chip" + (stage === "" ? " on" : "")} onClick={() => setStage("")}>
+          전체 <i>{(items || []).length}</i>
+        </button>
+        {STAGES.map((s) => (
+          <button key={s} className={`cs-chip ${stageCls(s)}` + (stage === s ? " on" : "")}
+            onClick={() => setStage(stage === s ? "" : s)}>
+            {s} <i>{stageCounts[s] || 0}</i>
+          </button>
+        ))}
+      </div>
+
       {err && <p className="cled-empty">{err}</p>}
       {items === null && <p className="cled-empty">불러오는 중…</p>}
       {items !== null && shown.length === 0 && !err && (
@@ -227,6 +263,11 @@ export default function CustomerLedger({ authH, onGoListings }: {
                       {c.name || "이름 미상"}
                       <em className={"c-tp t-" + (c.ctype === "양쪽" ? "both" : c.ctype === "내놓음" ? "sell" : "buy")}>
                         {c.ctype}</em>
+                      <select className={"c-stage " + stageCls(stageOf(c))}
+                        value={stageOf(c)} onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => changeStage(c.id, e.target.value)} aria-label="고객 단계">
+                        {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
                       <Pencil size={11} className="c-pen" />
                     </>
                   ) : (
