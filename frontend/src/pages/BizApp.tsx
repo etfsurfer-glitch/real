@@ -731,14 +731,75 @@ function VerifyTab() {
   );
 }
 
-// ── 매물 브리핑: 손님에게 보여줄 매물을 골라 깔끔한 화면으로 ──
+// ── 매물 브리핑: 손님에게 보여줄 매물을 단지정보·실거래·호가 + 중개사 네임카드로 ──
 type BriefItem = {
-  article_no: string; complex_name: string | null; building_name?: string; dong?: string; ho?: string;
-  trade_type: string; price_text?: string; rent_price_text?: string;
+  article_no: string; complex_no?: string | null; complex_name: string | null; building_name?: string;
+  dong?: string; ho?: string; trade_type: string; price_text?: string; rent_price_text?: string;
   area_name?: string; area2_m2?: number; floor_info?: string; direction?: string;
   room_cnt?: number | null; maintenance_fee?: number | null; move_in?: string; feature_desc?: string;
 };
 const TRADE_KOR2: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세", B3: "단기임대" };
+const _won = (v?: number | null) => {   // 원 → "21억 3,000만"
+  if (!v) return "-";
+  const e = Math.floor(v / 1e8), m = Math.round((v % 1e8) / 1e4);
+  return e ? (m ? `${e}억 ${m.toLocaleString()}만` : `${e}억`) : `${Math.round(v / 1e4).toLocaleString()}만`;
+};
+const _bPlace = (it: BriefItem) =>
+  [it.complex_name || it.building_name, it.dong, it.ho].filter(Boolean).join(" ") || "매물";  // dong/ho 는 이미 동·호 포함
+const _bPrice = (it: BriefItem) => {
+  const t = TRADE_KOR2[it.trade_type] || it.trade_type;
+  return (it.trade_type === "B2" || it.trade_type === "B3")
+    ? `${t} ${it.price_text || ""}${it.rent_price_text ? " / " + it.rent_price_text : ""}`
+    : `${t} ${it.price_text || ""}`;
+};
+const _bArea = (it: BriefItem) =>
+  [it.area_name, it.area2_m2 ? `전용 ${Math.round(it.area2_m2 / 3.3058)}평(${it.area2_m2}㎡)` : null].filter(Boolean).join(" · ");
+
+// 손님용 매물 카드 — 단지정보·실거래가·현재 호가를 콕집 데이터로 보강
+function BriefCard({ it }: { it: BriefItem }) {
+  const [sum, setSum] = useState<any>(null);
+  useEffect(() => {
+    if (!it.complex_no || !API_BASE) { setSum(null); return; }
+    fetch(`${API_BASE}/complex/${it.complex_no}/summary`)
+      .then((r) => r.json()).then(setSum).catch(() => setSum(null));
+  }, [it.complex_no]);
+  const ea = it.area2_m2 || 0;
+  const near = (a: any) => !!ea && Math.abs((Number(a) || 0) - ea) <= 1.5;
+  const tx = (sum?.recent_tx as any[] | undefined)?.filter((t) => near(t.area))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+  const ty = (sum?.by_type as any[] | undefined)?.find((t) => near(t.exclusive_area) && t.sale_min);
+  const info = sum ? [
+    sum.households ? `${Number(sum.households).toLocaleString()}세대` : null,
+    sum.use_approve_ymd ? `${String(sum.use_approve_ymd).slice(0, 4)}년 준공` : null,
+    sum.region || null,
+  ].filter(Boolean).join(" · ") : "";
+
+  return (
+    <div className="biz-brief-card">
+      <div className="bb-place">{_bPlace(it)}</div>
+      <div className="bb-price">{_bPrice(it)}</div>
+      <div className="bb-meta">
+        {[_bArea(it), it.floor_info, it.direction ? `${it.direction}향` : null,
+          it.room_cnt != null ? `방 ${it.room_cnt}` : null,
+          it.maintenance_fee ? `관리비 ${Math.round(it.maintenance_fee / 1e4)}만` : null,
+          it.move_in ? `입주 ${it.move_in}` : null].filter(Boolean).map((x, i) => <span key={i}>{x}</span>)}
+      </div>
+      {it.feature_desc && <div className="bb-feat">{it.feature_desc}</div>}
+      {(info || tx || ty) && (
+        <div className="bb-market">
+          {info && <div className="bb-info">{info}</div>}
+          {(tx || ty) && (
+            <div className="bb-mkrow">
+              {tx && <div className="bb-mk"><span>최근 실거래</span><b>{_won(tx.price)}</b><i>{String(tx.date).slice(2, 10).replace(/-/g, ".")} · {tx.floor}층</i></div>}
+              {ty && <div className="bb-mk"><span>현재 호가</span><b>{_won(ty.sale_min)}~{_won(ty.sale_max)}</b><i>{ty.sale_count}건</i></div>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BriefTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
   const [items, setItems] = useState<BriefItem[] | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -749,50 +810,37 @@ function BriefTab({ authH, office }: { authH: () => Record<string, string>; offi
   }, [authH]);
   const toggle = (a: string) => setSel((prev) => { const n = new Set(prev); n.has(a) ? n.delete(a) : n.add(a); return n; });
   const chosen = (items ?? []).filter((it) => sel.has(it.article_no));
-  const priceLine = (it: BriefItem) => {
-    const t = TRADE_KOR2[it.trade_type] || it.trade_type;
-    return (it.trade_type === "B2" || it.trade_type === "B3")
-      ? `${t} ${it.price_text || ""}${it.rent_price_text ? " / " + it.rent_price_text : ""}`
-      : `${t} ${it.price_text || ""}`;
-  };
-  const areaLine = (it: BriefItem) =>
-    [it.area_name, it.area2_m2 ? `전용 ${Math.round(it.area2_m2 / 3.3058)}평(${it.area2_m2}㎡)` : null].filter(Boolean).join(" · ");
-  const place = (it: BriefItem) =>
-    [it.complex_name || it.building_name, it.dong ? `${it.dong}동` : null, it.ho ? `${it.ho}호` : null].filter(Boolean).join(" ") || "매물";
+  const tel = (office.cell || office.tel || "").replace(/[^0-9+]/g, "");
 
   if (present) {
     return (
       <div className="biz-brief-present">
-        <div className="biz-brief-bar">
-          <b>{office.realtor_name}</b>
-          <button onClick={() => setPresent(false)}>편집</button>
-        </div>
-        {chosen.map((it) => (
-          <div key={it.article_no} className="biz-brief-card">
-            <div className="bb-place">{place(it)}</div>
-            <div className="bb-price">{priceLine(it)}</div>
-            <div className="bb-meta">
-              {[areaLine(it), it.floor_info, it.direction ? `${it.direction}향` : null,
-                it.room_cnt != null ? `방 ${it.room_cnt}` : null,
-                it.maintenance_fee ? `관리비 ${Math.round(it.maintenance_fee / 1e4)}만` : null,
-                it.move_in ? `입주 ${it.move_in}` : null].filter(Boolean).map((x, i) => <span key={i}>{x}</span>)}
+        {chosen.map((it) => <BriefCard key={it.article_no} it={it} />)}
+        {/* 중개사 네임카드 */}
+        <div className="biz-namecard">
+          <div className="nc-office">{office.realtor_name}</div>
+          {(office.representative || office.address) && (
+            <div className="nc-meta">
+              {[office.representative ? `대표 ${office.representative}` : null, office.address || null]
+                .filter(Boolean).map((x, i) => <div key={i}>{x}</div>)}
             </div>
-            {it.feature_desc && <div className="bb-feat">{it.feature_desc}</div>}
-          </div>
-        ))}
+          )}
+          {tel && <a className="nc-tel" href={`tel:${tel}`}><Phone size={14} /> {office.cell || office.tel}</a>}
+        </div>
+        <button className="biz-brief-edit" onClick={() => setPresent(false)}>← 편집으로 돌아가기</button>
       </div>
     );
   }
   return (
     <div>
-      <p className="biz-verify-lead">손님에게 보여줄 매물을 고르면 <b>깔끔한 브리핑 화면</b>으로 보여드려요. <span style={{ color: "#8b95a1" }}>(내부 메모·연락처는 안 보입니다)</span></p>
+      <p className="biz-verify-lead">손님에게 보여줄 매물을 고르면 <b>단지정보·실거래가·호가 + 우리 사무소 명함</b>이 담긴 브리핑 화면으로 보여드려요. <span style={{ color: "#8b95a1" }}>(내부 메모·연락처는 안 보입니다)</span></p>
       {items === null && <p className="cled-empty">불러오는 중…</p>}
       {items !== null && items.length === 0 && <p className="cled-empty">매물장에 매물이 없어요.</p>}
       <div className="biz-brief-list">
         {(items ?? []).map((it) => (
           <label key={it.article_no} className={"biz-brief-pick" + (sel.has(it.article_no) ? " on" : "")}>
             <input type="checkbox" checked={sel.has(it.article_no)} onChange={() => toggle(it.article_no)} />
-            <span className="bp-main"><b>{place(it)}</b><span>{priceLine(it)} · {areaLine(it)}</span></span>
+            <span className="bp-main"><b>{_bPlace(it)}</b><span>{_bPrice(it)} · {_bArea(it)}</span></span>
           </label>
         ))}
       </div>
