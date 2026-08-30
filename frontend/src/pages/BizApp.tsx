@@ -9,7 +9,8 @@ import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
 import { enablePush, pushOptedIn, pushSupported } from "../lib/push";
-import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp, Presentation } from "lucide-react";
+import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp, Presentation, MapPin } from "lucide-react";
+import { areaLabel } from "../lib/area";
 import {
   DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
   DocSubmit, AdminPick, FavManager, OfficeFavManager, Card, StaffJoin, StaffManageTab,
@@ -760,11 +761,11 @@ const _bArea = (it: BriefItem) =>
 
 const _py = (m?: number) => (m ? `${Math.round(m / 3.3058)}평` : "");
 const _fmtD = (d: string) => (d && d.length >= 10 ? d.slice(2, 10).replace(/-/g, ".") : d);
-const _SPEC_PRIMARY = new Set(["공급/전용", "해당/총층", "방/욕실", "방향", "입주가능", "관리비", "주차"]);
-// 스펙표 앞부분은 전용면적 1줄, 엘리베이터부터(부가정보)는 2열로 — 세로길이 축소
+const _fyYmd = (v: any) => (v ? String(v).replace(/(\d{4})(\d{2})(\d{2}).*/, "$1.$2.$3") : null);
 
-// 손님용 매물 카드 — 네이버 매물 수준(사진·상세 스펙표·단지정보·실거래·호가)
+// 손님용 매물 카드 — 매물장 상세와 동일한 2열 그리드(.mld-rows)+태그 재사용 + 실거래/호가/명함
 function BriefCard({ it }: { it: BriefItem }) {
+  const l = it as any;
   const { token } = useAuth();
   const [sum, setSum] = useState<any>(null);
   const [sale, setSale] = useState<any[] | null>(null);
@@ -776,7 +777,6 @@ function BriefCard({ it }: { it: BriefItem }) {
   }, [it.complex_no]);
   const ea = it.area2_m2 || 0;
   const near = (a: any) => !!ea && Math.abs((Number(a) || 0) - ea) <= 1.5;
-  // 같은 평형(공급) 최근 실거래 3건
   const tx3 = (sale ?? []).map((s: any) => ({
     ymd: String(s.deal_ymd || ""), amt: Number(String(s.deal_amount).replace(/[^0-9.]/g, "")) || 0,
     ar: Number(s.excl_use_ar) || 0, floor: s.floor,
@@ -784,26 +784,9 @@ function BriefCard({ it }: { it: BriefItem }) {
   const ty = (sum?.by_type as any[] | undefined)?.find((t) => near(t.exclusive_area) && t.sale_min);
 
   const photoUrl = (n: string) => `${API_BASE}/lounge/private-listings/photo-view/${encodeURIComponent(n)}?t=${encodeURIComponent(token || "")}`;
-  const area = (it.area1_m2 || it.area2_m2)
-    ? `${[_py(it.area1_m2), _py(it.area2_m2)].filter(Boolean).join("/")} (${[it.area1_m2, it.area2_m2].filter(Boolean).join("/")}㎡)` : "";
-  const parking = it.parking_total != null ? `총 ${it.parking_total}대${it.parking_per ? ` · 세대당 ${it.parking_per}` : ""}`
-    : sum?.parking_per_household ? `세대당 ${sum.parking_per_household}` : "";
-  const rows: [string, string][] = [
-    ["공급/전용", area],
-    ["해당/총층", it.floor_info || (it.total_floor ? `-/${it.total_floor}층` : "")],
-    ["방/욕실", [it.room_cnt != null ? `${it.room_cnt}개` : "", it.bath_cnt != null ? `${it.bath_cnt}개` : ""].filter(Boolean).join(" / ")],
-    ["방향", it.direction ? `${it.direction}향` : ""],
-    ["입주가능", it.move_in || ""],
-    ["관리비", it.maintenance_fee ? `약 ${Math.round(it.maintenance_fee / 1e4)}만원` : ""],
-    ["주차", parking],
-    ["난방", it.heating || ""],
-    ["엘베", it.elevator || ""],
-    ["세대수", sum?.households ? `${Number(sum.households).toLocaleString()}세대` : ""],
-    ["사용승인", sum?.use_approve_ymd ? String(sum.use_approve_ymd).replace(/(\d{4})(\d{2})(\d{2})/, "$1.$2.$3") : ""],
-    ["건설사", sum?.builder || ""],
-  ].filter(([, v]) => v) as [string, string][];
-  const primary = rows.filter(([k]) => _SPEC_PRIMARY.has(k));
-  const secondary = rows.filter(([k]) => !_SPEC_PRIMARY.has(k));
+  // 매물장 상세와 동일한 Row (값 없으면 자동 제외). 손님용이라 연락처·담당자 같은 내부정보는 뺀다.
+  const Row = ({ k, v }: { k: string; v: string | null }) =>
+    v ? <div className="mld-row"><span className="mld-k">{k}</span><span className="mld-v">{v}</span></div> : null;
 
   return (
     <div className="biz-brief-card nv">
@@ -813,19 +796,36 @@ function BriefCard({ it }: { it: BriefItem }) {
         </div>
       )}
       <div className="bb-body">
-        <div className="bb-place">{_bPlace(it)}</div>
-        <div className="bb-price">{_bPrice(it)}{sum?.region ? <span className="bb-region"> · {sum.region}</span> : null}</div>
+        <div className="mld-top">
+          <span className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</span>
+          {l.type && <span className="mlj-type">{l.type}</span>}
+          <span className="mld-price">{_bPrice(it).replace(/^(매매|전세|월세|단기임대)\s*/, "")}</span>
+        </div>
+        <h3 className="mld-title">{_bPlace(it)}</h3>
+        {(l.address || sum?.region) && <div className="mld-addr"><MapPin size={13} /> {l.address || sum?.region}</div>}
 
-        {primary.length > 0 && (
-          <dl className="bb-spec">
-            {primary.map(([k, v]) => (<div key={k}><dt>{k}</dt><dd>{v}</dd></div>))}
-          </dl>
-        )}
-        {secondary.length > 0 && (
-          <dl className="bb-spec two">
-            {secondary.map(([k, v]) => (<div key={k}><dt>{k}</dt><dd>{v}</dd></div>))}
-          </dl>
-        )}
+        <div className="mld-rows">
+          <Row k="유형" v={l.type} />
+          <Row k="거래" v={l.trade_type === "월세" ? `${l.price_text}/${l.rent_price_text}` : `${l.trade_type} ${l.price_text}`} />
+          <Row k="전용면적" v={l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : null} />
+          <Row k="공급면적" v={l.area1_m2 ? `${l.area1_m2}㎡` : null} />
+          <Row k="해당층" v={l.floor_info ? `${l.floor_info}층` : null} />
+          <Row k="총 층수" v={l.total_floor ? `${l.total_floor}층` : null} />
+          <Row k="방·욕실" v={l.room_cnt ? `방 ${l.room_cnt}${l.bath_cnt ? ` / 욕실 ${l.bath_cnt}` : ""}` : null} />
+          <Row k="방향" v={l.direction ? `${l.direction}향` : null} />
+          <Row k="관리비" v={l.maintenance_fee ? `${l.maintenance_fee.toLocaleString()}만원` : null} />
+          <Row k="입주가능" v={l.move_in ?? null} />
+          <Row k="승강기" v={l.elevator ?? null} />
+          <Row k="세대당 주차" v={l.parking_per ? `${l.parking_per}대` : null} />
+          <Row k="세대수" v={l.households ? `${l.households.toLocaleString()}세대` : (sum?.households ? `${Number(sum.households).toLocaleString()}세대` : null)} />
+          <Row k="준공" v={l.approve_ymd ? `${String(l.approve_ymd).slice(0, 4)}.${String(l.approve_ymd).slice(4, 6)}` : _fyYmd(sum?.use_approve_ymd)} />
+          <Row k="시공사" v={l.builder || sum?.builder || null} />
+          <Row k="연면적" v={l.total_area_m2 ? areaLabel(l.total_area_m2) : null} />
+          <Row k="주용도" v={l.main_purpose ?? null} />
+          <Row k="대장 종류" v={l.reg_kind ?? null} />
+          <Row k="확인일" v={_fyYmd(l.confirm_ymd)} />
+        </div>
+        {l.tags?.length > 0 && <div className="mlj-tags" style={{ marginTop: 10 }}>{l.tags.map((t: string, i: number) => <span key={i}>{t}</span>)}</div>}
 
         {(ty || tx3.length > 0) && (
           <div className="bb-market">
@@ -845,8 +845,8 @@ function BriefCard({ it }: { it: BriefItem }) {
           </div>
         )}
 
-        {(it.feature_desc || it.options) && (
-          <div className="bb-feat">{[it.feature_desc, it.options].filter(Boolean).join("\n")}</div>
+        {(l.feature_desc || l.options) && (
+          <div className="bb-feat">{[l.feature_desc, l.options].filter(Boolean).join("\n")}</div>
         )}
       </div>
     </div>
