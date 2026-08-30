@@ -735,8 +735,11 @@ function VerifyTab() {
 type BriefItem = {
   article_no: string; complex_no?: string | null; complex_name: string | null; building_name?: string;
   dong?: string; ho?: string; trade_type: string; price_text?: string; rent_price_text?: string;
-  area_name?: string; area2_m2?: number; floor_info?: string; direction?: string;
-  room_cnt?: number | null; maintenance_fee?: number | null; move_in?: string; feature_desc?: string;
+  area_name?: string; area1_m2?: number; area2_m2?: number; floor_info?: string; total_floor?: number | null;
+  direction?: string; room_cnt?: number | null; bath_cnt?: number | null;
+  maintenance_fee?: number | null; move_in?: string; feature_desc?: string;
+  heating?: string; elevator?: string; options?: string;
+  parking_total?: number | null; parking_per?: number | null; photos?: string[];
 };
 const TRADE_KOR2: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세", B3: "단기임대" };
 const _won = (v?: number | null) => {   // 원 → "21억 3,000만"
@@ -755,8 +758,10 @@ const _bPrice = (it: BriefItem) => {
 const _bArea = (it: BriefItem) =>
   [it.area_name, it.area2_m2 ? `전용 ${Math.round(it.area2_m2 / 3.3058)}평(${it.area2_m2}㎡)` : null].filter(Boolean).join(" · ");
 
-// 손님용 매물 카드 — 단지정보·실거래가·현재 호가를 콕집 데이터로 보강
+const _py = (m?: number) => (m ? `${Math.round(m / 3.3058)}평` : "");
+// 손님용 매물 카드 — 네이버 매물 수준(사진·상세 스펙표·단지정보·실거래·호가)
 function BriefCard({ it }: { it: BriefItem }) {
+  const { token } = useAuth();
   const [sum, setSum] = useState<any>(null);
   useEffect(() => {
     if (!it.complex_no || !API_BASE) { setSum(null); return; }
@@ -768,34 +773,57 @@ function BriefCard({ it }: { it: BriefItem }) {
   const tx = (sum?.recent_tx as any[] | undefined)?.filter((t) => near(t.area))
     .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
   const ty = (sum?.by_type as any[] | undefined)?.find((t) => near(t.exclusive_area) && t.sale_min);
-  const info = sum ? [
-    sum.households ? `${Number(sum.households).toLocaleString()}세대` : null,
-    sum.use_approve_ymd ? `${String(sum.use_approve_ymd).slice(0, 4)}년 준공` : null,
-    sum.region || null,
-  ].filter(Boolean).join(" · ") : "";
+
+  const photoUrl = (n: string) => `${API_BASE}/lounge/private-listings/photo-view/${encodeURIComponent(n)}?t=${encodeURIComponent(token || "")}`;
+  const area = (it.area1_m2 || it.area2_m2)
+    ? `${[_py(it.area1_m2), _py(it.area2_m2)].filter(Boolean).join("/")} (${[it.area1_m2, it.area2_m2].filter(Boolean).join("/")}㎡)` : "";
+  const parking = it.parking_total != null ? `총 ${it.parking_total}대${it.parking_per ? ` · 세대당 ${it.parking_per}` : ""}`
+    : sum?.parking_per_household ? `세대당 ${sum.parking_per_household}` : "";
+  const rows: [string, string][] = [
+    ["공급/전용", area],
+    ["해당/총층", it.floor_info || (it.total_floor ? `-/${it.total_floor}층` : "")],
+    ["방/욕실", [it.room_cnt != null ? `${it.room_cnt}개` : "", it.bath_cnt != null ? `${it.bath_cnt}개` : ""].filter(Boolean).join(" / ")],
+    ["방향", it.direction ? `${it.direction}향` : ""],
+    ["입주가능", it.move_in || ""],
+    ["관리비", it.maintenance_fee ? `약 ${Math.round(it.maintenance_fee / 1e4)}만원` : ""],
+    ["주차", parking],
+    ["난방", it.heating || ""],
+    ["엘리베이터", it.elevator || ""],
+    ["총 세대수", sum?.households ? `${Number(sum.households).toLocaleString()}세대` : ""],
+    ["사용승인", sum?.use_approve_ymd ? String(sum.use_approve_ymd).replace(/(\d{4})(\d{2})(\d{2})/, "$1.$2.$3") : ""],
+    ["건설사", sum?.builder || ""],
+  ].filter(([, v]) => v) as [string, string][];
 
   return (
-    <div className="biz-brief-card">
-      <div className="bb-place">{_bPlace(it)}</div>
-      <div className="bb-price">{_bPrice(it)}</div>
-      <div className="bb-meta">
-        {[_bArea(it), it.floor_info, it.direction ? `${it.direction}향` : null,
-          it.room_cnt != null ? `방 ${it.room_cnt}` : null,
-          it.maintenance_fee ? `관리비 ${Math.round(it.maintenance_fee / 1e4)}만` : null,
-          it.move_in ? `입주 ${it.move_in}` : null].filter(Boolean).map((x, i) => <span key={i}>{x}</span>)}
-      </div>
-      {it.feature_desc && <div className="bb-feat">{it.feature_desc}</div>}
-      {(info || tx || ty) && (
-        <div className="bb-market">
-          {info && <div className="bb-info">{info}</div>}
-          {(tx || ty) && (
-            <div className="bb-mkrow">
-              {tx && <div className="bb-mk"><span>최근 실거래</span><b>{_won(tx.price)}</b><i>{String(tx.date).slice(2, 10).replace(/-/g, ".")} · {tx.floor}층</i></div>}
-              {ty && <div className="bb-mk"><span>현재 호가</span><b>{_won(ty.sale_min)}~{_won(ty.sale_max)}</b><i>{ty.sale_count}건</i></div>}
-            </div>
-          )}
+    <div className="biz-brief-card nv">
+      {it.photos && it.photos.length > 0 && (
+        <div className="bb-gallery">
+          {it.photos.slice(0, 8).map((n, i) => (
+            <img key={i} src={photoUrl(n)} alt="" loading="lazy" />
+          ))}
         </div>
       )}
+      <div className="bb-body">
+        <div className="bb-place">{_bPlace(it)}</div>
+        <div className="bb-price">{_bPrice(it)}{sum?.region ? <span className="bb-region"> · {sum.region}</span> : null}</div>
+
+        {rows.length > 0 && (
+          <dl className="bb-spec">
+            {rows.map(([k, v]) => (<div key={k}><dt>{k}</dt><dd>{v}</dd></div>))}
+          </dl>
+        )}
+
+        {(tx || ty) && (
+          <div className="bb-mkrow">
+            {tx && <div className="bb-mk"><span>최근 실거래</span><b>{_won(tx.price)}</b><i>{String(tx.date).slice(2, 10).replace(/-/g, ".")} · {tx.floor}층</i></div>}
+            {ty && <div className="bb-mk"><span>현재 호가</span><b>{_won(ty.sale_min)}~{_won(ty.sale_max)}</b><i>{ty.sale_count}건</i></div>}
+          </div>
+        )}
+
+        {(it.feature_desc || it.options) && (
+          <div className="bb-feat">{[it.feature_desc, it.options].filter(Boolean).join("\n")}</div>
+        )}
+      </div>
     </div>
   );
 }

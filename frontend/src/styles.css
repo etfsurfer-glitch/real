@@ -4494,6 +4494,20 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .bb-meta span::before { content: "·"; margin-right: 10px; color: #c3ccd6; }
 .bb-meta span:first-child::before { content: none; }
 .bb-feat { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f2f4f6; font-size: 13.5px; color: #475569; line-height: 1.6; }
+/* 네이버식 매물 카드 — 사진·스펙표 */
+.biz-brief-card.nv { padding: 0; overflow: hidden; }
+.bb-gallery { display: flex; gap: 3px; overflow-x: auto; background: #e9edf3; -webkit-overflow-scrolling: touch; }
+.bb-gallery img { height: 210px; width: auto; max-width: 92%; object-fit: cover; flex: none; display: block; }
+.bb-body { padding: 16px 18px; }
+.bb-region { font-size: 12px; font-weight: 600; color: #8b95a1; }
+.bb-spec { margin: 12px 0 4px; border: 1px solid #eef2f7; border-radius: 12px; overflow: hidden; }
+.bb-spec > div { display: flex; border-top: 1px solid #f2f4f6; }
+.bb-spec > div:first-child { border-top: 0; }
+.bb-spec dt { flex: none; width: 86px; background: #f7f9fc; padding: 9px 12px; margin: 0; font-size: 12px; font-weight: 700; color: #8b95a1; }
+.bb-spec dd { flex: 1; padding: 9px 12px; margin: 0; font-size: 13px; color: #13294b; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.bb-body .bb-mkrow { margin-top: 12px; }
+.bb-feat { white-space: pre-line; }
+
 /* 브리핑 카드 — 단지정보·시세 블록 */
 .bb-market { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f2f4f6; }
 .bb-info { font-size: 12.5px; color: #64748b; margin-bottom: 10px; }

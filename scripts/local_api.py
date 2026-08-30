@@ -17612,6 +17612,51 @@ def lounge_private_photo_get(name: str, user: dict = Depends(current_user)):
                         headers={"Cache-Control": "private, max-age=600"})
 
 
+# <img> 는 Authorization 헤더를 못 실으므로, 브리핑 등에서 사진을 태그로 띄우려면
+# 토큰을 쿼리로 받는다. 소유권은 파일명 realtor_id 접두로 강제 → 남의 사진 불가.
+_photo_tok_cache: dict[str, tuple[float, str]] = {}
+def _uid_from_token(token: str) -> str | None:
+    if not token:
+        return None
+    now = time.time()
+    c = _photo_tok_cache.get(token)
+    if c and c[0] > now:
+        return c[1]
+    if not settings.supabase_url or not settings.supabase_anon_key:
+        return None
+    req = _urlreq.Request(
+        f"{settings.supabase_url}/auth/v1/user",
+        headers={"Authorization": f"Bearer {token}", "apikey": settings.supabase_anon_key},
+    )
+    try:
+        with _urlreq.urlopen(req, timeout=8) as resp:
+            user = _authjson.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    uid = user.get("id")
+    if uid:
+        _photo_tok_cache[token] = (now + 120, uid)
+    return uid
+
+
+@app.get("/lounge/private-listings/photo-view/{name}")
+def lounge_private_photo_view(name: str, t: str = ""):
+    """사진 <img> 서빙 — 토큰(?t=)으로 인증. 소유 사무소 사진만."""
+    from fastapi.responses import FileResponse
+    uid = _uid_from_token(t)
+    if not uid:
+        raise HTTPException(401, "로그인이 필요합니다")
+    with _reviews_db() as c:
+        rid = _require_member(c, uid)
+    if "/" in name or ".." in name or not name.startswith(f"{rid}_"):
+        raise HTTPException(403, "권한이 없습니다")
+    p = PRIVATE_IMG_DIR / name
+    if not p.exists():
+        raise HTTPException(404, "사진이 없습니다")
+    return FileResponse(str(p), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=600"})
+
+
 @app.get("/lounge/listings/lookup")
 def lounge_listing_lookup(article_no: str, user: dict = Depends(current_user)):
     """네이버 매물번호 조회 — 내 사무소 물건이면 바로, 아니면 소유 사무소를 알려준다.
