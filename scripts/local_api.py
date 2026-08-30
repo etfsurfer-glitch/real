@@ -17804,9 +17804,12 @@ def _kok_llm(office: str, ctx: str, q: str) -> str:
     from scripts.ai_agent import _genai, MODEL
     from google.genai import types
     client = _genai()
-    sys = (f"너는 '콕비서', {office}의 AI 비서다. 아래 [사무소 데이터]만 근거로 간결·정확히 답한다. "
-           "데이터에 없으면 '해당 정보가 없어요'라고 말한다. 날짜·요일은 [오늘] 기준으로 해석한다. "
-           "표 대신 짧은 문장·목록으로, 존댓말로 답한다.")
+    sys = (f"너는 '콕비서', {office}의 AI 비서다. 아래 [사무소 데이터]만 근거로 간결·정확히 답한다.\n"
+           "규칙:\n"
+           "- 일정 유형(계약/중도금/잔금/입주/만기)을 정확히 구분한다. 질문한 유형이 없으면 '없어요'라고 한다. 다른 유형(예: 만기)을 잔금이라고 답하지 마라.\n"
+           "- 고객 요건의 '구함'=사거나 빌리려는(매수/임차) 손님, '내놓음'=팔거나 내놓은(매도/임대) 손님이다. 절대 혼동하지 마라.\n"
+           "- 데이터에 없으면 '해당 정보가 없어요'라고 한다. 추측하지 마라.\n"
+           "- 날짜·요일은 [오늘] 기준으로 해석한다. 표 대신 짧은 문장·목록으로, 존댓말로 답한다.")
     prompt = f"[사무소 데이터]\n{ctx}\n\n[질문]\n{q}"
     cfg = types.GenerateContentConfig(
         system_instruction=sys,
@@ -17867,7 +17870,8 @@ def lounge_assistant(body: AssistantBody, user: dict = Depends(current_user)):
             parts = []
             for x in nb.get(c["id"], []):
                 bud = f"~{_kok_eok(x['budget_max'])}" if x["budget_max"] else ""
-                parts.append(" ".join(filter(None, [x["kind"], TRK.get(x["trade"], x["trade"] or ""),
+                kl = {"구함": "매수/임차희망", "내놓음": "매도/임대로 내놓음"}.get(x["kind"], x["kind"] or "")
+                parts.append(" ".join(filter(None, [f"[{kl}]", TRK.get(x["trade"], x["trade"] or ""),
                              x["ptype"] or "", (f"{x['sigungu'] or ''} {x['dong'] or ''}").strip(), bud])))
             L.append(f"- {c['name'] or '무명'} [{c['stage'] or '신규'}] {c['phone'] or ''}"
                      + (f" / 요건: {'; '.join(parts)}" if parts else ""))
