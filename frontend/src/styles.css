@@ -4467,6 +4467,33 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
   padding: 10px 14px; border-top: 1px solid #f2f4f6; font-size: 13px; color: #4E5968; }
 .biz-verify-row:first-child { border-top: 0; }
 .biz-verify-row b { text-align: right; color: #111418; font-weight: 800; }
+
+/* 매물 브리핑 */
+.biz-brief-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.biz-brief-pick { display: flex; align-items: center; gap: 11px; padding: 12px 14px; border: 1px solid #e6ebf2;
+  border-radius: 12px; background: #fff; cursor: pointer; }
+.biz-brief-pick.on { border-color: #1268d3; background: #f5f9ff; }
+.biz-brief-pick input { width: 18px; height: 18px; accent-color: #1268d3; flex: none; }
+.bp-main { min-width: 0; }
+.bp-main b { display: block; font-size: 14px; font-weight: 800; }
+.bp-main span { display: block; font-size: 12px; color: #64748b; margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz-brief-start { position: sticky; bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; margin-top: 14px; padding: 14px; border: none; border-radius: 14px; background: #1268d3; color: #fff;
+  font-size: 15px; font-weight: 800; cursor: pointer; font-family: inherit; box-shadow: 0 8px 22px rgba(18,104,211,.28); }
+/* 브리핑 프레젠테이션(손님용) */
+.biz-brief-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.biz-brief-bar b { font-size: 15px; font-weight: 800; color: #13294b; }
+.biz-brief-bar button { border: 1px solid #dbe1ea; background: #fff; border-radius: 999px; padding: 6px 14px;
+  font-size: 12.5px; font-weight: 700; color: #4E5968; cursor: pointer; font-family: inherit; }
+.biz-brief-card { border: 1px solid #e6ebf2; border-radius: 16px; padding: 18px 18px 16px; margin-bottom: 12px; background: #fff; }
+.bb-place { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
+.bb-price { font-size: 20px; font-weight: 800; color: #1268d3; margin-top: 4px; }
+.bb-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; }
+.bb-meta span { font-size: 13px; color: #4E5968; }
+.bb-meta span::before { content: "·"; margin-right: 10px; color: #c3ccd6; }
+.bb-meta span:first-child::before { content: none; }
+.bb-feat { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f2f4f6; font-size: 13.5px; color: #475569; line-height: 1.6; }
 .biz-btn { position: relative; display: flex; flex-direction: column; gap: 3px; background: #fff;
   border: 1px solid var(--c-border, #e4e9f0); border-radius: 14px; padding: 15px 14px 13px;
   color: inherit; box-shadow: 0 1px 2px rgba(15,47,92,.04); transition: transform .1s, box-shadow .1s; }

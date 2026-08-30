@@ -9,7 +9,7 @@ import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
 import { enablePush, pushOptedIn, pushSupported } from "../lib/push";
-import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp } from "lucide-react";
+import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp, Presentation } from "lucide-react";
 import {
   DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
   DocSubmit, AdminPick, FavManager, OfficeFavManager, Card, StaffJoin, StaffManageTab,
@@ -27,7 +27,7 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
 type Screen = "diary" | "ledger" | "match" | "calendar" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
-            | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze" | "verify";
+            | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze" | "verify" | "brief";
 
 const SCREENS: Record<Screen, { title: string }> = {
   diary: { title: "매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
@@ -42,6 +42,7 @@ const SCREENS: Record<Screen, { title: string }> = {
   more: { title: "더보기" },
   analyze: { title: "실거래분석" },
   verify: { title: "계약검증" },
+  brief: { title: "매물 브리핑" },
 };
 
 export default function BizApp() {
@@ -172,6 +173,7 @@ export default function BizApp() {
           {screen === "diary" && <ListingsTab authH={authH} office={office} />}
           {screen === "analyze" && <AnalyzeTab />}
           {screen === "verify" && <VerifyTab />}
+          {screen === "brief" && <BriefTab authH={authH} office={office} />}
           {screen === "ledger" && <CustomerLedger authH={authH} onGoListings={() => nav("/biz/diary")} />}
           {screen === "match" && <MatchBoard authH={authH} onGoLedger={() => nav("/biz/ledger")} />}
           {/* 계약캘린더·계약관리 = 관리자 가오픈. 타일뿐 아니라 화면도 막는다
@@ -369,7 +371,7 @@ function BizSettings({ office, authH, method, onUnlink }: {
 type BizTab = "home" | "listings" | "customers" | "contracts" | "more";
 function tabForScreen(screen?: string): BizTab {
   if (!screen) return "home";
-  if (screen === "diary" || screen === "audit" || screen === "analyze") return "listings";
+  if (screen === "diary" || screen === "audit" || screen === "analyze" || screen === "brief") return "listings";
   if (screen === "ledger" || screen === "match" || screen === "leads") return "customers";
   if (screen === "contracts" || screen === "calendar" || screen === "verify") return "contracts";
   return "more";
@@ -481,6 +483,7 @@ function BizSectionNav({ screen }: { screen?: string }) {
   const items = [
     { key: "diary", to: "/biz/diary", label: "매물장" },
     { key: "analyze", to: "/biz/analyze", label: "실거래분석" },
+    { key: "brief", to: "/biz/brief", label: "브리핑" },
     { key: "audit", to: "/biz/audit", label: "매물점검" },
   ];
   return (
@@ -700,6 +703,80 @@ function VerifyTab() {
   );
 }
 
+// ── 매물 브리핑: 손님에게 보여줄 매물을 골라 깔끔한 화면으로 ──
+type BriefItem = {
+  article_no: string; complex_name: string | null; building_name?: string; dong?: string; ho?: string;
+  trade_type: string; price_text?: string; rent_price_text?: string;
+  area_name?: string; area2_m2?: number; floor_info?: string; direction?: string;
+  room_cnt?: number | null; maintenance_fee?: number | null; move_in?: string; feature_desc?: string;
+};
+const TRADE_KOR2: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세", B3: "단기임대" };
+function BriefTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
+  const [items, setItems] = useState<BriefItem[] | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [present, setPresent] = useState(false);
+  useEffect(() => {
+    fetch(`${API_BASE}/lounge/listings?sort=confirm`, { headers: authH() })
+      .then((r) => r.json()).then((j) => setItems((j.items ?? []) as BriefItem[])).catch(() => setItems([]));
+  }, [authH]);
+  const toggle = (a: string) => setSel((prev) => { const n = new Set(prev); n.has(a) ? n.delete(a) : n.add(a); return n; });
+  const chosen = (items ?? []).filter((it) => sel.has(it.article_no));
+  const priceLine = (it: BriefItem) => {
+    const t = TRADE_KOR2[it.trade_type] || it.trade_type;
+    return (it.trade_type === "B2" || it.trade_type === "B3")
+      ? `${t} ${it.price_text || ""}${it.rent_price_text ? " / " + it.rent_price_text : ""}`
+      : `${t} ${it.price_text || ""}`;
+  };
+  const areaLine = (it: BriefItem) =>
+    [it.area_name, it.area2_m2 ? `전용 ${Math.round(it.area2_m2 / 3.3058)}평(${it.area2_m2}㎡)` : null].filter(Boolean).join(" · ");
+  const place = (it: BriefItem) =>
+    [it.complex_name || it.building_name, it.dong ? `${it.dong}동` : null, it.ho ? `${it.ho}호` : null].filter(Boolean).join(" ") || "매물";
+
+  if (present) {
+    return (
+      <div className="biz-brief-present">
+        <div className="biz-brief-bar">
+          <b>{office.realtor_name}</b>
+          <button onClick={() => setPresent(false)}>편집</button>
+        </div>
+        {chosen.map((it) => (
+          <div key={it.article_no} className="biz-brief-card">
+            <div className="bb-place">{place(it)}</div>
+            <div className="bb-price">{priceLine(it)}</div>
+            <div className="bb-meta">
+              {[areaLine(it), it.floor_info, it.direction ? `${it.direction}향` : null,
+                it.room_cnt != null ? `방 ${it.room_cnt}` : null,
+                it.maintenance_fee ? `관리비 ${Math.round(it.maintenance_fee / 1e4)}만` : null,
+                it.move_in ? `입주 ${it.move_in}` : null].filter(Boolean).map((x, i) => <span key={i}>{x}</span>)}
+            </div>
+            {it.feature_desc && <div className="bb-feat">{it.feature_desc}</div>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div>
+      <p className="biz-verify-lead">손님에게 보여줄 매물을 고르면 <b>깔끔한 브리핑 화면</b>으로 보여드려요. <span style={{ color: "#8b95a1" }}>(내부 메모·연락처는 안 보입니다)</span></p>
+      {items === null && <p className="cled-empty">불러오는 중…</p>}
+      {items !== null && items.length === 0 && <p className="cled-empty">매물장에 매물이 없어요.</p>}
+      <div className="biz-brief-list">
+        {(items ?? []).map((it) => (
+          <label key={it.article_no} className={"biz-brief-pick" + (sel.has(it.article_no) ? " on" : "")}>
+            <input type="checkbox" checked={sel.has(it.article_no)} onChange={() => toggle(it.article_no)} />
+            <span className="bp-main"><b>{place(it)}</b><span>{priceLine(it)} · {areaLine(it)}</span></span>
+          </label>
+        ))}
+      </div>
+      {sel.size > 0 && (
+        <button className="biz-brief-start" onClick={() => setPresent(true)}>
+          <Presentation size={16} /> 브리핑 시작 ({sel.size})
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── 더보기: 전체 메뉴(기존 그리드) ──
 function MoreHub({ authH, hasHomepage, role, isAdmin, onLogout }: {
   authH: () => Record<string, string>; hasHomepage: boolean; role: string; isAdmin: boolean; onLogout: () => void;
@@ -727,6 +804,7 @@ function MoreHub({ authH, hasHomepage, role, isAdmin, onLogout }: {
         {isAdmin && <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="계약서·조건·당사자 (가오픈)" />}
         <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
         <BizBtn to="/biz/analyze" icon={<TrendingUp size={22} />} label="실거래분석" desc="단지 시세·급매 분석" />
+        <BizBtn to="/biz/brief" icon={<Presentation size={22} />} label="매물 브리핑" desc="손님에게 보여주기" />
         <BizBtn to="/biz/audit" icon={<ShieldCheck size={22} />} label="매물점검" desc="표시광고 자가점검" />
         <BizBtn to="/biz/leads" icon={<MessageSquare size={22} />} label="상담신청" desc="고객 상담 리드" badge={leadNew || undefined} />
         <BizBtn to="/biz/favs" icon={<Star size={22} />} label="관심단지" desc="신고가·신규매물 체크" />
