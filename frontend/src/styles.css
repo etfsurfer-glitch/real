@@ -4445,6 +4445,28 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .biz-analyze-head span { display: block; font-size: 12px; color: #8b95a1; margin-top: 2px; }
 .biz-analyze-more { display: block; width: 100%; margin-top: 12px; padding: 12px; border: 1px solid #dbe6fb;
   border-radius: 12px; background: #eef4ff; color: #1268d3; font-weight: 700; font-size: 13.5px; cursor: pointer; font-family: inherit; }
+
+/* 계약검증 */
+.biz-verify-lead { font-size: 13px; color: #4E5968; margin: 0 2px 12px; }
+.biz-verify-lead b { color: #111418; }
+.biz-verify-label { font-size: 11px; font-weight: 800; color: #8b95a1; margin: 14px 2px 8px; }
+.biz-verify-input { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; }
+.biz-verify-input label { font-size: 13px; font-weight: 700; color: #4E5968; }
+.biz-verify-amt { display: flex; align-items: center; gap: 6px; flex: 1; }
+.biz-verify-amt input { flex: 1; padding: 11px 12px; border: 1px solid #dbe1ea; border-radius: 12px; font-size: 15px; font-weight: 700; font-family: inherit; }
+.biz-verify-amt span { font-size: 14px; font-weight: 800; color: #4E5968; }
+.biz-verify-market { font-size: 12.5px; color: #64748b; margin: 2px 2px 12px; }
+.biz-verify-market b { color: #111418; font-weight: 800; }
+.biz-verify-verdict { border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; }
+.biz-verify-verdict .vv-t { font-size: 16px; font-weight: 800; }
+.biz-verify-verdict .vv-p { font-size: 12.5px; margin-top: 3px; }
+.biz-verify-verdict .vv-p span { color: inherit; opacity: .75; }
+.v-ok { background: #e5f7ef; color: #097a53; } .v-hi { background: #fff0e6; color: #bf4e1b; } .v-lo { background: #e9f2ff; color: #1e5fc4; }
+.biz-verify-list { border: 1px solid #e6ebf2; border-radius: 12px; overflow: hidden; }
+.biz-verify-row { display: grid; grid-template-columns: 1fr auto 1.2fr; gap: 8px; align-items: center;
+  padding: 10px 14px; border-top: 1px solid #f2f4f6; font-size: 13px; color: #4E5968; }
+.biz-verify-row:first-child { border-top: 0; }
+.biz-verify-row b { text-align: right; color: #111418; font-weight: 800; }
 .biz-btn { position: relative; display: flex; flex-direction: column; gap: 3px; background: #fff;
   border: 1px solid var(--c-border, #e4e9f0); border-radius: 14px; padding: 15px 14px 13px;
   color: inherit; box-shadow: 0 1px 2px rgba(15,47,92,.04); transition: transform .1s, box-shadow .1s; }

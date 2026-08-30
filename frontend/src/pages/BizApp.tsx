@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth, loginKakao, loginGoogle, logout } from "../auth";
 import CallDetectCard from "../components/CallDetectCard";
@@ -27,7 +27,7 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
 type Screen = "diary" | "ledger" | "match" | "calendar" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
-            | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze";
+            | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze" | "verify";
 
 const SCREENS: Record<Screen, { title: string }> = {
   diary: { title: "매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
@@ -41,6 +41,7 @@ const SCREENS: Record<Screen, { title: string }> = {
   calls: { title: "통화 기록" },
   more: { title: "더보기" },
   analyze: { title: "실거래분석" },
+  verify: { title: "계약검증" },
 };
 
 export default function BizApp() {
@@ -167,8 +168,10 @@ export default function BizApp() {
         <BizTop backTo="/biz" title={SCREENS[screen].title} />
         <div className="biz-body">
           {tabForScreen(screen) === "listings" && <BizSectionNav screen={screen} />}
+          {tabForScreen(screen) === "contracts" && <BizContractNav screen={screen} isAdmin={isAdmin} />}
           {screen === "diary" && <ListingsTab authH={authH} office={office} />}
           {screen === "analyze" && <AnalyzeTab />}
+          {screen === "verify" && <VerifyTab />}
           {screen === "ledger" && <CustomerLedger authH={authH} onGoListings={() => nav("/biz/diary")} />}
           {screen === "match" && <MatchBoard authH={authH} onGoLedger={() => nav("/biz/ledger")} />}
           {/* 계약캘린더·계약관리 = 관리자 가오픈. 타일뿐 아니라 화면도 막는다
@@ -188,7 +191,7 @@ export default function BizApp() {
           {screen === "calls" && <BizCalls />}
           {screen === "more" && <MoreHub authH={authH} hasHomepage={!!st.has_homepage} role={st.role ?? "owner"} isAdmin={isAdmin} onLogout={logout} />}
         </div>
-        <BizTabBar active={tabForScreen(screen)} isAdmin={isAdmin} />
+        <BizTabBar active={tabForScreen(screen)} />
       </div>
     );
   }
@@ -368,15 +371,15 @@ function tabForScreen(screen?: string): BizTab {
   if (!screen) return "home";
   if (screen === "diary" || screen === "audit" || screen === "analyze") return "listings";
   if (screen === "ledger" || screen === "match" || screen === "leads") return "customers";
-  if (screen === "contracts" || screen === "calendar") return "contracts";
+  if (screen === "contracts" || screen === "calendar" || screen === "verify") return "contracts";
   return "more";
 }
-function BizTabBar({ active, isAdmin }: { active: BizTab; isAdmin: boolean }) {
+function BizTabBar({ active }: { active: BizTab }) {
   const items: { key: BizTab; to: string; icon: React.ReactNode; label: string }[] = [
     { key: "home", to: "/biz", icon: <Home size={20} />, label: "홈" },
     { key: "listings", to: "/biz/diary", icon: <Building2 size={20} />, label: "매물" },
     { key: "customers", to: "/biz/ledger", icon: <Users size={20} />, label: "고객" },
-    { key: "contracts", to: isAdmin ? "/biz/contracts" : "/biz/calendar", icon: <FileText size={20} />, label: "계약" },
+    { key: "contracts", to: "/biz/verify", icon: <FileText size={20} />, label: "계약" },
     { key: "more", to: "/biz/more", icon: <LayoutGrid size={20} />, label: "더보기" },
   ];
   return (
@@ -459,7 +462,7 @@ function BizHome({ office, authH, role, staffName }: {
 
         <Link to="/biz/more" className="biz-more-link"><LayoutGrid size={16} /> 전체 메뉴 보기</Link>
       </div>
-      <BizTabBar active="home" isAdmin={isAdmin} />
+      <BizTabBar active="home" />
     </div>
   );
 }
@@ -541,6 +544,162 @@ function AnalyzeTab() {
   );
 }
 
+// ── 계약 섹션 서브탭 ──
+function BizContractNav({ screen, isAdmin }: { screen?: string; isAdmin: boolean }) {
+  const items = [
+    { key: "verify", to: "/biz/verify", label: "계약검증", show: true },
+    { key: "contracts", to: "/biz/contracts", label: "계약관리", show: isAdmin },
+    { key: "calendar", to: "/biz/calendar", label: "계약캘린더", show: isAdmin },
+  ].filter((x) => x.show);
+  return (
+    <div className="biz-subnav">
+      {items.map((it) => (
+        <Link key={it.key} to={it.to} className={`biz-subnav-chip${screen === it.key ? " on" : ""}`}>{it.label}</Link>
+      ))}
+    </div>
+  );
+}
+
+// ── 계약검증: 계약금액이 실거래 시세 대비 적정한지(콕집 데이터) ──
+type SaleTx = { deal_ymd: string; deal_amount: number; excl_use_ar: number; floor?: number | null };
+const _man = (v: number) => {   // v: 만원 → "5억 3,000만"
+  if (!v) return "-";
+  const e = Math.floor(v / 10000), m = Math.round(v % 10000);
+  return e ? (m ? `${e}억 ${m.toLocaleString()}만` : `${e}억`) : `${m.toLocaleString()}만`;
+};
+function VerifyTab() {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<CxHit[]>([]);
+  const [open, setOpen] = useState(false);
+  const [cx, setCx] = useState<CxHit | null>(null);
+  const [sale, setSale] = useState<SaleTx[] | null>(null);
+  const [areaKey, setAreaKey] = useState<number | null>(null);
+  const [amtEok, setAmtEok] = useState("");
+
+  useEffect(() => {
+    if (!API_BASE || q.trim().length < 2 || (cx && q === cx.complex_name)) { setHits([]); return; }
+    const t = setTimeout(() => {
+      fetch(`${API_BASE}/complexes/search?q=${encodeURIComponent(q.trim())}&limit=8`)
+        .then((r) => r.json()).then((j) => { setHits(j.items ?? []); setOpen(true); }).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, cx]);
+
+  useEffect(() => {
+    setSale(null); setAreaKey(null);
+    if (!cx || !API_BASE) return;
+    fetch(`${API_BASE}/complex/${cx.complex_no}/transactions?months=12&limit=800`)
+      .then((r) => r.json())
+      .then((j) => setSale((j.sale ?? []).map((s: any) => ({
+        deal_ymd: String(s.deal_ymd || ""),
+        deal_amount: Number(String(s.deal_amount).replace(/[^0-9.]/g, "")) || 0,
+        excl_use_ar: Number(s.excl_use_ar) || 0, floor: s.floor,
+      })).filter((s: SaleTx) => s.excl_use_ar > 0 && s.deal_amount > 0)))
+      .catch(() => setSale([]));
+  }, [cx]);
+
+  const pick = (h: CxHit) => { setCx(h); setQ(h.complex_name); setHits([]); setOpen(false); };
+  const areaGroups = useMemo(() => {
+    const m = new Map<number, number>();
+    (sale ?? []).forEach((s) => { const k = Math.round(s.excl_use_ar); m.set(k, (m.get(k) || 0) + 1); });
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [sale]);
+  const matched = useMemo(() => {
+    if (!sale || areaKey == null) return [] as SaleTx[];
+    return sale.filter((s) => Math.abs(s.excl_use_ar - areaKey) <= 1.5)
+      .sort((a, b) => b.deal_ymd.localeCompare(a.deal_ymd));
+  }, [sale, areaKey]);
+  const median = useMemo(() => {
+    const arr = matched.map((s) => s.deal_amount).sort((a, b) => a - b);
+    if (!arr.length) return null;
+    const mid = Math.floor(arr.length / 2);
+    return arr.length % 2 ? arr[mid] : Math.round((arr[mid - 1] + arr[mid]) / 2);
+  }, [matched]);
+  const amt = amtEok ? Math.round(parseFloat(amtEok) * 10000) : null;
+  const pct = (amt != null && median) ? ((amt - median) / median * 100) : null;
+  const verdict = pct == null ? null
+    : Math.abs(pct) <= 3 ? { t: "시세 적정", c: "ok" }
+    : pct > 0 ? { t: "시세보다 높음", c: "hi" } : { t: "시세보다 낮음", c: "lo" };
+  const fmtDate = (d: string) => (d.length >= 10 ? d.slice(2, 10).replace(/-/g, ".") : d);
+
+  return (
+    <div>
+      <p className="biz-verify-lead">계약 금액이 <b>최근 실거래 시세 대비 적정한지</b> 콕집 데이터로 확인하세요.</p>
+      <div className="biz-analyze-search">
+        <input value={q} onChange={(e) => { setQ(e.target.value); setCx(null); }}
+          placeholder="단지명 검색 (예: 마포래미안푸르지오)" />
+        {open && hits.length > 0 && (
+          <div className="biz-analyze-hits">
+            {hits.map((h) => (
+              <button key={h.complex_no} onClick={() => pick(h)}>
+                <b>{h.complex_name}</b>
+                <span>{[h.region, h.households ? `${h.households.toLocaleString()}세대` : null].filter(Boolean).join(" · ")}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {!cx && <div className="biz-analyze-empty">단지를 검색하면 <b>평형별 실거래</b>를 불러와<br />계약 금액과 비교해 드려요.</div>}
+      {cx && sale === null && <p className="cled-empty">실거래 불러오는 중…</p>}
+      {cx && sale !== null && sale.length === 0 && <p className="cled-empty">최근 12개월 매매 실거래가 없어요.</p>}
+
+      {cx && sale && sale.length > 0 && (
+        <>
+          <div className="biz-verify-label">평형(전용면적) 선택</div>
+          <div className="biz-subnav" style={{ marginBottom: 12 }}>
+            {areaGroups.map(([k, c]) => (
+              <button key={k} className={`biz-subnav-chip${areaKey === k ? " on" : ""}`} onClick={() => setAreaKey(k)}>
+                {k}㎡ ({Math.round(k / 3.3058)}평) <i style={{ opacity: .6 }}>{c}</i>
+              </button>
+            ))}
+          </div>
+
+          {areaKey != null && (
+            <>
+              <div className="biz-verify-input">
+                <label>계약 금액</label>
+                <div className="biz-verify-amt">
+                  <input type="number" inputMode="decimal" value={amtEok}
+                    onChange={(e) => setAmtEok(e.target.value)} placeholder="예: 12.5" />
+                  <span>억</span>
+                </div>
+              </div>
+
+              {median != null && (
+                <div className="biz-verify-market">
+                  최근 실거래 중앙값 <b>{_man(median)}</b>
+                  <span> · 매칭 {matched.length}건 (±1.5㎡)</span>
+                </div>
+              )}
+
+              {verdict && median != null && (
+                <div className={`biz-verify-verdict v-${verdict.c}`}>
+                  <div className="vv-t">{verdict.t}</div>
+                  <div className="vv-p">{pct! > 0 ? "+" : ""}{pct!.toFixed(1)}%
+                    <span> (계약 {_man(amt!)} vs 시세 {_man(median)})</span></div>
+                </div>
+              )}
+
+              <div className="biz-verify-label">최근 실거래 (이 평형)</div>
+              <div className="biz-verify-list">
+                {matched.slice(0, 12).map((s, i) => (
+                  <div key={i} className="biz-verify-row">
+                    <span>{fmtDate(s.deal_ymd)}</span>
+                    <span>{s.floor ? `${s.floor}층` : ""}</span>
+                    <b>{_man(s.deal_amount)}</b>
+                  </div>
+                ))}
+                {matched.length === 0 && <div className="cled-empty">이 평형 매칭 실거래가 없어요.</div>}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── 더보기: 전체 메뉴(기존 그리드) ──
 function MoreHub({ authH, hasHomepage, role, isAdmin, onLogout }: {
   authH: () => Record<string, string>; hasHomepage: boolean; role: string; isAdmin: boolean; onLogout: () => void;
@@ -563,6 +722,7 @@ function MoreHub({ authH, hasHomepage, role, isAdmin, onLogout }: {
         <BizBtn to="/biz/diary" icon={<ClipboardList size={22} />} label="매물장" desc="내 매물 다이어리" primary />
         <BizBtn to="/biz/ledger" icon={<Users size={22} />} label="고객원장" desc="손님 요건·내놓은 물건" primary />
         <BizBtn to="/biz/match" icon={<Sparkles size={22} />} label="고객·물건매칭" desc="손님 조건에 맞는 매물 찾기" primary />
+        <BizBtn to="/biz/verify" icon={<FileText size={22} />} label="계약검증" desc="계약금액 시세 적정성" />
         {isAdmin && <BizBtn to="/biz/calendar" icon={<CalendarDays size={22} />} label="계약캘린더" desc="계약서 → 일정 (가오픈)" />}
         {isAdmin && <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="계약서·조건·당사자 (가오픈)" />}
         <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
