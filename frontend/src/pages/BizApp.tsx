@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth, loginKakao, loginGoogle, logout } from "../auth";
 import CallDetectCard from "../components/CallDetectCard";
@@ -9,7 +9,7 @@ import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
 import { enablePush, pushOptedIn, pushSupported } from "../lib/push";
-import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp, Presentation, MapPin } from "lucide-react";
+import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp, Presentation, MapPin, X, Send } from "lucide-react";
 import { areaLabel } from "../lib/area";
 import {
   DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
@@ -398,12 +398,69 @@ function BizTabBar({ active }: { active: BizTab }) {
 }
 
 // ── 홈(요약) ──
+// ── 콕비서: 사무소 전용 AI 비서(일정·매물·고객·상담) ──
+function KokSecretary({ authH, onClose }: { authH: () => Record<string, string>; onClose: () => void }) {
+  const [msgs, setMsgs] = useState<{ role: "u" | "a"; text: string }[]>([]);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [office, setOffice] = useState("콕비서");
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { bodyRef.current?.scrollTo(0, bodyRef.current.scrollHeight); }, [msgs, busy]);
+
+  const send = async (text: string) => {
+    const query = text.trim();
+    if (!query || busy) return;
+    setMsgs((m) => [...m, { role: "u", text: query }]);
+    setQ(""); setBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}/lounge/assistant`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ q: query }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d.office) setOffice(d.office);
+      setMsgs((m) => [...m, { role: "a", text: r.ok ? (d.answer || "…") : (d.detail || "잠시 후 다시 시도해주세요.") }]);
+    } catch {
+      setMsgs((m) => [...m, { role: "a", text: "연결에 실패했어요. 잠시 후 다시 시도해주세요." }]);
+    } finally { setBusy(false); }
+  };
+  const SUGG = ["오늘 잔금 있어?", "이번주 계약 일정", "새 상담 있어?", "관심 손님 정리해줘"];
+
+  return (
+    <div className="kok-ov" onClick={onClose}>
+      <div className="kok" onClick={(e) => e.stopPropagation()}>
+        <div className="kok-h">
+          <div className="kok-title"><Sparkles size={17} /> 콕비서</div>
+          <button className="kok-x" onClick={onClose} aria-label="닫기"><X size={18} /></button>
+        </div>
+        <div className="kok-body" ref={bodyRef}>
+          {msgs.length === 0 && (
+            <div className="kok-intro">
+              <b>{office}</b>의 비서예요.<br />일정·매물·고객·상담을 물어보세요.
+            </div>
+          )}
+          {msgs.map((m, i) => <div key={i} className={`kok-msg ${m.role}`}>{m.text}</div>)}
+          {busy && <div className="kok-msg a busy">콕비서가 확인 중…</div>}
+        </div>
+        <div className="kok-sugg">
+          {SUGG.map((s) => <button key={s} onClick={() => send(s)} disabled={busy}>{s}</button>)}
+        </div>
+        <form className="kok-input" onSubmit={(e) => { e.preventDefault(); send(q); }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="콕비서에게 물어보세요" />
+          <button type="submit" disabled={busy || !q.trim()} aria-label="보내기"><Send size={17} /></button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function BizHome({ office, authH, role, staffName }: {
   office: Office; authH: () => Record<string, string>; role: string; staffName: string | null;
 }) {
   const [leadNew, setLeadNew] = useState(0);
   const [total, setTotal] = useState<number | null>(null);
   const [pushOn, setPushOn] = useState(pushOptedIn());
+  const [kok, setKok] = useState(false);
   const { token, isAdmin } = useAuth();
   useEffect(() => {
     fetch(`${API_BASE}/lounge/dashboard`, { headers: authH() })
@@ -430,6 +487,12 @@ function BizHome({ office, authH, role, staffName }: {
           <div className="biz-greet-office">{office.realtor_name}</div>
           <div className="biz-greet-date">{dateStr}</div>
         </div>
+
+        {/* 콕비서 — 사무소 전용 AI 비서 */}
+        <button className="biz-kok-bar" onClick={() => setKok(true)}>
+          <span className="kok-ic"><Sparkles size={16} /></span>
+          <span className="kok-txt"><b>콕비서</b>에게 물어보세요 — “오늘 잔금 있어?”</span>
+        </button>
 
         {/* 오늘 요약 */}
         <div className="biz-today">
@@ -465,6 +528,7 @@ function BizHome({ office, authH, role, staffName }: {
 
         <Link to="/biz/more" className="biz-more-link"><LayoutGrid size={16} /> 전체 메뉴 보기</Link>
       </div>
+      {kok && <KokSecretary authH={authH} onClose={() => setKok(false)} />}
       <BizTabBar active="home" />
     </div>
   );

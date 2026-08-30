@@ -17784,6 +17784,116 @@ def lounge_my_edit_requests(user: dict = Depends(current_user)):
                        "created_at": r[4], "resolved_at": r[5]} for r in rows]}
 
 
+class AssistantBody(BaseModel):
+    q: str
+
+
+def _kok_eok(v) -> str:
+    """만원 정수(문자 포함) → '5억 3,000만'. 이미 포맷된 문자열이면 그대로."""
+    try:
+        n = int(float(str(v).replace(",", "")))
+    except Exception:
+        return str(v or "")
+    if not n:
+        return ""
+    e, m = n // 10000, n % 10000
+    return (f"{e}억 {m:,}만" if m else f"{e}억") if e else f"{m:,}만"
+
+
+def _kok_llm(office: str, ctx: str, q: str) -> str:
+    from scripts.ai_agent import _genai, MODEL
+    from google.genai import types
+    client = _genai()
+    sys = (f"너는 '콕비서', {office}의 AI 비서다. 아래 [사무소 데이터]만 근거로 간결·정확히 답한다. "
+           "데이터에 없으면 '해당 정보가 없어요'라고 말한다. 날짜·요일은 [오늘] 기준으로 해석한다. "
+           "표 대신 짧은 문장·목록으로, 존댓말로 답한다.")
+    prompt = f"[사무소 데이터]\n{ctx}\n\n[질문]\n{q}"
+    cfg = types.GenerateContentConfig(
+        system_instruction=sys,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
+        temperature=0.2, max_output_tokens=800,
+    )
+    resp = client.models.generate_content(model=MODEL, contents=prompt, config=cfg)
+    return (getattr(resp, "text", None) or "죄송해요, 답을 만들지 못했어요.").strip()
+
+
+@app.post("/lounge/assistant")
+def lounge_assistant(body: AssistantBody, user: dict = Depends(current_user)):
+    """콕비서 — 우리 사무소 일정·매물·고객·상담을 봐주는 중개사 전용 AI 비서.
+    (콕집 홈페이지 소비자 AI 와 별개. 사무소 데이터를 컨텍스트로 주입해 답한다.)"""
+    import datetime as _dt
+    q = (body.q or "").strip()[:500]
+    if not q:
+        raise HTTPException(400, "질문을 입력해주세요")
+    TRK = {"A1": "매매", "B1": "전세", "B2": "월세", "B3": "단기임대"}
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.row_factory = sqlite3.Row
+        today_s = rc.execute("SELECT date('now','+9 hours')").fetchone()[0]
+        try:
+            today = _dt.date.fromisoformat(today_s)
+        except Exception:
+            today = _dt.date.today()
+        wd = "월화수목금토일"[today.weekday()]
+        L = [f"[오늘] {today_s} ({wd}요일)"]
+        evs = rc.execute(
+            "SELECT event_date, event_time, event_type, title FROM biz_events "
+            "WHERE realtor_id=? AND event_date>=? ORDER BY event_date, event_time LIMIT 40",
+            (rid, today_s)).fetchall()
+        L.append(f"\n[다가오는 일정 {len(evs)}건]" if evs else "\n[다가오는 일정] 없음")
+        for e in evs:
+            try:
+                dd = (_dt.date.fromisoformat(e["event_date"]) - today).days
+                dtag = "오늘" if dd == 0 else (f"D-{dd}" if dd > 0 else "")
+            except Exception:
+                dtag = ""
+            L.append(f"- {e['event_date']} {e['event_time'] or ''} [{e['event_type']}] {e['title']} {dtag}".rstrip())
+        ln = rc.execute("SELECT COUNT(*) FROM consultation_leads WHERE realtor_id=? AND status='new'", (rid,)).fetchone()[0]
+        L.append(f"\n[상담신청] 신규 {ln}건, 최근:")
+        for d in rc.execute("SELECT name, phone, message, status, created_at FROM consultation_leads "
+                            "WHERE realtor_id=? ORDER BY id DESC LIMIT 12", (rid,)).fetchall():
+            L.append(f"- {(d['name'] or '무명')} {d['phone'] or ''} \"{(d['message'] or '')[:40]}\" ({(d['created_at'] or '')[:10]}·{d['status']})")
+        custs = rc.execute("SELECT id, name, phone, stage FROM biz_customers WHERE realtor_id=? "
+                           "ORDER BY updated_at DESC LIMIT 50", (rid,)).fetchall()
+        cids = [c["id"] for c in custs]
+        nb: dict = {}
+        if cids:
+            qs = ",".join("?" * len(cids))
+            for n in rc.execute(f"SELECT customer_id, kind, trade, ptype, budget_max, sigungu, dong "
+                                f"FROM biz_needs WHERE customer_id IN ({qs})", cids).fetchall():
+                nb.setdefault(n["customer_id"], []).append(n)
+        L.append(f"\n[고객 {len(custs)}명]")
+        for c in custs:
+            parts = []
+            for x in nb.get(c["id"], []):
+                bud = f"~{_kok_eok(x['budget_max'])}" if x["budget_max"] else ""
+                parts.append(" ".join(filter(None, [x["kind"], TRK.get(x["trade"], x["trade"] or ""),
+                             x["ptype"] or "", (f"{x['sigungu'] or ''} {x['dong'] or ''}").strip(), bud])))
+            L.append(f"- {c['name'] or '무명'} [{c['stage'] or '신규'}] {c['phone'] or ''}"
+                     + (f" / 요건: {'; '.join(parts)}" if parts else ""))
+        pls = rc.execute("SELECT complex_name, dong, ho, trade_type, price, rent_price FROM private_listings "
+                         "WHERE realtor_id=? AND status='active' ORDER BY id DESC LIMIT 40", (rid,)).fetchall()
+        L.append(f"\n[직접등록 매물 {len(pls)}건]")
+        for p in pls:
+            pr = _kok_eok(p["price"]) + (f"/{_kok_eok(p['rent_price'])}" if p["rent_price"] else "")
+            L.append(" ".join(filter(None, [f"- {p['complex_name'] or ''}", p["dong"] or "", p["ho"] or "",
+                     p["trade_type"] or "", pr])))
+    office = "우리 사무소"
+    try:
+        with _open_db() as d:
+            row = d.execute("SELECT realtor_name FROM naver_realtors WHERE realtor_id=?", (rid,)).fetchone()
+            if row and row[0]:
+                office = row[0]
+    except Exception:
+        pass
+    ctx = "\n".join(L)[:8000]
+    try:
+        answer = _kok_llm(office, ctx, q)
+    except Exception as e:
+        raise HTTPException(502, f"콕비서 응답 실패: {str(e)[:100]}")
+    return {"answer": answer, "office": office}
+
+
 @app.get("/lounge/leads")
 def lounge_leads(user: dict = Depends(current_user)):
     """내 사무소로 들어온 상담신청."""
