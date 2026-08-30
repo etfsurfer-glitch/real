@@ -745,7 +745,7 @@ function BriefTab({ authH, office }: { authH: () => Record<string, string>; offi
   const [present, setPresent] = useState(false);
   useEffect(() => {
     fetch(`${API_BASE}/lounge/listings?sort=confirm&private=1`, { headers: authH() })
-      .then((r) => r.json()).then((j) => setItems((j.items ?? []) as BriefItem[])).catch(() => setItems([]));
+      .then((r) => r.json()).then((j) => setItems((j.listings ?? j.items ?? []) as BriefItem[])).catch(() => setItems([]));
   }, [authH]);
   const toggle = (a: string) => setSel((prev) => { const n = new Set(prev); n.has(a) ? n.delete(a) : n.add(a); return n; });
   const chosen = (items ?? []).filter((it) => sel.has(it.article_no));
