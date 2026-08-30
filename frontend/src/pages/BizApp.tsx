@@ -759,19 +759,28 @@ const _bArea = (it: BriefItem) =>
   [it.area_name, it.area2_m2 ? `전용 ${Math.round(it.area2_m2 / 3.3058)}평(${it.area2_m2}㎡)` : null].filter(Boolean).join(" · ");
 
 const _py = (m?: number) => (m ? `${Math.round(m / 3.3058)}평` : "");
+const _fmtD = (d: string) => (d && d.length >= 10 ? d.slice(2, 10).replace(/-/g, ".") : d);
+const _SPEC_PRIMARY = new Set(["공급/전용", "해당/총층", "방/욕실", "방향", "입주가능", "관리비", "주차"]);
+// 스펙표 앞부분은 전용면적 1줄, 엘리베이터부터(부가정보)는 2열로 — 세로길이 축소
+
 // 손님용 매물 카드 — 네이버 매물 수준(사진·상세 스펙표·단지정보·실거래·호가)
 function BriefCard({ it }: { it: BriefItem }) {
   const { token } = useAuth();
   const [sum, setSum] = useState<any>(null);
+  const [sale, setSale] = useState<any[] | null>(null);
   useEffect(() => {
-    if (!it.complex_no || !API_BASE) { setSum(null); return; }
-    fetch(`${API_BASE}/complex/${it.complex_no}/summary`)
-      .then((r) => r.json()).then(setSum).catch(() => setSum(null));
+    if (!it.complex_no || !API_BASE) { setSum(null); setSale(null); return; }
+    fetch(`${API_BASE}/complex/${it.complex_no}/summary`).then((r) => r.json()).then(setSum).catch(() => setSum(null));
+    fetch(`${API_BASE}/complex/${it.complex_no}/transactions?months=18&limit=1500`).then((r) => r.json())
+      .then((j) => setSale(j.sale ?? [])).catch(() => setSale([]));
   }, [it.complex_no]);
   const ea = it.area2_m2 || 0;
   const near = (a: any) => !!ea && Math.abs((Number(a) || 0) - ea) <= 1.5;
-  const tx = (sum?.recent_tx as any[] | undefined)?.filter((t) => near(t.area))
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+  // 같은 평형(공급) 최근 실거래 3건
+  const tx3 = (sale ?? []).map((s: any) => ({
+    ymd: String(s.deal_ymd || ""), amt: Number(String(s.deal_amount).replace(/[^0-9.]/g, "")) || 0,
+    ar: Number(s.excl_use_ar) || 0, floor: s.floor,
+  })).filter((s: any) => near(s.ar) && s.amt > 0).sort((a: any, b: any) => b.ymd.localeCompare(a.ymd)).slice(0, 3);
   const ty = (sum?.by_type as any[] | undefined)?.find((t) => near(t.exclusive_area) && t.sale_min);
 
   const photoUrl = (n: string) => `${API_BASE}/lounge/private-listings/photo-view/${encodeURIComponent(n)}?t=${encodeURIComponent(token || "")}`;
@@ -788,35 +797,51 @@ function BriefCard({ it }: { it: BriefItem }) {
     ["관리비", it.maintenance_fee ? `약 ${Math.round(it.maintenance_fee / 1e4)}만원` : ""],
     ["주차", parking],
     ["난방", it.heating || ""],
-    ["엘리베이터", it.elevator || ""],
-    ["총 세대수", sum?.households ? `${Number(sum.households).toLocaleString()}세대` : ""],
+    ["엘베", it.elevator || ""],
+    ["세대수", sum?.households ? `${Number(sum.households).toLocaleString()}세대` : ""],
     ["사용승인", sum?.use_approve_ymd ? String(sum.use_approve_ymd).replace(/(\d{4})(\d{2})(\d{2})/, "$1.$2.$3") : ""],
     ["건설사", sum?.builder || ""],
   ].filter(([, v]) => v) as [string, string][];
+  const primary = rows.filter(([k]) => _SPEC_PRIMARY.has(k));
+  const secondary = rows.filter(([k]) => !_SPEC_PRIMARY.has(k));
 
   return (
     <div className="biz-brief-card nv">
       {it.photos && it.photos.length > 0 && (
         <div className="bb-gallery">
-          {it.photos.slice(0, 8).map((n, i) => (
-            <img key={i} src={photoUrl(n)} alt="" loading="lazy" />
-          ))}
+          {it.photos.slice(0, 8).map((n, i) => (<img key={i} src={photoUrl(n)} alt="" loading="lazy" />))}
         </div>
       )}
       <div className="bb-body">
         <div className="bb-place">{_bPlace(it)}</div>
         <div className="bb-price">{_bPrice(it)}{sum?.region ? <span className="bb-region"> · {sum.region}</span> : null}</div>
 
-        {rows.length > 0 && (
+        {primary.length > 0 && (
           <dl className="bb-spec">
-            {rows.map(([k, v]) => (<div key={k}><dt>{k}</dt><dd>{v}</dd></div>))}
+            {primary.map(([k, v]) => (<div key={k}><dt>{k}</dt><dd>{v}</dd></div>))}
+          </dl>
+        )}
+        {secondary.length > 0 && (
+          <dl className="bb-spec two">
+            {secondary.map(([k, v]) => (<div key={k}><dt>{k}</dt><dd>{v}</dd></div>))}
           </dl>
         )}
 
-        {(tx || ty) && (
-          <div className="bb-mkrow">
-            {tx && <div className="bb-mk"><span>최근 실거래</span><b>{_won(tx.price)}</b><i>{String(tx.date).slice(2, 10).replace(/-/g, ".")} · {tx.floor}층</i></div>}
-            {ty && <div className="bb-mk"><span>현재 호가</span><b>{_won(ty.sale_min)}~{_won(ty.sale_max)}</b><i>{ty.sale_count}건</i></div>}
+        {(ty || tx3.length > 0) && (
+          <div className="bb-market">
+            {ty && <div className="bb-hoga">현재 호가 <b>{_won(ty.sale_min)}~{_won(ty.sale_max)}</b><i>{ty.sale_count}건</i></div>}
+            {tx3.length > 0 && (
+              <div className="bb-tx">
+                <div className="bb-tx-h">최근 실거래 <span>전용 {_py(it.area2_m2)}</span></div>
+                {tx3.map((t: any, i: number) => (
+                  <div key={i} className="bb-tx-row">
+                    <span className="d">{_fmtD(t.ymd)}</span>
+                    <span className="f">{t.floor ? `${t.floor}층` : ""}</span>
+                    <b>{_man(t.amt)}</b>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -844,16 +869,18 @@ function BriefTab({ authH, office }: { authH: () => Record<string, string>; offi
     return (
       <div className="biz-brief-present">
         {chosen.map((it) => <BriefCard key={it.article_no} it={it} />)}
-        {/* 중개사 네임카드 */}
-        <div className="biz-namecard">
-          <div className="nc-office">{office.realtor_name}</div>
-          {(office.representative || office.address) && (
-            <div className="nc-meta">
-              {[office.representative ? `대표 ${office.representative}` : null, office.address || null]
-                .filter(Boolean).map((x, i) => <div key={i}>{x}</div>)}
+        {/* 중개사 명함 */}
+        <div className="bb-namecard2">
+          <div className="nc2-rail" />
+          <div className="nc2-body">
+            <span className="nc2-badge">공인중개사사무소</span>
+            <div className="nc2-name">{office.realtor_name}</div>
+            {office.representative && <div className="nc2-rep">대표 {office.representative}</div>}
+            <div className="nc2-contact">
+              {tel && <a className="nc2-tel" href={`tel:${tel}`}><Phone size={15} strokeWidth={2.4} /> {office.cell || office.tel}</a>}
+              {office.address && <div className="nc2-addr">{office.address}</div>}
             </div>
-          )}
-          {tel && <a className="nc-tel" href={`tel:${tel}`}><Phone size={14} /> {office.cell || office.tel}</a>}
+          </div>
         </div>
         <button className="biz-brief-edit" onClick={() => setPresent(false)}>← 편집으로 돌아가기</button>
       </div>

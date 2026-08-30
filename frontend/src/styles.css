@@ -4508,6 +4508,36 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .bb-body .bb-mkrow { margin-top: 12px; }
 .bb-feat { white-space: pre-line; }
 
+/* 스펙표 2열(부가정보) — 세로 길이 축소 */
+.bb-spec.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border: 0; border-radius: 0; margin: 8px 0 4px; overflow: visible; }
+.bb-spec.two > div { border: 1px solid #eef2f7; border-radius: 10px; overflow: hidden; }
+.bb-spec.two dt { width: 62px; }
+@media (max-width: 360px) { .bb-spec.two { grid-template-columns: 1fr; } }
+
+/* 시세 — 호가 + 최근 실거래 3건 */
+.bb-market { margin-top: 14px; }
+.bb-hoga { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; font-weight: 700; color: #8b95a1; margin-bottom: 10px; }
+.bb-hoga b { font-size: 16px; font-weight: 800; color: #1268d3; }
+.bb-hoga i { font-style: normal; font-size: 11px; color: #9aa7bd; }
+.bb-tx { border: 1px solid #eef2f7; border-radius: 12px; overflow: hidden; }
+.bb-tx-h { display: flex; justify-content: space-between; align-items: baseline; background: #f7f9fc; padding: 8px 12px; font-size: 11.5px; font-weight: 800; color: #64748b; }
+.bb-tx-h span { font-weight: 700; color: #9aa7bd; }
+.bb-tx-row { display: grid; grid-template-columns: auto 48px 1fr; gap: 8px; align-items: center; padding: 9px 12px; border-top: 1px solid #f2f4f6; font-size: 13px; color: #4E5968; }
+.bb-tx-row .d { font-variant-numeric: tabular-nums; }
+.bb-tx-row .f { color: #8b95a1; font-size: 12px; }
+.bb-tx-row b { text-align: right; color: #13294b; font-weight: 800; }
+
+/* 중개사 명함(실제 명함풍 — AI 그라데이션 제거) */
+.bb-namecard2 { display: flex; margin-top: 6px; background: #fff; border: 1px solid #e6ebf2; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 10px rgba(15,26,43,.04); }
+.nc2-rail { flex: none; width: 5px; background: linear-gradient(#1268d3, #0b4ea0); }
+.nc2-body { padding: 16px 18px; }
+.nc2-badge { display: inline-block; font-size: 10.5px; font-weight: 800; color: #1268d3; background: #eef4ff; border-radius: 5px; padding: 3px 8px; letter-spacing: .02em; }
+.nc2-name { font-size: 17px; font-weight: 800; color: #13294b; margin-top: 8px; }
+.nc2-rep { font-size: 12.5px; color: #64748b; margin-top: 3px; }
+.nc2-contact { margin-top: 12px; }
+.nc2-tel { display: inline-flex; align-items: center; gap: 7px; font-size: 16px; font-weight: 800; color: #1268d3; text-decoration: none; }
+.nc2-addr { font-size: 12px; color: #8b95a1; margin-top: 5px; }
+
 /* 브리핑 카드 — 단지정보·시세 블록 */
 .bb-market { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f2f4f6; }
 .bb-info { font-size: 12.5px; color: #64748b; margin-bottom: 10px; }
