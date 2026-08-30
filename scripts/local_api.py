@@ -11148,6 +11148,21 @@ def _init_reviews_db() -> None:
               created_at  TEXT NOT NULL DEFAULT (datetime('now','+9 hours'))
             );
 
+            -- 콕비서(중개사 AI 비서) 로그 — 향후 개선·품질점검용
+            CREATE TABLE IF NOT EXISTS kok_logs (
+              id          INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id     TEXT,
+              realtor_id  TEXT,
+              office      TEXT,
+              query       TEXT NOT NULL,
+              answer      TEXT,
+              ok          INTEGER NOT NULL DEFAULT 1,
+              duration_ms INTEGER,
+              ctx_len     INTEGER,
+              created_at  TEXT NOT NULL DEFAULT (datetime('now','+9 hours'))
+            );
+            CREATE INDEX IF NOT EXISTS kok_logs_idx ON kok_logs(id DESC);
+
             -- ── 중개사 라운지 ──────────────────────────────────────────
             -- 계정 ↔ 중개사무소 1:1 연동(전화매칭 또는 서류승인). 여러 곳 매칭 시 사용자가
             -- 하나를 골라 여기 저장 → 라운지 입장 시 이 선택을 사용.
@@ -17891,11 +17906,45 @@ def lounge_assistant(body: AssistantBody, user: dict = Depends(current_user)):
     except Exception:
         pass
     ctx = "\n".join(L)[:8000]
+    t0 = _time.perf_counter()
+    ok, err, answer = 1, None, None
     try:
         answer = _kok_llm(office, ctx, q)
     except Exception as e:
-        raise HTTPException(502, f"콕비서 응답 실패: {str(e)[:100]}")
+        ok, err = 0, str(e)[:200]
+    dur = int((_time.perf_counter() - t0) * 1000)
+    try:
+        with _reviews_db() as lc:
+            lc.execute("INSERT INTO kok_logs(user_id, realtor_id, office, query, answer, ok, duration_ms, ctx_len) "
+                       "VALUES(?,?,?,?,?,?,?,?)",
+                       (user["id"], rid, office, q, answer if ok else err, ok, dur, len(ctx)))
+    except Exception:
+        pass
+    if not ok:
+        raise HTTPException(502, f"콕비서 응답 실패: {err}")
     return {"answer": answer, "office": office}
+
+
+@app.get("/admin/kok-logs")
+def admin_kok_logs(admin: dict = Depends(admin_user), limit: int = 200, q: str = ""):
+    """콕비서 로그 조회(관리자) — 향후 개선·품질 점검."""
+    with _reviews_db() as c:
+        c.row_factory = sqlite3.Row
+        where, params = "", []
+        if (q or "").strip():
+            where = "WHERE query LIKE ? OR answer LIKE ? OR office LIKE ?"
+            like = f"%{q.strip()}%"
+            params = [like, like, like]
+        rows = c.execute(
+            f"SELECT id, office, realtor_id, query, answer, ok, duration_ms, ctx_len, created_at "
+            f"FROM kok_logs {where} ORDER BY id DESC LIMIT ?",
+            params + [max(1, min(limit, 1000))]).fetchall()
+        total = c.execute("SELECT COUNT(*) FROM kok_logs").fetchone()[0]
+        today = c.execute("SELECT COUNT(*) FROM kok_logs WHERE created_at >= date('now','+9 hours')").fetchone()[0]
+        offices = c.execute("SELECT COUNT(DISTINCT realtor_id) FROM kok_logs").fetchone()[0]
+        avg_ms = c.execute("SELECT ROUND(AVG(duration_ms)) FROM kok_logs WHERE ok=1").fetchone()[0]
+    return {"items": [dict(r) for r in rows], "total": total, "today": today,
+            "offices": offices, "avg_ms": avg_ms}
 
 
 @app.get("/lounge/leads")
