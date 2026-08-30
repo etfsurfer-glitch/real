@@ -569,7 +569,7 @@ type VTx = { deal_ymd: string; amount: number; excl_use_ar: number; floor?: numb
 const _man = (v: number) => {   // v: 만원 → "5억 3,000만"
   if (!v) return "-";
   const e = Math.floor(v / 10000), m = Math.round(v % 10000);
-  return e ? (m ? `${e}억 ${m.toLocaleString()}만` : `${e}억`) : `${m.toLocaleString()}만`;
+  return e ? (m ? `${e.toLocaleString()}억 ${m.toLocaleString()}만` : `${e.toLocaleString()}억`) : `${m.toLocaleString()}만`;
 };
 const _median = (arr: VTx[]): number | null => {
   const a = arr.map((s) => s.amount).sort((x, y) => x - y);
@@ -746,8 +746,10 @@ const TRADE_KOR2: Record<string, string> = { A1: "매매", B1: "전세", B2: "�
 const _won = (v?: number | null) => {   // 원 → "21억 3,000만"
   if (!v) return "-";
   const e = Math.floor(v / 1e8), m = Math.round((v % 1e8) / 1e4);
-  return e ? (m ? `${e}억 ${m.toLocaleString()}만` : `${e}억`) : `${Math.round(v / 1e4).toLocaleString()}만`;
+  return e ? (m ? `${e.toLocaleString()}억 ${m.toLocaleString()}만` : `${e.toLocaleString()}억`) : `${Math.round(v / 1e4).toLocaleString()}만`;
 };
+// 문자열 속 4자리+ 숫자에 천단위 콤마(면적 등). 날짜(2001.08.03)엔 안 쓴다.
+const _comma = (s: any) => String(s ?? "").replace(/\d{4,}/g, (m) => Number(m).toLocaleString());
 const _bPlace = (it: BriefItem) =>
   [it.complex_name || it.building_name, it.dong, it.ho].filter(Boolean).join(" ") || "매물";  // dong/ho 는 이미 동·호 포함
 const _bPrice = (it: BriefItem) => {
@@ -779,7 +781,7 @@ function BriefCard({ it }: { it: BriefItem }) {
   const near = (a: any) => !!ea && Math.abs((Number(a) || 0) - ea) <= 1.5;
   const tx3 = (sale ?? []).map((s: any) => ({
     ymd: String(s.deal_ymd || ""), amt: Number(String(s.deal_amount).replace(/[^0-9.]/g, "")) || 0,
-    ar: Number(s.excl_use_ar) || 0, floor: s.floor,
+    ar: Number(s.excl_use_ar) || 0, floor: s.floor, dong: s.dong || "",
   })).filter((s: any) => near(s.ar) && s.amt > 0).sort((a: any, b: any) => b.ymd.localeCompare(a.ymd)).slice(0, 3);
   const ty = (sum?.by_type as any[] | undefined)?.find((t) => near(t.exclusive_area) && t.sale_min);
 
@@ -807,8 +809,8 @@ function BriefCard({ it }: { it: BriefItem }) {
         <div className="mld-rows">
           <Row k="유형" v={l.type} />
           <Row k="거래" v={l.trade_type === "월세" ? `${l.price_text}/${l.rent_price_text}` : `${l.trade_type} ${l.price_text}`} />
-          <Row k="전용면적" v={l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : null} />
-          <Row k="공급면적" v={l.area1_m2 ? `${l.area1_m2}㎡` : null} />
+          <Row k="전용면적" v={l.area2_m2 ? _comma(areaLabel(l.area2_m2, { supply: l.area1_m2 })) : null} />
+          <Row k="공급면적" v={l.area1_m2 ? `${_comma(l.area1_m2)}㎡` : null} />
           <Row k="해당층" v={l.floor_info ? `${l.floor_info}층` : null} />
           <Row k="총 층수" v={l.total_floor ? `${l.total_floor}층` : null} />
           <Row k="방·욕실" v={l.room_cnt ? `방 ${l.room_cnt}${l.bath_cnt ? ` / 욕실 ${l.bath_cnt}` : ""}` : null} />
@@ -820,7 +822,7 @@ function BriefCard({ it }: { it: BriefItem }) {
           <Row k="세대수" v={l.households ? `${l.households.toLocaleString()}세대` : (sum?.households ? `${Number(sum.households).toLocaleString()}세대` : null)} />
           <Row k="준공" v={l.approve_ymd ? `${String(l.approve_ymd).slice(0, 4)}.${String(l.approve_ymd).slice(4, 6)}` : _fyYmd(sum?.use_approve_ymd)} />
           <Row k="시공사" v={l.builder || sum?.builder || null} />
-          <Row k="연면적" v={l.total_area_m2 ? areaLabel(l.total_area_m2) : null} />
+          <Row k="연면적" v={l.total_area_m2 ? _comma(areaLabel(l.total_area_m2)) : null} />
           <Row k="주용도" v={l.main_purpose ?? null} />
           <Row k="대장 종류" v={l.reg_kind ?? null} />
           <Row k="확인일" v={_fyYmd(l.confirm_ymd)} />
@@ -836,7 +838,7 @@ function BriefCard({ it }: { it: BriefItem }) {
                 {tx3.map((t: any, i: number) => (
                   <div key={i} className="bb-tx-row">
                     <span className="d">{_fmtD(t.ymd)}</span>
-                    <span className="f">{t.floor ? `${t.floor}층` : ""}</span>
+                    <span className="f">{[t.dong, t.floor ? `${t.floor}층` : ""].filter(Boolean).join(" ")}</span>
                     <b>{_man(t.amt)}</b>
                   </div>
                 ))}

@@ -4522,7 +4522,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .bb-tx { border: 1px solid #eef2f7; border-radius: 12px; overflow: hidden; }
 .bb-tx-h { display: flex; justify-content: space-between; align-items: baseline; background: #f7f9fc; padding: 8px 12px; font-size: 11.5px; font-weight: 800; color: #64748b; }
 .bb-tx-h span { font-weight: 700; color: #9aa7bd; }
-.bb-tx-row { display: grid; grid-template-columns: auto 48px 1fr; gap: 8px; align-items: center; padding: 9px 12px; border-top: 1px solid #f2f4f6; font-size: 13px; color: #4E5968; }
+.bb-tx-row { display: grid; grid-template-columns: auto auto 1fr; gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid #f2f4f6; font-size: 13px; color: #4E5968; }
 .bb-tx-row .d { font-variant-numeric: tabular-nums; }
 .bb-tx-row .f { color: #8b95a1; font-size: 12px; }
 .bb-tx-row b { text-align: right; color: #13294b; font-weight: 800; }
