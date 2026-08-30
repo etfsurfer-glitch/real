@@ -563,19 +563,27 @@ function BizContractNav({ screen, isAdmin }: { screen?: string; isAdmin: boolean
   );
 }
 
-// ── 계약검증: 계약금액이 실거래 시세 대비 적정한지(콕집 데이터) ──
-type SaleTx = { deal_ymd: string; deal_amount: number; excl_use_ar: number; floor?: number | null };
+// ── 계약검증: 계약금액이 실거래 시세 대비 적정한지 + 전세가율/깡통전세(콕집 데이터) ──
+type VTx = { deal_ymd: string; amount: number; excl_use_ar: number; floor?: number | null };
 const _man = (v: number) => {   // v: 만원 → "5억 3,000만"
   if (!v) return "-";
   const e = Math.floor(v / 10000), m = Math.round(v % 10000);
   return e ? (m ? `${e}억 ${m.toLocaleString()}만` : `${e}억`) : `${m.toLocaleString()}만`;
+};
+const _median = (arr: VTx[]): number | null => {
+  const a = arr.map((s) => s.amount).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
 };
 function VerifyTab() {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<CxHit[]>([]);
   const [open, setOpen] = useState(false);
   const [cx, setCx] = useState<CxHit | null>(null);
-  const [sale, setSale] = useState<SaleTx[] | null>(null);
+  const [sale, setSale] = useState<VTx[] | null>(null);
+  const [jeonse, setJeonse] = useState<VTx[] | null>(null);
+  const [trade, setTrade] = useState<"sale" | "jeonse">("sale");
   const [areaKey, setAreaKey] = useState<number | null>(null);
   const [amtEok, setAmtEok] = useState("");
 
@@ -589,45 +597,47 @@ function VerifyTab() {
   }, [q, cx]);
 
   useEffect(() => {
-    setSale(null); setAreaKey(null);
+    setSale(null); setJeonse(null); setAreaKey(null);
     if (!cx || !API_BASE) return;
-    fetch(`${API_BASE}/complex/${cx.complex_no}/transactions?months=12&limit=800`)
+    const norm = (arr: any[], key: string): VTx[] => (arr ?? []).map((s: any) => ({
+      deal_ymd: String(s.deal_ymd || ""),
+      amount: Number(String(s[key]).replace(/[^0-9.]/g, "")) || 0,
+      excl_use_ar: Number(s.excl_use_ar) || 0, floor: s.floor,
+    })).filter((s: VTx) => s.excl_use_ar > 0 && s.amount > 0);
+    fetch(`${API_BASE}/complex/${cx.complex_no}/transactions?months=12&limit=1500`)
       .then((r) => r.json())
-      .then((j) => setSale((j.sale ?? []).map((s: any) => ({
-        deal_ymd: String(s.deal_ymd || ""),
-        deal_amount: Number(String(s.deal_amount).replace(/[^0-9.]/g, "")) || 0,
-        excl_use_ar: Number(s.excl_use_ar) || 0, floor: s.floor,
-      })).filter((s: SaleTx) => s.excl_use_ar > 0 && s.deal_amount > 0)))
-      .catch(() => setSale([]));
+      .then((j) => { setSale(norm(j.sale, "deal_amount")); setJeonse(norm(j.jeonse, "deposit")); })
+      .catch(() => { setSale([]); setJeonse([]); });
   }, [cx]);
 
   const pick = (h: CxHit) => { setCx(h); setQ(h.complex_name); setHits([]); setOpen(false); };
+  const rows = trade === "sale" ? sale : jeonse;
+  const loaded = sale !== null && jeonse !== null;
   const areaGroups = useMemo(() => {
     const m = new Map<number, number>();
-    (sale ?? []).forEach((s) => { const k = Math.round(s.excl_use_ar); m.set(k, (m.get(k) || 0) + 1); });
+    [...(sale ?? []), ...(jeonse ?? [])].forEach((s) => { const k = Math.round(s.excl_use_ar); m.set(k, (m.get(k) || 0) + 1); });
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  }, [sale]);
-  const matched = useMemo(() => {
-    if (!sale || areaKey == null) return [] as SaleTx[];
-    return sale.filter((s) => Math.abs(s.excl_use_ar - areaKey) <= 1.5)
-      .sort((a, b) => b.deal_ymd.localeCompare(a.deal_ymd));
-  }, [sale, areaKey]);
-  const median = useMemo(() => {
-    const arr = matched.map((s) => s.deal_amount).sort((a, b) => a - b);
-    if (!arr.length) return null;
-    const mid = Math.floor(arr.length / 2);
-    return arr.length % 2 ? arr[mid] : Math.round((arr[mid - 1] + arr[mid]) / 2);
-  }, [matched]);
+  }, [sale, jeonse]);
+  const matchIn = (arr: VTx[] | null) => (arr && areaKey != null)
+    ? arr.filter((s) => Math.abs(s.excl_use_ar - areaKey) <= 1.5).sort((a, b) => b.deal_ymd.localeCompare(a.deal_ymd))
+    : [];
+  const matched = useMemo(() => matchIn(rows), [rows, areaKey]);
+  const median = useMemo(() => _median(matched), [matched]);
+  const saleMedian = useMemo(() => _median(matchIn(sale)), [sale, areaKey]);
+  const jRatio = (trade === "jeonse" && median && saleMedian) ? (median / saleMedian * 100) : null;
+  const jRisk = jRatio == null ? null : jRatio >= 80 ? { t: "깡통전세 위험", c: "hi" } : jRatio >= 70 ? { t: "다소 높음, 주의", c: "hi" } : { t: "양호한 전세가율", c: "ok" };
+
   const amt = amtEok ? Math.round(parseFloat(amtEok) * 10000) : null;
   const pct = (amt != null && median) ? ((amt - median) / median * 100) : null;
   const verdict = pct == null ? null
     : Math.abs(pct) <= 3 ? { t: "시세 적정", c: "ok" }
     : pct > 0 ? { t: "시세보다 높음", c: "hi" } : { t: "시세보다 낮음", c: "lo" };
   const fmtDate = (d: string) => (d.length >= 10 ? d.slice(2, 10).replace(/-/g, ".") : d);
+  const tLabel = trade === "sale" ? "매매가" : "전세 보증금";
 
   return (
     <div>
-      <p className="biz-verify-lead">계약 금액이 <b>최근 실거래 시세 대비 적정한지</b> 콕집 데이터로 확인하세요.</p>
+      <p className="biz-verify-lead">계약 금액이 <b>실거래 시세 대비 적정한지</b>, 전세는 <b>전세가율(깡통전세)</b>까지 콕집 데이터로 확인하세요.</p>
       <div className="biz-analyze-search">
         <input value={q} onChange={(e) => { setQ(e.target.value); setCx(null); }}
           placeholder="단지명 검색 (예: 마포래미안푸르지오)" />
@@ -643,12 +653,17 @@ function VerifyTab() {
         )}
       </div>
 
-      {!cx && <div className="biz-analyze-empty">단지를 검색하면 <b>평형별 실거래</b>를 불러와<br />계약 금액과 비교해 드려요.</div>}
-      {cx && sale === null && <p className="cled-empty">실거래 불러오는 중…</p>}
-      {cx && sale !== null && sale.length === 0 && <p className="cled-empty">최근 12개월 매매 실거래가 없어요.</p>}
+      {!cx && <div className="biz-analyze-empty">단지를 검색하면 <b>평형별 실거래(매매·전세)</b>를 불러와<br />계약 금액과 비교해 드려요.</div>}
+      {cx && !loaded && <p className="cled-empty">실거래 불러오는 중…</p>}
+      {cx && loaded && areaGroups.length === 0 && <p className="cled-empty">최근 12개월 실거래가 없어요.</p>}
 
-      {cx && sale && sale.length > 0 && (
+      {cx && loaded && areaGroups.length > 0 && (
         <>
+          <div className="cled-seg" style={{ marginBottom: 12 }}>
+            <button className={trade === "sale" ? "on" : ""} onClick={() => setTrade("sale")}>매매</button>
+            <button className={trade === "jeonse" ? "on" : ""} onClick={() => setTrade("jeonse")}>전세</button>
+          </div>
+
           <div className="biz-verify-label">평형(전용면적) 선택</div>
           <div className="biz-subnav" style={{ marginBottom: 12 }}>
             {areaGroups.map(([k, c]) => (
@@ -661,19 +676,21 @@ function VerifyTab() {
           {areaKey != null && (
             <>
               <div className="biz-verify-input">
-                <label>계약 금액</label>
+                <label>{tLabel}</label>
                 <div className="biz-verify-amt">
                   <input type="number" inputMode="decimal" value={amtEok}
-                    onChange={(e) => setAmtEok(e.target.value)} placeholder="예: 12.5" />
+                    onChange={(e) => setAmtEok(e.target.value)} placeholder={trade === "sale" ? "예: 12.5" : "예: 6.5"} />
                   <span>억</span>
                 </div>
               </div>
 
-              {median != null && (
+              {median != null ? (
                 <div className="biz-verify-market">
-                  최근 실거래 중앙값 <b>{_man(median)}</b>
+                  최근 {trade === "sale" ? "매매" : "전세"} 중앙값 <b>{_man(median)}</b>
                   <span> · 매칭 {matched.length}건 (±1.5㎡)</span>
                 </div>
+              ) : (
+                <div className="biz-verify-market">이 평형 {trade === "sale" ? "매매" : "전세"} 실거래가 없어요.</div>
               )}
 
               {verdict && median != null && (
@@ -684,13 +701,24 @@ function VerifyTab() {
                 </div>
               )}
 
-              <div className="biz-verify-label">최근 실거래 (이 평형)</div>
+              {trade === "jeonse" && jRisk && jRatio != null && (
+                <div className={`biz-verify-verdict v-${jRisk.c}`}>
+                  <div className="vv-t">전세가율 {jRatio.toFixed(0)}% · {jRisk.t}</div>
+                  <div className="vv-p">전세 시세 {_man(median!)} / 매매 시세 {_man(saleMedian!)}
+                    {jRatio >= 80 && <span> — 보증금 회수 위험, 보증보험·선순위 확인 권장</span>}</div>
+                </div>
+              )}
+              {trade === "jeonse" && median != null && saleMedian == null && (
+                <div className="biz-verify-market">이 평형 매매 실거래가 없어 전세가율은 계산 못 했어요.</div>
+              )}
+
+              <div className="biz-verify-label">최근 {trade === "sale" ? "매매" : "전세"} 실거래 (이 평형)</div>
               <div className="biz-verify-list">
                 {matched.slice(0, 12).map((s, i) => (
                   <div key={i} className="biz-verify-row">
                     <span>{fmtDate(s.deal_ymd)}</span>
                     <span>{s.floor ? `${s.floor}층` : ""}</span>
-                    <b>{_man(s.deal_amount)}</b>
+                    <b>{_man(s.amount)}</b>
                   </div>
                 ))}
                 {matched.length === 0 && <div className="cled-empty">이 평형 매칭 실거래가 없어요.</div>}
