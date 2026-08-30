@@ -410,12 +410,13 @@ function KokSecretary({ authH, onClose }: { authH: () => Record<string, string>;
   const send = async (text: string) => {
     const query = text.trim();
     if (!query || busy) return;
+    const history = msgs.slice(-6).map((m) => ({ role: m.role, text: m.text }));
     setMsgs((m) => [...m, { role: "u", text: query }]);
     setQ(""); setBusy(true);
     try {
       const r = await fetch(`${API_BASE}/lounge/assistant`, {
         method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
-        body: JSON.stringify({ q: query }),
+        body: JSON.stringify({ q: query, history }),
       });
       const d = await r.json().catch(() => ({}));
       if (d.office) setOffice(d.office);
@@ -630,11 +631,6 @@ function BizContractNav({ screen, isAdmin }: { screen?: string; isAdmin: boolean
 
 // ── 계약검증: 계약금액이 실거래 시세 대비 적정한지 + 전세가율/깡통전세(콕집 데이터) ──
 type VTx = { deal_ymd: string; amount: number; excl_use_ar: number; floor?: number | null };
-const _man = (v: number) => {   // v: 만원 → "5억 3,000만"
-  if (!v) return "-";
-  const e = Math.floor(v / 10000), m = Math.round(v % 10000);
-  return e ? (m ? `${e.toLocaleString()}억 ${m.toLocaleString()}만` : `${e.toLocaleString()}억`) : `${m.toLocaleString()}만`;
-};
 const _median = (arr: VTx[]): number | null => {
   const a = arr.map((s) => s.amount).sort((x, y) => x - y);
   if (!a.length) return null;
@@ -692,7 +688,7 @@ function VerifyTab() {
   const jRatio = (trade === "jeonse" && median && saleMedian) ? (median / saleMedian * 100) : null;
   const jRisk = jRatio == null ? null : jRatio >= 80 ? { t: "깡통전세 위험", c: "hi" } : jRatio >= 70 ? { t: "다소 높음, 주의", c: "hi" } : { t: "양호한 전세가율", c: "ok" };
 
-  const amt = amtEok ? Math.round(parseFloat(amtEok) * 10000) : null;
+  const amt = amtEok ? Math.round(parseFloat(amtEok) * 1e8) : null;
   const pct = (amt != null && median) ? ((amt - median) / median * 100) : null;
   const verdict = pct == null ? null
     : Math.abs(pct) <= 3 ? { t: "시세 적정", c: "ok" }
@@ -751,7 +747,7 @@ function VerifyTab() {
 
               {median != null ? (
                 <div className="biz-verify-market">
-                  최근 {trade === "sale" ? "매매" : "전세"} 중앙값 <b>{_man(median)}</b>
+                  최근 {trade === "sale" ? "매매" : "전세"} 중앙값 <b>{_won(median)}</b>
                   <span> · 매칭 {matched.length}건 (±1.5㎡)</span>
                 </div>
               ) : (
@@ -762,14 +758,14 @@ function VerifyTab() {
                 <div className={`biz-verify-verdict v-${verdict.c}`}>
                   <div className="vv-t">{verdict.t}</div>
                   <div className="vv-p">{pct! > 0 ? "+" : ""}{pct!.toFixed(1)}%
-                    <span> (계약 {_man(amt!)} vs 시세 {_man(median)})</span></div>
+                    <span> (계약 {_won(amt!)} vs 시세 {_won(median)})</span></div>
                 </div>
               )}
 
               {trade === "jeonse" && jRisk && jRatio != null && (
                 <div className={`biz-verify-verdict v-${jRisk.c}`}>
                   <div className="vv-t">전세가율 {jRatio.toFixed(0)}% · {jRisk.t}</div>
-                  <div className="vv-p">전세 시세 {_man(median!)} / 매매 시세 {_man(saleMedian!)}
+                  <div className="vv-p">전세 시세 {_won(median!)} / 매매 시세 {_won(saleMedian!)}
                     {jRatio >= 80 && <span> — 보증금 회수 위험, 보증보험·선순위 확인 권장</span>}</div>
                 </div>
               )}
@@ -783,7 +779,7 @@ function VerifyTab() {
                   <div key={i} className="biz-verify-row">
                     <span>{fmtDate(s.deal_ymd)}</span>
                     <span>{s.floor ? `${s.floor}층` : ""}</span>
-                    <b>{_man(s.amount)}</b>
+                    <b>{_won(s.amount)}</b>
                   </div>
                 ))}
                 {matched.length === 0 && <div className="cled-empty">이 평형 매칭 실거래가 없어요.</div>}
@@ -903,7 +899,7 @@ function BriefCard({ it }: { it: BriefItem }) {
                   <div key={i} className="bb-tx-row">
                     <span className="d">{_fmtD(t.ymd)}</span>
                     <span className="f">{[t.dong, t.floor ? `${t.floor}층` : ""].filter(Boolean).join(" ")}</span>
-                    <b>{_man(t.amt)}</b>
+                    <b>{_won(t.amt)}</b>
                   </div>
                 ))}
               </div>

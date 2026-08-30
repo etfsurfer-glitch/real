@@ -17801,6 +17801,7 @@ def lounge_my_edit_requests(user: dict = Depends(current_user)):
 
 class AssistantBody(BaseModel):
     q: str
+    history: list | None = None
 
 
 def _kok_eok(v) -> str:
@@ -17815,7 +17816,19 @@ def _kok_eok(v) -> str:
     return (f"{e}억 {m:,}만" if m else f"{e}억") if e else f"{m:,}만"
 
 
-def _kok_llm(office: str, ctx: str, q: str) -> str:
+def _kok_won(v) -> str:
+    """원 정수(실거래 deal_amount) → '18억 3,500만'."""
+    try:
+        n = int(float(str(v).replace(",", "")))
+    except Exception:
+        return str(v or "")
+    if not n:
+        return ""
+    e, m = n // 100000000, round((n % 100000000) / 10000)
+    return (f"{e}억 {m:,}만" if m else f"{e}억") if e else f"{m:,}만"
+
+
+def _kok_llm(office: str, ctx: str, q: str, history: list | None = None) -> str:
     from scripts.ai_agent import _genai, MODEL
     from google.genai import types
     client = _genai()
@@ -17823,15 +17836,26 @@ def _kok_llm(office: str, ctx: str, q: str) -> str:
            "규칙:\n"
            "- 일정 유형(계약/중도금/잔금/입주/만기)을 정확히 구분한다. 질문한 유형이 없으면 '없어요'라고 한다. 다른 유형(예: 만기)을 잔금이라고 답하지 마라.\n"
            "- 고객 요건의 '구함'=사거나 빌리려는(매수/임차) 손님, '내놓음'=팔거나 내놓은(매도/임대) 손님이다. 절대 혼동하지 마라.\n"
+           "- 시세·실거래를 물으면 [단지 시세] 섹션의 최근 실거래를 근거로 답한다. 없으면 없다고 한다.\n"
+           "- '오늘 뭐부터?', '우선순위', '할 일' 같은 질문엔 임박한 잔금·계약 일정(D-day 작은 순)과 미응대 신규 상담을 우선으로 제안한다.\n"
            "- 데이터에 없으면 '해당 정보가 없어요'라고 한다. 추측하지 마라.\n"
            "- 날짜·요일은 [오늘] 기준으로 해석한다. 표 대신 짧은 문장·목록으로, 존댓말로 답한다.")
-    prompt = f"[사무소 데이터]\n{ctx}\n\n[질문]\n{q}"
+    contents: list = []
+    for h in (history or [])[-6:]:
+        try:
+            role = "model" if str(h.get("role")) in ("a", "model", "assistant") else "user"
+            txt = str(h.get("text") or "").strip()
+            if txt:
+                contents.append(types.Content(role=role, parts=[types.Part(text=txt[:1500])]))
+        except Exception:
+            pass
+    contents.append(types.Content(role="user", parts=[types.Part(text=f"[사무소 데이터]\n{ctx}\n\n[질문]\n{q}")]))
     cfg = types.GenerateContentConfig(
         system_instruction=sys,
         thinking_config=types.ThinkingConfig(thinking_budget=0),
         temperature=0.2, max_output_tokens=800,
     )
-    resp = client.models.generate_content(model=MODEL, contents=prompt, config=cfg)
+    resp = client.models.generate_content(model=MODEL, contents=contents, config=cfg)
     return (getattr(resp, "text", None) or "죄송해요, 답을 만들지 못했어요.").strip()
 
 
@@ -17890,26 +17914,44 @@ def lounge_assistant(body: AssistantBody, user: dict = Depends(current_user)):
                              x["ptype"] or "", (f"{x['sigungu'] or ''} {x['dong'] or ''}").strip(), bud])))
             L.append(f"- {c['name'] or '무명'} [{c['stage'] or '신규'}] {c['phone'] or ''}"
                      + (f" / 요건: {'; '.join(parts)}" if parts else ""))
-        pls = rc.execute("SELECT complex_name, dong, ho, trade_type, price, rent_price FROM private_listings "
+        pls = rc.execute("SELECT complex_no, complex_name, dong, ho, trade_type, price, rent_price FROM private_listings "
                          "WHERE realtor_id=? AND status='active' ORDER BY id DESC LIMIT 40", (rid,)).fetchall()
         L.append(f"\n[직접등록 매물 {len(pls)}건]")
         for p in pls:
             pr = _kok_eok(p["price"]) + (f"/{_kok_eok(p['rent_price'])}" if p["rent_price"] else "")
             L.append(" ".join(filter(None, [f"- {p['complex_name'] or ''}", p["dong"] or "", p["ho"] or "",
                      p["trade_type"] or "", pr])))
+        cxs: dict = {}
+        for p in pls:
+            if p["complex_no"] and p["complex_no"] not in cxs:
+                cxs[p["complex_no"]] = p["complex_name"] or ""
     office = "우리 사무소"
     try:
         with _open_db() as d:
             row = d.execute("SELECT realtor_name FROM naver_realtors WHERE realtor_id=?", (rid,)).fetchone()
             if row and row[0]:
                 office = row[0]
+            # 단지 시세 — 우리 매물 단지의 최근 실거래(시세 질문 대응)
+            if cxs:
+                L.append("\n[단지 시세 — 우리 매물 단지 최근 실거래(매매)]")
+                for cno, cname in list(cxs.items())[:6]:
+                    txs = d.execute(
+                        "SELECT deal_ymd, deal_amount, excl_use_ar, floor FROM transactions "
+                        "WHERE matched_complex_no=? AND is_cancelled=0 "
+                        "AND deal_ymd>=date('now','+9 hours','-12 months') "
+                        "ORDER BY deal_ymd DESC LIMIT 4", (cno,)).fetchall()
+                    if txs:
+                        it = "; ".join(f"{t[0]} {_kok_won(t[1])} 전용{round(float(t[2] or 0))}㎡ {t[3] or ''}층" for t in txs)
+                        L.append(f"- {cname}: {it}")
+                    else:
+                        L.append(f"- {cname}: 최근 12개월 매매 실거래 없음")
     except Exception:
         pass
     ctx = "\n".join(L)[:8000]
     t0 = _time.perf_counter()
     ok, err, answer = 1, None, None
     try:
-        answer = _kok_llm(office, ctx, q)
+        answer = _kok_llm(office, ctx, q, body.history)
     except Exception as e:
         ok, err = 0, str(e)[:200]
     dur = int((_time.perf_counter() - t0) * 1000)
