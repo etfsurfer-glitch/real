@@ -40,7 +40,7 @@ export const isIOSApp = () =>
 export const STORE = {
   general: "https://play.google.com/store/apps/details?id=com.koczip.app&hl=ko",
   realtor: "https://play.google.com/store/apps/details?id=com.koczip.realtor&hl=ko",
-  ios: "",   // TODO: App Store 게시 후 https://apps.apple.com/app/id{APP_ID} 로 교체
+  ios: "https://apps.apple.com/kr/app/id6803088598",   // 콕집 iOS 앱(2026-08 출시)
 };
 
 // 기기 플랫폼에 맞는 일반앱 스토어 링크. iOS Safari 는 App Store, 그 외는 Play.
