@@ -33,6 +33,10 @@ def open_db() -> sqlite3.Connection:
     c = sqlite3.connect(settings.local_db_path, timeout=30.0, check_same_thread=False)
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout = 30000")
+    # 대표자명 수동 고정(사무소 인수/양수도 등 수집값이 옛 대표로 되돌리는 것 방지)
+    c.execute("CREATE TABLE IF NOT EXISTS realtor_rep_locks("
+              "realtor_id TEXT PRIMARY KEY, representative_name TEXT, note TEXT, "
+              "locked_at TEXT DEFAULT (datetime('now')))")
     return c
 
 
@@ -89,7 +93,9 @@ def upsert_realtor(conn: sqlite3.Connection, realtor_id: str, article_no: str, a
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(realtor_id) DO UPDATE SET
             realtor_name=excluded.realtor_name,
-            representative_name=excluded.representative_name,
+            representative_name=CASE WHEN EXISTS(
+                SELECT 1 FROM realtor_rep_locks k WHERE k.realtor_id=naver_realtors.realtor_id)
+                THEN naver_realtors.representative_name ELSE excluded.representative_name END,
             address=excluded.address,
             establish_registration_no=excluded.establish_registration_no,
             representative_tel_no=excluded.representative_tel_no,
