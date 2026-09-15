@@ -1,28 +1,22 @@
+// 중개사 공용 탭 모듈. 구 /lounge PC 셸(default Lounge·LoungeRail)은 통합 셸(/biz)로
+// 흡수돼 제거됐고(2026-09-15), 여기엔 BizApp이 재사용하는 탭 컴포넌트·타입만 남는다.
+// (파일명은 히스토리상 Lounge 유지 — import 경로 안정성 우선. 렌더 진입점은 BizApp/App.)
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { useAuth } from "../auth";
+import { Link } from "react-router-dom";
 import OfferForm from "../components/OfferForm";
 import type { Offer as KOffer } from "../components/OfferForm";
-import { PhoneModal } from "../components/PhoneVerify";
-import SupportLink from "../components/SupportLink";
 import { Loading } from "../components/Loading";
 import ImportListings from "../components/ImportListings";
-import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
-  MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
-  ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles, ChevronDown, Loader2,
+import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, Search, ExternalLink,
+  MapPin, Map as MapIcon, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
+  Users, Camera, Lock, Trash2, Sparkles, ChevronDown, Loader2,
   Check, Upload, FileSpreadsheet,
   Store, Home as HomeIcon, SlidersHorizontal, ArrowLeft, Landmark } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
-import ContractCalendar from "../components/ContractCalendar";
 import LoungeCalendarPanel from "../components/LoungeCalendarPanel";
 import QuickAdd from "../components/QuickAdd";
-import CustomerLedger from "../components/CustomerLedger";
 import CustomerEdit, { type EditCustomer } from "../components/CustomerEdit";
-import MatchBoard from "../components/MatchBoard";
-import BizContracts from "../components/BizContracts";
-import BizWContracts from "./BizWContracts";
-import { BizTermsGate } from "../components/BizTermsGate";
 import { BizTermsConsentModal, bizTermsAgreed } from "../components/BizTermsConsentModal";
 
 const TT: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
@@ -59,9 +53,6 @@ type EditReq = { id: number; content: string; status: string; admin_note: string
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
 export type Tab = "dashboard" | "listings" | "ledger" | "match" | "calendar" | "contracts" | "wcontracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
-// 렌더되는 탭은 전부 여기 있어야 한다 — ?tab= 딥링크와 새로고침 복원이 이 목록으로 걸러진다
-export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "ledger", "match", "calendar", "contracts",
-  "wcontracts", "requests", "audit", "office", "edit", "leads", "homepage", "staff"];
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -80,273 +71,8 @@ export type Fav = { complex_no: string; complex_name: string;
 export type FavOffice = { realtor_id: string; realtor_name: string | null; address: string | null;
   representative: string | null; total: TradeCnt; today_change: number; national_rank: number | null };
 
-export default function Lounge() {
-  const { user, token, ready, configured, refreshMe, isAdmin } = useAuth();
-  const [st, setSt] = useState<Status | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [phoneOpen, setPhoneOpen] = useState(false);
-  const [consentRid, setConsentRid] = useState<string | null>(null);   // 신규가입 약관동의 대기 중인 사무소
-  // 탭을 URL(?tab=)과 동기화 — 상단 '중개사라운지' 드롭다운 하위메뉴가 특정 탭으로 바로 진입.
-  const [sp, setSp] = useSearchParams();
-  const _initTab = ((): Tab => {
-    const t = sp.get("tab") as Tab | null;
-    return t && LOUNGE_TABS.includes(t) ? t : "dashboard";
-  })();
-  const [tab, setTabState] = useState<Tab>(_initTab);
-  // 레일 접힘 — 좁은 화면·집중 작업 때 쓰고, 고른 상태는 기억한다
-  const [railFold, setRailFold] = useState(() => {
-    try { return localStorage.getItem("lounge_rail_fold") === "1"; } catch { return false; }
-  });
-  const setTab = useCallback((t: Tab) => {
-    setTabState(t);
-    setSp((prev) => {
-      const n = new URLSearchParams(prev);
-      if (t === "dashboard") n.delete("tab"); else n.set("tab", t);
-      return n;
-    }, { replace: true });
-  }, [setSp]);
-  // 라운지에 머문 채 드롭다운으로 다른 탭 URL을 열면(리마운트 없음) 탭 반영
-  useEffect(() => {
-    const t = sp.get("tab") as Tab | null;
-    if (t && LOUNGE_TABS.includes(t) && t !== tab) setTabState(t);
-  }, [sp]); // eslint-disable-line
-  const [joinRole, setJoinRole] = useState<"owner" | "staff">("owner");  // 미연결 시 역할 선택
-
-  const authH = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
-
-  const loadStatus = useCallback(() => {
-    if (!token || !API_BASE) { setLoading(false); return; }
-    setLoading(true);
-    fetch(`${API_BASE}/lounge/status`, { headers: authH() })
-      .then((r) => r.json()).then((d: Status) => setSt(d))
-      .catch(() => setSt(null)).finally(() => setLoading(false));
-  }, [token, authH]);
-
-  useEffect(() => { loadStatus(); }, [loadStatus]);
-
-  if (!configured) return <Box>로그인 서버가 설정되지 않았습니다.</Box>;
-  if (!ready) return <Loading />;
-  if (!user) return <Box>중개사 라운지는 로그인 후 이용할 수 있어요. 우측 상단에서 카카오/구글 로그인을 해주세요.</Box>;
-  if (!API_BASE) return <Box>이 기능은 운영 환경에서만 동작합니다.</Box>;
-  if (loading || !st) return <Loading />;
-
-  return (
-    <>
-      <div className="section-title" style={{ marginTop: 4 }}>
-        <Building2 size={16} strokeWidth={2.2} aria-hidden /> 중개사 라운지
-        <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>중개사무소 인증 회원 전용</span>
-      </div>
-
-      {/* 미연결: 역할 선택 — 대표는 전화매칭(vworld=대표 본인 번호만), 직원은 검색+승인制 */}
-      {(st.state === "need_phone" || st.state === "select" || st.state === "no_match") && (
-        <div className="chip-row" style={{ marginBottom: 12 }}>
-          <button className={`chip ${joinRole === "owner" ? "active" : ""}`} onClick={() => setJoinRole("owner")}>대표님</button>
-          <button className={`chip ${joinRole === "staff" ? "active" : ""}`} onClick={() => setJoinRole("staff")}>소속공인중개사·중개보조원</button>
-        </div>
-      )}
-
-      {joinRole === "staff" && (st.state === "need_phone" || st.state === "select" || st.state === "no_match") && (
-        <StaffJoin authH={authH} phoneVerified={st.phone_verified}
-          onNeedPhone={() => setPhoneOpen(true)} onDone={loadStatus} />
-      )}
-
-      {st.state === "staff_pending" && st.office && (
-        <Card>
-          <p><b>{st.office.realtor_name}</b> 대표님의 <b>승인을 기다리는 중</b>입니다.</p>
-          <p className="muted" style={{ fontSize: 13 }}>
-            {st.staff_name && <>신청자: <b>{st.staff_name}</b> · </>}
-            대표님이 라운지 직원관리에서 승인하면 바로 이용할 수 있어요. (대표님께 푸시 알림이 발송됐습니다)
-          </p>
-          <button className="chip" style={{ width: "fit-content" }} onClick={unlink}>신청 취소 / 다른 사무소 다시 선택</button>
-        <SupportLink variant="banner" sub="승인 문의는" label="고객센터" context="lounge-staff-pending" /></Card>
-      )}
-
-      {joinRole === "owner" && st.state === "need_phone" && (
-        <Card>
-          <p>중개사 라운지에 입장하려면 <b>본인 명의 휴대폰 인증</b>이 필요합니다.</p>
-          <p className="muted" style={{ fontSize: 13 }}>
-            인증하신 번호가 콕집에 등록된 중개사무소 연락처와 일치하면 자동으로 본인 사무소가 연결됩니다.
-          </p>
-          <button className="ai-send" style={{ padding: "8px 18px" }} onClick={() => setPhoneOpen(true)}>
-            휴대폰 인증하기
-          </button>
-        </Card>
-      )}
-
-      {joinRole === "owner" && st.state === "select" && (
-        <Card>
-          <p>인증된 번호와 일치하는 중개사무소가 <b>{st.candidates?.length}곳</b> 있습니다. 본인 사무소를 선택해 주세요.</p>
-          <p className="muted" style={{ fontSize: 13 }}>선택은 기억되어 다음 입장부터 바로 이어집니다. 나중에 변경할 수 있어요.</p>
-          <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-            {st.candidates?.map((o) => (
-              <div key={o.realtor_id} className="lounge-cand">
-                <div>
-                  <b>{o.realtor_name}</b>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    {[o.address, o.representative ? `대표 ${o.representative}` : null].filter(Boolean).join(" · ")}
-                  </div>
-                </div>
-                <button className="ai-send" style={{ padding: "6px 14px" }}
-                  onClick={() => selectOffice(o.realtor_id)}>이 사무소</button>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {joinRole === "owner" && st.state === "no_match" && (
-        <Card>
-          <p>인증된 번호와 일치하는 중개사무소를 찾지 못했습니다.</p>
-          <p className="muted" style={{ fontSize: 13 }}>
-            사무소 대표 연락처가 콕집 데이터와 다르거나 미등록일 수 있어요. 아래로 <b>사업자등록증</b>을 제출하시면
-            관리자 확인 후 연결해 드립니다.
-          </p>
-          <DocSubmit authH={authH} onDone={loadStatus} />
-          <SupportLink variant="banner" sub="사무소 연결이 계속 안 되시나요?" label="고객센터" context="lounge-no-match" />
-        </Card>
-      )}
-
-      {st.state === "admin_pick" && (
-        <Card>
-          <p><b>관리자</b> — 인증 없이 입장했습니다. 둘러볼 중개사무소를 검색해 연결하세요.</p>
-          <AdminPick authH={authH} onPicked={loadStatus} />
-        </Card>
-      )}
-
-      {st.state === "doc_pending" && (
-        <Card><p>제출하신 서류를 <b>관리자가 확인 중</b>입니다. 승인되면 라운지가 열립니다. (보통 1영업일 이내)</p>
-          <SupportLink variant="banner" sub="승인이 지연되거나 문의가 있으시면" label="고객센터" context="lounge-doc-pending" />
-        </Card>
-      )}
-
-      {st.state === "linked" && st.office && (
-        <div className={"lrail-wrap" + (railFold ? " fold" : "")}>
-          <LoungeRail authH={authH} tab={tab} setTab={setTab} isAdmin={isAdmin}
-            hasHomepage={!!st.has_homepage} isOwner={(st.role ?? "owner") === "owner"}
-            fold={railFold} onFold={() => { setRailFold(!railFold); try { localStorage.setItem("lounge_rail_fold", railFold ? "0" : "1"); } catch { /* 사파리 프라이빗 */ } }} />
-          <div className="lrail-pane">
-          {tab === "dashboard" && <DashboardTab authH={authH} office={st.office} onGoTab={setTab} />}
-          {tab === "listings" && <ListingsTab authH={authH} office={st.office} />}
-          {tab === "ledger" && <CustomerLedger authH={authH} onGoListings={() => setTab("listings")} />}
-          {tab === "match" && <MatchBoard authH={authH} onGoLedger={() => setTab("ledger")} />}
-          {tab === "calendar" && <BizTermsGate><ContractCalendar authH={authH} /></BizTermsGate>}
-          {tab === "contracts" && <BizTermsGate><BizContracts authH={authH} /></BizTermsGate>}
-          {tab === "wcontracts" && <BizTermsGate><BizWContracts /></BizTermsGate>}
-          {tab === "requests" && <RequestsTab authH={authH} />}
-          {tab === "audit" && <AuditTab authH={authH} />}
-          {tab === "office" && <OfficeTab office={st.office} method={st.method} onUnlink={unlink} />}
-          {tab === "edit" && <EditTab authH={authH} />}
-          {tab === "leads" && <LeadsTab authH={authH} />}
-          {tab === "staff" && <StaffManageTab authH={authH} office={st.office} />}
-          {tab === "homepage" && <HomepageTab authH={authH} office={st.office} onStatusChange={loadStatus} />}
-          </div>
-        </div>
-      )}
-
-      {phoneOpen && token && (
-        <PhoneModal token={token} onClose={() => setPhoneOpen(false)}
-          onDone={async () => { await refreshMe(); setPhoneOpen(false); loadStatus(); }} />
-      )}
-
-      {consentRid && (
-        <BizTermsConsentModal authH={authH}
-          onClose={() => setConsentRid(null)}
-          onAgree={() => { const rid = consentRid; setConsentRid(null); doSelectOffice(rid); }} />
-      )}
-    </>
-  );
-
-  function selectOffice(rid: string) {
-    // 신규가입 번들 — 아직 약관 동의 전이면 연동 확정 직전에 동의를 먼저 받는다.
-    // 이미 동의했거나 관리자면 바로 연동(기존 회원 재선택 시 재동의 요구 안 함).
-    bizTermsAgreed(authH).then((ok) => { if (ok) doSelectOffice(rid); else setConsentRid(rid); });
-  }
-  function doSelectOffice(rid: string) {
-    fetch(`${API_BASE}/lounge/select`, {
-      method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
-      body: JSON.stringify({ realtor_id: rid }),
-    }).then((r) => { if (!r.ok) throw new Error(); loadStatus(); }).catch(() => alert("선택에 실패했습니다."));
-  }
-  function unlink() {
-    if (!confirm("사무소 연결을 해제할까요? 다시 선택할 수 있어요.")) return;
-    fetch(`${API_BASE}/lounge/unlink`, { method: "POST", headers: authH() })
-      .then(() => { setTab("office"); loadStatus(); });
-  }
-}
-
-function Box({ children }: { children: React.ReactNode }) {
-  return <div className="muted" style={{ padding: 24 }}>{children}</div>;
-}
 export function Card({ children }: { children: React.ReactNode }) {
   return <div style={{ border: "1px solid var(--c-border)", borderRadius: 12, padding: 18, maxWidth: 640, display: "grid", gap: 8 }}>{children}</div>;
-}
-
-/** 라운지 메뉴 — 알약 14개가 두 줄로 흐르던 것을 세로 레일로 세운다.
- *  세로라야 ① 묶음 이름을 붙일 수 있고 ② 숫자 배지 자리가 생긴다. 지금은 들어가 봐야
- *  새 상담이 있는지 안다. 좁게 쓰고 싶으면 접어서 아이콘만 남긴다. */
-function LoungeRail({ authH, tab, setTab, isAdmin, hasHomepage, isOwner, fold, onFold }: {
-  authH: () => Record<string, string>; tab: Tab; setTab: (t: Tab) => void;
-  isAdmin: boolean; hasHomepage: boolean; isOwner: boolean; fold: boolean; onFold: () => void;
-}) {
-  void isAdmin;   // 계약탭 개방(2026-09-05)으로 rail 분기에선 미사용 — prop 시그니처 유지
-  const [n, setN] = useState<Record<string, number>>({});
-  useEffect(() => {
-    let dead = false;
-    fetch(`${API_BASE}/lounge/nav-counts`, { headers: authH() })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (j && !dead) setN(j); })
-      .catch(() => { /* 숫자는 곁들이는 정보다 — 못 받아도 메뉴는 열린다 */ });
-    return () => { dead = true; };
-  }, [tab]);            // 탭을 옮길 때마다 다시 센다(상담을 읽으면 배지가 줄어야 한다)
-
-  type Row = readonly [Tab, string, typeof Users, keyof typeof n | null];
-  const groups: readonly (readonly [string, readonly Row[]])[] = [
-    ["", [["dashboard", "대시보드", LayoutDashboard, null]]],
-    ["영업", [
-      ["listings", "매물장", ClipboardList, "listings"],
-      ["ledger", "고객원장", Users, "ledger"],
-      ["match", "고객·물건매칭", Sparkles, null],
-      ["leads", "상담신청", MessageSquare, "leads"],
-    ]],
-    ["관리", [
-      ["wcontracts", "계약서 작성", FileText, null],
-      ["calendar", "계약캘린더", CalendarDays, null],
-      ["contracts", "계약관리", FileText, null],
-      ["audit", "매물점검", ShieldCheck, null],
-      ["homepage", hasHomepage ? "홈페이지관리" : "홈페이지생성", Globe, null],
-      ["requests", "콕집요청", Sparkles, null],
-    ]],
-    ["사무소", [
-      ...((isOwner ? [["staff", "직원관리", Users, null]] : []) as Row[]),
-      ["office", "내 사무소", Building2, null],
-      ["edit", "정보수정요청", Pencil, null],
-    ]],
-  ];
-
-  return (
-    <nav className="lrail" aria-label="라운지 메뉴">
-      <button className="lrail-fold" onClick={onFold} title={fold ? "메뉴 펼치기" : "메뉴 접기"}
-        aria-label={fold ? "메뉴 펼치기" : "메뉴 접기"}>
-        {fold ? <ChevronRight size={14} /> : <><ChevronRight size={14} className="rot" />메뉴 접기</>}
-      </button>
-      {groups.map(([g, rows]) => rows.length === 0 ? null : (
-        <div key={g || "home"} className="lrail-g">
-          {g && <p className="lrail-lab">{g}</p>}
-          {rows.map(([k, label, Icon, cnt]) => (
-            <button key={k} className={"lrail-i" + (tab === k ? " on" : "")}
-              onClick={() => setTab(k)}
-              title={fold ? label + (cnt && n[cnt] ? ` ${n[cnt]}` : "") : undefined}>
-              <Icon size={15} strokeWidth={2.1} aria-hidden />
-              <span>{label}</span>
-              {cnt && n[cnt]
-                ? <i className={"lrail-n" + (cnt === "leads" ? " hot" : "")}>{n[cnt]}</i>
-                : null}
-            </button>
-          ))}
-        </div>
-      ))}
-    </nav>
-  );
 }
 
 export function DashboardTab({ authH, office, onGoTab }: {
