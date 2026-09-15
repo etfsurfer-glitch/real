@@ -65,8 +65,9 @@ def main():
         body = " · ".join(segs[:3])
         if len(segs) > 3:
             body += f" 외 {len(segs) - 3}곳"
-        # 일반사용자 알림 — 랜딩은 홈(/lounge는 중개사 전용이라 부적합, 2026-07-02 정정)
-        res = A._send_web_push([uid], "관심단지 오늘의 소식 🏠", body, url="/", tag="fav-daily")
+        # 랜딩 = 관심단지 대시보드(/my/favorites) — 헤더 하트·메뉴와 동일한 목적지로 통일.
+        # 알림 본문은 3곳 요약이지만, 바로가기로 관심단지 전체를 한 페이지에서 본다.
+        res = A._send_web_push([uid], "관심단지 오늘의 소식 🏠", body, url="/my/favorites", tag="fav-daily")
         total_sent += res.get("sent", 0)
     print(f"관심단지 일일알림: 대상 {len(users)}명 · 발송 {total_sent}건")
 

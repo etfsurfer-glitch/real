@@ -93,34 +93,47 @@ class Quota(RuntimeError):
 
 
 def fetch(mvin: str, mvt: str, fr: str, to: str, lv: str, key: str, retries: int = 3):
-    p = {"serviceKey": key, "type": "json", "numOfRows": "100", "pageNo": "1",
-         "mvinAdmmCd": mvin, "mvtAdmmCd": mvt, "srchFrYm": fr, "srchToYm": to, "lv": lv}
-    url = API + "?" + urllib.parse.urlencode(p, safe="")
-    for i in range(retries):
-        try:
-            _ratelimit()
-            req = urllib.request.Request(url, headers={"User-Agent": "koczip/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as r:
-                import json as _j
-                d = _j.loads(r.read().decode("utf-8", "replace"))["Response"]
-            msg = (d.get("head") or {}).get("resultMsg", "")
-            if "LIMIT" in msg.upper() or "EXCEED" in msg.upper():
-                raise Quota(msg)
-            if msg != "NORMAL_SERVICE":
-                return []          # 해당 조합에 데이터 없음(정상)
-            it = d.get("items")
-            if isinstance(it, dict):
-                it = it.get("item")
-            if isinstance(it, dict):
-                it = [it]
-            return it or []
-        except Quota:
-            raise
-        except Exception:
-            if i == retries - 1:
-                return None        # 실패 — progress 미기록으로 다음 실행에서 재시도
-            time.sleep(min(0.6 * (2 ** i), 5))
-    return None
+    """한 조합의 전체 목록(페이징 포함). 실패 시 None."""
+    out, page = [], 1
+    while True:
+        p = {"serviceKey": key, "type": "json", "numOfRows": "100", "pageNo": str(page),
+             "mvinAdmmCd": mvin, "mvtAdmmCd": mvt, "srchFrYm": fr, "srchToYm": to, "lv": lv}
+        url = API + "?" + urllib.parse.urlencode(p, safe="")
+        got = None
+        for i in range(retries):
+            try:
+                _ratelimit()
+                req = urllib.request.Request(url, headers={"User-Agent": "koczip/1.0"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    import json as _j
+                    d = _j.loads(r.read().decode("utf-8", "replace"))["Response"]
+                msg = (d.get("head") or {}).get("resultMsg", "")
+                if "LIMIT" in msg.upper() or "EXCEED" in msg.upper():
+                    raise Quota(msg)
+                if msg != "NORMAL_SERVICE":
+                    return out          # 데이터 없음(정상 종료)
+                it = d.get("items")
+                if isinstance(it, dict):
+                    it = it.get("item")
+                if isinstance(it, dict):
+                    it = [it]
+                got = (it or [], int((d.get("head") or {}).get("totalCount") or 0))
+                break
+            except Quota:
+                raise
+            except Exception:
+                if i == retries - 1:
+                    return None
+                time.sleep(min(0.6 * (2 ** i), 5))
+        if got is None:
+            return None
+        rows, total = got
+        out += rows
+        if len(out) >= total or not rows:
+            return out
+        page += 1
+        if page > 40:               # 안전장치
+            return out
 
 
 def _band(x: dict, sex: str, lo: int, hi: int) -> int:
@@ -159,6 +172,7 @@ def main() -> int:
     ap.add_argument("--lv", default="1", help="1=시도 2=시군구 3=읍면동")
     ap.add_argument("--workers", type=int, default=8)   # 콜당 ~3.3초라 병렬이 필요
     ap.add_argument("--max-calls", type=int, default=9000)
+    ap.add_argument("--targets", default="", help="시군구코드 쉼표구분. 지정 시 각 코드의 전입·전출을 시도별로 수집")
     a = ap.parse_args()
     to_ym = a.to or (datetime.date.today().replace(day=1) - datetime.timedelta(days=1)).strftime("%Y%m")
 
@@ -172,15 +186,28 @@ def main() -> int:
         mc.execute("PRAGMA busy_timeout=20000")
         codes = [r[0] for r in mc.execute(
             "SELECT cortar_no FROM regions WHERE cortar_no LIKE '__00000000' ORDER BY cortar_no")]
-    if a.lv != "1":
-        print("[!] lv!=1 은 대상 코드 목록을 따로 지정해야 한다(시군구 250×250 은 과다). 종료.", flush=True)
-        return 2
+    targets = [t.strip() for t in a.targets.split(",") if t.strip()]
+    # lv=2 + targets 없음 = (시도×시도) 361쌍. 실측 결과 이 조합 하나가 시군구 교차표를
+    # 통째로 반환한다(서울25 × 경기31 = 755행). 250×250 을 직접 돌 필요가 없어
+    # 전국 시군구 순유입을 361×15윈도 = 5,415콜로 완성할 수 있다.
+    # (--targets 는 특정 시군구만 빠르게 볼 때 쓰는 좁은 경로로 남긴다)
     print(f"[*] 시도 {len(codes)}개 · 구간 {a.fr}~{to_ym} · lv={a.lv} · DB={POP_DB}", flush=True)
 
     done = {(r[0], r[1], r[2]) for r in db.execute(
         "SELECT mvt_cd, mvin_cd, fr_ym FROM pop_move_progress WHERE lv=?", (a.lv,))}
-    tasks = [(mvt, mvin, fr, to) for mvt in codes for mvin in codes
-             for fr, to in windows(a.fr, to_ym) if (mvt, mvin, fr) not in done]
+    if targets:
+        # 타깃 시군구별 전입(mvin=타깃)·전출(mvt=타깃)을 17개 시도 각각에 대해
+        tasks = []
+        for t in targets:
+            for sido in codes:
+                for fr, to in windows(a.fr, to_ym):
+                    if (sido, t, fr) not in done:
+                        tasks.append((sido, t, fr, to))      # 전입: sido → target
+                    if (t, sido, fr) not in done:
+                        tasks.append((t, sido, fr, to))      # 전출: target → sido
+    else:
+        tasks = [(mvt, mvin, fr, to) for mvt in codes for mvin in codes
+                 for fr, to in windows(a.fr, to_ym) if (mvt, mvin, fr) not in done]
     print(f"[*] 남은 작업 {len(tasks):,} (완료 {len(done):,})", flush=True)
     if not tasks:
         print("[*] 이미 완료"); return 0

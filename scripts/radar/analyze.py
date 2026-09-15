@@ -13,6 +13,7 @@ import argparse
 import base64
 import json
 import os
+import re as _re
 import sqlite3
 import time
 import urllib.request
@@ -179,7 +180,6 @@ POLITICS = (
 )
 # '여야'는 "자유여야 한다", "먹여야 되서" 처럼 어미에 얹힌다 — 낱말 경계를 본다.
 # '정권'은 "이재명 정권"처럼 앞에 사람·정당이 붙을 때만 정치다.
-import re as _re
 POLITICS_RE = (
     _re.compile(r"(?:^|[\s\W])여야(?:가|는|의|와|도|에|를|$|[\s\W])"),
     _re.compile(r"(?:정권\s*(?:교체|퇴진|심판)|[가-힣]{2,3}\s*정권)"),
@@ -194,9 +194,42 @@ def is_politics(text: str) -> bool:
     return any(r.search(t) for r in POLITICS_RE)
 
 
+# ── 외국어 걸러내기 ────────────────────────────────────────────────────────
+# 우리 채널 소재는 한국어 글이다. 외국어 글은 아무리 반응이 커도 못 쓴다.
+# 판정은 여기 한 곳에만 둔다(collect.py 가 이 함수를 가져다 쓴다).
+_STRIP_RE = _re.compile(
+    r"https?://\S+|[@#][\w가-힣_]+|[0-9]+|[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]")
+_HANGUL_RE = _re.compile(r"[가-힣ㄱ-ㅎㅏ-ㅣ]")
+# 라틴·일본어 가나·한자·키릴·아랍·태국어 — '한글이 아닌 글자'
+_OTHER_RE = _re.compile(
+    r"[A-Za-z\u3040-\u30FF\u4E00-\u9FFF\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F]")
+# 한국어 글에도 영어가 많이 섞인다("강남 apartment price 가 올랐다는데 real 임?" = 한글 33%).
+# 비중만 보면 이런 글이 걸러지므로 '한글이 몇 자 이상 있는가'를 함께 본다.
+# 외국어 글은 한글이 0~1자라 이 둘로 충분히 갈린다.
+FOREIGN_MIN_RATIO = 0.20
+FOREIGN_MIN_HANGUL = 3
+
+
+def is_foreign(text: str) -> bool:
+    """한국어 글이 아니면 True.
+
+    URL·멘션·해시태그·숫자·이모지를 걷어낸 뒤 글자만 세어 한글 비중을 본다.
+    글자가 거의 없는 글(사진만 올린 글)은 외국어로 단정하지 않는다 — 미디어가 본체다.
+    """
+    t = _STRIP_RE.sub(" ", text or "")
+    han = len(_HANGUL_RE.findall(t))
+    other = len(_OTHER_RE.findall(t))
+    if han + other < 4:                       # 글자가 없다시피 하면 판정 보류(통과)
+        return False
+    if han < FOREIGN_MIN_HANGUL:              # 한글이 사실상 없다 = 외국어
+        return True
+    return han / (han + other) < FOREIGN_MIN_RATIO
+
+
 def worth_analyzing(like, reply, repost, quote, age_min) -> bool:
     """1차 필터 — 경과 시간을 감안해 '반응이 붙고 있는가'로 본다."""
-    eng = like + reply * 4 + repost * 7 + quote * 6
+    # 항목별 가중치 폐지 — 좋아요·댓글·리포스팅을 같은 무게로 센다(2026-08-14 사용자 지시)
+    eng = like + reply + repost + quote
     if age_min is None:                       # 시간을 모르면 절대량으로만 본다
         return eng >= 30
     if age_min <= 60:                         # 1시간 안쪽이면 작은 반응도 신호다
@@ -234,12 +267,16 @@ def main():
     #    큰 글'이 앞자리를 차지해, 정작 이 도구의 목적인 '아직 안 터진 글'이 뒤로 밀린다
     #    (실측: 다음 회차 40건 중 1시간 이내 글이 1건뿐이었다).
     # ② 하루 넘은 글은 아예 빼둔다 — 통과율이 0.1% 인데 매번 정렬 대상에 들어간다.
+    # ③ 미디어(이미지·영상) 있는 글을 앞세운다 — 카드로 쓰려면 그림이 있어야 한다
+    #    (2026-08-14 사용자 지시). 영상 > 이미지 > 글만 순.
     rows = c.execute(
         "SELECT id, post_key, text, like_count, reply_count, repost_count, quote_count,"
         "       age_min, engagement, time_weight, velocity, image_url, has_video, keywords_all"
         "  FROM posts WHERE analyzed_at IS NULL AND excluded=0"
         "    AND (age_min IS NULL OR age_min <= ?)"
-        "  ORDER BY velocity DESC, first_seen_at DESC LIMIT ?",
+        "  ORDER BY (CASE WHEN has_video=1 THEN 2"
+        "                 WHEN image_url IS NOT NULL AND image_url<>'' THEN 1"
+        "                 ELSE 0 END) DESC, velocity DESC, first_seen_at DESC LIMIT ?",
         (MAX_AGE_MIN, a.limit * 4)).fetchall()
 
     # 하루 넘도록 분석 대기에 남은 글은 다시 볼 이유가 없다 — 대기열에서 내린다.
@@ -305,8 +342,13 @@ def main():
             log(f"  {done}/{len(todo)}")
     log(f"분석 완료 {done}건")
 
-    # 분석 안 된 글도 목록에서 순서를 갖도록 반응 점수만으로 최종점수를 채운다
-    c.execute("UPDATE posts SET final_score = engagement * time_weight + velocity * 0.5"
+    # 분석 안 된 글도 목록에서 순서를 갖도록 반응 점수만으로 최종점수를 채운다.
+    # 계산식은 collect.scores() 와 같아야 한다 — 시간당 반응 × 미디어 가중
+    # (한쪽만 고치면 목록 순서가 수집 때와 어긋난다).
+    c.execute("UPDATE posts SET final_score = velocity *"
+              " (CASE WHEN has_video=1 THEN 2.5"
+              "       WHEN image_url IS NOT NULL AND image_url<>'' THEN 2.0"
+              "       ELSE 1.0 END)"
               " WHERE analyzed_at IS NULL")
     c.commit()
 

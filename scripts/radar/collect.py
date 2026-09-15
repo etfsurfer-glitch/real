@@ -152,24 +152,36 @@ def age_minutes(time_attr: str, time_txt: str) -> int | None:
                 "일": 1440, "d": 1440, "주": 10080, "w": 10080}.get(u, 1)
 
 
-def scores(like, reply, repost, quote, age_min):
-    """반응 점수·속도·시간가중치.
+# 미디어 가중 — 소재로 쓰려면 이미지·영상이 붙어 있어야 한다(2026-08-14 사용자 지시).
+# 글만 있는 글도 목록에는 남기되, 미디어 있는 글이 앞자리를 차지하도록 점수를 올린다.
+MEDIA_BOOST = 2.0
+VIDEO_BOOST = 2.5
 
-    Like 총량보다 '얼마나 빨리 붙었나'가 중요하다 — 2일 된 200 좋아요보다
-    30분 만의 100 좋아요가 소재로서 값어치가 크다.
+
+def scores(like, reply, repost, quote, age_min, *, has_media=False, has_video=False):
+    """점수 = 시간당 반응(좋아요+댓글+리포스팅) × 미디어 가중.
+
+    총량이 아니라 속도로 본다 — 이틀 된 200 좋아요보다 30분 만의 100 좋아요가
+    소재로서 값어치가 크다.
+
+    2026-08-14 개편(사용자 지시): 항목별 가중치(댓글×4·리포스트×7)를 없애고
+    좋아요·댓글·리포스팅을 같은 무게로 합산한다. 인용은 리포스트의 한 형태라 함께 센다.
     """
-    eng = like + reply * 4 + repost * 7 + quote * 6
+    eng = like + reply + repost + quote
     hours = max((age_min or 0) / 60.0, 0.25)            # 15분 미만은 15분으로 본다
     velocity = eng / hours
-    time_weight = 1 / ((hours + 2) ** 0.5)
-    return eng, velocity, eng * time_weight + velocity * 0.5
+    boost = VIDEO_BOOST if has_video else (MEDIA_BOOST if has_media else 1.0)
+    return eng, velocity, velocity * boost
 
 
-# 정치 판정은 analyze.py 한 곳에만 둔다(규칙이 두 벌이면 반드시 어긋난다).
+# 정치·외국어 판정은 analyze.py 한 곳에만 둔다(규칙이 두 벌이면 반드시 어긋난다).
 try:
-    from analyze import is_politics
+    from analyze import is_foreign, is_politics
 except Exception:                                           # noqa: BLE001
     def is_politics(_t):                                    # 분석기를 못 읽으면 거르지 않는다
+        return False
+
+    def is_foreign(_t):
         return False
 
 
@@ -182,10 +194,16 @@ def to_post(it: dict, kw: str) -> dict | None:
     txt = clean_text(it.get("text"), au, it.get("time_txt", ""))
     if is_politics(txt):            # 정치 글은 담지도 않는다 — 저장·AI 토큰 모두 아낀다
         return None
+    if is_foreign(txt):             # 외국어 글은 우리 채널 소재로 못 쓴다
+        return None
     am = age_minutes(it.get("time_attr", ""), it.get("time_txt", ""))
     like, reply = to_num(it.get("like")), to_num(it.get("reply"))
     repost, quote = to_num(it.get("repost")), to_num(it.get("quote"))
-    eng, vel, _ = scores(like, reply, repost, quote, am)
+    n_media = int(it.get("n_media") or 0)
+    has_video = bool(it.get("video"))
+    has_media = bool(it.get("image")) or n_media > 0 or has_video
+    eng, vel, _ = scores(like, reply, repost, quote, am,
+                         has_media=has_media, has_video=has_video)
     return {
         "post_key": href.split("?")[0],
         "author": au,
@@ -195,8 +213,8 @@ def to_post(it: dict, kw: str) -> dict | None:
         "age_min": am, "engagement": eng, "velocity": vel,
         "keyword": kw,
         "image": (it.get("image") or "")[:600],
-        "n_media": int(it.get("n_media") or 0),
-        "video": 1 if it.get("video") else 0,
+        "n_media": n_media,
+        "video": 1 if has_video else 0,
     }
 
 

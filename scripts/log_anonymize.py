@@ -41,7 +41,12 @@ def materialize(c: sqlite3.Connection, dry: bool) -> int:
     """확정일(KST 그저께 이하) 중 아직 없는 날짜의 집계를 굳힌다. 반환=신규 적재 일수."""
     c.execute("""CREATE TABLE IF NOT EXISTS daily_stats(
         d TEXT PRIMARY KEY, events INTEGER, visitors INTEGER, login_users INTEGER,
-        logins INTEGER, pageviews INTEGER, ai_asks INTEGER, complex_views INTEGER)""")
+        logins INTEGER, pageviews INTEGER, ai_asks INTEGER, complex_views INTEGER,
+        human_visitors INTEGER)""")
+    try:
+        c.execute("ALTER TABLE daily_stats ADD COLUMN human_visitors INTEGER")
+    except sqlite3.OperationalError:
+        pass  # 이미 존재
     c.execute("""CREATE TABLE IF NOT EXISTS daily_page_stats(
         d TEXT, label TEXT, views INTEGER, visitors INTEGER, PRIMARY KEY(d, label))""")
     done = {r[0] for r in c.execute("SELECT d FROM daily_stats")}
@@ -51,7 +56,7 @@ def materialize(c: sqlite3.Connection, dry: bool) -> int:
     todo = [d for d in days if d not in done]
     if dry or not todo:
         return len(todo)
-    from scripts.local_api import _page_label   # top-pages와 동일 라벨링
+    from scripts.local_api import _page_label, _HUMAN_SQL   # top-pages 라벨·실사람 필터 공유
     for d in todo:
         row = c.execute(
             "SELECT COUNT(*), COUNT(DISTINCT ip), COUNT(DISTINCT user_id), "
@@ -59,8 +64,11 @@ def materialize(c: sqlite3.Connection, dry: bool) -> int:
             "SUM(kind IN ('view','view_complex','view_realtor')), "
             "SUM(kind LIKE 'ai%'), SUM(kind='view_complex') "
             "FROM event_log WHERE date(ts,'+9 hours')=?", (d,)).fetchone()
-        c.execute("INSERT OR REPLACE INTO daily_stats VALUES (?,?,?,?,?,?,?,?)",
-                  (d, row[0], row[1], row[2], row[3] or 0, row[4] or 0, row[5] or 0, row[6] or 0))
+        hv = c.execute(
+            f"SELECT COUNT(DISTINCT ip) FROM event_log WHERE date(ts,'+9 hours')=? AND {_HUMAN_SQL}",
+            (d,)).fetchone()[0]
+        c.execute("INSERT OR REPLACE INTO daily_stats VALUES (?,?,?,?,?,?,?,?,?)",
+                  (d, row[0], row[1], row[2], row[3] or 0, row[4] or 0, row[5] or 0, row[6] or 0, hv or 0))
         agg: dict = {}
         for p, n, v in c.execute(
             "SELECT path, COUNT(*), COUNT(DISTINCT ip) FROM event_log "

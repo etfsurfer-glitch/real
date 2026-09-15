@@ -25,6 +25,9 @@ H "/stats/changes/sido-list"
 # 전국 콜드 13.5s·시도 콜드 ~8s 라 미리 데움(런타임캐시에 저장 → 재빌드까지 즉시응답).
 H "/stats/avg-price-trend?days=60&asset=apt"
 H "/stats/avg-price-trend?days=60&asset=offi"
+H "/stats/listing-trend?days=60"   # 전국현황 매물수 추이 — 콜드 ~5s
+H "/stats/changes/summary?asset=apt"
+H "/stats/changes/summary?asset=offi"
 SIDOS=$("$ROOT/.venv/bin/python" -c "
 import sqlite3
 c = sqlite3.connect('/opt/koczip/data/naverreal.sqlite')

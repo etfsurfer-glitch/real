@@ -57,12 +57,20 @@ for sd in sidos:
     n_sgg += len(sggs)
     for sg in sggs:
         title = sg["title"]                       # '경기도 수원시 장안구'
-        sgg_nm = title[len(sido_nm):].strip() or title
+        # 고정길이 슬라이스 금지 — VWorld가 간혹 타 시도 행을 섞어 주면
+        # ('경기도 남양주시'를 '강원…' 길이로 잘라 '양주시') 이름이 절단된다.
+        # 실제 시도 접두를 찾아 그 길이로만 자른다(없으면 스킵).
+        _pref = next((s for s in SIDO if title.startswith(s)), None)
+        if _pref is None:
+            continue
+        sgg_nm = title[len(_pref):].strip() or title
         umds = all_pages(title, "L4")
         rows = []
         for u in umds:
             code = u["id"]
             code10 = (code + "00")[:10] if len(code) == 8 else code.ljust(10, "0")
+            if not u["title"].startswith(title):   # 타 시군구 행 혼입 방어
+                continue
             umd_nm = u["title"][len(title):].strip()
             if umd_nm:
                 rows.append((code10, code10[:5], sido_nm, sgg_nm, umd_nm))

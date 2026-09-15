@@ -87,25 +87,42 @@ def upsert(conn, complex_no, data, now):
     )
     conn.execute("DELETE FROM complex_areas WHERE complex_no = ?", (complex_no,))
     for p in pyeong_list:
+        def _pi(k):
+            v = p.get(k)
+            try:
+                return int(str(v)) if str(v).strip() not in ("", "-", "None") else None
+            except (ValueError, TypeError):
+                return None
         conn.execute(
             "INSERT OR REPLACE INTO complex_areas "
-            "(complex_no, pyeong_name, supply_area, exclusive_area, household_count) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "(complex_no, pyeong_name, supply_area, exclusive_area, household_count, "
+            " room_cnt, bath_cnt, entrance_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 complex_no,
                 p.get("pyeongName"),
                 float(p["supplyArea"]) if p.get("supplyArea") else None,
                 float(p["exclusiveArea"]) if p.get("exclusiveArea") else None,
                 int(p["householdCountByPyeong"]) if p.get("householdCountByPyeong") else None,
+                _pi("roomCnt"), _pi("bathroomCnt"),
+                p.get("entranceType") or None,
             ),
         )
 
 
-def pick_targets(conn, only_missing):
+def pick_targets(conn, only_missing, sigungu=None, only_no_room=False):
+    where = []
     if only_missing:
-        sql = "SELECT complex_no FROM complexes WHERE detail_fetched_at IS NULL"
-    else:
-        sql = "SELECT complex_no FROM complexes"
+        where.append("detail_fetched_at IS NULL")
+    if sigungu:
+        where.append(f"substr(cortar_no,1,5) = '{sigungu[:5]}'")
+    if only_no_room:
+        # 방/욕실 미보유 단지만 재수집 (room_cnt 컬럼 백필용)
+        where.append("complex_no IN (SELECT complex_no FROM complex_areas "
+                     "GROUP BY complex_no HAVING MAX(room_cnt) IS NULL)")
+    sql = "SELECT complex_no FROM complexes"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     return [r[0] for r in conn.execute(sql).fetchall()]
 
 
@@ -113,12 +130,21 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--parallel", type=int, default=8)
     p.add_argument("--only-missing", action="store_true")
+    p.add_argument("--sigungu", help="cortar 앞 5자리 — 해당 시군구만")
+    p.add_argument("--only-no-room", action="store_true", help="방/욕실 미보유 단지만(백필)")
     p.add_argument("--limit", type=int)
     args = p.parse_args()
 
     conn = open_db()
+    conn.execute("PRAGMA journal_size_limit=1073741824")
+    # 방/욕실/현관유형 컬럼 — 없으면 추가(멱등)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(complex_areas)")}
+    for col, typ in (("room_cnt", "INTEGER"), ("bath_cnt", "INTEGER"), ("entrance_type", "TEXT")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE complex_areas ADD COLUMN {col} {typ}")
+    conn.commit()
     creds = ensure_creds()
-    todo = pick_targets(conn, args.only_missing)
+    todo = pick_targets(conn, args.only_missing, args.sigungu, args.only_no_room)
     if args.limit:
         todo = todo[: args.limit]
     print(f"[*] complexes to fetch: {len(todo):,}  parallel={args.parallel}", flush=True)

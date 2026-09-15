@@ -48,6 +48,11 @@ step "step 8-pre: hidden_realtor_map(숨김ID 귀속)" $PY -u scripts/apply_hidd
 # 8) 중개사 랭킹·우리동네·매물수 재집계 — 단지형+비단지 새 매물 반영(11·19시에도 갱신, 기존엔 02시만).
 step "step 8: build_realtor_dong"     $PY -u scripts/build_realtor_dong.py
 
+# 8b) 주인 조건 색인(주인전세·세안고·주인대출) — 매물 설명 기준이라 매물이 갱신될 때마다 다시 만든다.
+#     02:00 daily 에만 걸어뒀더니 11·19시 수집분이 최대 15시간 누락됐다(실측 드리프트 +1,799 / 유령 2,350).
+#     전량 교체·8초라 매 회차 돌려도 부담 없다.
+step "step 8b: build_special_deals"   $PY -u scripts/build_special_deals.py
+
 # 9) 캐시 갱신 — 위 단지형·비단지·중개사집계 다 끝난 뒤 마지막에(실거래 rollup은 02:00 run에서만).
 step "step 9: build_api_cache"        $PY -u scripts/build_api_cache.py --default-only
 

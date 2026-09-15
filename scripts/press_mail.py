@@ -34,7 +34,7 @@ ATTACH = [
     PRESS / "콕집_보도자료.docx",
     PRESS / "콕집_보도자료.pdf",
 ]
-SHOTS = sorted((PRESS / "shots").glob("0*.png"))
+SHOTS: list[Path] = []   # 시연 이미지는 PDF 말미에 수록 — 별도 첨부 없음(파일 2개로 단순화)
 FROM_NAME = "콕집(koczip) 황인찬"
 
 

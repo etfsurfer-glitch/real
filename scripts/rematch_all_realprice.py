@@ -89,9 +89,23 @@ def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
     def worker(sgg_cd: str, rows: list[tuple]) -> dict:
         local = {"updated": 0, "newly_matched": 0, "still_unmatched": 0, "errors": 0}
         try:
-            complexes = rp_match.load_complexes(conn, cortar_prefix=sgg_cd)
+            # 워커별 독립 read-only 커넥션 — 공유 conn 을 쓰면 다른 워커의
+            # commit 이 진행 중인 SELECT 커서를 리셋해 단지 목록이 비거나
+            # 잘린 채 반환됨(2026-07 서초·종로 매매, 강남 오피 전월세 전멸 사고).
+            rconn = sqlite3.connect(f"file:{settings.local_db_path}?mode=ro",
+                                    uri=True, timeout=30)
+            try:
+                complexes = rp_match.load_complexes(rconn, cortar_prefix=sgg_cd)
+            finally:
+                rconn.close()
             idx = rp_match.ComplexIndex(complexes)
         except Exception:
+            local["errors"] += len(rows)
+            return local
+        if not complexes:
+            # 단지 0개 시군구 — 빈 인덱스로 전량 unmatched 를 쓰는 건 파괴만 하고
+            # 이득이 없음(정상이면 이미 unmatched). 건드리지 않고 표시만.
+            print(f"  [warn] sgg={sgg_cd}: 단지 0개 — {len(rows):,}행 건너뜀")
             local["errors"] += len(rows)
             return local
 

@@ -87,7 +87,10 @@ def main() -> None:
             if not segs:
                 continue
             body = " · ".join(segs[:4])
-            res = A._send_web_push([uid], title, body, url="/biz", tag="biz-digest")
+            # 랜딩 = 관심단지 대시보드(/my/favorites). 브리핑에 관심단지 변화가 담기므로,
+            # 누르면 관심단지가 바로 보이는 페이지로 보낸다(2026-08-17 사용자 지시).
+            res = A._send_web_push([uid], title, body,
+                                   url="/my/favorites", tag="biz-digest")
             total_sent += res.get("sent", 0)
     print(f"중개사 브리핑({hour}시): 대상 {len(members)}명 · 발송 {total_sent}건")
 
