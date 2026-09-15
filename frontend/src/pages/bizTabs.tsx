@@ -1,6 +1,6 @@
-// 중개사 공용 탭 모듈. 구 /lounge PC 셸(default Lounge·LoungeRail)은 통합 셸(/biz)로
-// 흡수돼 제거됐고(2026-09-15), 여기엔 BizApp이 재사용하는 탭 컴포넌트·타입만 남는다.
-// (파일명은 히스토리상 Lounge 유지 — import 경로 안정성 우선. 렌더 진입점은 BizApp/App.)
+// 중개사 공용 탭 모듈(BizApp이 재사용하는 탭 컴포넌트·타입). 구 /lounge PC 셸
+// (default Lounge·LoungeRail)은 통합 셸(/biz)로 흡수돼 제거됐고(2026-09-15),
+// 그 정리 후 파일을 Lounge.tsx → bizTabs.tsx 로 리네이밍. 렌더 진입점은 BizApp/App.
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import OfferForm from "../components/OfferForm";

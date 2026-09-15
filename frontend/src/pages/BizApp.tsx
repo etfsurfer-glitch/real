@@ -15,7 +15,7 @@ import {
   DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
   DocSubmit, AdminPick, FavManager, OfficeFavManager, Card, StaffJoin, StaffManageTab, RequestsTab,
   type Office, type Status, type Tab, type Fav, type FavOffice,
-} from "./Lounge";
+} from "./bizTabs";
 import ContractCalendar from "../components/ContractCalendar";
 import CustomerLedger from "../components/CustomerLedger";
 import MatchBoard from "../components/MatchBoard";
