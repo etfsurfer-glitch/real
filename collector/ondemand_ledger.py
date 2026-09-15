@@ -208,21 +208,26 @@ def _parse_jibun(cortar_no, detail_address):
 
 
 def _expos_call(params, datago_keys) -> str | None:
-    """전유공용 단일 호출(키 폴백). 정상 XML or None."""
-    for key in datago_keys:
-        try:
-            t = urllib.request.urlopen(
-                urllib.request.Request(
-                    BR_EXPOS_URL + "?" + urllib.parse.urlencode({"serviceKey": key, **params}),
-                    headers={"Accept": "application/xml"}), timeout=20).read().decode("utf-8")
-            if "resultCode>00" in t:
-                return t
-        except urllib.error.HTTPError as e:
-            if e.code == 429:
-                continue
-            return None
-        except Exception:
-            return None
+    """전유공용 단일 호출(키 폴백 + 일시오류 재시도). 정상 XML or None.
+    data.go.kr 이 간헐 503/네트워크 오류를 낸다(실측: 같은 요청이 수초 뒤 정상) —
+    한 번 실패로 대형 건물 목록 전체가 검색모드로 강등되던 문제(2026-09-02) 방지."""
+    for attempt in range(3):
+        for key in datago_keys:
+            try:
+                t = urllib.request.urlopen(
+                    urllib.request.Request(
+                        BR_EXPOS_URL + "?" + urllib.parse.urlencode({"serviceKey": key, **params}),
+                        headers={"Accept": "application/xml"}), timeout=20).read().decode("utf-8")
+                if "resultCode>00" in t:
+                    return t
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    continue                      # 쿼터 — 다음 키
+                break                             # 503 등 — 재시도 루프로
+            except Exception:
+                break
+        if attempt < 2:
+            time.sleep(1.5 * (attempt + 1))
     return None
 
 
@@ -257,6 +262,101 @@ def expos_areas(sgg, bjd, plat, bun, ji, datago_keys) -> list | None:
                 except (ValueError, TypeError):
                     pass
     return sorted(set(out)) or None
+
+
+def expos_units(sgg, bjd, plat, bun, ji, datago_keys) -> list | None:
+    """건축물대장 전유부 '동·호 목록' [{dong,ho,flr,area,purps}] — 계약서 작성 호 선택용.
+    expos_areas(면적만)와 별개: 단지내상가·집합건물에서 동/호를 골라 채운다.
+    totalCount≤2000 까지 허용(대단지 상가동 포함). 없음/과대=None, 일시실패=_ERR."""
+    if isinstance(datago_keys, str):
+        datago_keys = [datago_keys]
+    base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji}
+    head = _expos_call({**base, "numOfRows": "1", "pageNo": "1"}, datago_keys)
+    if not head:
+        return _ERR
+    try:
+        tc = int(ET.fromstring(head).findtext(".//totalCount") or 0)
+    except (ET.ParseError, ValueError):
+        return _ERR
+    if tc == 0 or tc > 2000:
+        return None
+    out = []
+    for page in range(1, tc // 100 + 2):
+        t = _expos_call({**base, "numOfRows": "100", "pageNo": str(page)}, datago_keys)
+        if not t:
+            break
+        try:
+            root = ET.fromstring(t)
+        except ET.ParseError:
+            break
+        for it in root.findall(".//item"):
+            if (it.findtext("exposPubuseGbCdNm") or "").strip() != "전유":
+                continue
+            try:
+                area = round(float((it.findtext("area") or "0").strip()), 2)
+            except (ValueError, TypeError):
+                area = None
+            out.append({"dong": (it.findtext("dongNm") or "").strip(),
+                        "ho": (it.findtext("hoNm") or "").strip(),
+                        "flr": (it.findtext("flrNoNm") or "").strip(),
+                        "purps": (it.findtext("mainPurpsCdNm") or "").strip(),
+                        "area": area})
+    return out or None
+
+
+def expos_unit_search(cortar_no, detail_address, ho, datago_keys) -> list | None:
+    """대형 집합건물(전유 2,000호↑)용 — hoNm 서버필터로 특정 호만 조회(전유만).
+    반환 [{dong,ho,flr,purps,area}]. 캐시 없음(소량·즉답)."""
+    j = _parse_jibun(cortar_no, detail_address)
+    if not j or not (ho or "").strip():
+        return None
+    sgg, plat, bun, ji, bjd = j
+    if isinstance(datago_keys, str):
+        datago_keys = [datago_keys]
+    t = _expos_call({"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun,
+                     "ji": ji, "hoNm": str(ho).strip().replace("호", ""),
+                     "numOfRows": "50", "pageNo": "1"}, datago_keys)
+    if not t:
+        return None
+    try:
+        root = ET.fromstring(t)
+    except ET.ParseError:
+        return None
+    out = []
+    for it in root.findall(".//item"):
+        if (it.findtext("exposPubuseGbCdNm") or "").strip() != "전유":
+            continue
+        try:
+            area = round(float((it.findtext("area") or "0").strip()), 2)
+        except (ValueError, TypeError):
+            area = None
+        out.append({"dong": (it.findtext("dongNm") or "").strip(),
+                    "ho": (it.findtext("hoNm") or "").strip(),
+                    "flr": (it.findtext("flrNoNm") or "").strip(),
+                    "purps": (it.findtext("mainPurpsCdNm") or "").strip(),
+                    "area": area})
+    return out or None
+
+
+def expos_units_for_jibun(cortar_no, detail_address, datago_keys) -> list | None:
+    """지번 → 전유 동·호 목록(영속 캐시 EU)."""
+    j = _parse_jibun(cortar_no, detail_address)
+    if not j:
+        return None
+    sgg, plat, bun, ji, bjd = j
+    ek = f"EU{sgg}{bjd}{plat}{bun}{ji}"
+    if ek in _expos_cache:
+        return _expos_cache[ek]
+    v = _cget(ek)
+    if v is not _MISS:
+        _expos_cache[ek] = v
+        return v
+    a = expos_units(sgg, bjd, plat, bun, ji, datago_keys)
+    if a is _ERR:
+        return None
+    _cput(ek, a)
+    _expos_cache[ek] = a
+    return a
 
 
 def _coord_to_jibun_cached(lat, lon, vworld_key):
@@ -383,6 +483,8 @@ def title_full_ref(sgg, bjd, plat, bun, ji, datago_keys) -> dict | None:
         "stcns_day": g(pick, "stcnsDay") or None,
         "use_apr_day": g(pick, "useAprDay") or None,
         "parking": park,
+        "seismic_apply": g(pick, "rserthqkDsgnApplyYn") or None,   # 내진설계 적용여부(확인설명서 ①)
+        "seismic_ablty": g(pick, "rserthqkAblty") or None,         # 내진능력
         "n_dong": len(items),
     }
 
@@ -645,6 +747,46 @@ def recap_for_pnu(pnu, datago_keys):
         v = {"parking": tot or None,
              "hhld_cnt": _int(g(it, "hhldCnt")),
              "bld_nm": g(it, "bldNm") or None} if tot else None
+    _cput(ck, v)
+    _cache[ck] = v
+    return v
+
+
+def title_parking_for_pnu(pnu, datago_keys):
+    """PNU → 일반 표제부(getBrTitleInfo) 주차 합(자주식+기계식, 주건축물 전동 합산).
+
+    왜 필요한가 — 주차 보정 체인의 3차 폴백. 네이버 인라인 대장이 신축 미갱신으로 0을 주고,
+    총괄표제부(recap)마저 없는 **단일동 집합 신축**은 표제부에만 주차가 있다
+    (방배동 860-1 에비뉴860: 인라인 0 / 총괄 null / 표제부 옥내자주식 6, 2026-09-01).
+    다동 케이스는 recap이 먼저 잡으므로(동별 0 합산=None) 여기 와도 무해.
+    캐시 키 TP1(영속). 없음확정=None 캐시, 일시오류=캐시 금지."""
+    j = _pnu_to_jibun(pnu)
+    if not j:
+        return None
+    sgg, bjd, plat, bun, ji = j
+    ck = f"TP1{sgg}{bjd}{plat}{bun}{ji}"
+    if ck in _cache:
+        return _cache[ck]
+    v = _cget(ck)
+    if v is not _MISS:
+        _cache[ck] = v
+        return v
+    if isinstance(datago_keys, str):
+        datago_keys = [datago_keys]
+    items = _br_items(BR_URL, {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
+                               "bun": bun, "ji": ji}, datago_keys)
+    if items is _ERR:
+        return None                    # 일시 실패 — 캐시 금지(재시도)
+
+    def g(it, tag):
+        return (it.findtext(tag) or "").strip()
+
+    v = None
+    if items:
+        mains = [it for it in items if g(it, "mainAtchGbCd") in ("", "0")] or items
+        tot = sum(filter(None, (_int(g(it, k)) for it in mains for k in
+                  ("indrMechUtcnt", "oudrMechUtcnt", "indrAutoUtcnt", "oudrAutoUtcnt"))))
+        v = {"parking": tot, "bld_nm": g(mains[0], "bldNm") or None} if tot else None
     _cput(ck, v)
     _cache[ck] = v
     return v
