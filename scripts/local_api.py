@@ -19453,7 +19453,7 @@ def _audit_keys():
 
 def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
                  dong_set: bool = False, expos: list | None = None,
-                 floors: list | None = None) -> dict:
+                 floors: list | None = None, swapped: bool = False) -> dict:
     """매물행(listings)+상세(네이버)+대장(led)+전유면적(expos) → 점검엔진 입력필드 병합.
     dong_set=True(단지형): 동별 총층·사용승인 집합으로 대조(오탐방지), 주차 대조는 생략(총괄표제부 필요)."""
     f = {
@@ -19499,6 +19499,10 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
             f["led_parking_src"] = led.get("parking_src")
     if expos:
         f["led_expos_areas"] = expos
+    # 단지내상가 오탐 판별용(listing_audit): 원본 매물 building_name 이 네이버 placeholder
+    # '단지내상가'인지(det 가 실단지명으로 덮어써도 원본으로 판단) + 상가동 스왑 성공 여부.
+    f["is_danji_shop"] = "단지내상가" in (r.get("building_name") or "")
+    f["led_swapped"] = swapped
     return f
 
 
@@ -19640,7 +19644,7 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
                 det = dict(det, use_approve_ymd=_fl["use_approve_ymd"], _ua_source="건축물 정보")
         except Exception:                                   # noqa: BLE001
             pass                                            # 브리지 장애는 점검을 막지 않는다
-    res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos, floors=floors))
+    res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos, floors=floors, swapped=_swapped))
     res["kind"] = _NONRESI_LABEL.get(cat, cat)
     res["building"] = r.get("building_name")
     res["address"] = det.get("exposure_address") or None
