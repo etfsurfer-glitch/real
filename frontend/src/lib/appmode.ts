@@ -36,6 +36,11 @@ export const isInstalledApp = () => appMode() !== "browser";
 export const isIOSApp = () =>
   typeof navigator !== "undefined" && /KoczipApp\/iOS/.test(navigator.userAgent);
 
+// 인쇄는 PC 전용(2026-09-05): 모바일(중개사앱·모바일 브라우저)은 인쇄 다이얼로그가 없거나
+// 용지·배율이 어긋난다 — 인쇄 버튼은 PDF 다운로드 안내로 대체.
+export const isMobileDevice = () =>
+  typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
 // 스토어 링크 — 앱 미게시 상태에선 설치 페이지가 준비중일 수 있으나 게시 즉시 연결된다.
 export const STORE = {
   general: "https://play.google.com/store/apps/details?id=com.koczip.app&hl=ko",
