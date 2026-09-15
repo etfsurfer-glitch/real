@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Users, ScrollText, Wrench, ShieldAlert, ClipboardCheck, Home as HomeIcon,
   UserCheck, Coins, Bot, LogIn, MessagesSquare, Star, Layers, ShieldCheck,
-  Image as ImageIcon, Radar as RadarIcon, EyeOff,
+  Image as ImageIcon, Radar as RadarIcon, EyeOff, MapPin,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { Loading } from "../components/Loading";
@@ -47,6 +47,7 @@ const TOOLS: { to: string; label: string; icon: typeof Users; desc: string;
   { to: "/admin/suspicious", label: "의심 중개사", icon: ShieldAlert, desc: "허위/중복 의심 탐지" },
   { to: "/admin/hidden-realtors", label: "중개사 노출차단", icon: EyeOff, desc: "특정 중개사무소를 사이트 노출에서 가림(통계는 유지)" },
   { to: "/admin/kok-logs", label: "콕비서 로그", icon: Bot, desc: "중개사 AI 비서(콕비서) 질문·답변 기록 — 개선용" },
+  { to: "/admin/academy", label: "개업 입지·수익", icon: MapPin, desc: "학원 제휴 특별기능 — 지도로 개업 입지 등급+예상 수익 (가오픈)" },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck, desc: "표시·광고 체크리스트 자동점검 (가오픈)" },
   { to: "/admin/cardnews", label: "카드뉴스 생성", icon: ImageIcon, desc: "인스타용 신고가·급매·맞춤단지 카드 이미지" },
   { to: "/admin/cardnews-v2", label: "카드뉴스 v2", icon: ImageIcon, desc: "카드 하나를 골라 조건까지 정해 만든다(카피 AI)" },

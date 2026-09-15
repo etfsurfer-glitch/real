@@ -87,6 +87,20 @@ const ASSETS = [
   { value: "house", label: "단독·다가구" },
 ];
 const TIER_COLOR = ["#1f9d63", "#1268d3", "#e08a1e", "#d23b3b"]; // 저→고 평당가
+
+// 실거래 변동률(%) → 색. 한국 관례: 상승(+)=빨강, 하락(−)=파랑, 보합=회색. (줌아웃 구/동 버블)
+function changeColor(v: number): string {
+  if (v >= 5) return "#d23b3b";      // 강한 상승
+  if (v >= 1.5) return "#e8697a";    // 상승
+  if (v > -1.5) return "#7c8898";    // 보합
+  if (v > -5) return "#4b86e8";      // 하락
+  return "#1268d3";                  // 강한 하락
+}
+// "서울특별시 강남구 역삼동" → 마지막 토큰(동/구명)
+function aggShortName(name: string): string {
+  const p = (name || "").trim().split(/\s+/);
+  return p[p.length - 1] || name;
+}
 const TRADES = [
   { value: "A1", label: "매매" }, { value: "B1", label: "전세" }, { value: "B2", label: "월세" },
 ];
@@ -117,10 +131,16 @@ export default function TxMap() {
   const [sel, setSel] = useState<Pin | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [dtLoading, setDtLoading] = useState(false);
+  const [aggMode, setAggMode] = useState<"gu" | "dong" | null>(null);  // 줌아웃 집계 모드(범례 전환용)
   const elRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const ovsRef = useRef<any[]>([]);
   const fitRef = useRef<Pin[] | null>(null);   // 마지막으로 지도범위를 맞춘 pins — 표시모드 변경 땐 재조정 안 함
+  // 줌아웃 집계(구/동 변동률 버블) 레이어
+  const aggOvsRef = useRef<any[]>([]);
+  const aggKeyRef = useRef("");                // 같은 뷰 재요청 방지
+  const aggActiveRef = useRef(false);          // 집계 모드면 단지 핀 숨김
+  const aggParamsRef = useRef({ asset: "apt", trade: "A1" });
   // 주소 검색 — 드롭다운을 하나도 안 건드려도 지번·도로명만으로 그 자리로 간다.
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
@@ -194,6 +214,7 @@ export default function TxMap() {
 
   const pins = data?.items ?? [];
   const tierOf = useMemo(() => tiers(pins), [pins]);
+  aggParamsRef.current = { asset, trade: tradeEff };   // idle 리스너가 참조할 최신 값
 
   // 핀 선택 → 상세(개별 거래 + 건물정보) 로드
   useEffect(() => {
@@ -217,12 +238,65 @@ export default function TxMap() {
       if (dead || !elRef.current) return;
       const kakao = (window as any).kakao;
       const origin = focus || pins[0];
+
+      // 줌아웃 시 구/동 변동률 버블을 그린다.
+      const renderAgg = (agItems: any[], gLevel: string) => {
+        const m = mapRef.current; if (!m) return;
+        aggOvsRef.current.forEach((o) => o.setMap(null)); aggOvsRef.current = [];
+        for (const it of agItems) {
+          const el = document.createElement("div");
+          el.className = "txm-agg" + (gLevel === "gu" ? " gu" : "");
+          el.style.background = changeColor(it.change);
+          el.innerHTML = `<b>${escapeHtml(aggShortName(it.name))}</b>`
+            + `<span>${it.change > 0 ? "+" : ""}${it.change}%</span>`;
+          el.addEventListener("click", (e) => {
+            e.stopPropagation();
+            m.setLevel(gLevel === "gu" ? 6 : 4, { anchor: new kakao.maps.LatLng(it.lat, it.lng) });
+          });
+          const ov = new kakao.maps.CustomOverlay({
+            position: new kakao.maps.LatLng(it.lat, it.lng), content: el, yAnchor: 0.5, zIndex: 5 });
+          ov.setMap(m); aggOvsRef.current.push(ov);
+        }
+      };
+      const onIdle = () => {
+        const m = mapRef.current; if (!m || !API) return;
+        const lvl = m.getLevel();
+        const { asset: aAsset, trade: aTrade } = aggParamsRef.current;
+        const canAgg = (aAsset === "apt" || aAsset === "offi") && aTrade === "A1";
+        if (lvl < 6 || !canAgg) {                       // 단지 모드(확대)
+          if (aggActiveRef.current) {
+            aggActiveRef.current = false; aggKeyRef.current = "";
+            aggOvsRef.current.forEach((o) => o.setMap(null)); aggOvsRef.current = [];
+            ovsRef.current.forEach((o) => o.setMap(m)); // 단지 핀 복귀
+            setAggMode(null);
+          }
+          return;
+        }
+        aggActiveRef.current = true;
+        ovsRef.current.forEach((o) => o.setMap(null));  // 집계 모드 — 단지 핀 숨김
+        const gLevel: "gu" | "dong" = lvl >= 8 ? "gu" : "dong";
+        setAggMode(gLevel);
+        const bb = m.getBounds(); const sw = bb.getSouthWest(), ne = bb.getNorthEast();
+        const key = `${gLevel}:${aAsset}:${sw.getLat().toFixed(2)},${sw.getLng().toFixed(2)},${ne.getLat().toFixed(2)},${ne.getLng().toFixed(2)}`;
+        if (key === aggKeyRef.current) return;
+        aggKeyRef.current = key;
+        const qs = new URLSearchParams({
+          level: gLevel, asset: aAsset, trade: "A1", window_days: "120",
+          sw_lat: String(sw.getLat()), sw_lng: String(sw.getLng()),
+          ne_lat: String(ne.getLat()), ne_lng: String(ne.getLng()),
+          min_n: gLevel === "gu" ? "8" : "3" });
+        fetch(`${API}/stats/tx-map/agg?${qs}`).then((r) => r.json()).then((d) => {
+          if (aggKeyRef.current === key && aggActiveRef.current) renderAgg(d.items || [], gLevel);
+        }).catch(() => {});
+      };
+
       if (!mapRef.current) {
         mapRef.current = new kakao.maps.Map(elRef.current, {
           center: new kakao.maps.LatLng(origin.lat, origin.lng), level: focus ? 4 : 5,
         });
         attachMapControls(mapRef.current, elRef.current,
           { onLocate: (la, ln) => onLocateRef.current(la, ln) });
+        kakao.maps.event.addListener(mapRef.current, "idle", onIdle);
       }
       const map = mapRef.current;
       ovsRef.current.forEach((o) => o.setMap(null)); ovsRef.current = [];
@@ -237,7 +311,7 @@ export default function TxMap() {
           + `<span class="txm-pin-p">${escapeHtml(bottom)}${p.n > 1 ? `<i>${p.n}</i>` : ""}</span>`;
         el.addEventListener("click", (e) => { e.stopPropagation(); setSel(p); });
         const ov = new kakao.maps.CustomOverlay({ position: pos, content: el, yAnchor: 1.1, clickable: true });
-        ov.setMap(map); ovsRef.current.push(ov);
+        ov.setMap(aggActiveRef.current ? null : map); ovsRef.current.push(ov);
       }
       if (focus) {
         // 검색한 자리 표시. 핀이 나중에 도착해도 화면을 그리로 되돌리지 않는다
@@ -342,12 +416,24 @@ export default function TxMap() {
       {!needRegion && (
         <>
           <div className="txm-legend">
-            <span>{tradeEff === "B1" ? "평당 보증금" : tradeEff === "B2" ? "평당 월세" : "평당가"}</span>
-            {["낮음", "", "", "높음"].map((lb, i) => (
-              <span key={i} className="txm-leg"><i style={{ background: TIER_COLOR[i] }} />{lb}</span>
-            ))}
-            {data && <span className="muted" style={{ marginLeft: "auto", fontSize: 11.5 }}>
-              {loading ? "불러오는 중…" : `핀 ${pins.length.toLocaleString()}개`}</span>}
+            {aggMode ? (
+              <>
+                <span>{aggMode === "gu" ? "구" : "동"}별 변동률</span>
+                <span className="txm-leg"><i style={{ background: "#1268d3" }} />하락</span>
+                <span className="txm-leg"><i style={{ background: "#7c8898" }} />보합</span>
+                <span className="txm-leg"><i style={{ background: "#d23b3b" }} />상승</span>
+                <span className="muted" style={{ marginLeft: "auto", fontSize: 11 }}>최근 120일 · 확대하면 단지</span>
+              </>
+            ) : (
+              <>
+                <span>{tradeEff === "B1" ? "평당 보증금" : tradeEff === "B2" ? "평당 월세" : "평당가"}</span>
+                {["낮음", "", "", "높음"].map((lb, i) => (
+                  <span key={i} className="txm-leg"><i style={{ background: TIER_COLOR[i] }} />{lb}</span>
+                ))}
+                {data && <span className="muted" style={{ marginLeft: "auto", fontSize: 11.5 }}>
+                  {loading ? "불러오는 중…" : `핀 ${pins.length.toLocaleString()}개`}</span>}
+              </>
+            )}
           </div>
           <div ref={elRef} className="txm-map" aria-label="실거래 지도" />
           {data?.note && <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>{data.note}</div>}
