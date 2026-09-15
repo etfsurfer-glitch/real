@@ -88,12 +88,13 @@ export default function BizCalls() {
   return (
     <div className="biz-calls">
       <p className="muted" style={{ fontSize: 12.5, margin: "0 0 10px" }}>
-        전화 고객알림을 켜두면, 고객 전화가 오갈 때마다 여기에 기록돼요. 미등록 번호는 바로 고객으로 등록할 수 있어요.
+        통화 감지는 <b>중개사앱(안드로이드)</b>에서 켜고, 기록은 사무소 단위로 쌓여
+        <b> PC·태블릿·앱 어디서나</b> 열람할 수 있어요. 미등록 번호는 바로 고객으로 등록할 수 있어요.
       </p>
       {items == null && <div className="muted" style={{ fontSize: 13 }}>불러오는 중…</div>}
       {items && items.length === 0 && (
         <div className="muted" style={{ fontSize: 13, padding: "20px 0", textAlign: "center" }}>
-          아직 통화 기록이 없어요. 전화 고객알림을 켜면 쌓입니다.
+          아직 통화 기록이 없어요. 중개사앱에서 통화 감지를 켜면 이곳(PC·태블릿 포함)에 쌓입니다.
         </div>
       )}
       {items && items.map((c, i) => {
