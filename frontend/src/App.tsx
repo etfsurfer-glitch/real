@@ -1,12 +1,12 @@
 import { type ReactNode, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { SubNav } from "./components/SubNav";
 import {
   Sparkles, LayoutDashboard, BadgePercent,
   TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins, Settings as SettingsIcon, Gift } from "lucide-react";
+  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins, Settings as SettingsIcon, Gift, MapPin as MapPinIcon } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginGoogle, isInAppBrowser, authClient } from "./auth";
@@ -59,6 +59,10 @@ import AdminKpi from "./pages/AdminKpi";
 import AdminEvent from "./pages/AdminEvent";
 import AdminHiddenRealtors from "./pages/AdminHiddenRealtors";
 import AdminKokLogs from "./pages/AdminKokLogs";
+import AcademyLocation from "./pages/AcademyLocation";
+import AdminContractBasis from "./pages/AdminContractBasis";
+import BizWContracts from "./pages/BizWContracts";
+import BizOfferInfo from "./pages/BizOfferInfo";
 import NonResi from "./pages/NonResi";
 import JeonseCheck from "./pages/JeonseCheck";
 import Tutorial from "./components/Tutorial";
@@ -79,8 +83,20 @@ import Coupons from "./pages/Coupons";
 import MapView from "./pages/MapView";
 import CancelledTx from "./pages/CancelledTx";
 import PresaleTx from "./pages/PresaleTx";
-import Lounge from "./pages/Lounge";
-import BizApp from "./pages/BizApp";
+// 구 라운지(/lounge)는 통합 셸(/biz)로 흡수 — 리다이렉트만 남긴다.
+// 구 ?tab= 딥링크·북마크를 /biz/:screen 으로 매핑.
+const LOUNGE_TAB_TO_BIZ: Record<string, string> = {
+  dashboard: "/biz", listings: "/biz/diary", ledger: "/biz/ledger", match: "/biz/match",
+  calendar: "/biz/calendar", contracts: "/biz/contracts", wcontracts: "/biz/wcontracts",
+  requests: "/biz/requests", audit: "/biz/audit", office: "/biz/office", edit: "/biz/edit",
+  leads: "/biz/leads", homepage: "/biz/homepage", staff: "/biz/staff",
+};
+function LoungeRedirect() {
+  const [sp] = useSearchParams();
+  const tab = sp.get("tab") || "";
+  return <Navigate to={LOUNGE_TAB_TO_BIZ[tab] || "/biz"} replace />;
+}
+import BizApp, { BizTermsGate, BizRouteShell } from "./pages/BizApp";
 import RealtorHomepage from "./pages/RealtorHomepage";
 import MyHood from "./pages/MyHood";
 import MyComplex from "./pages/MyComplex";
@@ -114,6 +130,7 @@ import TxVolumePeriod from "./pages/TxVolumePeriod";
 import TxTimeMachine from "./pages/TxTimeMachine";
 import ComplexCompare from "./pages/ComplexCompare";
 import RegionCompare from "./pages/RegionCompare";
+import { installExitGuard } from "./lib/exitGuard";
 
 // 하위메뉴(드롭다운 자식)는 아이콘 없는 게 표준 — icon 필드를 두지 않아 구조적으로 통일.
 // heading=true 는 링크가 아닌 그룹 소제목(실거래처럼 하위가 많은 메뉴의 스캔용).
@@ -209,6 +226,8 @@ function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   // 라우트 바뀌면 모바일 드로어 자동 닫힘(뒤로가기 포함)
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+  // 설치앱(중개사앱 등) OS 뒤로가기 실수 종료 방지 — 앱 진입점에선 두 번 눌러야 종료
+  useEffect(() => installExitGuard(), []);
   // 페이지뷰 기록(관리자 페이지 분석용) — 라우트 이동당 1건
   useEffect(() => { logPageview(location.pathname, token); }, [location.pathname, token]);
   // 인앱 브라우저에서 Google 로그인 → 외부 브라우저로 ?login=google 열림 → 여기서 자동 트리거.
@@ -249,15 +268,18 @@ function AppShell() {
   }
   // /biz — 콕집 중개사 앱(TWA 전용 셸). 소비자용 크롬 없이 독립 렌더.
   if (location.pathname === "/biz" || location.pathname.startsWith("/biz/")) {
-    // 일반앱에서 /biz 로 들어오면 라운지로 보낸다(2026-08-14 앱 통합).
-    // /biz 는 중개사앱 전용 셸(소비자 크롬 없는 그리드 홈)이라 일반앱에서 그대로 띄우면
-    // 상단 메뉴가 사라져 빠져나올 길이 없다. 같은 기능은 /lounge 가 레이아웃 안에서 준다.
-    if (isGeneralApp()) return <Navigate to="/lounge" replace />;
+    // 일반(소비자) 앱이 /biz 로 들어오면 소비자 홈으로 돌려보낸다. /biz 는 중개사 전용 셸이고,
+    // 구 /lounge 는 이제 /biz 로 리다이렉트되므로 여기서 /lounge 로 보내면 무한 루프가 된다.
+    if (isGeneralApp()) return <Navigate to="/" replace />;
     return (
       <ErrorBoundary key={location.pathname}>
         <InAppAutoExternal />
         <Routes>
           <Route path="/biz" element={<BizApp />} />
+          {/* 정적 라우트가 :screen보다 우선 — 계약서 작성은 독립 페이지로 렌더 */}
+          {/* 통합 셸(BizRouteShell)로 감싸 데스크톱=레일 / 모바일=탭바 자동 전환 */}
+          <Route path="/biz/wcontracts" element={<BizRouteShell screen="wcontracts"><BizTermsGate><BizWContracts /></BizTermsGate></BizRouteShell>} />
+          <Route path="/biz/wcontracts/:wid/offerinfo" element={<BizRouteShell screen="wcontracts"><BizTermsGate><BizOfferInfo /></BizTermsGate></BizRouteShell>} />
           <Route path="/biz/:screen" element={<BizApp />} />
         </Routes>
       </ErrorBoundary>
@@ -293,6 +315,11 @@ function AppShell() {
     // 막혀 있어 문을 열어도 데이터는 안 나가고, 미연결 사용자에겐 라운지가 스스로
     // '사무소 연결' 안내를 띄운다. 그래서 여기서 막을 이유가 없다.
     // (통화감지처럼 네이티브 권한이 필요한 기능만 중개사앱 전용으로 남긴다)
+    // 중개사앱은 항상 자기 홈(/biz)으로 착지한다 — 로그인 복귀·루트 진입 시 라운지나
+    // CrossAppGate로 새지 않게 루트("/")를 /biz 로 고정한다.
+    if (isRealtorApp() && (_p === "/" || _p === "/index.html")) {
+      return <Navigate to="/biz" replace />;
+    }
     // 중개사앱이 일반 기능(중개사 콘텐츠·공용 제외) 접근 → 일반앱 설치
     if (isRealtorApp() && !_p.startsWith("/lounge") && !_p.startsWith("/biz") && !_shared) {
       return <CrossAppGate target="general" />;
@@ -455,7 +482,7 @@ function AppShell() {
         <Route path="/me/coupons" element={<Coupons />} />
         <Route path="/forum/new" element={<ForumCompose />} />
         <Route path="/forum/:id" element={<ForumPost />} />
-        <Route path="/lounge" element={<Lounge />} />
+        <Route path="/lounge" element={<LoungeRedirect />} />
         <Route path="/request" element={<KoczipRequest />} />
         <Route path="/me/requests" element={<MyRequests />} />
         <Route path="/offer/:token" element={<OfferByLink />} />
@@ -474,6 +501,8 @@ function AppShell() {
         <Route path="/admin/realtor-match" element={<RequireAdmin><AdminRealtorMatch /></RequireAdmin>} />
         <Route path="/admin/hidden-realtors" element={<RequireAdmin><AdminHiddenRealtors /></RequireAdmin>} />
         <Route path="/admin/kok-logs" element={<RequireAdmin><AdminKokLogs /></RequireAdmin>} />
+        <Route path="/admin/academy" element={<RequireAdmin><AcademyLocation /></RequireAdmin>} />
+        <Route path="/admin/contract-basis" element={<RequireAdmin><AdminContractBasis /></RequireAdmin>} />
         <Route path="/admin/users" element={<RequireAdmin><AdminUsers /></RequireAdmin>} />
         <Route path="/admin/resident" element={<RequireAdmin><AdminResident /></RequireAdmin>} />
         <Route path="/admin/realtor-requests" element={<RequireAdmin><AdminRealtorRequests /></RequireAdmin>} />
@@ -571,6 +600,9 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/requests", label: "콕집요청", icon: Sparkles },
   { to: "/admin/realtor-requests", label: "중개사 라운지", icon: Building2 },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck },
+  { to: "/admin/academy", label: "개업 입지·수익", icon: MapPinIcon },
+  { to: "/biz/wcontracts", label: "계약서 작성", icon: ClipboardList },
+  { to: "/admin/contract-basis", label: "계약 기준정보", icon: ClipboardCheck },
   { to: "/admin/cardnews", label: "카드뉴스 생성", icon: ImageIcon },
   { to: "/admin/cardnews-v2", label: "카드뉴스 v2", icon: ImageIcon },
   { to: "/admin/sns-radar", label: "SNS 분석", icon: RadarIcon },

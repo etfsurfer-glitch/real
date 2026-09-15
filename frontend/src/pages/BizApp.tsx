@@ -8,12 +8,12 @@ import AppleLoginButton from "../components/AppleLoginButton";
 import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
 import { Loading } from "../components/Loading";
-import { enablePush, pushOptedIn, pushSupported } from "../lib/push";
+import { enablePush, disablePush, pushOptedIn, pushSupported } from "../lib/push";
 import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp, Presentation, MapPin, X, Send } from "lucide-react";
 import { areaLabel } from "../lib/area";
 import {
   DashboardTab, ListingsTab, AuditTab, LeadsTab, EditTab, OfficeTab, HomepageTab,
-  DocSubmit, AdminPick, FavManager, OfficeFavManager, Card, StaffJoin, StaffManageTab,
+  DocSubmit, AdminPick, FavManager, OfficeFavManager, Card, StaffJoin, StaffManageTab, RequestsTab,
   type Office, type Status, type Tab, type Fav, type FavOffice,
 } from "./Lounge";
 import ContractCalendar from "../components/ContractCalendar";
@@ -21,18 +21,22 @@ import CustomerLedger from "../components/CustomerLedger";
 import MatchBoard from "../components/MatchBoard";
 import BizContracts from "../components/BizContracts";
 import ListingAnalysis from "../components/ListingAnalysis";
+import { BizSubNav, BizRail } from "../lib/bizNav";
+import { MyRankTab } from "./MyRank";
+import { useRailShell } from "../lib/shellMode";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
 // 콕집 중개사 앱(/biz) — 라운지 기능을 '매물장 중심의 중개사 다이어리'로 재구성한 전용 셸.
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
-type Screen = "diary" | "ledger" | "match" | "calendar" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
-            | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze" | "verify" | "brief";
+type Screen = "diary" | "ledger" | "match" | "calendar" | "contract" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
+            | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze" | "verify" | "brief" | "rank" | "requests";
 
 const SCREENS: Record<Screen, { title: string }> = {
   diary: { title: "매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
   calendar: { title: "계약캘린더" },
+  contract: { title: "계약" },
   contracts: { title: "계약관리" }, audit: { title: "매물점검" },
   leads: { title: "상담신청" },
   homepage: { title: "내 홈페이지" }, favs: { title: "관심단지" }, "fav-offices": { title: "관심중개사" },
@@ -44,11 +48,15 @@ const SCREENS: Record<Screen, { title: string }> = {
   analyze: { title: "실거래분석" },
   verify: { title: "계약검증" },
   brief: { title: "매물 브리핑" },
+  rank: { title: "내 매물 순위" },
+  requests: { title: "콕집요청" },
 };
 
 export default function BizApp() {
-  const { user, token, ready, configured, refreshMe, isAdmin } = useAuth();
+  const { user, token, ready, configured, refreshMe } = useAuth();
   const { screen } = useParams<{ screen: Screen }>();
+  // 통합 셸: 데스크톱=풀 레일, 태블릿=아이콘 레일, 모바일·앱=탭바.
+  const { on: useRail, mini: railMini } = useRailShell();
   const nav = useNavigate();
   const [st, setSt] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
@@ -163,46 +171,68 @@ export default function BizApp() {
 
   const office = st.office;
 
-  // ── ③ 기능 화면 ──
+  // 화면 디스패치(서브네비 제외) — 레일·탭바 셸이 공용으로 담는다.
+  const dispatch = (screen && SCREENS[screen]) ? (
+    <>
+      {screen === "diary" && <ListingsTab authH={authH} office={office} />}
+      {screen === "rank" && <MyRankTab authH={authH} />}
+      {screen === "analyze" && <AnalyzeTab />}
+      {screen === "contract" && <BizContractHub />}
+      {screen === "verify" && <VerifyTab />}
+      {screen === "brief" && <BriefTab authH={authH} office={office} />}
+      {screen === "ledger" && <CustomerLedger authH={authH} onGoListings={() => nav("/biz/diary")} />}
+      {screen === "match" && <MatchBoard authH={authH} onGoLedger={() => nav("/biz/ledger")} />}
+      {/* 계약캘린더·계약관리 = 중개사 개방(약관 동의 게이트, 백엔드 contract_user와 동일 기준) */}
+      {screen === "calendar" && <BizTermsGate><ContractCalendar authH={authH} /></BizTermsGate>}
+      {screen === "contracts" && <BizTermsGate><BizContracts authH={authH} /></BizTermsGate>}
+      {screen === "audit" && <AuditTab authH={authH} />}
+      {screen === "leads" && <LeadsTab authH={authH} />}
+      {screen === "homepage" && <HomepageTab authH={authH} office={office} onStatusChange={loadStatus} />}
+      {screen === "favs" && <FavScreen authH={authH} />}
+      {screen === "fav-offices" && <FavOfficeScreen authH={authH} />}
+      {screen === "office" && <OfficeTab office={office} method={st.method} onUnlink={unlink} />}
+      {screen === "staff" && <StaffManageTab authH={authH} office={office} />}
+      {screen === "edit" && <EditTab authH={authH} />}
+      {screen === "dash" && <DashboardTab authH={authH} office={office} onGoTab={goTab} />}
+      {screen === "settings" && <BizSettings office={office} authH={authH} method={st.method} onUnlink={unlink} />}
+      {screen === "calls" && <BizCalls />}
+      {screen === "requests" && <RequestsTab authH={authH} />}
+      {screen === "more" && <MoreHub authH={authH} hasHomepage={!!st.has_homepage} role={st.role ?? "owner"} onLogout={logout} />}
+    </>
+  ) : null;
+  const homeBody = <BizHome office={office} authH={authH} role={st.role ?? "owner"} staffName={st.staff_name ?? null} hideChrome={useRail} />;
+
+  // ── 데스크톱 레일 셸(플래그 ?ui=rail) — 같은 메뉴·같은 화면을 사이드바로 ──
+  if (useRail) {
+    return (
+      <div className="biz-rail-shell">
+        <BizRail screen={screen} role={st.role ?? "owner"} mini={railMini} />
+        <div className="biz-rail-main">
+          {dispatch ?? homeBody}
+        </div>
+        {callPhone && <QuickAddCustomer phone={callPhone} onClose={closeCallAdd} />}
+      </div>
+    );
+  }
+
+  // ── ③ 기능 화면 (모바일·앱 탭바 셸) ──
   if (screen && SCREENS[screen]) {
     return (
       <div className="biz-shell">
         <BizTop backTo="/biz" title={SCREENS[screen].title} />
         <div className="biz-body">
-          {tabForScreen(screen) === "listings" && <BizSectionNav screen={screen} />}
-          {tabForScreen(screen) === "contracts" && <BizContractNav screen={screen} isAdmin={isAdmin} />}
-          {screen === "diary" && <ListingsTab authH={authH} office={office} />}
-          {screen === "analyze" && <AnalyzeTab />}
-          {screen === "verify" && <VerifyTab />}
-          {screen === "brief" && <BriefTab authH={authH} office={office} />}
-          {screen === "ledger" && <CustomerLedger authH={authH} onGoListings={() => nav("/biz/diary")} />}
-          {screen === "match" && <MatchBoard authH={authH} onGoLedger={() => nav("/biz/ledger")} />}
-          {/* 계약캘린더·계약관리 = 관리자 가오픈. 타일뿐 아니라 화면도 막는다
-              (URL 직접 접근 차단 — 데이터는 백엔드 admin_user가 이미 막지만 화면도 노출 금지) */}
-          {screen === "calendar" && (isAdmin ? <ContractCalendar authH={authH} /> : <AdminOnly />)}
-          {screen === "contracts" && (isAdmin ? <BizContracts authH={authH} /> : <AdminOnly />)}
-          {screen === "audit" && <AuditTab authH={authH} />}
-          {screen === "leads" && <LeadsTab authH={authH} />}
-          {screen === "homepage" && <HomepageTab authH={authH} office={office} onStatusChange={loadStatus} />}
-          {screen === "favs" && <FavScreen authH={authH} />}
-          {screen === "fav-offices" && <FavOfficeScreen authH={authH} />}
-          {screen === "office" && <OfficeTab office={office} method={st.method} onUnlink={unlink} />}
-          {screen === "staff" && <StaffManageTab authH={authH} office={office} />}
-          {screen === "edit" && <EditTab authH={authH} />}
-          {screen === "dash" && <DashboardTab authH={authH} office={office} onGoTab={goTab} />}
-          {screen === "settings" && <BizSettings office={office} authH={authH} method={st.method} onUnlink={unlink} />}
-          {screen === "calls" && <BizCalls />}
-          {screen === "more" && <MoreHub authH={authH} hasHomepage={!!st.has_homepage} role={st.role ?? "owner"} isAdmin={isAdmin} onLogout={logout} />}
+          <BizSubNav screen={screen} role={st.role ?? "owner"} />
+          {dispatch}
         </div>
         <BizTabBar active={tabForScreen(screen)} />
       </div>
     );
   }
 
-  // ── ④ 홈: 버튼 그리드 ──
+  // ── ④ 홈 (탭바) ──
   return (
     <>
-      <BizHome office={office} authH={authH} role={st.role ?? "owner"} staffName={st.staff_name ?? null} />
+      {homeBody}
       {callPhone && <QuickAddCustomer phone={callPhone} onClose={closeCallAdd} />}
     </>
   );
@@ -221,7 +251,7 @@ export default function BizApp() {
     const map: Record<Tab, string> = {
       dashboard: "dash", listings: "diary", ledger: "ledger", match: "match",
       calendar: "calendar",
-      contracts: "contracts", audit: "audit", office: "office", requests: "requests",
+      contracts: "contracts", wcontracts: "wcontracts", audit: "audit", office: "office", requests: "requests",
       edit: "edit", leads: "leads", homepage: "homepage", staff: "staff",
     };
     nav(`/biz/${map[t]}`);
@@ -293,18 +323,10 @@ function BizLanding() {
 }
 
 // ── 홈 그리드 ──
-// 관리자 가오픈 기능에 비관리자가 URL로 접근했을 때
-function AdminOnly() {
-  return (
-    <div className="bzc-card" style={{ textAlign: "center", padding: "28px 16px" }}>
-      <div style={{ fontSize: 14, fontWeight: 800, color: "#13294b", marginBottom: 6 }}>준비 중인 기능입니다</div>
-      <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
-        계약캘린더·계약관리는 현재 관리자 가오픈 단계입니다. 곧 열어드릴게요.
-      </p>
-      <Link to="/biz" className="chip" style={{ marginTop: 12, display: "inline-flex" }}>홈으로</Link>
-    </div>
-  );
-}
+// 계약 진입 게이트는 components/BizTermsGate.tsx 로 이동(라운지 공용, 2026-09-05).
+// App.tsx 등 기존 임포트 호환을 위한 재수출.
+import { BizTermsGate } from "../components/BizTermsGate";
+export { BizTermsGate };
 
 function BizSettings({ office, authH, method, onUnlink }: {
   office: Office; authH: () => Record<string, string>; method?: string; onUnlink: () => void;
@@ -315,11 +337,21 @@ function BizSettings({ office, authH, method, onUnlink }: {
   const [pushOn, setPushOn] = useState(pushOptedIn());
   const [callBusy, setCallBusy] = useState(false);
 
+  const [pushBusy, setPushBusy] = useState(false);
   async function togglePush() {
+    if (pushBusy) return;
     if (!pushSupported()) { alert("이 기기는 알림을 지원하지 않아요."); return; }
-    const r = await enablePush(token);
-    if (r.ok) { setPushOn(true); alert("알림이 켜졌습니다. 매일 10시·16시 매물 브리핑을 보내드려요."); }
-    else alert("알림 설정에 실패했어요. 브라우저 알림 권한을 확인해 주세요.");
+    setPushBusy(true);
+    try {
+      if (pushOn) {                       // 켜짐 → 끄기(구독 해제)
+        if (token) await disablePush(token);
+        setPushOn(false);
+      } else {                            // 꺼짐 → 켜기
+        const r = await enablePush(token);
+        if (r.ok) setPushOn(true);
+        else alert("알림을 켤 수 없어요. 브라우저 알림 권한을 확인해 주세요.");
+      }
+    } finally { setPushBusy(false); }
   }
   async function enableCall() {
     setCallBusy(true);
@@ -342,7 +374,9 @@ function BizSettings({ office, authH, method, onUnlink }: {
         <h3><Bell size={15} /> 알림</h3>
         <div className="bs-toggle">
           <div className="bs-toggle-txt"><b>매물 브리핑·상담 알림</b><span>매일 10시·16시 요약, 상담 들어오면 즉시</span></div>
-          <button className={"bs-sw" + (pushOn ? " on" : "")} onClick={togglePush} disabled={pushOn}>{pushOn ? "켜짐" : "켜기"}</button>
+          <button type="button" role="switch" aria-checked={pushOn} aria-label="매물 브리핑·상담 알림"
+            className={"bs-switch" + (pushOn ? " on" : "")} onClick={togglePush} disabled={pushBusy}>
+            <span className="bs-switch-knob" /></button>
         </div>
       </section>
 
@@ -372,17 +406,31 @@ function BizSettings({ office, authH, method, onUnlink }: {
 type BizTab = "home" | "listings" | "customers" | "contracts" | "more";
 function tabForScreen(screen?: string): BizTab {
   if (!screen) return "home";
-  if (screen === "diary" || screen === "audit" || screen === "analyze" || screen === "brief") return "listings";
+  if (screen === "diary" || screen === "audit" || screen === "analyze" || screen === "brief" || screen === "rank") return "listings";
   if (screen === "ledger" || screen === "match" || screen === "leads") return "customers";
-  if (screen === "contracts" || screen === "calendar" || screen === "verify") return "contracts";
+  if (screen === "contract" || screen === "contracts" || screen === "calendar" || screen === "verify" || screen === "wcontracts") return "contracts";
   return "more";
 }
-function BizTabBar({ active }: { active: BizTab }) {
+
+// 라우트 전용 셸 래퍼 — BizApp 밖의 /biz 라우트(계약서 작성 등)도 레일/탭바 셸에 담는다.
+export function BizRouteShell({ screen, children }: { screen: string; children: React.ReactNode }) {
+  const { on: useRail, mini } = useRailShell();
+  if (useRail) {
+    return (
+      <div className="biz-rail-shell">
+        <BizRail screen={screen} role="owner" mini={mini} />
+        <div className="biz-rail-main">{children}</div>
+      </div>
+    );
+  }
+  return <>{children}<BizTabBar active={tabForScreen(screen)} /></>;
+}
+export function BizTabBar({ active }: { active: BizTab }) {
   const items: { key: BizTab; to: string; icon: React.ReactNode; label: string }[] = [
     { key: "home", to: "/biz", icon: <Home size={20} />, label: "홈" },
     { key: "listings", to: "/biz/diary", icon: <Building2 size={20} />, label: "매물" },
     { key: "customers", to: "/biz/ledger", icon: <Users size={20} />, label: "고객" },
-    { key: "contracts", to: "/biz/verify", icon: <FileText size={20} />, label: "계약" },
+    { key: "contracts", to: "/biz/contracts", icon: <FileText size={20} />, label: "계약" },
     { key: "more", to: "/biz/more", icon: <LayoutGrid size={20} />, label: "더보기" },
   ];
   return (
@@ -455,23 +503,77 @@ function KokSecretary({ authH, onClose }: { authH: () => Record<string, string>;
   );
 }
 
-function BizHome({ office, authH, role, staffName }: {
+type BizEvent = { id: number; title: string; event_date: string; event_time: string | null; event_type: string };
+type HomeHook = {
+  available: boolean; area: string; trades_30d: number; trend_pct: number | null;
+  top: { complex: string; amount_won: number; pyeong: number | null; ymd: string; new_high: boolean } | null;
+};
+type OfficeChg = { added: number; removed: number; bumped: number; note?: string; date: string | null };
+// 로컬 날짜 YYYY-MM-DD (UTC 밀림 방지)
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dateStr0 = (d: Date) => ymd(d);
+const dDay = (date: string, now: Date) => {
+  const [y, m, dd] = date.split("-").map(Number);
+  const t = new Date(y, m - 1, dd).getTime();
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.round((t - base) / 864e5);
+};
+const ddayLabel = (n: number) => n === 0 ? "오늘" : n === 1 ? "내일" : n < 0 ? `${-n}일 전` : `D-${n}`;
+const ddayCls = (n: number) => n <= 0 ? "d-now" : n <= 2 ? "d-soon" : "d-far";
+const evClass = (t: string) => t === "잔금" ? "jan" : t === "계약" || t === "중도금" ? "gye" : t === "만기" ? "man" : "etc";
+// 원 → "N억[ N,NNN]" 표기 (transactions.deal_amount 는 원 단위)
+const eokLabel = (won: number) => {
+  const eok = Math.floor(won / 1e8);
+  const man = Math.floor((won % 1e8) / 1e4);   // 억 미만을 만원으로
+  if (eok <= 0) return `${man.toLocaleString()}만`;
+  return man ? `${eok}억 ${man.toLocaleString()}` : `${eok}억`;
+};
+
+function BizHome({ office, authH, role, staffName, hideChrome }: {
   office: Office; authH: () => Record<string, string>; role: string; staffName: string | null;
+  hideChrome?: boolean;  // 레일 셸에선 상단바·하단탭바 숨김(레일이 대체)
 }) {
   const [leadNew, setLeadNew] = useState(0);
   const [total, setTotal] = useState<number | null>(null);
   const [pushOn, setPushOn] = useState(pushOptedIn());
   const [kok, setKok] = useState(false);
-  const { token, isAdmin } = useAuth();
+  const [events, setEvents] = useState<BizEvent[] | null>(null);
+  const [hook, setHook] = useState<HomeHook | null>(null);
+  const [chg, setChg] = useState<OfficeChg | null>(null);
+  const { token } = useAuth();
+
+  const now = new Date();
+  const dateStr = `${now.getMonth() + 1}월 ${now.getDate()}일 ${"일월화수목금토"[now.getDay()]}요일`;
+
   useEffect(() => {
     fetch(`${API_BASE}/lounge/dashboard`, { headers: authH() })
       .then((r) => r.json())
       .then((d) => { setLeadNew(d?.leads?.new_count || 0); setTotal(d?.stats?.total_listings ?? null); })
       .catch(() => {});
-  }, [authH]);
+    // 오늘~향후 14일 일정(잔금 D-day·계약·임장 등) — 계약약관 미동의면 403이라 조용히 접는다
+    const from = ymd(now), to = ymd(new Date(now.getTime() + 14 * 864e5));
+    fetch(`${API_BASE}/biz/events?date_from=${from}&date_to=${to}`, { headers: authH() })
+      .then((r) => r.ok ? r.json() : { events: [] })
+      .then((d) => setEvents(d.events || [])).catch(() => setEvents([]));
+    fetch(`${API_BASE}/biz/home-hook?_=${Date.now()}`, { headers: authH(), cache: "no-store" })
+      .then((r) => r.ok ? r.json() : { available: false })
+      .then((d) => setHook(d?.available ? d : null)).catch(() => setHook(null));
+    // 우리 사무소 오늘 매물 변화(어제 스냅샷 대비 신규·내림·끌올)
+    if (office.realtor_id) {
+      fetch(`${API_BASE}/lounge/office-changes?realtor_id=${encodeURIComponent(office.realtor_id)}`, { headers: authH() })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => setChg(d ? {
+          added: (d.added || []).length, removed: (d.removed || []).length,
+          bumped: (d.bumped || []).length, note: d.note, date: d.dates?.current || null,
+        } : null)).catch(() => setChg(null));
+    }
+  }, [authH, office.realtor_id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const now = new Date();
-  const dateStr = `${now.getMonth() + 1}월 ${now.getDate()}일 ${"일월화수목금토"[now.getDay()]}요일`;
+  // 다가오는 일정 상위 4건 — D-day 계산
+  const upcoming = (events || [])
+    .filter((e) => e.event_date >= dateStr0(now))
+    .slice(0, 4)
+    .map((e) => ({ ...e, dday: dDay(e.event_date, now) }));
 
   async function togglePush() {
     const r = await enablePush(token);
@@ -481,7 +583,7 @@ function BizHome({ office, authH, role, staffName }: {
 
   return (
     <div className="biz-shell">
-      <BizTop settings />
+      {!hideChrome && <BizTop settings />}
       <div className="biz-body">
         <div className="biz-greet">
           <div className="biz-greet-name"><b>{role === "owner" ? `${office.representative || "대표"} 대표님` : `${staffName || "직원"}님`}</b>, 안녕하세요</div>
@@ -495,9 +597,22 @@ function BizHome({ office, authH, role, staffName }: {
           <span className="kok-txt"><b>콕비서</b>에게 물어보세요 — “오늘 잔금 있어?”</span>
         </button>
 
-        {/* 오늘 요약 */}
+        {/* 오늘 요약 — 일정(잔금 D-day·계약·임장) 중심 */}
         <div className="biz-today">
-          <div className="biz-today-h">오늘 · 이번주</div>
+          <div className="biz-today-h">
+            <span>오늘 · 이번주</span>
+            <Link to="/biz/calendar" className="biz-today-more">캘린더 ›</Link>
+          </div>
+          {upcoming.length > 0 && upcoming.map((e) => (
+            <Link key={e.id} to="/biz/calendar" className="biz-today-row biz-sched">
+              <span className="biz-sched-l">
+                <span className={`biz-ev-dot ev-${evClass(e.event_type)}`} />
+                <span className="biz-sched-t"><b>{e.event_type}</b> · {e.title}
+                  {e.event_time && <span className="biz-sched-time"> {e.event_time}</span>}</span>
+              </span>
+              <b className={`biz-dday ${ddayCls(e.dday)}`}>{ddayLabel(e.dday)}</b>
+            </Link>
+          ))}
           <Link to="/biz/leads" className="biz-today-row">
             <span>새 상담신청</span>
             <b className={leadNew ? "hot" : ""}>{leadNew ? `${leadNew}건` : "없음"}</b>
@@ -514,6 +629,36 @@ function BizHome({ office, authH, role, staffName }: {
           )}
         </div>
 
+        {/* 어제 우리 동네 — 사무소 소재 동 실거래 훅 */}
+        {hook && (hook.trades_30d > 0 || hook.top) && (
+          <Link to="/biz/analyze" className="biz-hood">
+            <div className="biz-today-h">
+              <span>{hook.area} 최근 실거래</span>
+              <span className="biz-today-more">실거래분석 ›</span>
+            </div>
+            <div className="biz-hood-row">
+              <span>최근 30일 거래</span>
+              <span className="biz-hood-r">
+                <b>{hook.trades_30d.toLocaleString()}건</b>
+                {hook.trend_pct != null && (
+                  <span className={`biz-trend ${hook.trend_pct >= 0 ? "up" : "down"}`}>
+                    평당가 {hook.trend_pct >= 0 ? "+" : ""}{hook.trend_pct}%</span>
+                )}
+              </span>
+            </div>
+            {hook.top && (
+              <div className="biz-hood-row">
+                <span className="biz-hood-top">{hook.top.complex}
+                  {hook.top.pyeong ? ` ${hook.top.pyeong}평` : ""}</span>
+                <span className="biz-hood-r">
+                  <b>{eokLabel(hook.top.amount_won)}</b>
+                  {hook.top.new_high && <span className="biz-newhigh">신고가</span>}
+                </span>
+              </div>
+            )}
+          </Link>
+        )}
+
         <CallDetectCard token={token} />
 
         {/* 빠른 실행 */}
@@ -521,16 +666,31 @@ function BizHome({ office, authH, role, staffName }: {
         <div className="biz-quick">
           <BizQuick to="/biz/diary" icon={<ClipboardList size={20} />} label="매물장" />
           <BizQuick to="/biz/ledger" icon={<Users size={20} />} label="고객원장" />
-          {isAdmin
-            ? <BizQuick to="/biz/contracts" icon={<FileText size={20} />} label="AI 계약" />
-            : <BizQuick to="/biz/match" icon={<Sparkles size={20} />} label="물건매칭" />}
+          <BizQuick to="/biz/contracts" icon={<FileText size={20} />} label="AI 계약" />
           <BizQuick to="/biz/audit" icon={<ShieldCheck size={20} />} label="매물점검" />
         </div>
+
+        {/* 우리 사무소 오늘 매물 변화 — 어제 스냅샷 대비 */}
+        <Link to="/biz/diary" className="biz-chg">
+          <div className="biz-chg-h">
+            <span>우리 매물 오늘 변화</span>
+            <span className="biz-chg-sub">{chg?.date ? "어제 대비" : ""} 매물장 ›</span>
+          </div>
+          {chg?.note ? (
+            <div className="biz-chg-empty">{chg.note}</div>
+          ) : (
+            <div className="biz-chg-grid">
+              <div className="biz-chg-cell"><b className={chg?.added ? "up" : ""}>{chg ? chg.added : "—"}</b><span>신규 등록</span></div>
+              <div className="biz-chg-cell"><b className={chg?.removed ? "down" : ""}>{chg ? chg.removed : "—"}</b><span>내림·종료</span></div>
+              <div className="biz-chg-cell"><b className={chg?.bumped ? "hot" : ""}>{chg ? chg.bumped : "—"}</b><span>끌올(재등록)</span></div>
+            </div>
+          )}
+        </Link>
 
         <Link to="/biz/more" className="biz-more-link"><LayoutGrid size={16} /> 전체 메뉴 보기</Link>
       </div>
       {kok && <KokSecretary authH={authH} onClose={() => setKok(false)} />}
-      <BizTabBar active="home" />
+      {!hideChrome && <BizTabBar active="home" />}
     </div>
   );
 }
@@ -545,21 +705,6 @@ function BizQuick({ to, icon, label }: { to: string; icon: React.ReactNode; labe
 }
 
 // ── 매물 섹션 서브탭 ──
-function BizSectionNav({ screen }: { screen?: string }) {
-  const items = [
-    { key: "diary", to: "/biz/diary", label: "매물장" },
-    { key: "analyze", to: "/biz/analyze", label: "실거래분석" },
-    { key: "brief", to: "/biz/brief", label: "브리핑" },
-    { key: "audit", to: "/biz/audit", label: "매물점검" },
-  ];
-  return (
-    <div className="biz-subnav">
-      {items.map((it) => (
-        <Link key={it.key} to={it.to} className={`biz-subnav-chip${screen === it.key ? " on" : ""}`}>{it.label}</Link>
-      ))}
-    </div>
-  );
-}
 
 // ── 실거래분석: 단지 검색 → 시세·급매·호가 분석(콕집 데이터) ──
 type CxHit = { complex_no: string; complex_name: string; region: string; households: number; type_name?: string };
@@ -614,20 +759,6 @@ function AnalyzeTab() {
 }
 
 // ── 계약 섹션 서브탭 ──
-function BizContractNav({ screen, isAdmin }: { screen?: string; isAdmin: boolean }) {
-  const items = [
-    { key: "verify", to: "/biz/verify", label: "계약검증", show: true },
-    { key: "contracts", to: "/biz/contracts", label: "계약관리", show: isAdmin },
-    { key: "calendar", to: "/biz/calendar", label: "계약캘린더", show: isAdmin },
-  ].filter((x) => x.show);
-  return (
-    <div className="biz-subnav">
-      {items.map((it) => (
-        <Link key={it.key} to={it.to} className={`biz-subnav-chip${screen === it.key ? " on" : ""}`}>{it.label}</Link>
-      ))}
-    </div>
-  );
-}
 
 // ── 계약검증: 계약금액이 실거래 시세 대비 적정한지 + 전세가율/깡통전세(콕집 데이터) ──
 type VTx = { deal_ymd: string; amount: number; excl_use_ar: number; floor?: number | null };
@@ -971,8 +1102,8 @@ function BriefTab({ authH, office }: { authH: () => Record<string, string>; offi
 }
 
 // ── 더보기: 전체 메뉴(기존 그리드) ──
-function MoreHub({ authH, hasHomepage, role, isAdmin, onLogout }: {
-  authH: () => Record<string, string>; hasHomepage: boolean; role: string; isAdmin: boolean; onLogout: () => void;
+function MoreHub({ authH, hasHomepage, role, onLogout }: {
+  authH: () => Record<string, string>; hasHomepage: boolean; role: string; onLogout: () => void;
 }) {
   const [leadNew, setLeadNew] = useState(0);
   const [pushOn, setPushOn] = useState(pushOptedIn());
@@ -993,8 +1124,9 @@ function MoreHub({ authH, hasHomepage, role, isAdmin, onLogout }: {
         <BizBtn to="/biz/ledger" icon={<Users size={22} />} label="고객원장" desc="손님 요건·내놓은 물건" primary />
         <BizBtn to="/biz/match" icon={<Sparkles size={22} />} label="고객·물건매칭" desc="손님 조건에 맞는 매물 찾기" primary />
         <BizBtn to="/biz/verify" icon={<FileText size={22} />} label="계약검증" desc="계약금액 시세 적정성" />
-        {isAdmin && <BizBtn to="/biz/calendar" icon={<CalendarDays size={22} />} label="계약캘린더" desc="계약서 → 일정 (가오픈)" />}
-        {isAdmin && <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="계약서·조건·당사자 (가오픈)" />}
+        <BizBtn to="/biz/calendar" icon={<CalendarDays size={22} />} label="계약캘린더" desc="계약서 → 일정 자동등록" />
+        <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="계약서·조건·당사자" />
+        <BizBtn to="/biz/wcontracts" icon={<FileText size={22} />} label="계약서 작성" desc="매매·임대차·권리금 계약서" />
         <BizBtn to="/biz/homepage" icon={<Globe size={22} />} label={hasHomepage ? "내 홈페이지" : "홈페이지 만들기"} desc="사무소 홈페이지" />
         <BizBtn to="/biz/analyze" icon={<TrendingUp size={22} />} label="실거래분석" desc="단지 시세·급매 분석" />
         <BizBtn to="/biz/brief" icon={<Presentation size={22} />} label="매물 브리핑" desc="손님에게 보여주기" />
@@ -1035,6 +1167,18 @@ function BizBtn({ to, icon, label, desc, badge, primary }: {
       <b>{label}</b>
       <span className="biz-btn-desc">{desc}</span>
     </Link>
+  );
+}
+
+// ── 계약 허브(하단 '계약' 탭) — 계약서 작성을 앞·강조로, 관리/캘린더/검증을 한자리에 ──
+function BizContractHub() {
+  return (
+    <div className="biz-grid">
+      <BizBtn to="/biz/wcontracts" icon={<FileText size={22} />} label="계약서 작성" desc="매매·임대차·권리금 계약서 · 확인설명서" primary />
+      <BizBtn to="/biz/contracts" icon={<FileText size={22} />} label="계약관리" desc="작성한 계약·당사자·조건" />
+      <BizBtn to="/biz/calendar" icon={<CalendarDays size={22} />} label="계약캘린더" desc="계약·중도금·잔금 일정 자동등록" />
+      <BizBtn to="/biz/verify" icon={<FileText size={22} />} label="계약검증" desc="계약금액 시세 적정성" />
+    </div>
   );
 }
 
