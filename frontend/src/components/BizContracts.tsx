@@ -36,7 +36,7 @@ export default function BizContracts({ authH }: { authH: () => Record<string, st
     const p = new URLSearchParams();
     if (q.trim()) p.set("q", q.trim());
     fetch(`${API_BASE}/biz/contracts?${p}`, { headers: authH() })
-      .then((r) => { if (!r.ok) throw new Error(r.status === 403 ? "관리자 전용(가오픈)입니다" : `오류 ${r.status}`); return r.json(); })
+      .then((r) => { if (!r.ok) throw new Error(r.status === 403 ? "이용 권한을 확인해 주세요" : `오류 ${r.status}`); return r.json(); })
       .then((d) => { setItems(d.items ?? []); setErr(""); })
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
@@ -45,7 +45,6 @@ export default function BizContracts({ authH }: { authH: () => Record<string, st
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <div className="bzc-badge">관리자 가오픈 — 작업 중인 기능입니다</div>
       <div className="bzc-card">
         <div className="bzc-h"><FileText size={15} /> 계약관리
           <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>— 등록한 계약서</span>

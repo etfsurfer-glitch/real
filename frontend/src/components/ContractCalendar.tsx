@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Camera, Upload, CalendarDays, Trash2, ExternalLink, Download, Plus, Loader2, FileText, X, User, ShieldCheck } from "lucide-react";
 import { maskSensitiveDoc } from "../lib/maskDoc";
 
-// 계약서 → 캘린더 (관리자 가오픈)
+// 계약서 → 캘린더
 // 계약서 사진/PDF 업로드 → AI가 일정(계약·중도금·잔금·입주·만기) 추출 →
 // 확인·수정 후 자체 캘린더 저장. 일정별 '구글 캘린더 추가'(template URL) + ICS 내보내기.
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -103,7 +103,7 @@ export default function ContractCalendar({ authH }: { authH: () => Record<string
 
   const load = useCallback(() => {
     fetch(`${API_BASE}/biz/events`, { headers: authH() })
-      .then((r) => { if (!r.ok) throw new Error(r.status === 403 ? "관리자 전용(가오픈)입니다" : `오류 ${r.status}`); return r.json(); })
+      .then((r) => { if (!r.ok) throw new Error(r.status === 403 ? "이용 권한을 확인해 주세요" : `오류 ${r.status}`); return r.json(); })
       .then((d) => setEvents(d.events ?? []))
       .catch((e) => setErr(e.message));
     // 통화 내역도 캘린더에 표시 — 실패해도 일정은 정상(조용히 무시)
@@ -269,7 +269,6 @@ export default function ContractCalendar({ authH }: { authH: () => Record<string
 
   return (
     <div style={{ display: "grid", gap: 14, maxWidth: 1120 }}>
-      <div className="bzc-badge">관리자 가오픈 — 작업 중인 기능입니다</div>
 
       {/* ── 계약서 업로드 ── */}
       <div className="bzc-card">
