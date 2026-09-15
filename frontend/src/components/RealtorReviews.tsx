@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loading } from "./Loading";
 import { useAuth, loginKakao } from "../auth";
+import ReportBlock from "./ReportBlock";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -112,6 +113,8 @@ export function RealtorReviews(
               {r.verified && <span className="badge verified">✓ 거래인증</span>}
               {r.verified && r.rating != null && <Stars value={r.rating} />}
               <span className="muted review-date">{fmtDate(r.created_at)}</span>
+              <ReportBlock targetType="realtor_review" targetId={r.id}
+                onBlocked={() => setReloadKey((k) => k + 1)} />
             </div>
             <div className="review-body">{r.body}</div>
           </div>

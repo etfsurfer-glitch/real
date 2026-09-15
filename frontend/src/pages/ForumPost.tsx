@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { ThumbsUp, ThumbsDown, ArrowLeft, MessageCircle } from "lucide-react";
 import { useAuth } from "../auth";
 import { LevelBadge } from "../components/LevelBadge";
+import ReportBlock from "../components/ReportBlock";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -48,6 +49,7 @@ function Votes({ type, id, v, onChange }: {
 
 export default function ForumPost() {
   const { id } = useParams<{ id: string }>();
+  const nav = useNavigate();
   const { token, user, refreshMe } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -98,6 +100,9 @@ export default function ForumPost() {
               ? <span className="admin-badge">관리자</span>
               : <LevelBadge level={post.level} rank={post.rank} />}
             <b>{post.nickname}</b> · {ago(post.created_at)}
+            {!post.is_mine && (
+              <ReportBlock targetType="forum_post" targetId={post.id} onBlocked={() => nav("/forum")} />
+            )}
           </div>
           {post.has_image && (
             <img className="forum-post-img" src={`${API}/forum/posts/${post.id}/image`} alt="첨부" />
@@ -128,6 +133,10 @@ export default function ForumPost() {
                   ? <span className="admin-badge">관리자</span>
                   : <LevelBadge level={c.level} rank={c.rank} />}
                 <b>{c.nickname}</b> · {ago(c.created_at)}
+                {!c.is_mine && (
+                  <ReportBlock targetType="forum_comment" targetId={c.id}
+                    onBlocked={() => setComments((cs) => cs.filter((x) => x.id !== c.id))} />
+                )}
               </div>
               <div className="forum-cmt-body">{c.body}</div>
             </div>
