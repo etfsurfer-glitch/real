@@ -21,7 +21,9 @@
       "namespace": "android_app",
       "package_name": "com.koczip.realtor",
       "sha256_cert_fingerprints": [
-        "B5:44:CA:E7:09:E1:38:28:96:19:4A:91:CD:AD:BD:77:55:0C:47:43:74:7A:1B:8A:9E:70:9F:6A:6D:54:1D:8F"
+        "B5:44:CA:E7:09:E1:38:28:96:19:4A:91:CD:AD:BD:77:55:0C:47:43:74:7A:1B:8A:9E:70:9F:6A:6D:54:1D:8F",
+        "48:35:35:4F:AF:66:01:54:0C:6D:89:BC:49:E0:06:F2:0E:70:4C:7F:83:07:3E:EB:83:5A:EA:69:0E:54:72:84",
+        "8E:DE:13:55:E9:FA:C5:13:C7:E0:82:31:1A:19:6D:3E:E9:C4:EE:76:22:25:4C:72:23:AC:8A:C9:E7:2F:4D:3A"
       ]
     }
   }

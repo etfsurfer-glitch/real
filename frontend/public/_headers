@@ -16,3 +16,16 @@
 
 /biz.webmanifest
   Cache-Control: public, max-age=0, must-revalidate
+
+# 광고 랜딩(/ad) — 영상·스틸은 불변 캐시, 진입 HTML은 항상 재검증
+/ad/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/ad/vid/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/ad/stills/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/ad/scrub-engine.js
+  Cache-Control: public, max-age=0, must-revalidate

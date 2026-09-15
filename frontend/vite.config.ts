@@ -30,6 +30,8 @@ export default defineConfig({
       workbox: {
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,  // 번들 2.1MB — 기본 2MiB 한도 초과
         navigateFallback: "/index.html",
+        // /ad(광고 랜딩)는 SPA 밖의 별도 정적 페이지 — SW가 가로채면 SPA 셸이 떠버림
+        navigateFallbackDenylist: [/^\/ad(\/|$)/],
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
         // OCR 마스킹 자산(tess/*)은 계약서 업로드 때만 지연 로드 — 전 방문자 precache 금지(~8MB)
         globIgnores: ["tess/**"],
