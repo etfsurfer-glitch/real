@@ -186,6 +186,18 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     #  · 상가동이 없는 복합타워(예: 숙박59층 저층 상가)는 타워 전체 총층이 정답값 →
     #    광고가 상가부(2층)만 적었으면 공부 불일치 위반이 맞음.
     led_comparable = True
+    # 단지내상가 오탐 방지: 상가·사무실 매물인데 대장이 '순수 주거 건물'(공동주택 등 — 층별개요에
+    # 상업/업무/숙박층이 하나도 없음)을 가리키면, 그 상가는 이 건물에 없다(단지내상가의 상가동은
+    # 대개 다른 지번이라 상위의 상가동 스왑도 실패). 아파트동 총층·사용승인·주차로 위반을 오판하지
+    # 않도록 ⑥⑨⑩ 대장 대조를 생략한다. 층별개요에 상업층이 있으면(주상복합·저층 근생) 타워 값이
+    # 정답이므로 그대로 대조한다(위 복합타워 규칙 유지).
+    if (not cp_autofilled
+            and _listing_cat(rtype, f.get("real_estate_type")) in ("상업", "업무")
+            and any(k in (f.get("led_main_purps") or "")
+                    for k in ("공동주택", "아파트", "연립주택", "다세대주택", "기숙사", "도시형생활"))
+            and not any(_purps_cat(x.get("purps")) in ("상업", "업무", "숙박")
+                        for x in (f.get("led_floors") or []))):
+        led_comparable = False
 
     # ① 소재지 (지번·동·층)
     floor = f.get("floor_info")
@@ -290,16 +302,16 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         else:
             add(9, "사용승인일", "통과", "CP 자동입력(확인)")
     elif not _has(ua):
-        note = f" → 건축물대장 기준 {_fmt_led_ymd(led_ua)}" if led_ua else ""
+        note = f" → 건축물대장 기준 {_fmt_led_ymd(led_ua)}" if (led_ua and led_comparable) else ""
         add(9, "사용승인일", "위반", "광고에 사용승인일 미표시" + note)
-    elif _ymd_mismatch(ua, led_ua):
+    elif led_comparable and _ymd_mismatch(ua, led_ua):
         add(9, "사용승인일", "위반",
             f"광고({_fmt_ymd(ua)}) ≠ 건축물대장 기준 {_fmt_led_ymd(led_ua)} — 공부와 불일치")
     else:
         # ua_source='건축물 정보': 매물 입력값이 아니라 광고 화면의 건축물 정보 블록에서 확인한 값.
         # 중개사가 '난 입력했는데 왜 위반이냐'로 오해하지 않게 어디서 확인했는지 밝힌다.
         src = f.get("ua_source")
-        base = f"건축물대장 기준 {_fmt_led_ymd(led_ua)} 일치" if led_ua else ""
+        base = f"건축물대장 기준 {_fmt_led_ymd(led_ua)} 일치" if (led_ua and led_comparable) else ""
         if src:
             note = f"광고 ‘{src}’에 {_fmt_ymd(ua)} 노출"
             add(9, "사용승인일", "통과", f"{note} · {base}" if base else note)
@@ -387,8 +399,14 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
             add(13, "층별 용도", "주의",
                 f"광고는 주거인데 건축물대장 {cflr}층 용도는 ‘{mpur}’({'/'.join(fcats)}) — 용도 확인 필요 · {summary}")
         elif lcat in ("상업", "업무") and fcats == {"주거"}:
-            add(13, "층별 용도", "주의",
-                f"광고는 {lcat}인데 건축물대장 {cflr}층은 ‘{mpur}’(주거) — 용도 확인 필요 · {summary}")
+            if not led_comparable:
+                # 이 지번 대장은 주거동 — 단지내상가의 상가동은 별도 지번이라 이 건물 층 용도는
+                # 이 매물과 무관하다. 오탐 방지로 위반/주의 없이 참고 표시만.
+                add(13, "층별 용도", "통과",
+                    f"단지내상가 — 이 지번 건축물대장은 주거동(상가동 대장 별도) · {summary}")
+            else:
+                add(13, "층별 용도", "주의",
+                    f"광고는 {lcat}인데 건축물대장 {cflr}층은 ‘{mpur}’(주거) — 용도 확인 필요 · {summary}")
         else:
             add(13, "층별 용도", "통과", f"{cflr}층 용도 ‘{mpur}’ · {summary}")
 
