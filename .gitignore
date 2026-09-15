@@ -19,6 +19,8 @@ venv/
 
 # Local data store (SQLite, parquet, raw snapshots)
 data/
+# 외장하드서 회수한 5월 매물 parquet(2.2GB) — 커밋 금지
+data_archive_may/
 *.sqlite
 *.sqlite-journal
 *.duckdb
@@ -40,3 +42,8 @@ frontend/*.tsbuildinfo
 Thumbs.db
 .vscode/
 .idea/
+
+# SNS 자격증명(절대 커밋 금지)
+cookies*.json
+*_cookies.json
+sns_creds.json
