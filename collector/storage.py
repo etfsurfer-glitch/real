@@ -258,6 +258,10 @@ def init_schema(conn: sqlite3.Connection) -> None:
         # Migrate older DBs to the B-field layout.
         for col, ddl in _B_FIELDS:
             _add_column_if_missing(conn, "listings_current", col, ddl)
+        # 랭킹순 등수 — 수집 시 응답 순서(=네이버 단지 랭킹순)의 1-based 위치.
+        # 중개사 라운지 '내 매물 순위'(물건 내 등수·단지 등수)용. sameAddressGroup=false
+        # 로 받으므로 개별 매물 각각에 붙는다.
+        _add_column_if_missing(conn, "listings_current", "rank_in_complex", "INTEGER")
         # 실매물(중복 광고 합침) 컬럼 — 기존 DB 보강.
         _add_column_if_missing(conn, "complex_daily_agg", "unit_count", "REAL")
         # 단지명 정규화 컬럼 — 사람이 치는 표기('용산이편한세상')와 DB 표기('용산e-편한세상')를
@@ -562,6 +566,11 @@ def finalize_deletions(conn: sqlite3.Connection, snapshot_date: str) -> int:
 
 
 def upsert_region(conn: sqlite3.Connection, region_obj: dict, parent: str | None) -> None:
+    # 인천 2026-07 개편: 네이버가 아직 서빙하는 옛 중·동·서구(하위 동 포함)는
+    # regions 에 되살리지 않는다 — 신구(제물포·영종·서해·검단) 행은 별도 시드 완료.
+    from collector.icn_remap import is_defunct_region
+    if is_defunct_region(region_obj.get("cortarNo")):
+        return
     with _LOCK:
         conn.execute(
             """
@@ -588,6 +597,11 @@ def upsert_region(conn: sqlite3.Connection, region_obj: dict, parent: str | None
 
 
 def upsert_complex(conn: sqlite3.Connection, c: dict) -> None:
+    # 인천 2026-07 개편: 네이버 옛 동 cortar 를 신구 코드로 치환해 저장(밤 수집이
+    # complexes.cortar_no 를 옛코드로 되돌리는 것을 막는 영구 가드).
+    from collector.icn_remap import remap_cortar
+    if c.get("cortarNo"):
+        c = {**c, "cortarNo": remap_cortar(c.get("cortarNo"))}
     today = date.today().isoformat()
     with _LOCK:
         conn.execute(
@@ -635,7 +649,8 @@ def upsert_complex(conn: sqlite3.Connection, c: dict) -> None:
         conn.commit()
 
 
-def _article_row(complex_no: str, trade: str, snapshot_date: str, it: dict) -> tuple:
+def _article_row(complex_no: str, trade: str, snapshot_date: str, it: dict,
+                 rank: int | None = None) -> tuple:
     deal_txt = it.get("dealOrWarrantPrc")
     rent_txt = it.get("rentPrc")
     deal_v = parse_price_text(deal_txt)
@@ -674,6 +689,7 @@ def _article_row(complex_no: str, trade: str, snapshot_date: str, it: dict) -> t
         float(it["latitude"]) if it.get("latitude") else None,
         float(it["longitude"]) if it.get("longitude") else None,
         snapshot_date,
+        rank,
     )
 
 
@@ -688,7 +704,9 @@ def save_articles(
     snapshot, used by uploader/frontend) AND the accumulating articles +
     article_events tables.
     """
-    rows = [_article_row(complex_no, trade, snapshot_date, it) for it in items]
+    # items 는 네이버 랭킹순(응답 순서) 리스트 → enumerate 가 곧 단지 랭킹순 등수.
+    rows = [_article_row(complex_no, trade, snapshot_date, it, rank)
+            for rank, it in enumerate(items, 1)]
     with _LOCK:
         # 이 (complex, trade) 의 기존 행을 '전부' 지우고 이번 배치로 교체한다.
         # snapshot_date 까지 걸어 오늘 것만 지우면, 어제 있다가 오늘 내려간(delisted)
@@ -711,8 +729,8 @@ def save_articles(
                     same_addr_cnt, same_addr_min_price, same_addr_max_price,
                     price_change_state, is_price_modification,
                     article_status, article_feature_desc, cp_pc_article_url,
-                    latitude, longitude, snapshot_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    latitude, longitude, snapshot_date, rank_in_complex
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
