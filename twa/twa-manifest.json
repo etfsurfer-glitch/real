@@ -21,8 +21,8 @@
     "path": "./android.keystore",
     "alias": "koczip"
   },
-  "appVersionName": "1.0.0",
-  "appVersionCode": 4,
+  "appVersionName": "1.0.1",
+  "appVersionCode": 5,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://koczip.com/manifest.webmanifest",

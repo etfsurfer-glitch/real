@@ -1,6 +1,8 @@
 # 서명 키스토어 — 절대 커밋 금지(분실 시 앱 업데이트 영구 불가, ~/.koczip/ 에 백업)
 *.keystore
 *.jks
+# 서명 비밀번호 — gradle.properties 는 추적 대상이라 여기 따로 둔다
+keystore.properties
 # 빌드 산출물·gradle 캐시
 app/build/
 build/

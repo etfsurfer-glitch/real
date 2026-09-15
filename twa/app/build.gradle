@@ -50,15 +50,24 @@ def twaManifest = [
     orientation: 'default',
 ]
 
+// ── 릴리스 서명 ────────────────────────────────────────────────────────────
+// 비밀번호를 대화형으로 입력할 수 없는 환경(에이전트·CI)에서도 서명된 AAB 가 나오게 한다.
+// 비밀번호는 keystore.properties 에 두고 git 에서 제외한다(gradle.properties 는 추적 대상이라
+// 절대 넣으면 안 된다). 파일이 없으면 서명 없이 빌드된다 — 개발 중엔 서명이 필요 없다.
+def ksFile = rootProject.file('keystore.properties')
+def ksProps = new Properties()
+if (ksFile.exists()) { ksFile.withInputStream { ksProps.load(it) } }
+def canSign = ksFile.exists() && ksProps['storePassword']
+
 android {
     compileSdkVersion 36
     namespace "com.koczip.app"
     defaultConfig {
         applicationId "com.koczip.app"
         minSdkVersion 21
-        targetSdkVersion 35
-        versionCode 4
-        versionName "1.0.0"
+        targetSdkVersion 36
+        versionCode 5
+        versionName "1.0.1"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name
@@ -150,9 +159,21 @@ android {
 
         
     }
+    signingConfigs {
+        release {
+            if (canSign) {
+                storeFile rootProject.file(ksProps['storeFile'] ?: 'android.keystore')
+                storePassword ksProps['storePassword']
+                keyAlias ksProps['keyAlias'] ?: 'koczip'
+                // 키 비밀번호를 따로 안 적었으면 키스토어 비밀번호와 같다고 본다(흔한 구성)
+                keyPassword ksProps['keyPassword'] ?: ksProps['storePassword']
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled true
+            if (canSign) { signingConfig signingConfigs.release }
         }
     }
     compileOptions {
