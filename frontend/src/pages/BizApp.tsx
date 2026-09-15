@@ -24,6 +24,7 @@ import ListingAnalysis from "../components/ListingAnalysis";
 import { BizSubNav, BizRail } from "../lib/bizNav";
 import { MyRankTab } from "./MyRank";
 import { useRailShell } from "../lib/shellMode";
+import { BizTermsConsentModal, bizTermsAgreed } from "../components/BizTermsConsentModal";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -62,6 +63,7 @@ export default function BizApp() {
   const [loading, setLoading] = useState(true);
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [joinRole, setJoinRole] = useState<"owner" | "staff">("owner");
+  const [consentRid, setConsentRid] = useState<string | null>(null);   // 신규가입 약관동의 대기
   const [sp, setSp] = useSearchParams();
   const callPhone = sp.get("call");
   const closeCallAdd = () => { const n = new URLSearchParams(sp); n.delete("call"); setSp(n, { replace: true }); };
@@ -149,6 +151,11 @@ export default function BizApp() {
           )}
           {st.state === "admin_pick" && (
             <Card><p><b>관리자</b> — 둘러볼 사무소를 검색해 연결하세요.</p><AdminPick authH={authH} onPicked={loadStatus} /></Card>
+          )}
+          {consentRid && (
+            <BizTermsConsentModal authH={authH}
+              onClose={() => setConsentRid(null)}
+              onAgree={() => { const rid = consentRid; setConsentRid(null); doSelectOffice(rid); }} />
           )}
 
           {/* 중개사가 아니면 일반 앱으로 — 인증 흐름 중(승인대기·관리자 제외)에만 노출 */}
@@ -238,6 +245,10 @@ export default function BizApp() {
   );
 
   function selectOffice(rid: string) {
+    // 신규가입 번들 — 미동의 시 연동 확정 직전 약관 동의. 기동의·관리자는 통과.
+    bizTermsAgreed(authH).then((ok) => { if (ok) doSelectOffice(rid); else setConsentRid(rid); });
+  }
+  function doSelectOffice(rid: string) {
     fetch(`${API_BASE}/lounge/select`, {
       method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
       body: JSON.stringify({ realtor_id: rid }),
