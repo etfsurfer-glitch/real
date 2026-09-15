@@ -10,15 +10,20 @@ import ImportListings from "../components/ImportListings";
 import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, ClipboardList, Search, ExternalLink,
   MapPin, Map as MapIcon, LayoutDashboard, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
   ShieldCheck, Users, CalendarDays, FileText, Camera, Lock, Trash2, Sparkles, ChevronDown, Loader2,
-  Folder, FolderOpen, Check, Upload, FileSpreadsheet } from "lucide-react";
+  Check, Upload, FileSpreadsheet,
+  Store, Home as HomeIcon, SlidersHorizontal, ArrowLeft, Landmark } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import ContractCalendar from "../components/ContractCalendar";
 import LoungeCalendarPanel from "../components/LoungeCalendarPanel";
 import QuickAdd from "../components/QuickAdd";
 import CustomerLedger from "../components/CustomerLedger";
+import CustomerEdit, { type EditCustomer } from "../components/CustomerEdit";
 import MatchBoard from "../components/MatchBoard";
 import BizContracts from "../components/BizContracts";
+import BizWContracts from "./BizWContracts";
+import { BizTermsGate } from "../components/BizTermsGate";
+import { BizTermsConsentModal, bizTermsAgreed } from "../components/BizTermsConsentModal";
 
 const TT: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 type ChgItem = { article_no: string; complex_no: string; complex_name?: string | null;
@@ -53,10 +58,10 @@ export type Status = {
 type EditReq = { id: number; content: string; status: string; admin_note: string | null; created_at: string; resolved_at: string | null };
 type Lead = { id: number; name: string | null; phone: string | null; message: string | null; source: string | null; status: string; created_at: string };
 
-export type Tab = "dashboard" | "listings" | "ledger" | "match" | "calendar" | "contracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
+export type Tab = "dashboard" | "listings" | "ledger" | "match" | "calendar" | "contracts" | "wcontracts" | "audit" | "office" | "edit" | "leads" | "homepage" | "staff" | "requests";
 // 렌더되는 탭은 전부 여기 있어야 한다 — ?tab= 딥링크와 새로고침 복원이 이 목록으로 걸러진다
 export const LOUNGE_TABS: Tab[] = ["dashboard", "listings", "ledger", "match", "calendar", "contracts",
-  "requests", "audit", "office", "edit", "leads", "homepage", "staff"];
+  "wcontracts", "requests", "audit", "office", "edit", "leads", "homepage", "staff"];
 type Dash = {
   office: Office;
   stats: { total_listings: number; complex_listings?: number; national_rank: number | null; national_total: number;
@@ -80,6 +85,7 @@ export default function Lounge() {
   const [st, setSt] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [phoneOpen, setPhoneOpen] = useState(false);
+  const [consentRid, setConsentRid] = useState<string | null>(null);   // 신규가입 약관동의 대기 중인 사무소
   // 탭을 URL(?tab=)과 동기화 — 상단 '중개사라운지' 드롭다운 하위메뉴가 특정 탭으로 바로 진입.
   const [sp, setSp] = useSearchParams();
   const _initTab = ((): Tab => {
@@ -223,8 +229,9 @@ export default function Lounge() {
           {tab === "listings" && <ListingsTab authH={authH} office={st.office} />}
           {tab === "ledger" && <CustomerLedger authH={authH} onGoListings={() => setTab("listings")} />}
           {tab === "match" && <MatchBoard authH={authH} onGoLedger={() => setTab("ledger")} />}
-          {tab === "calendar" && isAdmin && <ContractCalendar authH={authH} />}
-          {tab === "contracts" && isAdmin && <BizContracts authH={authH} />}
+          {tab === "calendar" && <BizTermsGate><ContractCalendar authH={authH} /></BizTermsGate>}
+          {tab === "contracts" && <BizTermsGate><BizContracts authH={authH} /></BizTermsGate>}
+          {tab === "wcontracts" && <BizTermsGate><BizWContracts /></BizTermsGate>}
           {tab === "requests" && <RequestsTab authH={authH} />}
           {tab === "audit" && <AuditTab authH={authH} />}
           {tab === "office" && <OfficeTab office={st.office} method={st.method} onUnlink={unlink} />}
@@ -240,10 +247,21 @@ export default function Lounge() {
         <PhoneModal token={token} onClose={() => setPhoneOpen(false)}
           onDone={async () => { await refreshMe(); setPhoneOpen(false); loadStatus(); }} />
       )}
+
+      {consentRid && (
+        <BizTermsConsentModal authH={authH}
+          onClose={() => setConsentRid(null)}
+          onAgree={() => { const rid = consentRid; setConsentRid(null); doSelectOffice(rid); }} />
+      )}
     </>
   );
 
   function selectOffice(rid: string) {
+    // 신규가입 번들 — 아직 약관 동의 전이면 연동 확정 직전에 동의를 먼저 받는다.
+    // 이미 동의했거나 관리자면 바로 연동(기존 회원 재선택 시 재동의 요구 안 함).
+    bizTermsAgreed(authH).then((ok) => { if (ok) doSelectOffice(rid); else setConsentRid(rid); });
+  }
+  function doSelectOffice(rid: string) {
     fetch(`${API_BASE}/lounge/select`, {
       method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
       body: JSON.stringify({ realtor_id: rid }),
@@ -270,6 +288,7 @@ function LoungeRail({ authH, tab, setTab, isAdmin, hasHomepage, isOwner, fold, o
   authH: () => Record<string, string>; tab: Tab; setTab: (t: Tab) => void;
   isAdmin: boolean; hasHomepage: boolean; isOwner: boolean; fold: boolean; onFold: () => void;
 }) {
+  void isAdmin;   // 계약탭 개방(2026-09-05)으로 rail 분기에선 미사용 — prop 시그니처 유지
   const [n, setN] = useState<Record<string, number>>({});
   useEffect(() => {
     let dead = false;
@@ -290,8 +309,9 @@ function LoungeRail({ authH, tab, setTab, isAdmin, hasHomepage, isOwner, fold, o
       ["leads", "상담신청", MessageSquare, "leads"],
     ]],
     ["관리", [
-      ...((isAdmin ? [["calendar", "계약캘린더", CalendarDays, null],
-                      ["contracts", "계약관리", FileText, null]] : []) as Row[]),
+      ["wcontracts", "계약서 작성", FileText, null],
+      ["calendar", "계약캘린더", CalendarDays, null],
+      ["contracts", "계약관리", FileText, null],
       ["audit", "매물점검", ShieldCheck, null],
       ["homepage", hasHomepage ? "홈페이지관리" : "홈페이지생성", Globe, null],
       ["requests", "콕집요청", Sparkles, null],
@@ -816,6 +836,23 @@ export function EditTab({ authH }: { authH: () => Record<string, string> }) {
   );
 }
 
+// 전화번호에 하이픈 — 010/070 11자리, 02 지역, 그 외 지역번호 10자리. 형식을 못 맞추면(내부번호 등) 원본 그대로.
+function fmtPhone(p?: string | null): string {
+  const d = (p || "").replace(/[^0-9]/g, "");
+  if (d.length === 11 && d.startsWith("0")) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
+  if (d.length === 10 && d.startsWith("02")) return `02-${d.slice(2, 6)}-${d.slice(6)}`;
+  if (d.length === 10 && d.startsWith("0")) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length === 9 && d.startsWith("02")) return `02-${d.slice(2, 5)}-${d.slice(5)}`;
+  return p || "";
+}
+
+// 접수시각 짧게 — "2026-09-05 05:40:00" → "09-05 05:40"
+function fmtLeadTime(s?: string | null): string {
+  if (!s) return "";
+  const m = String(s).match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  return m ? `${m[2]}-${m[3]} ${m[4]}:${m[5]}` : String(s).slice(0, 16);
+}
+
 export function LeadsTab({ authH }: { authH: () => Record<string, string> }) {
   const [items, setItems] = useState<Lead[]>([]);
   const load = useCallback(() => {
@@ -823,33 +860,64 @@ export function LeadsTab({ authH }: { authH: () => Record<string, string> }) {
       .then((r) => r.json()).then((d) => setItems(d.items ?? [])).catch(() => {});
   }, [authH]);
   useEffect(() => { load(); }, [load]);
+  const [regDone, setRegDone] = useState<Record<number, boolean>>({});
+  const [custEdit, setCustEdit] = useState<EditCustomer | null>(null);
+  const [pendingLead, setPendingLead] = useState<number | null>(null);   // 등록 폼 저장 시 '등록됨' 표시할 리드
   const setStatus = (id: number, status: string) => {
     fetch(`${API_BASE}/lounge/leads/${id}/status`, {
       method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     }).then(() => load());
   };
+  // 고객원장 등록 — 그냥 저장하지 않고, 리드 정보로 채운 등록 폼을 띄워 이름·요건을 받는다.
+  const toCustomer = async (id: number) => {
+    const r = await fetch(`${API_BASE}/lounge/leads/${id}/to-customer`, { method: "POST", headers: authH() });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.customer) { alert(d?.detail || "고객원장 등록에 실패했어요"); return; }
+    setPendingLead(id);
+    setCustEdit({ id: d.customer.id, name: d.customer.name, phone: d.customer.phone,
+      memo: d.customer.memo, needs: [] });
+  };
+  const delLead = async (id: number) => {
+    if (!window.confirm("이 상담신청을 삭제할까요? 되돌릴 수 없어요.")) return;
+    const r = await fetch(`${API_BASE}/lounge/leads/${id}`, { method: "DELETE", headers: authH() });
+    if (r.ok) load(); else alert("삭제에 실패했어요");
+  };
   if (items.length === 0) return <Card><p className="muted" style={{ margin: 0 }}>아직 들어온 상담신청이 없습니다. 홈페이지를 만들면 상담신청이 여기로 쌓입니다.</p></Card>;
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table>
-        <thead><tr><th>상태</th><th>이름</th><th>연락처</th><th>문의내용</th><th>접수</th><th></th></tr></thead>
-        <tbody>
-          {items.map((l) => (
-            <tr key={l.id}>
-              <td><span className="ctx-badge" style={leadBadge(l.status)}>{leadKr(l.status)}</span></td>
-              <td>{l.name ?? "-"}</td>
-              <td>{l.phone ? <a href={`tel:${l.phone.replace(/[^0-9+]/g, "")}`}>{l.phone}</a> : "-"}</td>
-              <td style={{ fontSize: 13, maxWidth: 320 }}>{l.message ?? "-"}</td>
-              <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{l.created_at}</td>
-              <td style={{ whiteSpace: "nowrap" }}>
-                {l.status !== "done" && <button className="chip" onClick={() => setStatus(l.id, "done")}>완료</button>}
-                {l.status === "new" && <button className="chip" onClick={() => setStatus(l.id, "read")}>읽음</button>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="lead-list">
+      {items.map((l) => (
+        <div className="lead-card" key={l.id}>
+          <div className="lead-top">
+            <span className="ctx-badge" style={leadBadge(l.status)}>{leadKr(l.status)}</span>
+            {l.phone
+              ? <a className="lead-tel" href={`tel:${l.phone.replace(/[^0-9+]/g, "")}`}>{fmtPhone(l.phone)}</a>
+              : <span className="lead-noname">번호 없음</span>}
+            <span className="lead-acts">
+              {regDone[l.id]
+                ? <span className="lead-regok">등록됨</span>
+                : <button className="chip lead-reg" onClick={() => toCustomer(l.id)}
+                    title="고객원장에 등록">등록</button>}
+              {l.status !== "done"
+                ? <button className="chip lead-done" onClick={() => setStatus(l.id, "done")}>완료</button>
+                : <button className="chip lead-del" onClick={() => delLead(l.id)}
+                    title="상담신청 삭제">삭제</button>}
+            </span>
+          </div>
+          <div className="lead-sub">
+            <span className="lead-msg">{l.name ? `${l.name} · ` : ""}{l.message ?? "-"}</span>
+            {l.created_at && <span className="lead-meta">{fmtLeadTime(l.created_at)}</span>}
+          </div>
+        </div>
+      ))}
+      {custEdit && (
+        <CustomerEdit authH={authH} cust={custEdit}
+          onClose={() => { setCustEdit(null); setPendingLead(null); }}
+          onSaved={() => {
+            if (pendingLead != null) setRegDone((s) => ({ ...s, [pendingLead]: true }));
+            setCustEdit(null); setPendingLead(null);
+          }} />
+      )}
     </div>
   );
 }
@@ -901,6 +969,7 @@ export function StaffJoin({ authH, phoneVerified, onNeedPhone, onDone }: {
   const [name, setName] = useState("");
   const [role, setRole] = useState<"assoc" | "assist">("assoc");
   const [busy, setBusy] = useState(false);
+  const [consentApply, setConsentApply] = useState<null | { nm: string; rl: "assoc" | "assist" }>(null);
 
   if (!phoneVerified) {
     return (
@@ -922,7 +991,12 @@ export function StaffJoin({ authH, phoneVerified, onNeedPhone, onDone }: {
     fetch(`${API_BASE}/lounge/office-roster?realtor_id=${encodeURIComponent(o.realtor_id)}`, { headers: authH() })
       .then((r) => r.json()).then((d) => setRoster(d.items ?? [])).catch(() => setRoster([]));
   };
-  const apply = async (nm: string, rl: "assoc" | "assist") => {
+  // 신규가입 번들 — 직원 신청 확정 직전 약관 동의(미동의 시). 관리자·기동의는 통과.
+  const apply = (nm: string, rl: "assoc" | "assist") => {
+    if (!office || busy) return;
+    bizTermsAgreed(authH).then((ok) => { if (ok) doApply(nm, rl); else setConsentApply({ nm, rl }); });
+  };
+  const doApply = async (nm: string, rl: "assoc" | "assist") => {
     if (!office || busy) return;
     setBusy(true);
     try {
@@ -989,6 +1063,11 @@ export function StaffJoin({ authH, phoneVerified, onNeedPhone, onDone }: {
           <p className="muted" style={{ fontSize: 12 }}>신청하면 대표님께 알림이 가고, 승인 즉시 이용할 수 있어요.</p>
           <StaffDocSubmit authH={authH} realtorId={office.realtor_id} onDone={onDone} />
         </>
+      )}
+      {consentApply && (
+        <BizTermsConsentModal authH={authH} confirmLabel="동의하고 신청"
+          onClose={() => setConsentApply(null)}
+          onAgree={() => { const c = consentApply; setConsentApply(null); doApply(c.nm, c.rl); }} />
       )}
     </Card>
   );
@@ -1621,75 +1700,6 @@ type Manager = { name: string; position: string; role: string };
 type ForeignHit = { mine: boolean; article_no: string; realtor_id: string; realtor_name: string; listing: MLItem | null };
 /** 전화 버튼에 넣을 번호. 하이픈만 정리하고 그대로 보여 준다(PC 는 폭이 넉넉하다). */
 /** 행의 오른쪽 칸들 — 폴더 안이든 밖이든 같은 모양이라 한 군데로 모은다. */
-function ListingCells({ l }: { l: MLItem }) {
-  return (
-    <>
-      <span className="mjt-meta">
-        <span className="c-ho">{unitOf(l)}</span>
-        <span className="c-ar">{l.area2_m2 ? areaLabel(l.area2_m2, { supply: l.area1_m2 }) : "-"}</span>
-        <span className="c-fl">{l.floor_info
-          ? `${l.floor_info}${l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : ""}층`
-          : "-"}</span>
-        <span className="c-st">{l.settle_ymd ? <><em className="lb">잔금</em>{l.settle_ymd}</> : null}</span>
-      </span>
-      {/* 전화 — PC 는 번호까지 보이고, 폰은 아이콘만. 누르면 바로 걸린다 */}
-      <span className="c-ct" onClick={(e) => e.stopPropagation()}>
-        {l.contact ? (
-          <a className="mjt-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}
-            title={`${l.contact} 로 전화`}>
-            <Phone size={12} /><b>{fmtTelShort(l.contact)}</b>
-          </a>
-        ) : <span className="mjt-nocall">-</span>}
-      </span>
-      <span className="c-pr">
-        {l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}
-      </span>
-    </>
-  );
-}
-
-/** 폴더 머리에 붙는 한 줄 — 접어 둬도 무엇이 들었는지 알게 한다. */
-function groupSummary(g: MLItem[]): string {
-  const n: Record<string, number> = {};
-  for (const l of g) n[l.trade_type || "기타"] = (n[l.trade_type || "기타"] || 0) + 1;
-  const kinds = ["매매", "전세", "월세"].filter((k) => n[k]).map((k) => `${k} ${n[k]}`);
-  const priv = g.filter((l) => l.is_private).length;
-  if (priv) kinds.push(`직접등록 ${priv}`);
-  return kinds.join(" · ");
-}
-
-/** 매물 출처 — 행마다 아이콘 하나. 자물쇠는 우리가 직접 적은 것(우리만 봄),
- *  지구본은 네이버에서 가져온 것(지금 광고 중). 뜻은 표 위 범례에 적어 뒀다. */
-function SrcIcon({ l }: { l: MLItem }) {
-  if (!l.is_private) {
-    return <em className="c-src nv" title="네이버에서 가져온 매물 — 지금 광고 중"><Globe size={9} /></em>;
-  }
-  if (l.import_file) {
-    return (
-      <>
-        <em className="c-src im" title={`엑셀에서 가져온 매물 — ${l.import_file}${l.import_at ? ` (${l.import_at})` : ""}`}>
-          <FileSpreadsheet size={9} /></em>
-        {l.also_naver && (
-          <em className="c-src nv" title={`네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}`}>
-            <Globe size={9} /></em>
-        )}
-      </>
-    );
-  }
-  return (
-    <>
-      <em className="c-src pv" title={`직접등록 — ${l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}`}>
-        <Lock size={9} /></em>
-      {/* 같은 물건이 네이버에도 올라가 있으면 둘 다 붙인다 — 광고 중인지 아닌지가
-          매물장에서 바로 보여야 한다 */}
-      {l.also_naver && (
-        <em className="c-src nv" title={`네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}`}>
-          <Globe size={9} /></em>
-      )}
-    </>
-  );
-}
-
 /** 표에 세울 이름. 단지형은 단지명이지만 단지가 없는 물건(빌라·상가·사무실·단독·토지…)은
  *  주소다. 그쪽 building_name 은 '일반상가'·'빌라' 같은 유형 딱지라(실측) 이름 자리에
  *  세우면 모든 행이 똑같아 보여 어느 물건인지 구별이 안 된다.
@@ -1750,12 +1760,6 @@ function dongHo(l: { dong?: string | null; ho?: string | null; address?: string 
   return [dd, hh].filter(Boolean).join(" ") || l.address || "-";
 }
 
-function fmtTelShort(p?: string): string {
-  const d = (p || "").replace(/[^0-9]/g, "");
-  if (d.length === 11) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
-  if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
-  return p || "";
-}
 
 function fmtYmd(s: string) { return s && s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}` : s; }
 function eok(v: number) {
@@ -1767,6 +1771,88 @@ function eok(v: number) {
 function eokWon(v: number) { return eok(Math.round((v || 0) / 10000)); }
 
 const ML_CATS = ["", "아파트", "오피스텔", "분양권", "빌라", "상가", "사무실", "단독"];
+
+// ── 매물장 재설계(폴딩·카드) 보조 ─────────────────────────────────────────
+/** 유형별 묶음 버킷 — 원천 type 을 사람이 읽는 큰 갈래로 정규화. */
+function mlTypeBucket(l: MLItem): string {
+  const t = (l.type || "").trim();
+  if (t === "아파트") return "아파트";
+  if (t === "오피스텔" || t === "분양권") return "오피스텔·분양권";
+  if (["빌라", "연립", "다세대", "원룸", "재개발"].includes(t)) return "빌라·원룸";
+  if (t === "상가") return "상가";
+  if (["사무실", "오피스", "지식산업센터"].includes(t)) return "사무실";
+  if (["단독", "다가구", "전원주택"].includes(t)) return "단독·다가구";
+  if (["토지", "공장", "건물", "빌딩"].includes(t)) return "토지·건물";
+  return t || "기타";
+}
+/** 카드 스펙 줄 — 전용 · 층 · 방향. */
+function mlSpecLine(l: MLItem): string {
+  const parts: string[] = [];
+  if (l.area2_m2) parts.push(areaLabel(l.area2_m2, { supply: l.area1_m2 }));
+  if (l.floor_info) {
+    parts.push(`${l.floor_info}${l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : ""}층`);
+  }
+  if (l.direction) parts.push(l.direction);
+  return parts.join(" · ");
+}
+/** 카드 가격 표기 — 월세는 보증금/월세. */
+function mlPriceMain(l: MLItem): string {
+  return l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text;
+}
+/** 거래 구성 카운트(매·전·월). */
+function mlMix(g: MLItem[]): { s: number; j: number; w: number } {
+  const m = { s: 0, j: 0, w: 0 };
+  for (const l of g) {
+    if (l.trade_type === "매매") m.s++;
+    else if (l.trade_type === "전세") m.j++;
+    else if (l.trade_type === "월세") m.w++;
+  }
+  return m;
+}
+/** 폴더 요약 가격범위 — 값이 있는 것 중 최저~최고 매물의 표기를 그대로 쓴다. */
+function mlPriceRange(g: MLItem[]): string {
+  const vals = g.filter((l) => l.price > 0);
+  if (!vals.length) return "";
+  let lo = vals[0], hi = vals[0];
+  for (const l of vals) { if (l.price < lo.price) lo = l; if (l.price > hi.price) hi = l; }
+  const a = mlPriceMain(lo), b = mlPriceMain(hi);
+  return a === b ? a : `${a}~${b}`;
+}
+/** 출처 뱃지(카드 하단) — SrcIcon 과 같은 규칙, 라벨 달린 알약. */
+function SrcPills({ l }: { l: MLItem }) {
+  if (!l.is_private) {
+    return <span className="mlj2-src nv" title="네이버 — 지금 광고 중"><Globe size={10} />광고중</span>;
+  }
+  if (l.import_file) {
+    return (
+      <>
+        <span className="mlj2-src im" title={`엑셀에서 가져온 매물 — ${l.import_file}${l.import_at ? ` (${l.import_at})` : ""}`}>
+          <FileSpreadsheet size={10} />엑셀</span>
+        {l.also_naver && <span className="mlj2-src nv" title={`네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}`}><Globe size={10} />광고중</span>}
+      </>
+    );
+  }
+  return (
+    <>
+      <span className="mlj2-src pv" title={`직접등록 — ${l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}`}>
+        <Lock size={10} />직접등록</span>
+      {l.also_naver && <span className="mlj2-src nv" title={`네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}`}><Globe size={10} />광고중</span>}
+    </>
+  );
+}
+/** 폴더 아이콘 — 유형별/단지별 공통. */
+function GroupIcon({ l, mode }: { l: MLItem; mode: "complex" | "type" }) {
+  const bucket = mode === "type" ? mlTypeBucket(l) : "";
+  if (mode === "complex") {
+    return isAddrFirst(l)
+      ? <span className="mlj2-fic villa"><HomeIcon size={16} /></span>
+      : <span className="mlj2-fic apt"><Building2 size={16} /></span>;
+  }
+  if (bucket === "상가") return <span className="mlj2-fic store"><Store size={16} /></span>;
+  if (bucket === "사무실" || bucket === "토지·건물") return <span className="mlj2-fic store"><Landmark size={16} /></span>;
+  if (bucket.startsWith("빌라") || bucket.startsWith("단독")) return <span className="mlj2-fic villa"><HomeIcon size={16} /></span>;
+  return <span className="mlj2-fic apt"><Building2 size={16} /></span>;
+}
 
 export function ListingsTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
   const [items, setItems] = useState<MLItem[] | null>(null);
@@ -1850,20 +1936,73 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     } catch (e: any) { alert(e.message || "보관 실패"); }
   };
 
-  const [folded, setFolded] = useState<Set<string>>(new Set());   // 접어 둔 단지 폴더
-  // 같은 단지 물건은 한 덩어리로 — 정렬 순서는 그대로 두고 첫 등장 자리에 모은다.
-  // 단지가 없는 물건(상가·단독 등)은 각자 한 덩어리다.
+  const [open, setOpen] = useState<Set<string>>(new Set());   // 펼쳐 둔 폴더(기본은 전부 접힘)
+  const [gmode, setGmode] = useState<"complex" | "type" | null>(null);  // null = 자동
+  const [focusKey, setFocusKey] = useState<string | null>(null);   // 큰 폴더 전체보기
+  const [sheetOpen, setSheetOpen] = useState(false);               // 필터 바텀시트
+
+  const today = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+  // 자동 묶음: 비단지(빌라·상가·사무실 등)가 절반 넘으면 유형별, 아니면 단지별
+  const autoMode: "complex" | "type" = useMemo(() => {
+    const list = items || [];
+    if (!list.length) return "complex";
+    return list.filter(isAddrFirst).length > list.length / 2 ? "type" : "complex";
+  }, [items]);
+  const mode = gmode ?? autoMode;
+
+  // 같은 단지(또는 같은 유형) 물건을 한 덩어리로 — 정렬 순서는 두고 첫 등장 자리에 모은다.
   const groups = useMemo(() => {
     const by = new Map<string, MLItem[]>();
     const order: string[] = [];
     for (const l of items || []) {
-      const k = isAddrFirst(l) ? (l.address || `#${l.article_no}`)
-                              : (l.complex_no || l.complex_name || `#${l.article_no}`);
+      const k = mode === "type"
+        ? `T:${mlTypeBucket(l)}`
+        : (isAddrFirst(l) ? (l.address || `#${l.article_no}`)
+                          : (l.complex_no || l.complex_name || `#${l.article_no}`));
       if (!by.has(k)) { by.set(k, []); order.push(k); }
       by.get(k)!.push(l);
     }
-    return order.map((k) => by.get(k)!);
-  }, [items]);
+    return order.map((k) => ({ key: k, items: by.get(k)! }));
+  }, [items, mode]);
+  // 묶음이 바뀌면 펼침/포커스 초기화
+  useEffect(() => { setOpen(new Set()); setFocusKey(null); }, [mode]);
+
+  const groupName = (g: MLItem[]) => mode === "type" ? mlTypeBucket(g[0]) : mlName(g[0]);
+  // 활성 필터 개수(시트 뱃지)
+  const activeFilters = (trade ? 1 : 0) + (cat ? 1 : 0) + (manager ? 1 : 0) + (privOnly || !priv ? 1 : 0);
+  const focusGroup = focusKey ? groups.find((g) => g.key === focusKey) : null;
+
+  // 매물 카드 하나
+  const Card = (l: MLItem, showName: boolean) => (
+    <div key={l.article_no} className={`mlj2-card tr-${l.trade_type}`}
+      onClick={() => { setDetailOwner(""); setDetail(l); }}>
+      <div className="mlj2-c-top">
+        <i className={`mlj2-badge b-${l.trade_type}`}>{l.trade_type}</i>
+        <div className="mlj2-c-mid">
+          <div className="mlj2-c-unit">
+            {showName && <span className="mlj2-c-nm" title={isAddrFirst(l) ? (l.address || "") : ""}>{mlName(l)}</span>}
+            {unitOf(l) !== "-"
+              ? <span>{unitOf(l)}</span>
+              : (!showName && <span className="mlj2-c-nm">{mlName(l)}</span>)}
+          </div>
+          {mlSpecLine(l) && <div className="mlj2-c-spec">{mlSpecLine(l)}</div>}
+        </div>
+        <div className="mlj2-c-price">
+          {mlPriceMain(l)}{l.trade_type === "전세" && <small>보증금</small>}
+        </div>
+      </div>
+      <div className="mlj2-c-meta">
+        <SrcPills l={l} />
+        {l.manager && <span className="mlj2-mgr"><i className="mlj2-av">{l.manager[0]}</i>{l.manager}</span>}
+        {l.settle_ymd && <span className="mlj2-dday">잔금 {fmtYmd(l.settle_ymd)}</span>}
+        {l.ad_check && (l.ad_check.missing?.length || 0) > 0 &&
+          <span className="mlj2-chk">점검 {l.ad_check.missing.length}건</span>}
+      </div>
+    </div>
+  );
 
   // 직접등록 매물 삭제 — 되돌릴 수 없으니 무엇을 지우는지 이름으로 확인받는다.
   // 서버는 status='closed' 로만 바꾼다(행은 남아 복구할 수 있다).
@@ -1890,160 +2029,163 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   };
 
   return (
-    <div className="mljang">
-      {/* 필터는 전부 같은 세그먼트로, 켜진 색은 파랑 하나로 통일한다.
-          등록은 필터가 아니라 액션이라 오른쪽 끝으로 뽑아냈다. */}
-      <div className="mlj-tb">
-        <span className="mlj-srch">
-          <Search size={15} aria-hidden />
-          <input placeholder="단지·건물·지역 또는 네이버 매물번호" value={q} inputMode="text"
-            onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
-          <kbd onClick={load}>Enter</kbd>
-        </span>
-        <span className="mlj-seg">
-          {([["", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]] as const).map(([k, l]) => (
-            <button key={k} className={trade === k ? "on" : ""} onClick={() => setTrade(k)}>{l}</button>
-          ))}
-        </span>
-        <span className="mlj-gsel">
-          <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="정렬">
-            <option value="confirm">최신확인순</option>
-            <option value="price_desc">가격↓</option>
-            <option value="price_asc">가격↑</option>
-          </select>
-          <ChevronDown size={11} aria-hidden />
-        </span>
-        <button className="mlj-gbtn" onClick={() => setMapOpen(true)}>
-          <MapIcon size={13} aria-hidden /> 지도
-        </button>
-        <button className="mlj-gbtn" onClick={() => setImpOpen(true)}>
-          <Upload size={13} aria-hidden /> 매물장 가져오기
-        </button>
-        <button className="mlj-gbtn pri" onClick={() => { setEditPL(null); setPlOpen(true); }}>
-          <Plus size={13} aria-hidden /> 매물 직접등록
-        </button>
-      </div>
-      <div className="mlj-tb2">
-        <span className="mlj-seg">
-          {ML_CATS.map((c) => (
-            <button key={c || "all"} className={cat === c ? "on" : ""} onClick={() => setCat(c)}>
-              {c || "전체유형"}</button>
-          ))}
-        </span>
-        <i className="mlj-div" />
-        <span className="mlj-glab">담당자</span>
-        <span className="mlj-gsel" title="담당자를 고르면 그 사람 매물장만 보여요">
-          <select value={manager} onChange={(e) => setManager(e.target.value)} aria-label="담당자">
-            <option value="">전체</option>
-            <option value="미지정">미지정</option>
-            {managers.map((m) => <option key={m.name} value={m.name}>{m.name}{m.position === "대표" ? " (대표)" : ""}</option>)}
-          </select>
-          <ChevronDown size={11} aria-hidden />
-        </span>
-        {/* 포함/비공개만은 원래 하나의 축이다 — 셋 중 하나로 합친다 */}
-        <span className="mlj-glab">직접등록</span>
-        <span className="mlj-seg">
-          <button className={!priv && !privOnly ? "on" : ""}
-            onClick={() => { setPriv(false); setPrivOnly(false); }}>제외</button>
-          <button className={priv && !privOnly ? "on" : ""}
-            onClick={() => { setPriv(true); setPrivOnly(false); }}>포함</button>
-          <button className={privOnly ? "on" : ""}
-            onClick={() => { setPriv(true); setPrivOnly(true); }}>
-            <Lock size={11} aria-hidden />직접등록만</button>
-        </span>
-      </div>
-      {lookErr && <div className="mlj-foreign mlj-foreign-err">{lookErr}</div>}
-      {foreign && (
-        <div className="mlj-foreign">
-          <div className="mlj-foreign-t">다른 사무실 물건입니다. 조회하시겠습니까?</div>
-          <div className="mlj-foreign-s">
-            매물번호 {foreign.article_no}
-            {foreign.realtor_name ? ` · ${foreign.realtor_name}` : ""}
+    <div className="mljang mlj2">
+      {focusGroup ? (
+        // ── 큰 폴더 전체보기 ──
+        <div className="mlj2-focus">
+          <div className="mlj2-fbar">
+            <button className="mlj2-back" onClick={() => setFocusKey(null)}><ArrowLeft size={18} />매물장</button>
+            <b>{groupName(focusGroup.items)}</b>
+            <span className="mlj2-fbar-n">{focusGroup.items.length}건</span>
           </div>
-          <div className="mlj-foreign-b">
-            <button className="on" disabled={!foreign.listing}
-              onClick={() => { if (foreign.listing) { setDetailOwner(foreign.realtor_name || "다른 중개사무소"); setDetail(foreign.listing); } }}>
-              조회하기
-            </button>
-            <button onClick={() => setForeign(null)}>취소</button>
-          </div>
-          {!foreign.listing && <div className="mlj-foreign-s">※ 해당 매물의 상세를 불러올 수 없습니다(사무소 미귀속 매물).</div>}
+          <div className="mlj2-list">{focusGroup.items.map((l) => Card(l, mode === "type"))}</div>
         </div>
-      )}
-      <div className="mlj-count">{office.realtor_name ?? "내 사무소"} · {busy
-        ? <span style={{ color: "var(--c-primary)", fontWeight: 700 }}>불러오는 중…</span>
-        : <>총 <b>{items?.length ?? 0}</b>개</>}
-        {/* 출처 범례 — 행마다 아이콘 하나가 붙으므로 그 뜻을 여기서 한 번 말해 둔다 */}
-        <span className="mlj-legend">
-          <i className="src pv"><Lock size={9} /></i>직접등록 — 우리만 봅니다
-          <i className="src nv"><Globe size={9} /></i>네이버 — 지금 광고 중
-          <i className="src im"><FileSpreadsheet size={9} /></i>가져옴 — 엑셀 매물장에서
-          <b className="both"><i className="src pv"><Lock size={9} /></i><i className="src nv"><Globe size={9} /></i>둘 다 — 매물장에도 있고 광고도 중</b>
-        </span>
-      </div>
-      {!items || (busy && items.length === 0) ? (
-        <Loading label="내 매물을 불러오는 중이에요" slowHint="매물이 많으면 조금 더 걸릴 수 있어요" />
-      ) : items.length === 0 ? (
-        <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 매물장에 나옵니다.</div>
       ) : (
-        <div className="mjt">
-          {/* 표 머리 — 좁아지면 사라진다. 행 안의 배치만 바뀌고 데이터·상태는 하나다. */}
-          <div className="mjt-head">
-            <span />
-            <span>단지·주소</span>
-            <span className="h-ho">동·호</span>
-            <span className="h-ar">전용</span>
-            <span className="h-fl">층</span>
-            <span className="h-st">잔금</span>
-            <span className="h-ct">연락처</span>
-            <span style={{ textAlign: "right" }}>가격</span>
+        <>
+          {/* 검색 · 정렬 · 필터 */}
+          <div className="mlj2-top">
+            <span className="mlj2-srch">
+              <Search size={16} aria-hidden />
+              <input placeholder="단지·건물·지역 또는 매물번호" value={q} inputMode="text"
+                onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
+            </span>
+            <span className="mlj2-sort">
+              <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="정렬">
+                <option value="confirm">최신확인순</option>
+                <option value="price_desc">가격↓</option>
+                <option value="price_asc">가격↑</option>
+              </select>
+              <ChevronDown size={12} aria-hidden />
+            </span>
+            <button className="mlj2-filt" onClick={() => setSheetOpen(true)}>
+              <SlidersHorizontal size={15} aria-hidden />필터{activeFilters > 0 && <i className="mlj2-fb">{activeFilters}</i>}
+            </button>
           </div>
-          {groups.flatMap((g) => {
-            const key = isAddrFirst(g[0]) ? (g[0].address || `#${g[0].article_no}`)
-                                          : (g[0].complex_no || g[0].complex_name || `#${g[0].article_no}`);
-            const name = mlName(g[0]);
-            // 한 건뿐이면 폴더로 감싸지 않는다 — 열고 닫을 것이 없다
-            if (g.length < 2) {
-              const l = g[0];
-              return [
-                <div key={l.article_no} className="mjt-r" onClick={() => { setDetailOwner(""); setDetail(l); }}>
-                  <span className="c-tr"><i className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</i></span>
-                  <span className="c-nm" title={isAddrFirst(l) ? (l.address || "") : ""}>
-                    {name}<SrcIcon l={l} />
-                  </span>
-                  <ListingCells l={l} />
-                </div>,
-              ];
-            }
-            const shut = folded.has(key);
-            return [
-              <div key={`g-${key}`} className={"mjt-g" + (shut ? " shut" : "")}
-                onClick={() => setFolded((s) => {
-                  const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n;
-                })}>
-                <ChevronDown size={14} className="chev" aria-hidden />
-                {shut ? <Folder size={14} /> : <FolderOpen size={14} />}
-                <b>{name}</b>
-                <em className="c-gn">{g.length}</em>
-                <span className="mjt-g-sum">{groupSummary(g)}</span>
-              </div>,
-              ...(shut ? [] : g.map((l) => (
-                <div key={l.article_no} className="mjt-r child"
-                  onClick={() => { setDetailOwner(""); setDetail(l); }}>
-                  <span className="c-tr"><i className={`mlj-trade tr-${l.trade_type}`}>{l.trade_type}</i></span>
-                  {/* 폴더 안이어도 단지명은 남긴다 — 행만 떼어 봐도 어느 단지인지 읽혀야 한다 */}
-                  <span className="c-nm">
-                    <em className="c-sub"><i /></em>
-                    <span className="c-dim" title={isAddrFirst(l) ? (l.address || "") : ""}>{mlName(l)}</span>
-                    <SrcIcon l={l} />
-                  </span>
-                  <ListingCells l={l} />
+          {/* 묶는 단위 + 보조 액션(거래유형은 필터 시트로 이동해 중복 제거) */}
+          <div className="mlj2-tools">
+            <span className="mlj2-gseg">
+              <button className={mode === "complex" ? "on" : ""} onClick={() => setGmode("complex")}>단지별</button>
+              <button className={mode === "type" ? "on" : ""} onClick={() => setGmode("type")}>유형별</button>
+            </span>
+            <span className="mlj2-count-act">
+              <button onClick={() => setMapOpen(true)}><MapIcon size={13} aria-hidden />지도</button>
+              <button onClick={() => setImpOpen(true)}><Upload size={13} aria-hidden />가져오기</button>
+            </span>
+          </div>
+
+          {lookErr && <div className="mlj-foreign mlj-foreign-err">{lookErr}</div>}
+          {foreign && (
+            <div className="mlj-foreign">
+              <div className="mlj-foreign-t">다른 사무실 물건입니다. 조회하시겠습니까?</div>
+              <div className="mlj-foreign-s">매물번호 {foreign.article_no}{foreign.realtor_name ? ` · ${foreign.realtor_name}` : ""}</div>
+              <div className="mlj-foreign-b">
+                <button className="on" disabled={!foreign.listing}
+                  onClick={() => { if (foreign.listing) { setDetailOwner(foreign.realtor_name || "다른 중개사무소"); setDetail(foreign.listing); } }}>조회하기</button>
+                <button onClick={() => setForeign(null)}>취소</button>
+              </div>
+              {!foreign.listing && <div className="mlj-foreign-s">※ 해당 매물의 상세를 불러올 수 없습니다(사무소 미귀속 매물).</div>}
+            </div>
+          )}
+
+          <div className="mlj2-count">
+            <span>{busy
+              ? <b style={{ color: "var(--c-primary)" }}>불러오는 중…</b>
+              : <>총 <b>{items?.length ?? 0}</b>개{(items?.length ?? 0) > 0 && ` · ${mode === "type" ? "유형" : "단지"} ${groups.length}곳`}</>}</span>
+          </div>
+
+          {!items || (busy && items.length === 0) ? (
+            <Loading label="내 매물을 불러오는 중이에요" slowHint="매물이 많으면 조금 더 걸릴 수 있어요" />
+          ) : items.length === 0 ? (
+            <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 매물장에 나옵니다.</div>
+          ) : (
+            <div className="mlj2-list">
+              {groups.map((g) => {
+                const gi = g.items;
+                if (gi.length < 2) return Card(gi[0], true);
+                const isOpen = open.has(g.key);
+                const mix = mlMix(gi);
+                const range = mlPriceRange(gi);
+                const newN = gi.filter((l) => l.confirm_ymd === today).length;
+                const big = gi.length > 8;
+                return (
+                  <div key={g.key} className={"mlj2-fold" + (isOpen ? " open" : "")}>
+                    <div className="mlj2-fhead" onClick={() => {
+                      if (big) { setFocusKey(g.key); return; }
+                      setOpen((s) => { const n = new Set(s); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n; });
+                    }}>
+                      <GroupIcon l={gi[0]} mode={mode} />
+                      <span className="mlj2-fmid">
+                        <span className="mlj2-fname">{groupName(gi)}</span>
+                        <span className="mlj2-fsub">
+                          <span className="mlj2-mix">
+                            {mix.s > 0 && <i className="m-s">매{mix.s}</i>}
+                            {mix.j > 0 && <i className="m-j">전{mix.j}</i>}
+                            {mix.w > 0 && <i className="m-w">월{mix.w}</i>}
+                          </span>
+                          {range && <span className="mlj2-range">{range}</span>}
+                        </span>
+                      </span>
+                      <span className="mlj2-fright">
+                        <span className="mlj2-fcnt">{gi.length}</span>
+                        {newN > 0 && <span className="mlj2-fnew">신규 {newN}</span>}
+                      </span>
+                      {big
+                        ? <ChevronRight size={16} className="mlj2-chev" aria-hidden />
+                        : <ChevronDown size={16} className="mlj2-chev" aria-hidden />}
+                    </div>
+                    {isOpen && !big && <div className="mlj2-fbody">{gi.map((l) => Card(l, mode === "type"))}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 필터 바텀시트 */}
+          {sheetOpen && (
+            <div className="mlj2-sheet-wrap" onClick={() => setSheetOpen(false)}>
+              <div className="mlj2-sheet" onClick={(e) => e.stopPropagation()}>
+                <div className="mlj2-grab" />
+                <div className="mlj2-sheet-h"><b>필터</b><button onClick={() => setSheetOpen(false)} aria-label="닫기"><X size={18} /></button></div>
+                <div className="mlj2-fg"><div className="mlj2-fl">거래 유형</div>
+                  <div className="mlj2-chips">
+                    {([["", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]] as const).map(([k, l]) => (
+                      <button key={k} className={"mlj2-chip" + (trade === k ? " on blue" : "")} onClick={() => setTrade(k)}>{l}</button>
+                    ))}
+                  </div></div>
+                <div className="mlj2-fg"><div className="mlj2-fl">매물 유형</div>
+                  <div className="mlj2-chips">
+                    {ML_CATS.map((c) => (
+                      <button key={c || "all"} className={"mlj2-chip" + (cat === c ? " on" : "")} onClick={() => setCat(c)}>{c || "전체"}</button>
+                    ))}
+                  </div></div>
+                <div className="mlj2-fg"><div className="mlj2-fl">담당자</div>
+                  <div className="mlj2-chips">
+                    <button className={"mlj2-chip" + (manager === "" ? " on" : "")} onClick={() => setManager("")}>전체</button>
+                    <button className={"mlj2-chip" + (manager === "미지정" ? " on" : "")} onClick={() => setManager("미지정")}>미지정</button>
+                    {managers.map((m) => (
+                      <button key={m.name} className={"mlj2-chip" + (manager === m.name ? " on" : "")} onClick={() => setManager(m.name)}>{m.name}{m.position === "대표" ? "(대표)" : ""}</button>
+                    ))}
+                  </div></div>
+                <div className="mlj2-fg"><div className="mlj2-fl">출처</div>
+                  <div className="mlj2-chips">
+                    <button className={"mlj2-chip" + (priv && !privOnly ? " on" : "")} onClick={() => { setPriv(true); setPrivOnly(false); }}>전체</button>
+                    <button className={"mlj2-chip" + (!priv && !privOnly ? " on" : "")} onClick={() => { setPriv(false); setPrivOnly(false); }}>네이버만</button>
+                    <button className={"mlj2-chip" + (privOnly ? " on" : "")} onClick={() => { setPriv(true); setPrivOnly(true); }}>직접등록만</button>
+                  </div></div>
+                <div className="mlj2-sheet-cta">
+                  <button className="sc-reset" onClick={() => { setTrade(""); setCat(""); setManager(""); setPriv(true); setPrivOnly(false); }}>초기화</button>
+                  <button className="sc-apply" onClick={() => setSheetOpen(false)}>{items?.length ?? 0}건 보기</button>
                 </div>
-              ))),
-            ];
-          })}
-        </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
+
+      {/* 매물 직접등록 — 플로팅 */}
+      <button className="mlj2-fab" onClick={() => { setEditPL(null); setPlOpen(true); }}>
+        <Plus size={18} aria-hidden />직접등록
+      </button>
       {impOpen && (
         <ImportListings authH={authH} onClose={() => setImpOpen(false)}
           onSaved={() => { setPriv(true); load(); }} />
@@ -2219,10 +2361,38 @@ const manHint = (v: any) => {
 
 /** 입력 칸 — 모듈 레벨에 둔다. 컴포넌트 안에서 만들면 렌더마다 새 타입이 되어
  *  글자를 한 자 칠 때마다 다시 그려지고 포커스가 빠진다. */
-function T({ f, set, k, label, ...rest }: any) {
+function T({ f, set, k, label, wide, ...rest }: any) {
   return (
-    <label className="pl-f"><span>{label}</span>
+    <label className={"pl-f" + (wide ? " wide" : "")}><span>{label}</span>
       <input className="ai-input" value={f[k] ?? ""} onChange={set(k)} {...rest} /></label>
+  );
+}
+
+// 유형별 소재지 세부칸 — 어떤 매물이든 '이 세대/이 점포/이 필지'까지 특정할 수 있게
+// 유형에 맞는 칸(동·호·층·실)을 내고, 구조 칸으로 안 잡히는 건 상세주소로 받는다.
+const PL_UNIT_CFG: Record<string, { dong?: [string, string]; ho?: [string, string]; hint: string }> = {
+  토지:  { hint: "지번까지면 특정됩니다. 필지가 여럿이면 상세주소에 적어 주세요." },
+  공장:  { hint: "지번까지면 특정됩니다." },
+  건물:  { hint: "지번까지면 특정됩니다(통건물)." },
+  단독:  { ho: ["호 (다가구만)", "101"], hint: "단독은 지번까지, 다가구는 호까지 적어 주세요." },
+  상가:  { dong: ["동·블록", "A"], ho: ["호·실", "101"], hint: "지번 + 호·실까지 적으면 그 점포로 특정됩니다." },
+  사무실: { dong: ["동·블록", "A"], ho: ["호·실", "302"], hint: "지번 + 호·실까지 적어 주세요." },
+  지식산업센터: { dong: ["동", "A"], ho: ["호", "1203"], hint: "동·호까지 적어 주세요." },
+};
+const PL_UNIT_DEFAULT = { dong: ["동", "104"] as [string, string], ho: ["호", "1103"] as [string, string],
+  hint: "동·호까지 적으면 그 세대로 특정됩니다." };
+function PLUnit({ f, set }: any) {
+  const cfg = PL_UNIT_CFG[f.type || ""] || PL_UNIT_DEFAULT;
+  return (
+    <>
+      {cfg.dong && <T f={f} set={set} k="dong" label={cfg.dong[0]} placeholder={cfg.dong[1]} />}
+      {cfg.ho && <T f={f} set={set} k="ho" label={cfg.ho[0]} placeholder={cfg.ho[1]} />}
+      <label className="pl-f wide"><span>상세주소
+        <em style={{ color: "#9aa4b0", fontWeight: 500, fontStyle: "normal" }}> · 동·호로 특정 안 되면</em></span>
+        <input className="ai-input" value={f.address_detail ?? ""} onChange={set("address_detail")}
+          placeholder="예: B동 201호 안쪽 · ○○빌딩 3층 · 왼쪽 점포" /></label>
+      <p className="pl-addrmsg" style={{ gridColumn: "1/-1", marginTop: 0 }}>{cfg.hint}</p>
+    </>
   );
 }
 
@@ -2558,8 +2728,7 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
           {PL_ADDR_FIRST.includes(f.type || "")
             ? <PLAddr f={f} setF={setF} authH={authH} />
             : <PLComplex f={f} setF={setF} authH={authH} />}
-          <T f={f} set={set} k="dong" label="동" placeholder="104" />
-          <T f={f} set={set} k="ho" label="호" placeholder="1103" />
+          <PLUnit f={f} set={set} />
           <PLMoney f={f} setF={setF} k="price" label="매매가·보증금" />
           <PLMoney f={f} setF={setF} k="rent_price" label="월세" />
           <T f={f} set={set} k="contact" label="연락처" inputMode="tel" placeholder="010-0000-0000" />
@@ -2571,11 +2740,10 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
           <ChevronDown size={13} className={more ? "rot" : ""} aria-hidden />
         </button>
         {more && (<>
-        <div className="pl-sec">주소</div>
+        <div className="pl-sec">주소 (지번 전체)</div>
         <div className="pl-grid">
-          <T f={f} set={set} k="building_name" label="동 이름" placeholder="예: 101동" />
-          <T f={f} set={set} k="address" label="주소" placeholder="서울 강남구 역삼동 222" />
-          <T f={f} set={set} k="address_detail" label="상세주소" />
+          <T f={f} set={set} k="address" label="지번 주소" placeholder="서울 강남구 역삼동 222" wide />
+          <T f={f} set={set} k="building_name" label="동 이름·건물명" placeholder="예: 101동 / ○○빌딩" />
         </div>
 
         <div className="pl-sec">가격</div>
@@ -2852,21 +3020,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
           </div>
         )}
 
-        <div className="mld-actions">
-          {l.contact && <a className="mlj-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}><Phone size={14} /> 전화</a>}
-          {kakao && <a className="mlj-naver" href={kakao} target="_blank" rel="noreferrer"><MapIcon size={14} /> 지도</a>}
-          {route && <a className="mlj-naver" href={route} target="_blank" rel="noreferrer"><MapPin size={14} /> 길찾기</a>}
-          {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> 네이버 매물</a>}
-          {canSave && <button className="mlj-topriv" onClick={() => setSavePick((v) => !v)}>
-            <Lock size={14} /> 비공개매물장에 보관</button>}
-          {/* 직접등록한 물건만 고치고 지울 수 있다. 네이버 매물은 수집분이라 우리가 못 지운다 */}
-          {l.is_private && onEditPrivate && (
-            <button className="mlj-naver" onClick={onEditPrivate}><Pencil size={14} /> 수정</button>
-          )}
-          {l.is_private && onDeletePrivate && (
-            <button className="mld-del" onClick={onDeletePrivate}><Trash2 size={14} /> 삭제</button>
-          )}
-        </div>
+        {/* 보조 패널·안내는 고정 버튼 바 '위'에 둔다 — 아래에 두면 sticky 푸터에 가린다 */}
         {savePick && (
           <div className="mld-topriv-pick">
             <div className="mld-topriv-t">누구에게 보이게 할까요?</div>
@@ -2883,6 +3037,22 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
         {l.is_private && l.source_article_no && (
           <div className="mld-srcnote">네이버 매물 {l.source_article_no} 에서 보관됨</div>
         )}
+
+        <div className="mld-actions">
+          {l.contact && <a className="mlj-call" href={`tel:${l.contact.replace(/[^\d+]/g, "")}`}><Phone size={14} /> 전화</a>}
+          {kakao && <a className="mlj-naver" href={kakao} target="_blank" rel="noreferrer"><MapIcon size={14} /> 지도</a>}
+          {route && <a className="mlj-naver" href={route} target="_blank" rel="noreferrer"><MapPin size={14} /> 길찾기</a>}
+          {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> 네이버 매물</a>}
+          {canSave && <button className="mlj-topriv" onClick={() => setSavePick((v) => !v)}>
+            <Lock size={14} /> 비공개매물장에 보관</button>}
+          {/* 직접등록한 물건만 고치고 지울 수 있다. 네이버 매물은 수집분이라 우리가 못 지운다 */}
+          {l.is_private && onEditPrivate && (
+            <button className="mlj-naver" onClick={onEditPrivate}><Pencil size={14} /> 수정</button>
+          )}
+          {l.is_private && onDeletePrivate && (
+            <button className="mld-del" onClick={onDeletePrivate}><Trash2 size={14} /> 삭제</button>
+          )}
+        </div>
       </div>
     </div>
   );
