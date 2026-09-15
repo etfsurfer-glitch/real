@@ -66,6 +66,14 @@ def _warm_ranks_on_startup():
     threading.Thread(target=_rank_tables, daemon=True).start()
     threading.Thread(target=_warmer_loop, daemon=True).start()
 
+    def _acad_warm():   # 개업입지 절대등급 전국분포(콜드 ~100s) 프리워밍
+        try:
+            for lv in ("gu", "dong", "complex"):
+                _acad_nat_basis(lv)
+        except Exception:  # noqa: BLE001 — 워밍 실패는 요청 시 lazy 빌드로 폴백
+            pass
+    threading.Thread(target=_acad_warm, daemon=True).start()
+
 
 # 핫셋 워머: 롤업 3종 + 자주 스캔되는 핵심 테이블을 주기적으로 풀스캔해
 # OS 페이지캐시에 상주시킨다(8GB RAM 박스, 17GB DB → 핫셋만 메모리 유지).
@@ -770,6 +778,34 @@ def admin_user(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+BIZ_TERMS_VERSION = "2026-09-04"   # 중개사 약관 버전 — 개정 시 갱신(재동의 유도)
+
+
+def contract_user(user: dict = Depends(current_user)) -> dict:
+    """계약서 작성·확인설명서·계약캘린더 접근(P5 개방, 2026-09-04).
+
+    관리자는 그대로 통과(운영·테스트). 그 외에는 ①중개사 회원(realtor_members
+    active) ②중개사 약관 동의(biz_terms_agreements 현행 버전) 둘 다 필요.
+    403 detail code로 프런트가 안내 화면을 분기한다."""
+    if user.get("is_admin"):
+        return user
+    with _reviews_db() as c:
+        m = c.execute("SELECT realtor_id, status FROM realtor_members WHERE user_id=?",
+                      (user["id"],)).fetchone()
+        if not m:
+            raise HTTPException(403, detail={"code": "member_required",
+                                             "message": "중개사 인증(사무소 연동) 후 이용할 수 있습니다."})
+        if (m[1] or "active") != "active":
+            raise HTTPException(403, detail={"code": "member_pending",
+                                             "message": "대표님 승인 대기 중입니다."})
+        a = c.execute("SELECT 1 FROM biz_terms_agreements WHERE user_id=? AND version=?",
+                      (user["id"], BIZ_TERMS_VERSION)).fetchone()
+        if not a:
+            raise HTTPException(403, detail={"code": "biz_terms_required",
+                                             "message": "중개사 약관 동의 후 이용할 수 있습니다."})
+    return user
+
+
 def verified_user(user: dict = Depends(current_user)) -> dict:
     """전화번호 인증 완료 사용자만 통과. AI 등 인증 필수 기능용.
 
@@ -1275,6 +1311,12 @@ _POP_ALIAS = {
     "5200000000": ["5200000000", "4500000000"],
     # 군위군: 경북 → 대구 편입(2023-07). 시도가 바뀌어 접두 규칙으로는 안 잡힌다.
     "2772000000": ["2772000000", "4772000000"],
+    # 인천 2026-07 신구 — 통계청 신코드 집계가 쌓이기 전까지 옛 구(분할 전 모집단)로 근사.
+    # 제물포≈옛 중구+동구, 영종≈옛 중구, 서해·검단≈옛 서구. (분할 경계가 달라 '근사'임을 유의)
+    "2812500000": ["2812500000", "2811000000", "2814000000"],
+    "2815500000": ["2815500000", "2811000000"],
+    "2827500000": ["2827500000", "2826000000"],
+    "2829000000": ["2829000000", "2826000000"],
 }
 # 시군구도 같은 개편을 겪는다 — 강원 42→51, 전북 45→52 는 뒤 8자리가 그대로라
 # 접두만 되돌리면 옛 코드가 나온다(실측 33개 전부 1:1, 이름까지 일치).
@@ -3352,9 +3394,19 @@ def nonresi_jeonse_listings(cortar: str = "", limit: int = 40):
 
 
 def _rh_region_clause(cortar: str) -> tuple[str, list]:
-    """rh_transactions/rh_rentals 는 sgg_cd(5자리)+umd_nm(동명) 키. 구=sgg_cd, 동=sgg_cd+umd_nm."""
+    """rh_transactions/rh_rentals 는 sgg_cd(5자리)+umd_nm(동명) 키. 구=sgg_cd, 동=sgg_cd+umd_nm.
+    인천 신구(28125 등)는 원장이 옛코드일 수 있어 유효코드 CASE로 비교(신·구 저장 모두 매칭)."""
     if not cortar:
         return "", []
+    if cortar[:5] in _ICN_NEW5:
+        eff = _eff_sgg_sql()
+        if len(cortar) <= 5:
+            return f"({eff})=?", [cortar[:5]]
+        with _open_db() as mc:
+            r = mc.execute("SELECT cortar_name FROM regions WHERE cortar_no=?", (cortar,)).fetchone()
+        if r:
+            return f"({eff})=? AND umd_nm=?", [cortar[:5], r[0]]
+        return f"({eff})=?", [cortar[:5]]
     if len(cortar) <= 5:
         return "sgg_cd=?", [cortar]
     with _open_db() as mc:
@@ -5350,6 +5402,49 @@ def _cx_region_clause(sido: str | None, sigungu: str | None,
     return "", []
 
 
+# ── 인천 2026-07 행정구역 개편(중·동·서구 → 제물포·영종·서해·검단) ──────────────
+# 원장(transactions/rentals/offi_*)은 수집·deal_id 연속성을 위해 옛 코드(28110/28140/28260)
+# 저장을 유지하고, regions/complexes는 신구 코드로 전환 완료(2026-09-01) — _roll/_mcn/_cx
+# 경유 쿼리는 자동으로 신구를 탄다. sgg_cd를 '직접' 쓰는 라이브쿼리만 아래 CASE로
+# '유효 시군구(신코드)'를 계산해 준다. 법정동은 신구별 완전 분할(모호 0, 금곡동은 옛구로 구분).
+_ICN_YJ_UMDS = ("중산동", "운남동", "운서동", "운북동", "을왕동", "남북동", "덕교동", "무의동")  # 영종구
+_ICN_KD_UMDS = ("백석동", "시천동", "마전동", "당하동", "원당동", "대곡동", "금곡동",
+                "오류동", "왕길동", "불로동")                                                   # 검단구
+_ICN_NEW5 = ("28125", "28155", "28275", "28290")
+
+
+def _eff_sgg_sql(alias: str = "") -> str:
+    """sgg_cd(옛코드 저장) → 현행 시군구 5자리 코드 SQL식. 인천 외 지역은 그대로."""
+    p = (alias + ".") if alias else ""
+    yj = ",".join(f"'{u}'" for u in _ICN_YJ_UMDS)
+    kd = ",".join(f"'{u}'" for u in _ICN_KD_UMDS)
+    return (f"CASE substr({p}sgg_cd,1,5) "
+            f"WHEN '28140' THEN '28125' "
+            f"WHEN '28110' THEN (CASE WHEN {p}umd_nm IN ({yj}) THEN '28155' ELSE '28125' END) "
+            f"WHEN '28260' THEN (CASE WHEN {p}umd_nm IN ({kd}) THEN '28290' ELSE '28275' END) "
+            f"ELSE substr({p}sgg_cd,1,5) END")
+
+
+_ICN_REMAP: dict | None = None
+
+
+def _icn_remap() -> dict:
+    """옛 동 cortar → 신구 매핑(Phase A 산출물). realtor_dong 등 옛코드 테이블 집계 변환용."""
+    global _ICN_REMAP
+    if _ICN_REMAP is None:
+        try:
+            _ICN_REMAP = _json.loads((DB_PATH.parent / "_incheon_remap_final.json").read_text("utf-8"))
+        except Exception:  # noqa: BLE001
+            _ICN_REMAP = {}
+    return _ICN_REMAP
+
+
+def _icn_old5_for(new5: str) -> tuple[str, ...]:
+    """신구 5자리 → 그 지역 거래가 저장돼 있는 옛 sgg_cd 목록(인덱스 내로잉용)."""
+    return {"28125": ("28110", "28140"), "28155": ("28110",),
+            "28275": ("28260",), "28290": ("28260",)}.get(new5, (new5,))
+
+
 # 단지(cx) → 시도/시군구/동 3단계 지역명. SQL에 complexes 별칭 cx가 이미 JOIN돼 있어야 함.
 _REGION_JOINS = (
     " LEFT JOIN regions rs ON rs.cortar_no = substr(cx.cortar_no,1,2)||'00000000'"
@@ -5993,10 +6088,11 @@ def tx_region_volume(level: str = "sido", parent: str = "", days: int = 30,
         srcs = [("rentals", "+monthly_rent=0"), ("offi_rentals", "+monthly_rent=0")]
     else:
         srcs = [("rentals", "+monthly_rent>0"), ("offi_rentals", "+monthly_rent>0")]
+    _eff = _eff_sgg_sql()   # 인천 개편: 옛코드 저장분을 현행 시군구로 환산
     if level == "dong":
-        grp = "umd_nm"; where = "substr(sgg_cd,1,5)=?"; wp = [parent[:5]]
+        grp = "umd_nm"; where = f"({_eff})=?"; wp = [parent[:5]]
     elif level == "sigungu":
-        grp = "substr(sgg_cd,1,5)"; where = "substr(sgg_cd,1,2)=?"; wp = [parent[:2]]
+        grp = f"({_eff})"; where = "substr(sgg_cd,1,2)=?"; wp = [parent[:2]]
     else:
         grp = "substr(sgg_cd,1,2)"; where = "1=1"; wp = []
     _ck = f"txregvol:{level}:{parent}:{days}:{trade}:{limit}"
@@ -10193,7 +10289,10 @@ def tx_region_series(unit: str = "month", asset: str = "apt",
     n = max(4, min(limit or default_n, 400))
     w, params = ["is_cancelled=0", "deal_ymd IS NOT NULL"], []
     if sigungu:
-        w.append("substr(sgg_cd,1,5)=substr(?,1,5)"); params.append(sigungu)
+        if sigungu[:5] in _ICN_NEW5:   # 인천 신구 — 원장 옛코드를 유효코드로 환산해 비교
+            w.append(f"({_eff_sgg_sql()})=substr(?,1,5)"); params.append(sigungu)
+        else:
+            w.append("substr(sgg_cd,1,5)=substr(?,1,5)"); params.append(sigungu)
     elif sido:
         w.append("substr(sgg_cd,1,2)=substr(?,1,2)"); params.append(sido)
     _ck = f"txseries:{unit}:{asset}:{sido or ''}:{sigungu or ''}:{n}"
@@ -10244,9 +10343,14 @@ def tx_map(asset: str = "apt", trade: str = "A1", sido: str = "", sigungu: str =
         # 전국 매칭거래를 다 스캔해 강남 등 대단지 지역이 콜드 20초+로 느려진다.
         # 매칭거래의 t.sgg_cd == 매칭단지 cortar_no[:5] 이므로 결과는 동일(검증), 인덱스만 태운다.
         if dong:
-            reg, rp = "AND cx.cortar_no=? AND t.sgg_cd=?", [dong, str(dong)[:5]]
+            # 인천 신구 동은 원장 t.sgg_cd가 옛코드 — 내로잉을 옛코드 IN으로(정확도는 cx가 담보).
+            _olds = _icn_old5_for(str(dong)[:5])
+            _ph = ",".join("?" * len(_olds))
+            reg, rp = f"AND cx.cortar_no=? AND t.sgg_cd IN ({_ph})", [dong, *_olds]
         elif sgg5:
-            reg, rp = "AND t.sgg_cd=? AND substr(cx.cortar_no,1,5)=?", [sgg5, sgg5]
+            _olds = _icn_old5_for(sgg5)
+            _ph = ",".join("?" * len(_olds))
+            reg, rp = f"AND t.sgg_cd IN ({_ph}) AND substr(cx.cortar_no,1,5)=?", [*_olds, sgg5]
         elif sido:
             s2 = sido[:2]
             reg, rp = "AND t.sgg_cd>=? AND t.sgg_cd<=? AND substr(cx.cortar_no,1,2)=?", [s2 + "000", s2 + "999", s2]
@@ -10485,13 +10589,14 @@ def tx_map_agg(level: str = "gu", asset: str = "apt", trade: str = "A1",
     items = []
     with _open_db() as d:
         if level == "gu":
+            _eff = _eff_sgg_sql("t")   # 인천 개편: 옛코드 → 현행 구
             rows = d.execute(
-                f"SELECT t.sgg_cd, AVG({rec}) rec, AVG({pri}) pri, "
+                f"SELECT ({_eff}) sgg5, AVG({rec}) rec, AVG({pri}) pri, "
                 f"  SUM(CASE WHEN t.deal_ymd>={r0} THEN 1 ELSE 0 END) recn "
                 f"FROM {table} t "
                 f"WHERE t.is_cancelled=0 AND t.matched_complex_no IS NOT NULL "
                 f"  AND t.excl_use_ar>0 AND t.deal_ymd>={p0} "
-                f"GROUP BY t.sgg_cd").fetchall()
+                f"GROUP BY sgg5").fetchall()
             cen = _sgg_centroids()
             for sgg, rec_v, pri_v, recn in rows:
                 if not rec_v or not pri_v or recn < min_n:
@@ -10521,6 +10626,552 @@ def tx_map_agg(level: str = "gu", asset: str = "apt", trade: str = "A1",
            "items": sorted(items, key=lambda x: -x["n"])[:500]}
     _cache_put(_ck, res)
     return res
+
+
+# ── 학원 제휴: 개업 입지 + 수익 시뮬레이터 (관리자 가오픈) ──────────────────
+# 지도 중심 3단 드릴(구·동·단지). 재사용: transactions/rentals(거래량·평균가),
+# complexes(좌표·세대), realtor_dong/listings_current(경쟁 중개사수). 계산=scripts/academy.py.
+from scripts import academy as _acad  # noqa: E402
+
+_ACAD_WINDOW = "date('now','+9 hours','-365 days')"   # 최근 12개월
+
+
+def _acad_lease_amt(alias: str = "") -> str:
+    p = (alias + ".") if alias else ""
+    return f"{p}deposit+COALESCE({p}monthly_rent,0)*100"   # 환산보증금(임대 중개보수 기준)
+
+
+def _acad_lease_new(alias: str = "") -> str:
+    """임대 수요 = 신규계약만. 갱신(전체 35%)은 중개보수가 발생하지 않아 수요에서 제외
+    (2026-09-01 경유율 현실화 — COEF.success_lease 0.95와 세트)."""
+    p = (alias + ".") if alias else ""
+    return f" AND ({p}contract_type IS NULL OR {p}contract_type!='갱신')"
+
+
+def _acad_one(d, level: str, rid: str) -> dict:
+    """단일 동/단지 원지표. dong→rid=cortar_no(10), complex→rid=complex_no."""
+    cut = _ACAD_WINDOW
+    if level == "complex":
+        sn, sa, sf = d.execute(
+            f"SELECT COUNT(*), AVG(deal_amount), AVG({_acad.sale_fee_sql('deal_amount')}) FROM transactions "
+            f"WHERE is_cancelled=0 AND matched_complex_no=? AND deal_ymd>={cut}", (rid,)).fetchone()
+        ln, la, lf = d.execute(
+            f"SELECT COUNT(*), AVG({_acad_lease_amt()}), AVG({_acad.lease_fee_sql(_acad_lease_amt())}) FROM rentals "
+            f"WHERE matched_complex_no=? AND deal_ymd>={cut}{_acad_lease_new()}", (rid,)).fetchone()
+        ag = d.execute("SELECT COUNT(DISTINCT realtor_id) FROM listings_current "
+                       "WHERE complex_no=? AND realtor_id IS NOT NULL", (rid,)).fetchone()[0]
+        cx = d.execute("SELECT complex_name, total_household_count, latitude, longitude, cortar_no "
+                       "FROM complexes WHERE complex_no=?", (rid,)).fetchone()
+        name = (cx[0] if cx else None) or rid
+        hh = int((cx[1] if cx else 0) or 0)
+        lat, lng = (cx[2], cx[3]) if cx else (None, None)
+        cortar = (cx[4] if cx else None) or ""
+    else:  # dong
+        sn, sa, sf = d.execute(
+            f"SELECT COUNT(*), AVG(t.deal_amount), AVG({_acad.sale_fee_sql('t.deal_amount')}) FROM transactions t "
+            f"JOIN complexes cx ON cx.complex_no=t.matched_complex_no "
+            f"WHERE t.is_cancelled=0 AND cx.cortar_no=? AND t.deal_ymd>={cut}", (rid,)).fetchone()
+        ln, la, lf = d.execute(
+            f"SELECT COUNT(*), AVG({_acad_lease_amt('r')}), AVG({_acad.lease_fee_sql(_acad_lease_amt('r'))}) FROM rentals r "
+            f"JOIN complexes cx ON cx.complex_no=r.matched_complex_no "
+            f"WHERE cx.cortar_no=? AND r.deal_ymd>={cut}{_acad_lease_new('r')}", (rid,)).fetchone()
+        ag = _acad_agents_by(10).get(rid, 0)   # 주거취급 사무소만(상세도 스냅샷과 동일 기준)
+        hr = d.execute("SELECT SUM(total_household_count), AVG(latitude), AVG(longitude) "
+                       "FROM complexes WHERE cortar_no=?", (rid,)).fetchone()
+        hh = int((hr[0] if hr else 0) or 0)
+        lat, lng = (hr[1], hr[2]) if hr else (None, None)
+        nm = d.execute("SELECT cortar_name FROM regions WHERE cortar_no=?", (rid,)).fetchone()
+        name = (nm[0] if nm else None) or rid
+        cortar = rid
+    m = _acad.region_metrics(sale_n=sn or 0, lease_n=ln or 0, sale_avg=sa or 0,
+                             lease_avg=la or 0, agents=max(ag or 0, 1), households=hh,
+                             sale_fee_avg=sf or 0, lease_fee_avg=lf or 0)
+    m.update(code=rid, name=name, lat=lat, lng=lng, level=level, cortar=cortar)
+    return m
+
+
+# ── 사무소 임대료 실측 — 상가 월세 호가(사무소급 20~80㎡) 동별 중앙값 ──────────
+# cost_defaults의 러프 티어를 실데이터 제안값으로 교체. 프로세스 캐시(일 1회 재빌드).
+_ACAD_RENT: dict | None = None
+_ACAD_RENT_DAY = ""
+
+
+def _acad_rent_map() -> dict:
+    """{cortar10: (중앙값 만원, 표본수)} + {cortar5: ...}. listings_sangga 최신 snapshot,
+    B2(월세)·전용 20~80㎡·월세 10~3000만(이상치 컷)."""
+    global _ACAD_RENT, _ACAD_RENT_DAY
+    import datetime as _dt
+    today = _dt.date.today().isoformat()
+    if _ACAD_RENT is not None and _ACAD_RENT_DAY == today:
+        return _ACAD_RENT
+    out: dict[str, tuple[int, int]] = {}
+    try:
+        p = DB_PATH.parent / "listings_sangga.sqlite"
+        with sqlite3.connect(f"file:{p}?mode=ro", uri=True) as sc:
+            rows = sc.execute(
+                "SELECT cortar_no, rent_price FROM listings "
+                "WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM listings) "
+                "  AND trade_type='B2' AND area1_m2 BETWEEN 20 AND 80 "
+                "  AND rent_price BETWEEN 10 AND 3000").fetchall()
+        by10: dict[str, list] = {}
+        by5: dict[str, list] = {}
+        for cn, r in rows:
+            if not cn:
+                continue
+            by10.setdefault(cn[:10], []).append(r)
+            by5.setdefault(cn[:5], []).append(r)
+        import statistics as _st
+        for k, vs in list(by10.items()) + list(by5.items()):
+            if len(vs) >= 5:                      # 표본 5건 미만은 제안 안 함
+                out[k] = (int(_st.median(vs)), len(vs))
+    except Exception:  # noqa: BLE001 — 실측 실패 시 티어 폴백
+        pass
+    _ACAD_RENT, _ACAD_RENT_DAY = out, today
+    return out
+
+
+# ── 주거취급 중개사 집합 — 경쟁 분모 정밀화(2026-09-02, 사용자 지시) ────────
+# 수익모델이 주거(아파트+빌라·원룸·단독) 기반인데 분모에 상가·토지 전문 사무소까지 들어가
+# 경쟁이 과대평가됐다(역삼 459→342, 가산 162→66). 주거 매물 1건 이상 보유 사무소만 센다.
+_ACAD_RESI: set | None = None
+_ACAD_RESI_DAY = ""
+
+
+def _acad_resi_set() -> set:
+    global _ACAD_RESI, _ACAD_RESI_DAY
+    import datetime as _dtm
+    today = _dtm.date.today().isoformat()
+    if _ACAD_RESI is not None and _ACAD_RESI_DAY == today:
+        return _ACAD_RESI
+    s: set = set()
+    try:
+        with _open_db() as d:
+            for (rid,) in d.execute("SELECT DISTINCT realtor_id FROM listings_current "
+                                    "WHERE realtor_id IS NOT NULL"):
+                s.add(rid)
+        for db in ("listings_villa.sqlite", "listings_oneroom.sqlite", "listings_house.sqlite"):
+            p = DB_PATH.parent / db
+            with sqlite3.connect(f"file:{p}?mode=ro", uri=True) as sc:
+                for (rid,) in sc.execute(
+                        "SELECT DISTINCT realtor_id FROM listings "
+                        "WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM listings) "
+                        "AND realtor_id IS NOT NULL"):
+                    s.add(rid)
+    except Exception:  # noqa: BLE001 — 실패 시 빈 set → 호출부가 전체 카운트 폴백
+        return _ACAD_RESI or set()
+    _ACAD_RESI, _ACAD_RESI_DAY = s, today
+    return s
+
+
+_ACAD_AG: dict = {}
+
+
+def _acad_agents_by(key_len: int) -> dict[str, int]:
+    """realtor_dong → 지역별 '주거취급' 사무소 수. key_len=5(시군구)/10(동). 일캐시."""
+    import datetime as _dtm
+    today = _dtm.date.today().isoformat()
+    hit = _ACAD_AG.get(key_len)
+    if hit and hit["day"] == today:
+        return hit["map"]
+    resi = _acad_resi_set()
+    out: dict[str, set] = {}
+    with _open_db() as d:
+        for cn, rid in d.execute("SELECT cortar_no, realtor_id FROM realtor_dong "
+                                 "WHERE cortar_no IS NOT NULL"):
+            if resi and rid not in resi:
+                continue
+            out.setdefault(cn[:key_len], set()).add(rid)
+    mp = {k: len(v) for k, v in out.items()}
+    _ACAD_AG[key_len] = {"day": today, "map": mp}
+    return mp
+
+
+# ── 전국 분포(절대등급 기준표) — 레벨별 일 1회 사전계산 ──────────────────
+_ACAD_NAT: dict = {}          # level → {"day", "basis"}
+
+
+def _acad_nat_basis(level: str) -> dict:
+    """전국 분포(절대등급 기준표). 콜드 빌드가 커서(단지 ~60s):
+    ① 어제 값이 있으면 그대로 쓰고 백그라운드 재빌드(SWR) ② 기동 시 프리워밍."""
+    import datetime as _dtm
+    today = _dtm.date.today().isoformat()
+    hit = _ACAD_NAT.get(level)
+    if hit and hit["day"] == today:
+        return hit["basis"]
+    if hit:                                   # 날짜만 지난 값 — 일단 서빙, 뒤에서 갱신
+        if not hit.get("_rebuilding"):
+            hit["_rebuilding"] = True
+            _threading.Thread(target=_acad_nat_build, args=(level,), daemon=True).start()
+        return hit["basis"]
+    return _acad_nat_build(level)             # 최초 1회만 동기(프리워밍이 대부분 흡수)
+
+
+def _acad_nat_build(level: str) -> dict:
+    import datetime as _dtm
+    today = _dtm.date.today().isoformat()
+    cut = _ACAD_WINDOW
+    metrics: list[dict] = []
+    with _open_db() as d:
+        if level == "gu":
+            _eff = _eff_sgg_sql()
+            sale = {r[0]: (r[1], r[2], r[3]) for r in d.execute(
+                f"SELECT ({_eff}) s, COUNT(*), AVG(deal_amount), AVG({_acad.sale_fee_sql('deal_amount')}) FROM transactions "
+                f"WHERE is_cancelled=0 AND deal_ymd>={cut} GROUP BY s")}
+            lease = {r[0]: (r[1], r[2], r[3]) for r in d.execute(
+                f"SELECT ({_eff}) s, COUNT(*), AVG({_acad_lease_amt()}), AVG({_acad.lease_fee_sql(_acad_lease_amt())}) FROM rentals "
+                f"WHERE deal_ymd>={cut}{_acad_lease_new()} GROUP BY s")}
+            ag = _acad_agents_by(5)            # 주거취급 사무소만(상가·토지 전문 제외)
+        elif level == "dong":
+            sale = {r[0]: (r[1], r[2], r[3]) for r in d.execute(
+                f"SELECT substr(cx.cortar_no,1,10) s, COUNT(*), AVG(t.deal_amount), AVG({_acad.sale_fee_sql('t.deal_amount')}) "
+                f"FROM transactions t JOIN complexes cx ON cx.complex_no=t.matched_complex_no "
+                f"WHERE t.is_cancelled=0 AND t.deal_ymd>={cut} GROUP BY s")}
+            lease = {r[0]: (r[1], r[2], r[3]) for r in d.execute(
+                f"SELECT substr(cx.cortar_no,1,10) s, COUNT(*), AVG({_acad_lease_amt('r')}), AVG({_acad.lease_fee_sql(_acad_lease_amt('r'))}) "
+                f"FROM rentals r JOIN complexes cx ON cx.complex_no=r.matched_complex_no "
+                f"WHERE r.deal_ymd>={cut}{_acad_lease_new('r')} GROUP BY s")}
+            ag = _acad_agents_by(10)           # 주거취급 사무소만
+        else:  # complex
+            sale = {r[0]: (r[1], r[2], r[3]) for r in d.execute(
+                f"SELECT matched_complex_no s, COUNT(*), AVG(deal_amount), AVG({_acad.sale_fee_sql('deal_amount')}) FROM transactions "
+                f"WHERE is_cancelled=0 AND matched_complex_no IS NOT NULL AND deal_ymd>={cut} "
+                f"GROUP BY s")}
+            lease = {r[0]: (r[1], r[2], r[3]) for r in d.execute(
+                f"SELECT matched_complex_no s, COUNT(*), AVG({_acad_lease_amt()}), AVG({_acad.lease_fee_sql(_acad_lease_amt())}) FROM rentals "
+                f"WHERE matched_complex_no IS NOT NULL AND deal_ymd>={cut}{_acad_lease_new()} "
+                f"GROUP BY s")}
+            ag = {r[0]: r[1] for r in d.execute(
+                "SELECT complex_no, COUNT(DISTINCT realtor_id) FROM listings_current "
+                "WHERE realtor_id IS NOT NULL GROUP BY complex_no")}
+        # 좌표·이름 enrich(스냅샷 서빙용) — 지도는 이 스냅샷을 메모리 필터만 해서 응답한다.
+        if level == "gu":
+            cen = _sgg_centroids()
+            enrich = {k: (n, la_, lo) for k, (la_, lo, n) in cen.items()}
+        elif level == "dong":
+            co = {r[0]: (r[1], r[2]) for r in d.execute(
+                "SELECT substr(cortar_no,1,10), AVG(latitude), AVG(longitude) "
+                "FROM complexes WHERE latitude>0 GROUP BY 1")}
+            nm = {r[0]: r[1] for r in d.execute(
+                "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='sec'")}
+            enrich = {k: (nm.get(k, k), *co.get(k, (None, None))) for k in co}
+        else:
+            enrich = {r[0]: (r[1], r[4], r[5], int(r[2] or 0), r[3] or "") for r in d.execute(
+                "SELECT complex_no, complex_name, total_household_count, cortar_no, "
+                "latitude, longitude FROM complexes WHERE latitude>0")}
+        items: list[dict] = []
+        for k in set(sale) | set(lease):
+            sn, sa, sf = sale.get(k, (0, 0, 0))
+            ln, la, lf = lease.get(k, (0, 0, 0))
+            hh = 0
+            cortar = k
+            e = enrich.get(k)
+            if level == "complex":
+                if not e:
+                    continue
+                name, lat, lng, hh, cortar = e
+            else:
+                if not e or e[1] is None:
+                    continue
+                name, lat, lng = e
+            m = _acad.region_metrics(
+                sale_n=sn, lease_n=ln, sale_avg=sa or 0, lease_avg=la or 0,
+                agents=max(ag.get(k, 1) or 1, 1), households=hh,
+                sale_fee_avg=sf or 0, lease_fee_avg=lf or 0)
+            m.update(code=k, name=name or k, lat=lat, lng=lng, cortar=cortar, level=level)
+            metrics.append(m)
+            items.append(m)
+        # 입주예정물량(버블 라인용)
+        up5: dict[str, int] = {}
+        up10: dict[str, int] = {}
+        try:
+            for s5, c10, hh_ in d.execute(
+                    "SELECT sgg5, cortar10, hh FROM molip_supply WHERE ym>=strftime('%Y-%m','now')"):
+                if s5:
+                    up5[s5] = up5.get(s5, 0) + (hh_ or 0)
+                if c10:
+                    up10[c10] = up10.get(c10, 0) + (hh_ or 0)
+        except Exception:  # noqa: BLE001
+            pass
+    basis = _acad.national_basis(metrics)
+    for m in items:                    # 절대점수·수익·입주예정까지 빌드 시 확정(요청 시 계산 0)
+        _acad.abs_score(m, basis)
+        cn = m["cortar"] or ""
+        m["upcoming_hh"] = up5.get(cn[:5], 0) if level == "gu" else up10.get(cn[:10], 0)
+        m["sim"] = _acad.revenue_sim(m, costs=_acad_costs_for(m)[0])
+    items.sort(key=lambda x: -x.get("score", 0))
+    _ACAD_NAT[level] = {"day": today, "basis": basis, "items": items}
+    return basis
+
+
+def _acad_costs_for(m: dict) -> tuple[dict, str]:
+    """지역 실측 임대료(동→구 폴백) 반영한 비용 제안값 + 출처 라벨."""
+    c = _acad.cost_defaults(m.get("sale_avg") or 0)
+    rents = _acad_rent_map()
+    cn = (m.get("cortar") or "")
+    hit = rents.get(cn[:10]) or rents.get(cn[:5])
+    if hit:
+        med, n = hit
+        c = dict(c, rent=med * 10000)
+        scope = "동" if cn[:10] in rents else "구"
+        return c, f"인근 상가 월세 호가 중앙값({scope}, {n}건)"
+    return c, "지역 기준표(추정)"
+
+
+# ── 상업용(상가·사무실) 개업입지 Phase 0 — design/academy_commercial/ 계획서 ──
+# 흐름=comm_flow_daily(nfind 아카이브 diff 실측), 스톡·호가=dong_daily, 보수·경쟁=현 스냅샷.
+# 주거 스냅샷과 같은 구조(_ACADC_NAT[(kind,level)])로 일 1회 빌드, 지도에서는 bbox 필터만.
+from scripts import academy_commercial as _acadc  # noqa: E402
+
+_ACADC_NAT: dict = {}
+
+
+def _acadc_nat_build(kind: str, level: str) -> None:
+    """kind: comm(상가+사무실 통합, 2026-09-04 사용자 결정) — sangga/office 두 DB를
+    합산 수집해 하나의 상업 스냅샷을 만든다. level: gu|dong."""
+    import datetime as _dtm
+    from collections import defaultdict
+    today = _dtm.date.today().isoformat()
+    kinds = ["sangga", "office"] if kind == "comm" else [kind]
+    key5 = level == "gu"
+    grp = "substr(cortar_no,1,5)" if key5 else "cortar_no"
+
+    flow = defaultdict(lambda: [0, 0, 0])          # g -> [new, gone, re]
+    stock_l = defaultdict(int)
+    stock_s = defaultdict(int)
+    sale_px = defaultdict(lambda: [0.0, 0])        # g -> [sum(만원), cnt] (호가 — 참고용)
+    conv = defaultdict(lambda: [0.0, 0])           # g -> [sum(원), cnt] 환산보증금(로버스트 컷)
+    agents_set: dict = defaultdict(set)            # g -> {realtor_id} (두 업종 취급 중복 제거)
+    noprem = {}                                    # 상가만 — 무권리 표기 비율
+    r_now = defaultdict(lambda: [0.0, 0])
+    r_old = defaultdict(lambda: [0.0, 0])
+    fl_days = 1
+    last_any = None
+
+    cexpr = _acadc.lease_conv_sql()
+    for k in kinds:
+        p = DB_PATH.parent / f"listings_{k}.sqlite"
+        with sqlite3.connect(f"file:{p}?mode=ro", uri=True) as sc:
+            last = sc.execute("SELECT MAX(snapshot_date) FROM listings").fetchone()[0]
+            last_any = max(last_any or last, last)
+            fl_days = max(fl_days, sc.execute(
+                "SELECT COUNT(DISTINCT date) FROM comm_flow_daily "
+                "WHERE date>=date(?, '-28 day')", (last,)).fetchone()[0] or 1)
+            for g, n_, go_, re_ in sc.execute(
+                    f"SELECT {grp} g, SUM(new), SUM(gone), SUM(re) "
+                    f"FROM comm_flow_daily WHERE date>=date(?, '-28 day') AND trade_type='B2' "
+                    f"GROUP BY g", (last,)):
+                flow[g][0] += n_ or 0; flow[g][1] += go_ or 0; flow[g][2] += re_ or 0
+            dd_last = sc.execute("SELECT MAX(snapshot_date) FROM dong_daily").fetchone()[0]
+            for g, tt, ads, pxs, pxc in sc.execute(
+                    f"SELECT {grp} g, trade_type, SUM(ads), SUM(px_sum), SUM(px_cnt) "
+                    f"FROM dong_daily WHERE snapshot_date=? GROUP BY g, trade_type", (dd_last,)):
+                if tt == "B2":
+                    stock_l[g] += ads or 0
+                elif tt == "A1":
+                    stock_s[g] += ads or 0
+                    sale_px[g][0] += pxs or 0; sale_px[g][1] += pxc or 0
+            for off, tgt in (("-6 day", r_now), ("-34 day", r_old)):
+                lo, hi = ("-34 day", "-28 day") if tgt is r_old else ("-6 day", "-0 day")
+                for g, rs, rc in sc.execute(
+                        f"SELECT {grp} g, SUM(rent_sum), SUM(rent_cnt) FROM dong_daily "
+                        f"WHERE trade_type='B2' AND snapshot_date BETWEEN date(?,?) AND date(?,?) "
+                        f"GROUP BY g", (dd_last, lo, dd_last, hi)):
+                    tgt[g][0] += rs or 0; tgt[g][1] += rc or 0
+            for g, cs, cc in sc.execute(
+                    f"SELECT {grp} g, SUM(CASE WHEN {cexpr} BETWEEN 2e6 AND 5e9 THEN {cexpr} END), "
+                    f"COUNT(CASE WHEN {cexpr} BETWEEN 2e6 AND 5e9 THEN 1 END) FROM listings "
+                    f"WHERE snapshot_date=? AND trade_type='B2' GROUP BY g", (last,)):
+                conv[g][0] += cs or 0; conv[g][1] += cc or 0
+            for g, rid in sc.execute(
+                    f"SELECT DISTINCT {grp} g, realtor_id FROM listings "
+                    f"WHERE snapshot_date=? AND realtor_id IS NOT NULL", (last,)):
+                agents_set[g].add(rid)
+            if k == "sangga":
+                noprem = {r[0]: r[1] for r in sc.execute(
+                    f"SELECT {grp} g, AVG(article_feature_desc LIKE '%무권리%') FROM listings "
+                    f"WHERE snapshot_date=? AND trade_type='B2' GROUP BY g", (last,))}
+
+    # 이름 + 매매 실거래(국토부 상업업무용 — 상가·사무실 용도 통합)
+    uses = "'제1종근린생활','제2종근린생활','판매','업무'"
+    with _open_db() as d:
+        if key5:
+            names = {kk: v[2] for kk, v in _sgg_centroids().items()}
+            nrg = {r[0]: (r[1], r[2]) for r in d.execute(
+                f"SELECT sgg_cd, COUNT(*), AVG(CASE WHEN deal_amount BETWEEN 1e7 AND 5e10 "
+                f"THEN deal_amount END) FROM nrg_transactions "
+                f"WHERE is_cancelled=0 AND building_use IN ({uses}) "
+                f"AND deal_ymd>=CAST(strftime('%Y%m%d', date('now','-12 month')) AS INTEGER) "
+                f"GROUP BY sgg_cd")}
+        else:
+            names = {r[0]: r[1] for r in d.execute(
+                "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='sec'")}
+            nrg = {r[0]: (r[1], r[2]) for r in d.execute(
+                f"SELECT r.cortar_no, COUNT(*), AVG(CASE WHEN n.deal_amount BETWEEN 1e7 AND 5e10 "
+                f"THEN n.deal_amount END) FROM nrg_transactions n "
+                f"JOIN regions r ON r.cortar_type='sec' AND substr(r.cortar_no,1,5)=n.sgg_cd "
+                f"AND r.cortar_name=n.umd_nm "
+                f"WHERE n.is_cancelled=0 AND n.building_use IN ({uses}) "
+                f"AND n.deal_ymd>=CAST(strftime('%Y%m%d', date('now','-12 month')) AS INTEGER) "
+                f"GROUP BY r.cortar_no")}
+
+    # 좌표: 두 DB 매물 평균 대신 conv 수집 시점의 listings 평균이 필요 — 간단히 상가 DB 우선
+    coords: dict = {}
+    for k in kinds:
+        p = DB_PATH.parent / f"listings_{k}.sqlite"
+        with sqlite3.connect(f"file:{p}?mode=ro", uri=True) as sc:
+            last = sc.execute("SELECT MAX(snapshot_date) FROM listings").fetchone()[0]
+            for g, la, lo in sc.execute(
+                    f"SELECT {grp} g, AVG(latitude), AVG(longitude) FROM listings "
+                    f"WHERE snapshot_date=? AND latitude>0 GROUP BY g", (last,)):
+                coords.setdefault(g, (la, lo))
+
+    items = []
+    for g in set(stock_l) | set(stock_s):
+        if not g:
+            continue
+        la_lo = coords.get(g)
+        if not la_lo or la_lo[0] is None:
+            continue
+        n_, go_, re_ = flow.get(g, (0, 0, 0))
+        conv_avg = (conv[g][0] / conv[g][1]) if conv[g][1] else 0
+        sn12, s_avg = nrg.get(g, (0, 0))
+        m = _acadc.region_metrics_c(
+            kind="comm", cortar=g,
+            flow_new=n_, flow_gone=go_, flow_re=re_, flow_days=fl_days,
+            stock_lease=stock_l.get(g, 0), stock_sale=stock_s.get(g, 0),
+            lease_conv_avg=conv_avg,
+            lease_fee_avg=conv_avg * _acadc.FEE_RATE,
+            sale_n12=sn12, sale_avg=s_avg or 0,
+            sale_fee_avg=(s_avg or 0) * _acadc.FEE_RATE,
+            agents=len(agents_set.get(g) or ()) or 0,
+            no_premium_rate=noprem.get(g) or 0,
+            rent_trend=((r_now[g][0] / r_now[g][1]) / (r_old[g][0] / r_old[g][1]) - 1)
+                       if (r_now[g][1] and r_old[g][1] and r_old[g][0]) else 0)
+        if not m["stock"]:
+            continue
+        m.update(code=g, name=names.get(g if not key5 else g[:5], g),
+                 lat=la_lo[0], lng=la_lo[1], level=level, mode="comm",
+                 sale_n=m["stock_sale"], lease_n=m["stock_lease"])
+        items.append(m)
+    basis = _acad.national_basis(items) if items else {}
+    for m in items:
+        if basis:
+            _acad.abs_score(m, basis)
+        m["sim"] = _acadc.revenue_sim_c(m, costs=_acad_costs_for(m)[0])
+    items.sort(key=lambda x: -x.get("score", 0))
+    _ACADC_NAT[(kind, level)] = {"day": today, "basis": basis, "items": items}
+
+
+def _acadc_snap(kind: str, level: str) -> dict:
+    import datetime as _dtm
+    snap = _ACADC_NAT.get((kind, level))
+    if not snap or snap.get("day") != _dtm.date.today().isoformat():
+        if snap:                                   # SWR: 낡은 스냅샷은 백그라운드 갱신
+            import threading
+            threading.Thread(target=_acadc_nat_build, args=(kind, level), daemon=True).start()
+        else:
+            _acadc_nat_build(kind, level)
+    return _ACADC_NAT.get((kind, level)) or {}
+
+
+@app.get("/admin/academy/map")
+def academy_map(level: str = "dong", sw_lat: float = 0, sw_lng: float = 0,
+                ne_lat: float = 0, ne_lng: float = 0, min_n: int = 1,
+                mode: str = "resi",
+                _admin: dict = Depends(admin_user)):
+    """개업 입지 지도 — 구 버블/동 버블/단지 핀.
+
+    전국 스냅샷(_acad_nat_build, 일 1회·기동 프리워밍)에서 **메모리 bbox 필터만** 해서
+    응답한다 — 이전엔 뷰포트마다 라이브 집계 SQL이라 넓은 범위에서 수 초씩 걸렸다
+    (2026-09-01 개선). 점수·수익·입주예정은 스냅샷 빌드 때 확정(절대등급이라 가능).
+    """
+    if level not in ("gu", "dong", "complex"):
+        raise HTTPException(400, "level must be gu|dong|complex")
+    if mode in ("comm", "sangga", "office"):     # 상업 모드(상가+사무실 통합): 구·동 2레벨
+        snap = _acadc_snap("comm", "gu" if level == "gu" else "dong")
+    else:
+        _acad_nat_basis(level)                   # SWR: 스냅샷 보장(없으면 빌드, 낡으면 백그라운드 갱신)
+        snap = _ACAD_NAT.get(level) or {}
+    src: list[dict] = snap.get("items") or []
+    has_bb = bool(ne_lat and ne_lng)
+    items = [m for m in src
+             if (m["sale_n"] + m["lease_n"]) >= min_n
+             and (not has_bb or (m["lat"] is not None
+                                 and sw_lat <= m["lat"] <= ne_lat
+                                 and sw_lng <= m["lng"] <= ne_lng))]
+    # 스냅샷은 이미 score 내림차순 정렬 — 상위 600만 잘라 응답(넓은 단지뷰 폭주 방지)
+    return {"level": level, "count": len(items), "items": items[:600]}
+
+
+@app.get("/admin/academy/detail")
+def academy_detail(level: str, id: str, _admin: dict = Depends(admin_user)):
+    """단일 동/단지 상세 — 원지표 + 입지 4축 + 비용 제안값 + 3시나리오 + 기본 수익."""
+    if level not in ("dong", "complex"):
+        raise HTTPException(400, "level must be dong|complex")
+    with _open_db() as d:
+        m = _acad_one(d, level, id)
+        # 미래 수요: 입주예정물량(부동산원, 향후 24개월) — 동 + 시군구 합계
+        cn = m.get("cortar") or ""
+        try:
+            dh = d.execute("SELECT COALESCE(SUM(hh),0), COUNT(*) FROM molip_supply "
+                           "WHERE cortar10=? AND ym>=strftime('%Y-%m','now')", (cn[:10],)).fetchone()
+            sh = d.execute("SELECT COALESCE(SUM(hh),0), COUNT(*) FROM molip_supply "
+                           "WHERE sgg5=? AND ym>=strftime('%Y-%m','now')", (cn[:5],)).fetchone()
+            m["upcoming"] = {"dong_hh": dh[0], "dong_n": dh[1], "sgg_hh": sh[0], "sgg_n": sh[1]}
+        except Exception:  # noqa: BLE001 — 테이블 없거나 로드 전이면 생략
+            pass
+    _acad.abs_score(m, _acad_nat_basis(level))   # 상세에서도 동일한 절대등급
+    # 전국 참고치 — 같은 레벨(동끼리/단지끼리) 예상 순이익 분포: 상위1%·상위10%·중앙·평균.
+    # 스냅샷 items에 sim.profit이 이미 확정돼 있어 정렬 추출만 하면 된다.
+    snap_items = (_ACAD_NAT.get(level) or {}).get("items") or []
+    profits = sorted((x["sim"]["profit"] for x in snap_items if x.get("sim")), reverse=True)
+    if len(profits) >= 20:
+        import bisect as _bi
+        n = len(profits)
+        my = None  # 이 지역의 순이익 순위(상위 %) — 기본 시나리오 기준으로 아래에서 채움
+        m["benchmarks"] = {
+            "n": n,
+            "top1": profits[max(0, int(n * 0.01) - 1)],
+            "top10": profits[max(0, int(n * 0.10) - 1)],
+            "median": profits[n // 2],
+            "avg": int(sum(profits) / n),
+        }
+        _profits_asc = profits[::-1]
+        m["_profits_asc"] = _profits_asc  # 순위 계산용(응답 전 제거)
+    costs, cost_src = _acad_costs_for(m)
+    m["cost_defaults"] = costs
+    m["cost_src"] = cost_src
+    m["scenarios"] = _acad.scenarios(m, costs=costs)
+    m["sim"] = _acad.revenue_sim(m, costs=costs)
+    pa = m.pop("_profits_asc", None)
+    if pa and m.get("benchmarks"):
+        import bisect as _bi
+        rank_pct = (1 - _bi.bisect_left(pa, m["sim"]["profit"]) / len(pa)) * 100
+        m["benchmarks"]["my_top_pct"] = round(max(rank_pct, 0.1), 1)   # 순이익 기준 전국 상위 %
+    m["coef"] = _acad.COEF
+    return m
+
+
+class AcademySimBody(BaseModel):
+    level: str
+    id: str
+    occupancy: float | None = None
+    costs: dict | None = None
+    initial_cost: float = 0
+
+
+@app.post("/admin/academy/revenue-sim")
+def academy_revenue_sim(body: AcademySimBody, _admin: dict = Depends(admin_user)):
+    """사용자가 비용·점유율을 조정한 실시간 수익 재계산."""
+    if body.level not in ("dong", "complex"):
+        raise HTTPException(400, "level must be dong|complex")
+    with _open_db() as d:
+        m = _acad_one(d, body.level, body.id)
+    costs = body.costs or _acad_costs_for(m)[0]
+    return {"region": {k: m.get(k) for k in ("code", "name", "level", "agents",
+            "m_sale", "m_lease", "sale_avg", "lease_avg")},
+            "sim": _acad.revenue_sim(m, occupancy=body.occupancy, costs=costs,
+                                     initial_cost=body.initial_cost)}
 
 
 @app.get("/stats/tx-map/detail")
@@ -10986,6 +11637,65 @@ REVIEWS_DB: Path = DB_PATH.parent / "reviews.sqlite"
 REVIEW_DOCS_DIR: Path = DB_PATH.parent / "review_docs"
 FORUM_IMG_DIR: Path = DB_PATH.parent / "forum_images"
 BIZ_CONTRACT_DIR: Path = DB_PATH.parent / "biz_contracts"   # 계약서 원본(외부 서빙 안 함)
+
+
+# ── 계약서 작성: 주민번호 암호화(Fernet, 키=.env CONTRACT_ENC_KEY) ──────────
+# 레거시 한방도 *_ENC 분리·전용 SP 조회였다(§9.2). 우리는 body_json에 마스킹본만 두고
+# 원본은 이 헬퍼로 암호화해 jumin_enc에 저장. 키 없으면 저장 자체를 거부(평문 저장 금지).
+_CONTRACT_FERNET = None
+
+
+def _contract_fernet():
+    global _CONTRACT_FERNET
+    if _CONTRACT_FERNET is None:
+        key = ""
+        try:
+            for line in open(DB_PATH.parent.parent / ".env"):
+                if line.startswith("CONTRACT_ENC_KEY="):
+                    key = line.split("=", 1)[1].strip()
+                    break
+        except OSError:
+            pass
+        if not key:
+            raise HTTPException(503, "계약서 암호화 키(CONTRACT_ENC_KEY)가 설정되지 않았습니다")
+        from cryptography.fernet import Fernet
+        _CONTRACT_FERNET = Fernet(key.encode())
+    return _CONTRACT_FERNET
+
+
+def _jumin_mask(s: str) -> str:
+    """'800101-1234567' → '800101-1******' (뒷자리 첫 글자만 노출)."""
+    import re as _re_j
+    s = (s or "").strip()
+    m = _re_j.match(r"^(\d{6})-?(\d)(\d{6})$", s)
+    return f"{m.group(1)}-{m.group(2)}******" if m else s
+
+
+def _contract_encrypt_jumins(body: dict) -> tuple[dict, str | None]:
+    """body의 당사자 주민번호를 마스킹하고 원본은 암호화 JSON으로 분리.
+    반환: (마스킹된 body, jumin_enc 문자열|None)."""
+    raw: dict[str, str] = {}
+    body = _json.loads(_json.dumps(body, ensure_ascii=False))   # deep copy
+    for side in ("sell_parties", "buy_parties"):
+        for i, p in enumerate(body.get(side) or []):
+            for k in ("jumin", "agent_jumin"):
+                v = (p.get(k) or "").strip()
+                if v and "*" not in v:
+                    raw[f"{side}.{i}.{k}"] = v
+                    p[k] = _jumin_mask(v)
+    if not raw:
+        return body, None
+    enc = _contract_fernet().encrypt(_json.dumps(raw, ensure_ascii=False).encode()).decode()
+    return body, enc
+
+
+def _contract_decrypt_jumins(enc: str | None) -> dict:
+    if not enc:
+        return {}
+    try:
+        return _json.loads(_contract_fernet().decrypt(enc.encode()).decode())
+    except Exception:  # noqa: BLE001 — 키 교체 등으로 복호 실패 시 빈 값(마스킹본만 표시)
+        return {}
 _REVIEW_DOC_MAX_BYTES = 10 * 1024 * 1024  # 10MB
 _REVIEW_DOC_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".heic"}
 
@@ -11162,6 +11872,67 @@ def _init_reviews_db() -> None:
               created_at  TEXT NOT NULL DEFAULT (datetime('now','+9 hours'))
             );
             CREATE INDEX IF NOT EXISTS kok_logs_idx ON kok_logs(id DESC);
+
+            -- 계약 기준정보 점검 기록(관리자 — 법정서식·요율표 등 주기 확인)
+            CREATE TABLE IF NOT EXISTS contract_basis_checks (
+              id         INTEGER PRIMARY KEY AUTOINCREMENT,
+              key        TEXT NOT NULL,
+              note       TEXT,
+              user_id    TEXT,
+              checked_at TEXT NOT NULL DEFAULT (datetime('now','+9 hours'))
+            );
+            CREATE INDEX IF NOT EXISTS cbc_idx ON contract_basis_checks(key, id DESC);
+
+            -- 중개사 약관 동의(계약서 작성 등 중개사 전용 기능 개방 게이트)
+            CREATE TABLE IF NOT EXISTS biz_terms_agreements (
+              user_id    TEXT NOT NULL,
+              version    TEXT NOT NULL,
+              agreed_at  TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+              PRIMARY KEY (user_id, version)
+            );
+
+            -- ── 계약서 작성(P0, 한방 이식 — hanbang/docs 명세) ─────────────
+            -- 본문은 JSON(서식별 필드 초집합), 검색·목록용 핵심 컬럼만 추출 저장.
+            -- 주민번호는 body_json에 마스킹만 두고 원본은 jumin_enc(Fernet)로 분리.
+            CREATE TABLE IF NOT EXISTS biz_wcontracts (
+              id            INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id       TEXT NOT NULL,
+              realtor_id    TEXT,
+              category      INTEGER NOT NULL,          -- 서식 1~9
+              sub_category  TEXT,                      -- 표시용 세분류(33종)
+              mtype1        TEXT NOT NULL,             -- 매매/전세/월세/연세
+              form_version  TEXT,                      -- 계약일로 선택된 서식버전
+              status        TEXT NOT NULL DEFAULT '10',-- 10=계약중 30=계약완료
+              title         TEXT,
+              haddress      TEXT, hdong TEXT, hho TEXT,
+              contract_date TEXT,                      -- YYYY-MM-DD
+              sdate TEXT, edate TEXT, ecost_date TEXT,
+              cost          INTEGER,                   -- 총액(원)
+              fine_cost     INTEGER,                   -- 월차임(원)
+              charge        INTEGER,                   -- 중개보수(원)
+              sell_name     TEXT, buy_name TEXT,
+              offer_code    TEXT,                      -- 연동 매물(article_no)
+              body_json     TEXT NOT NULL,             -- 전체 필드(주민번호 마스킹본)
+              jumin_enc     TEXT,                      -- 주민번호 원본 암호화(JSON map)
+              created_at    TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+              updated_at    TEXT,
+              deleted_at    TEXT                       -- soft delete
+            );
+            CREATE INDEX IF NOT EXISTS bwc_user_idx ON biz_wcontracts(user_id, deleted_at, contract_date DESC);
+            CREATE INDEX IF NOT EXISTS bwc_realtor_idx ON biz_wcontracts(realtor_id, deleted_at);
+
+            -- ── 중개대상물 확인·설명서(P3-a, 2026-09-02) ──────────────
+            -- 계약서와 1:1(한방 ViewNo 다가구 별지는 후속). 주거용 R01부터.
+            CREATE TABLE IF NOT EXISTS biz_offerinfo (
+              id            INTEGER PRIMARY KEY AUTOINCREMENT,
+              wcontract_id  INTEGER NOT NULL UNIQUE,
+              user_id       TEXT NOT NULL,
+              form          TEXT NOT NULL DEFAULT 'R01',   -- R01 주거/R02 비주거/R03 토지/R04 재단
+              body_json     TEXT NOT NULL,                 -- 전체 필드(주민 마스킹본)
+              jumin_enc     TEXT,                          -- 주민번호 원본 암호화
+              created_at    TEXT NOT NULL DEFAULT (datetime('now','+9 hours')),
+              updated_at    TEXT
+            );
 
             -- ── 중개사 라운지 ──────────────────────────────────────────
             -- 계정 ↔ 중개사무소 1:1 연동(전화매칭 또는 서류승인). 여러 곳 매칭 시 사용자가
@@ -11431,6 +12202,7 @@ def _init_reviews_db() -> None:
         # 기존 테이블에 신규 컬럼 보강(있으면 무시) — 전화번호=유니크 비즈니스키, 회원번호=내부키
         for ddl in (
             "ALTER TABLE biz_contracts ADD COLUMN doc_hash TEXT",   # 동일 파일 재파싱 방지(비용 0)
+            "ALTER TABLE biz_events ADD COLUMN wcontract_id INTEGER",  # 계약서 작성(P1) 일정 동기화 키
             "ALTER TABLE biz_customers ADD COLUMN stage TEXT",       # 고객 파이프라인 단계(신규·미팅·계약중·잔금완료)
             # biz_needs 는 먼저 배포된 적이 있다 — CREATE TABLE IF NOT EXISTS 는 기존
             # 테이블에 no-op 이라 새 컬럼은 여기서 붙여야 한다.
@@ -14063,7 +14835,7 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                "l.same_addr_min_price,l.same_addr_max_price,l.article_feature_desc,l.cp_pc_article_url,"
                "l.cp_name,l.verification_type,l.latitude,l.longitude,c.dong_name,c.road_address,c.detail_address,"
                "c.parking_possible_count,c.parking_per_household,c.total_household_count,c.use_approve_ymd,"
-               "c.construction_company,c.management_office_tel,c.cortar_no "
+               "c.construction_company,c.management_office_tel,c.cortar_no,l.rent_price "
                "FROM listings_current l LEFT JOIN complexes c ON c.complex_no=l.complex_no "
                f"WHERE {' AND '.join(w)}")
         with _open_db() as dc:
@@ -14100,6 +14872,11 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                 "dong": dong, "address": full_addr,
                 "parking_total": r[28], "parking_per": r[29], "households": r[30],
                 "approve_ymd": r[31], "builder": r[32], "mgmt_tel": r[33],
+                # 계약서 작성용 원 단위 통일 필드 — 경로별 단위 혼재(단지=원, 비단지·비공개=만원)
+                # 를 소비처가 알 필요 없게 여기서 흡수한다.
+                "price_won": int(r[12] or 0),
+                "rent_won": int((r[35] or 0) * 10000),
+                "rent_price": int((r[35] or 0) * 10000),
             })
     # vworld-only(vw{sys_regno}) 사무소 — 비단지 CP매물이 realtor_id 없이 등록번호로 귀속됨
     # ([[naverreal-region-office-attribution]]) → realtor_id 조회로는 0. (정규화이름, sgg)로 매칭.
@@ -14199,6 +14976,8 @@ def _collect_realtor_listings(rid: str, code: str | None, cat: str) -> list:
                 "direction": r[8] or "", "price_text": _ml_price_text(r[3]),
                 "rent_price_text": _ml_price_text(r[4]), "price": r[3] or 0, "confirm_ymd": r[10] or "",
                 "price_man": round(r[3] or 0),
+                "price_won": int((_to_int0(r[3]) or 0) * 10000),
+                "rent_won": int((_to_int0(r[4]) or 0) * 10000),
                 "building_name": r[9] or "", "tags": tags, "same_addr_cnt": sa_cnt, "same_addr_min": sa_min,
                 "same_addr_max": sa_max, "feature_desc": feat,
                 "naver_url": f"https://m.land.naver.com/article/info/{r[0]}",
@@ -14570,6 +15349,9 @@ def _pl_row_to_item(r) -> dict:
     price = num("price") or 0
     return {
         "article_no": f"P{r['id']}", "private_id": r["id"], "is_private": True,
+        # 원 단위 통일(비공개는 만원 저장) — 계약서 작성 자동채움용
+        "price_won": int((price or 0) * 10000),
+        "rent_won": int((num("rent_price") or 0) * 10000),
         "source_article_no": g("source_article_no"), "source_saved_at": g("source_saved_at"),
         "import_file": g("import_file"), "import_at": g("import_at"),
         "visibility": g("visibility"), "created_by": g("created_by"),
@@ -18031,6 +18813,49 @@ def lounge_lead_status(lead_id: int, body: dict, user: dict = Depends(current_us
     return {"ok": True}
 
 
+@app.delete("/lounge/leads/{lead_id}")
+def lounge_lead_delete(lead_id: int, user: dict = Depends(current_user)):
+    """상담신청 삭제 — 처리 끝난(완료) 리드를 정리. 본 사무소 것만."""
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+        cur = c.execute("DELETE FROM consultation_leads WHERE id=? AND realtor_id=?", (lead_id, rid))
+        c.commit()
+    if cur.rowcount == 0:
+        raise HTTPException(404, "해당 상담신청을 찾을 수 없습니다")
+    return {"ok": True}
+
+
+@app.post("/lounge/leads/{lead_id}/to-customer")
+def lounge_lead_to_customer(lead_id: int, user: dict = Depends(current_user)):
+    """상담신청을 고객원장에 등록 — 번호·이름·문의내용을 biz_customers 로 옮긴다.
+    이름이 없으면 '상담고객'으로, 문의내용은 메모로 남긴다(출처 표기)."""
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+        r = c.execute("SELECT name, phone, message, source FROM consultation_leads WHERE id=? AND realtor_id=?",
+                      (lead_id, rid)).fetchone()
+        if not r:
+            raise HTTPException(404, "해당 상담신청을 찾을 수 없습니다")
+        name = (r[0] or "").strip() or "상담고객"
+        phone = _norm_phone(r[1]) or (r[1] or "").strip() or None
+        src = "부재중 전화" if (r[3] or "") == "missed_call" else "홈페이지 상담"
+        memo = " · ".join([x for x in [src, (r[2] or "").strip()] if x]) or None
+        cur = c.execute(
+            "INSERT OR IGNORE INTO biz_customers(user_id,realtor_id,name,phone,memo) VALUES(?,?,?,?,?)",
+            (user["id"], rid, name, phone, memo))
+        dup = cur.rowcount == 0
+        # 방금 만든(또는 이미 있던) 고객 id·필드를 돌려준다 — 프런트가 고객원장 편집폼을
+        # 이어서 띄워 이름·요건을 보완하게 한다(그냥 저장하고 끝내지 않게).
+        row = c.execute(
+            "SELECT id, name, phone, memo FROM biz_customers "
+            "WHERE user_id=? AND name=? AND COALESCE(phone,'')=COALESCE(?,'')",
+            (user["id"], name, phone)).fetchone()
+        c.commit()
+    if not row:
+        return {"ok": True, "duplicated": dup}
+    return {"ok": True, "duplicated": dup,
+            "customer": {"id": row[0], "name": row[1], "phone": row[2], "memo": row[3]}}
+
+
 _TYPE2BD = {"아파트": "complex", "오피스텔": "complex", "분양권": "complex", "빌라": "villa",
             "단독": "house", "상가": "sangga", "사무실": "office", "빌딩": "building",
             "토지": "land", "공장": "factory", "지식산업센터": "knowledge", "재개발": "redev"}
@@ -18794,6 +19619,13 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
         _rc = recap_for_pnu(led["pnu"], dks)
         if _rc and _rc.get("parking"):
             led = dict(led, parking=_rc["parking"], parking_src="총괄표제부")
+        else:
+            # 3차: 총괄표제부가 없는 **단일동 집합 신축**은 일반 표제부에만 주차가 있다
+            # (방배동 860-1 에비뉴860: 인라인 0 / 총괄 null / 표제부 자주식 6, 2026-09-01).
+            from collector.ondemand_ledger import title_parking_for_pnu
+            _tp = title_parking_for_pnu(led["pnu"], dks)
+            if _tp and _tp.get("parking"):
+                led = dict(led, parking=_tp["parking"], parking_src="표제부")
     # ⑨ 사용승인일 2차 출처 — 네이버 광고 화면은 이 값을 매물 자체 필드가 아니라 '건축물 정보'
     #    블록(fin.land 단지/건물 API)에서 보여준다. new.land 매물상세에 그 필드가 없는 매물이
     #    있는데(제휴 전송이 시설정보를 빼먹은 경우 등) 그걸 '광고 미표시'로 찍어 멀쩡한 매물이
@@ -19257,9 +20089,235 @@ _BIZ_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
              ".webp": "image/webp", ".heic": "image/heic", ".pdf": "application/pdf"}
 
 
+# ── 용도지역별 건폐율·용적률 상한 참고표(확인설명서 ③ 자동 제안용) ─────────
+# 시행령: 국토계획법 시행령 제84조(건폐율)·제85조(용적률)의 상한(범위 최대값).
+# 서울: 서울특별시 도시계획조례 제54·55조. 상업지역은 구역별 편차가 커 시행령 값+주석.
+# 어디까지나 '제안값' — 프리필 시 빈 칸만 채우고 출처를 함께 표기, 조례 확인 안내.
+_ZONE_LIMITS = {  # 용도지역: (시행령 건폐%, 시행령 용적%, 서울조례 건폐% or None, 서울조례 용적% or None)
+    "제1종전용주거지역": (50, 100, 50, 100),
+    "제2종전용주거지역": (50, 150, 40, 120),
+    "제1종일반주거지역": (60, 200, 60, 150),
+    "제2종일반주거지역": (60, 250, 60, 200),
+    "제3종일반주거지역": (50, 300, 50, 250),
+    "준주거지역": (70, 500, 60, 400),
+    "중심상업지역": (90, 1500, None, None),
+    "일반상업지역": (80, 1300, None, None),
+    "근린상업지역": (70, 900, None, None),
+    "유통상업지역": (80, 1100, None, None),
+    "전용공업지역": (70, 300, 60, 200),
+    "일반공업지역": (70, 350, 60, 200),
+    "준공업지역": (70, 400, 60, 400),
+    "보전녹지지역": (20, 80, 20, 50),
+    "생산녹지지역": (20, 100, 20, 50),
+    "자연녹지지역": (20, 100, 20, 50),
+    "보전관리지역": (20, 80, None, None),
+    "생산관리지역": (20, 80, None, None),
+    "계획관리지역": (40, 100, None, None),
+    "농림지역": (20, 80, None, None),
+    "자연환경보전지역": (20, 80, None, None),
+}
+
+
+def _zone_limit_hint(jiyok_list: list, cortar: str) -> dict:
+    """용도지역명 → 건폐·용적 상한 제안. 서울(cortar 11*)은 조례값 우선."""
+    for tag in jiyok_list:
+        nm = tag.replace("(저촉)", "").strip()
+        row = _ZONE_LIMITS.get(nm)
+        if not row:
+            continue
+        bd, fl, s_bd, s_fl = row
+        if cortar.startswith("11") and s_bd is not None:
+            return {"build_per": s_bd, "floor_per": s_fl, "src": "서울 도시계획조례"}
+        return {"build_per": bd, "floor_per": fl,
+                "src": "시행령 상한 — 시·군 조례로 낮아질 수 있어 확인 필요"}
+    return {}
+
+
+@app.get("/biz/wcontracts/tools/location")
+def wcontract_location(address: str, user: dict = Depends(contract_user)):
+    """확인설명서 ⑤입지조건 자동채움 — 주소 지오코딩(vworld) 후 주변 POI 최근접 검색.
+    버스정류장·지하철역·초중고를 bbox(±0.03°)에서 찾아 최근접 1건과 도보 분(67m/분)을 준다.
+    실패는 항목별로 조용히 생략(빈 값) — 프런트는 빈 필드만 채운다. (2026-09-04, R01 ⑤·R03 ④용)"""
+    import math
+    import urllib.parse as _up
+    g = _vw_geocode(address.strip())
+    if not g or not g.get("x"):
+        raise HTTPException(404, "주소의 좌표를 찾을 수 없습니다")
+    x, y = float(g["x"]), float(g["y"])
+    bbox = f"{x-0.03},{y-0.03},{x+0.03},{y+0.03}"
+
+    def _dist_m(x2, y2):
+        dx = (x2 - x) * 88800 * math.cos(math.radians(y))
+        dy = (y2 - y) * 111000
+        return math.hypot(dx, dy)
+
+    def nearest(query: str):
+        for key in _VW_KEYS:
+            q = _up.urlencode({"service": "search", "request": "search", "version": "2.0",
+                               "size": 30, "query": query, "type": "place", "bbox": bbox,
+                               "format": "json", "key": key})
+            try:
+                d = _vworld_get(f"https://api.vworld.kr/req/search?{q}")
+                res = d.get("response", {})
+                if res.get("status") != "OK":
+                    continue
+                best = None
+                for it in (res.get("result") or {}).get("items", []):
+                    title = (it.get("title") or "")
+                    # 학교 검색에 '○○학교입구' 등 정류장 POI가 섞임 — 학교류는 '학교'로 끝나는 것만
+                    if query.endswith("학교") and not title.split(",")[0].strip().endswith("학교"):
+                        continue
+                    try:
+                        px, py = float(it["point"]["x"]), float(it["point"]["y"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    dm = _dist_m(px, py)
+                    if best is None or dm < best[1]:
+                        # 이름 정리: "(버스정류장)" 꼬리 제거, 역명은 "역" 유지
+                        nm = (it.get("title") or "").split(",")[0].replace("(버스정류장)", "").strip()
+                        best = (nm, dm)
+                if best:
+                    return {"name": best[0], "walk_min": max(1, round(best[1] / 67))}
+            except Exception:  # noqa: BLE001 — 키 순환 재시도
+                continue
+        return None
+
+    out = {"ok": True, "point": {"x": x, "y": y},
+           "bus": nearest("버스정류장"), "subway": nearest("지하철역"),
+           "edu1": nearest("초등학교"), "edu2": nearest("중학교"), "edu3": nearest("고등학교")}
+    return out
+
+
+# ── 계약 기준정보(법정서식·요율표 등) 관리자 점검 대시보드 ──────────────
+# 값 자체는 코드에 있고(개정 시 코드 배포), 이 목록은 '무엇을 언제 다시 확인해야
+# 하는지'를 관리자에게 보여주고 점검 이력을 남긴다. (2026-09-04)
+def _contract_basis_items() -> list:
+    return [
+        {"key": "form_contract_jutaek", "name": "주택임대차표준계약서", "group": "계약서 서식",
+         "current": "개정 2023.10.6 (법무부) + 별지1·별지2(갱신거절통지서)",
+         "src": "https://www.moj.go.kr/moj/316/subview.do", "cycle_days": 180,
+         "how": "법무부 게시판에서 개정 여부 확인 → 개정 시 buildJutaekStdHtml 갱신"},
+        {"key": "form_contract_sangga", "name": "상가건물임대차표준계약서", "group": "계약서 서식",
+         "current": "개정 2024.5.8 (법무부)",
+         "src": "https://www.moj.go.kr/moj/316/subview.do", "cycle_days": 180,
+         "how": "법무부 게시판 확인 → buildSanggaStdHtml 갱신"},
+        {"key": "form_contract_kwonri", "name": "상가 권리금계약서", "group": "계약서 서식",
+         "current": "제정 2015.5.27 (국토부) — FORM_VERSIONS[5]",
+         "src": "https://www.moj.go.kr/bbs/moj/119/237967/artclView.do", "cycle_days": 365,
+         "how": "개정 시 buildKwonriStdHtml + FORM_VERSIONS 갱신"},
+        {"key": "form_offer_r01", "name": "확인설명서 Ⅰ 주거용 (별지 제20호)", "group": "확인설명서 서식",
+         "current": "개정 2026.8.11", "cycle_days": 180,
+         "src": "https://www.law.go.kr/lsSc.do?query=공인중개사법 시행규칙",
+         "how": "시행규칙 별지 개정 확인 → 폼·buildOfferHtml 갱신"},
+        {"key": "form_offer_r02", "name": "확인설명서 Ⅱ 비주거용 (별지 제20호의2)", "group": "확인설명서 서식",
+         "current": "개정 2021.12.31", "cycle_days": 180,
+         "src": "https://www.law.go.kr/lsSc.do?query=공인중개사법 시행규칙",
+         "how": "개정 확인 → buildOfferR02Html 갱신"},
+        {"key": "form_offer_r03", "name": "확인설명서 Ⅲ 토지 (별지 제20호의3)", "group": "확인설명서 서식",
+         "current": "개정 2020.2.21", "cycle_days": 365,
+         "src": "https://www.law.go.kr/lsSc.do?query=공인중개사법 시행규칙",
+         "how": "개정 확인 → buildOfferR03Html 갱신"},
+        {"key": "form_offer_r04", "name": "확인설명서 Ⅳ 입목·광업재단·공장재단 (별지 제20호의4)", "group": "확인설명서 서식",
+         "current": "개정 2017.6.8", "cycle_days": 365,
+         "src": "https://www.law.go.kr/lsSc.do?query=공인중개사법 시행규칙",
+         "how": "개정 확인 → buildOfferR04Html 갱신"},
+        {"key": "fee_rates", "name": "중개보수 요율표", "group": "요율·세율",
+         "current": "2021.10.19 개정 반영(구간·한도, 개정 전/후 분기) + 오피스텔 특례 0.5/0.4%",
+         "src": "https://www.law.go.kr/lsSc.do?query=공인중개사법 시행규칙", "cycle_days": 90,
+         "how": "시행규칙 별표1·시도 조례 확인 → contract_domain.py·contractcalc.ts RATES 동기 갱신(둘 다!)"},
+        {"key": "repayment", "name": "소액임차인 최우선변제금 표", "group": "요율·세율",
+         "current": "주임법 시행령 현행 표(서울 1억6,500/5,500만 등) — 확인설명서 ④ 프리필 참고값",
+         "src": "https://www.law.go.kr/lsSc.do?query=주택임대차보호법 시행령", "cycle_days": 90,
+         "how": "시행령 제10·11조 개정 확인 → local_api _priority_repayment 갱신"},
+        {"key": "acq_tax", "name": "취득세율 자동계산(1주택 기준)", "group": "요율·세율",
+         "current": "지방세법 현행 — 확인설명서 ⑨ 프리필",
+         "src": "https://www.law.go.kr/lsSc.do?query=지방세법", "cycle_days": 90,
+         "how": "지방세법 제11조 개정·중과 정책 확인 → 프리필 세율 로직 갱신"},
+        {"key": "zone_limits", "name": "건폐율·용적률 상한표", "group": "요율·세율",
+         "current": "국토계획법 시행령 84·85조 + 서울 도시계획조례 (2026.9.4 작성)",
+         "src": "https://www.law.go.kr/lsSc.do?query=국토의 계획 및 이용에 관한 법률 시행령", "cycle_days": 180,
+         "how": "시행령·서울조례 개정 확인 → local_api _ZONE_LIMITS 갱신"},
+        {"key": "biz_terms", "name": "중개사 약관", "group": "약관·정책",
+         "current": f"버전 {BIZ_TERMS_VERSION} (개정 시 재동의 유도)",
+         "src": "https://koczip.com/biz-terms", "cycle_days": 365,
+         "how": "법률 검토 후 개정 → BIZ_TERMS_VERSION·BizTerms.tsx 동시 갱신(문자열 일치 필수)"},
+        {"key": "jumin_purge", "name": "주민번호 5년 파기 배치", "group": "약관·정책",
+         "current": "scripts/wc_jumin_purge.py — 파기 대상·실행 이력 점검",
+         "src": "", "cycle_days": 90,
+         "how": "박스에서 파기 스크립트 실행 이력·대상 건수 확인"},
+    ]
+
+
+@app.get("/admin/contract-basis")
+def admin_contract_basis(_admin: dict = Depends(admin_user)):
+    items = _contract_basis_items()
+    with _reviews_db() as c:
+        last = {r[0]: (r[1], r[2]) for r in c.execute(
+            "SELECT key, MAX(checked_at), note FROM contract_basis_checks GROUP BY key")}
+    import datetime as _dtm
+    today = _dtm.date.today()
+    for it in items:
+        chk = last.get(it["key"])
+        it["last_checked"], it["last_note"] = (chk[0], chk[1]) if chk else (None, None)
+        if chk:
+            due = _dtm.date.fromisoformat(chk[0][:10]) + _dtm.timedelta(days=it["cycle_days"])
+            it["due_date"] = due.isoformat()
+            it["overdue"] = due < today
+        else:
+            it["due_date"] = None
+            it["overdue"] = True          # 한 번도 점검 안 함 = 점검 필요
+    return {"items": items}
+
+
+class BasisCheckBody(BaseModel):
+    key: str
+    note: str | None = None
+
+
+@app.post("/admin/contract-basis/check")
+def admin_contract_basis_check(body: BasisCheckBody, admin: dict = Depends(admin_user)):
+    keys = {it["key"] for it in _contract_basis_items()}
+    if body.key not in keys:
+        raise HTTPException(400, "unknown key")
+    with _reviews_db() as c:
+        c.execute("INSERT INTO contract_basis_checks(key, note, user_id) VALUES(?,?,?)",
+                  (body.key, (body.note or "").strip() or None, admin["id"]))
+        c.commit()
+    return {"ok": True}
+
+
+@app.get("/biz/terms/status")
+def biz_terms_status(user: dict = Depends(current_user)):
+    """중개사 약관 동의 상태 — 계약 기능 진입 전 프런트 게이트 판정용."""
+    with _reviews_db() as c:
+        m = c.execute("SELECT realtor_id, status FROM realtor_members WHERE user_id=?",
+                      (user["id"],)).fetchone()
+        a = c.execute("SELECT agreed_at FROM biz_terms_agreements WHERE user_id=? AND version=?",
+                      (user["id"], BIZ_TERMS_VERSION)).fetchone()
+    return {"version": BIZ_TERMS_VERSION,
+            "member": bool(m) and (m[1] or "active") == "active",
+            "member_pending": bool(m) and (m[1] or "active") != "active",
+            "agreed": bool(a), "agreed_at": a[0] if a else None,
+            "is_admin": bool(user.get("is_admin"))}
+
+
+@app.post("/biz/terms/agree")
+def biz_terms_agree(user: dict = Depends(current_user)):
+    """중개사 약관 동의 저장(현행 버전). 중개사 회원만 — 동의 이력은 버전별 보존."""
+    with _reviews_db() as c:
+        m = c.execute("SELECT realtor_id, status FROM realtor_members WHERE user_id=?",
+                      (user["id"],)).fetchone()
+        if not (user.get("is_admin") or (m and (m[1] or "active") == "active")):
+            raise HTTPException(403, "중개사 인증(사무소 연동) 후 동의할 수 있습니다.")
+        c.execute("INSERT OR IGNORE INTO biz_terms_agreements(user_id, version) VALUES(?,?)",
+                  (user["id"], BIZ_TERMS_VERSION))
+        c.commit()
+    return {"ok": True, "version": BIZ_TERMS_VERSION}
+
+
 @app.post("/biz/contracts")
 async def biz_contract_upload(document: UploadFile = File(...),
-                              user: dict = Depends(admin_user)):
+                              user: dict = Depends(contract_user)):
     """계약서 업로드 + AI 파싱. 원본은 서버에만 보관(외부 서빙 없음)."""
     data = await document.read()
     if len(data) > _REVIEW_DOC_MAX_BYTES:
@@ -19335,7 +20393,7 @@ def _biz_event_row(r) -> dict:
 
 
 @app.get("/biz/events")
-def biz_events_list(user: dict = Depends(admin_user),
+def biz_events_list(user: dict = Depends(contract_user),
                     date_from: str = "", date_to: str = ""):
     """내 캘린더 일정 목록(기간 필터 선택)."""
     where, params = ["user_id=?"], [user["id"]]
@@ -19351,8 +20409,210 @@ def biz_events_list(user: dict = Depends(admin_user),
     return {"events": [_biz_event_row(r) for r in rows]}
 
 
+# 네이버 확인유형 랭킹 티어(실측 캘리브레이션: NDOC1 최상 … OWNER/NONE 하위).
+# rank_in_complex(수집 시 랭킹순 위치)가 없을 때만 쓰는 근사 정렬용.
+_VERIF_TIER = {"NDOC1": 0, "NDOC2": 1, "DOCV2": 1, "DOC": 2, "DOCV1": 2,
+               "OWNER": 3, "MOBL": 3, "SITE": 3, "S_VR": 3, "NONE": 4}
+# 광고종류(확인유형) 라벨 — 중개사 용어 매핑(사용자 확정 2026-09-13).
+#   NDOC1/NDOC2=신홍보(신홍보확인서), DOC/DOCV1/DOCV2=구홍보(기존 홍보확인서),
+#   SITE/S_VR=현장(현장확인·VR), OWNER/MOBL=집주인(소유자 직접·모바일 확인).
+_VERIF_LABEL = {"NDOC1": "신홍보", "NDOC2": "신홍보",
+                "DOC": "구홍보", "DOCV1": "구홍보", "DOCV2": "구홍보",
+                "SITE": "현장", "S_VR": "현장",
+                "OWNER": "집주인", "MOBL": "집주인", "NONE": "미확인"}
+_AD_EXPOSE_DAYS = 30  # 네이버 매물 노출기간 = 확인일 + 30일(전 유형 동일, 실측)
+
+
+def _mulgeon_key(r: dict) -> tuple:
+    # 같은 '물건'(단지+면적형+동/층+호가) → 중복 광고를 한 물건으로 묶는 키.
+    return (r["area_name"], r["floor_info"], r["deal_or_warrant_price"])
+
+
+@app.get("/biz/my-rank")
+def biz_my_rank(response: Response, user: dict = Depends(current_user)):
+    """중개사 라운지 '내 매물 순위' — 내 사무소 매물이 네이버 단지 랭킹순에서
+    ① 같은 물건 N곳 중 몇 등(중개사 경쟁 순위) ② 단지 전체 물건 중 몇 번째 물건인지.
+    수집 시 저장한 rank_in_complex(=네이버 응답 순서=랭킹순)를 우선 사용하고,
+    아직 안 채워진 단지는 확인일·확인유형으로 근사(method='estimated')."""
+    response.headers["Cache-Control"] = "no-store"  # 사무소별 개인화 — 캐시 금지
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+    import datetime as _dt
+    today_ymd = int((_dt.datetime.utcnow() + _dt.timedelta(hours=9)).strftime("%Y%m%d"))
+
+    items = []
+    with _open_db() as d:
+        pairs = d.execute(
+            "SELECT DISTINCT complex_no, trade_type FROM listings_current "
+            "WHERE realtor_id=? AND complex_no IS NOT NULL", (rid,)).fetchall()
+        for pr in pairs:
+            cno, trade = pr["complex_no"], pr["trade_type"]
+            rows = [dict(r) for r in d.execute(
+                "SELECT article_no, area_name, floor_info, direction, area1_m2, area2_m2, "
+                "deal_or_warrant_price, deal_or_warrant_price_text, rank_in_complex, "
+                "article_confirm_ymd, verification_type, realtor_id, realtor_name, "
+                "same_addr_cnt, article_feature_desc, cp_name "
+                "FROM listings_current WHERE complex_no=? AND trade_type=?", (cno, trade))]
+            if not rows:
+                continue
+            n_ranked = sum(1 for r in rows if r["rank_in_complex"] is not None)
+            if n_ranked >= max(1, len(rows) // 2):
+                rows.sort(key=lambda r: (r["rank_in_complex"] is None,
+                                         r["rank_in_complex"] or 10 ** 9))
+                method = "collected"
+            else:
+                rows.sort(key=lambda r: (-int(r["article_confirm_ymd"] or 0),
+                                         _VERIF_TIER.get(r["verification_type"], 4)))
+                method = "estimated"
+            for i, r in enumerate(rows, 1):
+                r["_erank"] = i
+            # 물건 그룹핑 — 같은 물건(중복 광고)끼리 묶어 그 안에서 내 등수 산출.
+            groups: dict = {}
+            for r in rows:
+                groups.setdefault(_mulgeon_key(r), []).append(r)
+            cxr = d.execute("SELECT complex_name FROM complexes WHERE complex_no=?",
+                            (cno,)).fetchone()
+            cxname = cxr["complex_name"] if cxr else cno
+            for r in rows:
+                if r["realtor_id"] != rid:
+                    continue
+                k = _mulgeon_key(r)
+                mem = sorted(groups[k], key=lambda x: x["_erank"])
+                pos = [x["article_no"] for x in mem].index(r["article_no"]) + 1
+                gsize = len(mem)
+                # 끌올(재확인) 필요 판단 — 확인일이 순위 지배:
+                #   1등이거나 단독이면 불필요 / 이미 오늘 확인했는데 밀리면 끌올 무의미(확인유형·경쟁)
+                #   그 외(오늘보다 오래된 확인일 + 밀림)면 끌올로 확인일↑ → 상위 이동 가능.
+                my_ymd = int(r["article_confirm_ymd"] or 0)
+                if gsize <= 1:
+                    bump_needed, bump_reason = False, "solo"
+                elif pos == 1:
+                    bump_needed, bump_reason = False, "top"
+                elif my_ymd < today_ymd:
+                    bump_needed, bump_reason = True, "recommended"
+                else:
+                    bump_needed, bump_reason = False, "verif_block"
+                # 광고 잔여일수 = 확인일 + 30일 − 오늘 (네이버 노출기간 실측)
+                expose_left = None
+                if my_ymd:
+                    try:
+                        _end = _dt.datetime.strptime(str(my_ymd), "%Y%m%d") + _dt.timedelta(days=_AD_EXPOSE_DAYS)
+                        expose_left = (_end - _dt.datetime.strptime(str(today_ymd), "%Y%m%d")).days
+                    except ValueError:
+                        expose_left = None
+                items.append({
+                    "article_no": r["article_no"], "complex_no": cno, "complex_name": cxname,
+                    "trade_type": trade, "area_name": r["area_name"],
+                    "floor_info": r["floor_info"], "direction": r["direction"],
+                    "price_text": r["deal_or_warrant_price_text"],
+                    "confirm_ymd": r["article_confirm_ymd"],
+                    "verification_type": r["verification_type"],
+                    "verif_label": _VERIF_LABEL.get(r["verification_type"], r["verification_type"] or "—"),
+                    "cp_name": r["cp_name"],
+                    "expose_left": expose_left,
+                    "feature": (r["article_feature_desc"] or "")[:40] or None,
+                    "rank_in_group": pos, "group_size": gsize,
+                    "same_addr_cnt": r["same_addr_cnt"],
+                    "top_pct": round(pos / gsize * 100) if gsize else None,
+                    "bump_needed": bump_needed, "bump_reason": bump_reason,
+                    "competitors_above": [
+                        {"realtor_name": x["realtor_name"],
+                         "verification_type": x["verification_type"],
+                         "confirm_ymd": x["article_confirm_ymd"]}
+                        for x in mem[:pos - 1]],
+                    "method": method,
+                    "naver_url": f"https://new.land.naver.com/complexes/{cno}?articleNo={r['article_no']}",
+                })
+    # 광고 물건별로, 좋은 등수(1등)부터 — 경쟁 큰 물건(N곳 많음)을 타이브레이크로 위에.
+    items.sort(key=lambda x: (x["rank_in_group"], -(x["group_size"] or 0)))
+    est = any(x["method"] == "estimated" for x in items)
+    return {"realtor_id": rid, "count": len(items),
+            "any_estimated": est, "items": items}
+
+
+@app.get("/biz/home-hook")
+def biz_home_hook(response: Response, user: dict = Depends(current_user)):
+    # 사무소별 개인화 응답 — URL이 동일해도 사무소마다 다르다. 엣지/브라우저 캐시 금지
+    # (안 막으면 한 사무소의 동네 데이터가 다른 사무소에 캐시로 새어나갈 수 있음).
+    response.headers["Cache-Control"] = "no-store"
+    """홈 '어제 우리 동네' 실거래 훅 — 사무소 소재 동(없으면 시군구)의 최근 실거래 건수·
+    평당가 방향·신고가 하이라이트. 창고(transactions·complexes) 재사용, 신규 데이터 없음.
+    회원 아니면 available=False 로 조용히 접는다(홈은 미연결에도 뜬다)."""
+    try:
+        with _reviews_db() as c:
+            m = c.execute("SELECT realtor_id, status FROM realtor_members WHERE user_id=?",
+                          (user["id"],)).fetchone()
+        if not m or (m[1] or "active") != "active":
+            return {"available": False}
+        rid = m[0]
+    except Exception:
+        return {"available": False}
+
+    dong, sgg = _office_region(rid)
+    if not dong and not sgg:
+        return {"available": False}
+
+    try:
+        with _open_db() as d:
+            if dong:
+                cx_cl, cx_arg = "c.cortar_no=?", dong
+                nm = d.execute("SELECT rsg.cortar_name||' '||rdo.cortar_name FROM regions rdo "
+                               "LEFT JOIN regions rsg ON rsg.cortar_no=substr(rdo.cortar_no,1,5)||'00000' "
+                               "WHERE rdo.cortar_no=?", (dong,)).fetchone()
+                area = (nm[0] if nm and nm[0] else None)
+                if not area:
+                    nm2 = d.execute("SELECT cortar_name FROM regions WHERE cortar_no=?", (dong,)).fetchone()
+                    area = nm2[0] if nm2 else "우리 동네"
+            else:
+                cx_cl, cx_arg = "substr(c.cortar_no,1,5)=?", sgg[:5]
+                nm = d.execute("SELECT cortar_name FROM regions WHERE cortar_no=?",
+                               (sgg[:5] + "00000",)).fetchone()
+                area = nm[0] if nm else "우리 지역"
+
+            base = (f"FROM transactions t JOIN complexes c ON c.complex_no=t.matched_complex_no "
+                    f"WHERE {cx_cl} AND t.is_cancelled=0")
+            n30 = d.execute(f"SELECT COUNT(*) {base} AND t.deal_ymd>=date('now','+9 hours','-30 days')",
+                            (cx_arg,)).fetchone()[0]
+
+            # 평당가 방향: 최근 90일 vs 직전 90일 (전용면적 있는 매매만)
+            pp = d.execute(
+                f"SELECT CAST(AVG(CASE WHEN t.deal_ymd>=date('now','+9 hours','-90 days') "
+                f"   THEN t.deal_amount*1.0/t.excl_use_ar END) AS REAL), "
+                f"  CAST(AVG(CASE WHEN t.deal_ymd<date('now','+9 hours','-90 days') "
+                f"   AND t.deal_ymd>=date('now','+9 hours','-180 days') "
+                f"   THEN t.deal_amount*1.0/t.excl_use_ar END) AS REAL) "
+                f"{base} AND t.excl_use_ar>0 AND t.deal_ymd>=date('now','+9 hours','-180 days')",
+                (cx_arg,)).fetchone()
+            trend = None
+            if pp and pp[0] and pp[1] and pp[1] > 0:
+                trend = round((pp[0] - pp[1]) / pp[1] * 100, 1)
+
+            # 최근 실거래 하이라이트 1건 (가장 최근 · 동일가 여러건이면 고가)
+            top = d.execute(
+                f"SELECT t.matched_complex_no, c.complex_name, t.deal_amount, t.excl_use_ar, t.deal_ymd "
+                f"{base} AND t.deal_amount>0 "
+                f"ORDER BY t.deal_ymd DESC, t.deal_amount DESC LIMIT 1", (cx_arg,)).fetchone()
+            hi = None
+            if top:
+                cno, cname, amt, ar, ymd = top
+                is_new_high = False
+                if ar and ar > 0:
+                    prev_max = d.execute(
+                        "SELECT MAX(deal_amount) FROM transactions WHERE matched_complex_no=? "
+                        "AND is_cancelled=0 AND deal_ymd<? AND excl_use_ar>0 "
+                        "AND ABS(excl_use_ar-?)<=3", (cno, ymd, ar)).fetchone()[0]
+                    is_new_high = bool(prev_max) and amt >= prev_max
+                hi = {"complex": cname, "amount_won": int(amt),   # transactions.deal_amount 는 원 단위
+                      "pyeong": round(ar / 3.3, 1) if ar else None,
+                      "ymd": ymd, "new_high": is_new_high}
+        return {"available": True, "area": area, "trades_30d": int(n30 or 0),
+                "trend_pct": trend, "top": hi}
+    except Exception:
+        return {"available": False}
+
+
 @app.post("/biz/events")
-def biz_events_create(body: BizEventsCreate, user: dict = Depends(admin_user)):
+def biz_events_create(body: BizEventsCreate, user: dict = Depends(contract_user)):
     """일정 저장(확인 폼에서 확정한 후보들 일괄 or 수기 1건)."""
     if not body.events:
         raise HTTPException(400, "저장할 일정이 없습니다")
@@ -19414,7 +20674,7 @@ def _biz_sync_parties(c, uid: str, rid: str | None, contract_id: int) -> int:
 
 
 @app.put("/biz/events/{eid}")
-def biz_event_update(eid: int, body: BizEventIn, user: dict = Depends(admin_user)):
+def biz_event_update(eid: int, body: BizEventIn, user: dict = Depends(contract_user)):
     if not _BIZ_DATE_RE.match(body.event_date):
         raise HTTPException(400, "날짜 형식 오류")
     t = body.event_type if body.event_type in _BIZ_EVENT_TYPES else "기타"
@@ -19430,8 +20690,558 @@ def biz_event_update(eid: int, body: BizEventIn, user: dict = Depends(admin_user
     return {"ok": True}
 
 
+# ═══════════════════════════════════════════════════════════════════
+# 계약서 작성 (P1 — hanbang 이식, 관리자 가오픈 → 중개사 개방 시 admin_user→current_user+_require_member)
+# 도메인 규칙: scripts/contract_domain.py · 분석: hanbang/docs/콕집_이식분석.md
+# ═══════════════════════════════════════════════════════════════════
+from scripts import contract_domain as _cd  # noqa: E402
+
+
+class WContractBody(BaseModel):
+    id: int | None = None
+    category: int = 1
+    sub_category: str | None = None
+    mtype1: str = "매매"                       # 매매/전세/월세/연세
+    status: str = "10"                          # 00=임시저장 10=계약중 30=계약완료
+    title: str | None = None
+    draft: bool = False                         # 임시저장: 검증 스킵·캘린더 미동기화·status=00
+    body: dict                                  # 서식 필드 JSON(콕집_이식분석 §2 코어+델타)
+
+
+def _wc_calendar_sync(c: sqlite3.Connection, uid: str, rid: str | None,
+                      wid: int, title: str, body: dict, mtype1: str) -> int:
+    """저장 시 중도금·잔금·만기 일정을 biz_events에 멱등 동기화(재저장=삭제 후 재생성)."""
+    c.execute("DELETE FROM biz_events WHERE user_id=? AND wcontract_id=?", (uid, wid))
+    cand = [("계약", body.get("contract_date")), ("중도금", body.get("mcost_date")),
+            ("중도금", body.get("m1cost_date")), ("잔금", body.get("ecost_date"))]
+    if mtype1 in ("전세", "월세", "연세"):
+        cand.append(("만기", body.get("edate")))
+    n = 0
+    for typ, d in cand:
+        d = (d or "").strip()
+        if not _BIZ_DATE_RE.match(d):
+            continue
+        c.execute("INSERT INTO biz_events(user_id,realtor_id,wcontract_id,title,event_date,"
+                  "event_type,memo) VALUES(?,?,?,?,?,?,?)",
+                  (uid, rid, wid, f"{title} {typ}"[:120], d, typ, "계약서 작성 자동등록"))
+        n += 1
+    return n
+
+
+@app.post("/biz/wcontracts")
+def wcontract_save(req: WContractBody, user: dict = Depends(contract_user)):
+    """계약서 작성 저장(신규/수정). 검증 실패 시 errors 반환(저장 안 함)."""
+    body = req.body or {}
+    if not req.draft:                       # 임시저장은 검증 없이 통과(작성 중 유실 방지가 목적)
+        errs = _cd.validate_contract(body, req.category, req.mtype1)
+        if errs:
+            return {"ok": False, "errors": errs}
+    cd_ = (body.get("contract_date") or "").strip()
+    form_ver = _cd.select_form_version(req.category, cd_) if cd_ else None
+    masked, enc = _contract_encrypt_jumins(body)
+
+    def _n(k):
+        try:
+            return int(body.get(k) or 0)
+        except (TypeError, ValueError):
+            return 0
+    sell0 = ((body.get("sell_parties") or [{}])[0].get("name") or "").strip()
+    buy0 = ((body.get("buy_parties") or [{}])[0].get("name") or "").strip()
+    title = (req.title or "").strip() or f"{body.get('haddress','')} {body.get('hdong','')} {body.get('hho','')}".strip() \
+        or f"{_cd.CATEGORY_NAMES.get(req.category,'계약서')}"
+    with _reviews_db() as c:
+        rid = _biz_realtor_id(c, user["id"])
+        _status = "00" if req.draft else (req.status if req.status in ("10", "30") else "10")
+        cols = dict(category=req.category, sub_category=req.sub_category, mtype1=req.mtype1,
+                    form_version=form_ver, status=_status,
+                    title=title[:120], haddress=(body.get("haddress") or "")[:200],
+                    hdong=(body.get("hdong") or "")[:20], hho=(body.get("hho") or "")[:20],
+                    contract_date=cd_ or None, sdate=body.get("sdate") or None,
+                    edate=body.get("edate") or None, ecost_date=body.get("ecost_date") or None,
+                    cost=_n("cost"), fine_cost=_n("fine_cost"), charge=_n("charge"),
+                    sell_name=sell0[:40], buy_name=buy0[:40],
+                    offer_code=(body.get("offer_code") or None),
+                    body_json=_json.dumps(masked, ensure_ascii=False), jumin_enc=enc)
+        if req.id:
+            own = c.execute("SELECT user_id FROM biz_wcontracts WHERE id=? AND deleted_at IS NULL",
+                            (req.id,)).fetchone()
+            if not own or own[0] != user["id"]:
+                raise HTTPException(404, "계약서를 찾을 수 없습니다")
+            sets = ",".join(f"{k}=?" for k in cols) + ",updated_at=datetime('now','+9 hours')"
+            c.execute(f"UPDATE biz_wcontracts SET {sets} WHERE id=?", [*cols.values(), req.id])
+            wid = req.id
+        else:
+            keys = ",".join(["user_id", "realtor_id", *cols.keys()])
+            ph = ",".join("?" * (len(cols) + 2))
+            cur = c.execute(f"INSERT INTO biz_wcontracts({keys}) VALUES({ph})",
+                            [user["id"], rid, *cols.values()])
+            wid = cur.lastrowid
+        if req.draft:                       # 임시본: 일정 미등록 + 기존 등록분도 회수(오염 방지)
+            c.execute("DELETE FROM biz_events WHERE user_id=? AND wcontract_id=?", (user["id"], wid))
+            n_ev = 0
+        else:
+            n_ev = _wc_calendar_sync(c, user["id"], rid, wid, title[:100], body, req.mtype1)
+        c.commit()
+    # 계약완료(30) → 연동 비공개매물 거래완료(레거시 usp_expire 대응). 네이버 매물은 CP 소관이라 제외.
+    oc = str(body.get("offer_code") or "")
+    if _status == "30" and oc.startswith("P") and oc[1:].isdigit() and rid:
+        with _reviews_db() as c2:
+            c2.execute("UPDATE private_listings SET status='closed', updated_at=datetime('now') "
+                       "WHERE id=? AND realtor_id=? AND status='active'", (int(oc[1:]), rid))
+            c2.commit()
+    return {"ok": True, "id": wid, "form_version": form_ver, "events_synced": n_ev,
+            "draft": req.draft}
+
+
+@app.get("/biz/wcontracts")
+def wcontract_list(q: str = "", mtype1: str = "", status: str = "", limit: int = 100,
+                   user: dict = Depends(contract_user)):
+    limit = min(max(limit, 1), 300)
+    conds, params = ["user_id=?", "deleted_at IS NULL"], [user["id"]]
+    if mtype1:
+        conds.append("mtype1=?"); params.append(mtype1)
+    if status in ("10", "30"):
+        conds.append("status=?"); params.append(status)
+    if q.strip():
+        conds.append("(title LIKE ? OR haddress LIKE ? OR sell_name LIKE ? OR buy_name LIKE ?)")
+        params += [f"%{q.strip()}%"] * 4
+    with _reviews_db() as c:
+        rows = c.execute(
+            f"SELECT id, category, mtype1, status, title, haddress, hdong, hho, contract_date, "
+            f"ecost_date, edate, cost, fine_cost, charge, sell_name, buy_name, created_at, updated_at "
+            f"FROM biz_wcontracts WHERE {' AND '.join(conds)} "
+            f"ORDER BY COALESCE(contract_date,'') DESC, id DESC LIMIT ?", [*params, limit]).fetchall()
+    keys = ["id", "category", "mtype1", "status", "title", "haddress", "hdong", "hho",
+            "contract_date", "ecost_date", "edate", "cost", "fine_cost", "charge",
+            "sell_name", "buy_name", "created_at", "updated_at"]
+    return {"items": [dict(zip(keys, r)) for r in rows]}
+
+
+def _wc_resolve_jibun(addr: str):
+    """소재지 텍스트 → (법정동 code10, 지번). 실패 시 (None, None)."""
+    toks = [t for t in addr.replace(" 산 ", " 산").split() if t]
+    with _open_db() as d:
+        for i in range(len(toks) - 1, -1, -1):
+            tok = toks[i]
+            rows = d.execute("SELECT code10, sido_nm, sgg_nm FROM bjd WHERE umd_nm=?", (tok,)).fetchall()
+            if not rows:
+                continue
+            pick = None
+            for c10, sido, sgg in rows:
+                sido_ok = not sido or addr.startswith(sido[:2]) or (sido[:2] in addr[:12])
+                sgg_ok = not sgg or any(t in addr for t in sgg.split())
+                if sido_ok and sgg_ok:
+                    pick = c10
+                    break
+            if pick is None and len(rows) == 1:
+                pick = rows[0][0]
+            if pick:
+                return pick, (toks[i + 1] if i + 1 < len(toks) else "")
+    return None, None
+
+
+_GWAMIL_GG = ("의정부", "구리", "남양주", "하남", "고양", "수원", "성남", "안양", "부천",
+              "광명", "과천", "의왕", "군포", "시흥")   # 과밀억제권역 경기(근사 — 일부 읍면 제외 미반영)
+
+
+def _priority_repayment(addr: str) -> tuple[int, int, str]:
+    """주택임대차보호법 시행령 최우선변제 표(현행) — (소액임차인범위, 최우선변제금액, 지역구분) 만원.
+    ⚠ 선순위 담보물권 설정일 기준이라 '현행 기준 참고값'으로만 제공."""
+    a = addr.strip()
+    if a.startswith("서울"):
+        return 16500, 5500, "서울특별시"
+    if a.startswith("세종") or any(x in a[:14] for x in ("용인", "화성", "김포")):
+        return 14500, 4800, "과밀억제권역(세종·용인·화성·김포 포함)"
+    if a.startswith("인천"):
+        if "강화" in a or "옹진" in a:
+            return 7500, 2500, "그 밖의 지역"
+        return 14500, 4800, "과밀억제권역"
+    if a.startswith("경기") and any(x in a[:14] for x in _GWAMIL_GG):
+        return 14500, 4800, "과밀억제권역"
+    if a[:2] in ("부산", "대구", "광주", "대전", "울산") or \
+       (a.startswith("경기") and any(x in a[:14] for x in ("안산", "광주", "파주", "이천", "평택"))):
+        return 8500, 2800, "광역시 등"
+    return 7500, 2500, "그 밖의 지역"
+
+
+@app.get("/biz/wcontracts/tools/offerinfo-prefill")
+def offerinfo_prefill(address: str, area: float = 0, offer_code: str = "",
+                      user: dict = Depends(contract_user)):
+    """확인설명서 자동채움: 건축물대장 표제부(사용승인일·용도·구조·주차·승강기·건폐/용적률)
+    + 개별공시지가(㎡당) + 주택공시가격(공동주택 면적매칭 → 개별주택 폴백)."""
+    addr = (address or "").strip()
+    if len(addr) < 5:
+        raise HTTPException(400, "소재지를 입력하세요")
+    cortar, jibun = _wc_resolve_jibun(addr)
+    if not cortar or not jibun:
+        raise HTTPException(404, "주소에서 법정동·지번을 찾지 못했습니다")
+    from collector.ondemand_ledger import ledger_full_for_jibun
+    _vw, dks = _audit_keys()
+    led = ledger_full_for_jibun(cortar, jibun, dks) or {}
+    out = {
+        "build_date": led.get("use_apr_day"),          # ① 사용승인일(준공)
+        "build1_ledger": led.get("main_purps"),        # ① 대장상 용도
+        "build3": led.get("structure"),                # ① 구조
+        "plat_area": led.get("plat_area"),             # ① 대지면적
+        "bc_rat": led.get("bc_rat"), "vl_rat": led.get("vl_rat"),   # ③ 건폐/용적률(실측 참고)
+        "elvt": led.get("elvt"),                       # ⑨ 승강기 대수
+        "parking": led.get("parking"),                 # ④ 주차
+        "hhld_cnt": led.get("hhld_cnt"),
+        "seismic_apply": led.get("seismic_apply"),     # ① 내진설계 적용여부
+        "seismic_ablty": led.get("seismic_ablty"),     # ① 내진능력
+    }
+    # ④ 최우선변제금(주임법 시행령 현행 표 — 참고값)
+    sr, rp, zone = _priority_repayment(addr)
+    out["small_sum"], out["repayment"], out["repayment_zone"] = sr, rp, zone
+    # 연동 매물 상세: 방향·방향기준·위반건축물·월관리비 (수집 계정 없거나 실패 시 조용히 생략)
+    if offer_code.strip():
+        try:
+            from collector.article_detail import fetch_article_detail
+            from collector.creds import ensure_creds
+            st_, det = fetch_article_detail(offer_code.strip(), None, ensure_creds())
+            if st_ == 200 and det:
+                ad = det.get("articleDetail") or {}
+                fac = det.get("articleFacility") or {}
+                addi = det.get("articleAddition") or {}
+                out["direction"] = fac.get("directionTypeName") or addi.get("direction") or None
+                out["direction_base"] = fac.get("directionBaseTypeName") or None
+                out["violation"] = ad.get("violationBuildingYN") or None
+                mm = ad.get("monthlyManagementCost")
+                out["manage_total"] = int(mm) if mm and str(mm).isdigit() and int(mm) > 0 else None
+        except Exception:
+            pass
+    # 공시지가·주택공시가격 — pnu = code10 + 필지(1대지/2산) + bun4 + ji4
+    import re as _re
+    m = _re.match(r"^(산?)(\d+)(?:-(\d+))?", jibun.replace(" ", ""))
+    if m:
+        mt = "2" if m.group(1) else "1"
+        pnu = f"{cortar}{mt}{int(m.group(2)):04d}{int(m.group(3) or 0):04d}"
+        try:
+            land = _vw_ned("getIndvdLandPriceAttr", pnu)
+            if land:
+                yrs = [u.get("stdrYear", "") for u in land if u.get("stdrYear")]
+                cur = [u for u in land if u.get("stdrYear") == (max(yrs) if yrs else "")
+                       and u.get("pblntfPclnd")]
+                if cur:
+                    out["person_gongsi_jiga"] = int(cur[0]["pblntfPclnd"])   # ⑥ 개별공시지가 ₩/㎡
+                    out["gongsi_jiga_year"] = cur[0].get("stdrYear")
+        except Exception:
+            pass
+        try:
+            # ③ 토지이용계획(토지이음) — 용도지역/지구/구역·지구단위계획·토지거래허가구역
+            lus = _vw_ned("getLandUseAttr", pnu)
+            if lus:
+                GUYOK5 = ("개발제한구역", "도시자연공원구역", "시가화조정구역",
+                          "수산자원보호구역", "입지규제최소구역")   # 국계법 용도구역 5종
+                jiyok, jigu, guyok, etc, roads = [], [], [], [], []
+                danwi = heoga = False
+                for u in lus:
+                    nm = (u.get("prposAreaDstrcCodeNm") or "").strip()
+                    if not nm:
+                        continue
+                    tag = nm + ("(저촉)" if (u.get("cnflcAtNm") or "") == "저촉" else "")
+                    if "지구단위계획구역" in nm:
+                        danwi = True
+                    elif "토지거래" in nm and "허가구역" in nm:
+                        heoga = True
+                    elif nm.endswith("지역"):
+                        jiyok.append(tag)
+                    elif nm.endswith("지구"):
+                        jigu.append(tag)
+                    elif any(nm.startswith(g5) for g5 in GUYOK5):
+                        guyok.append(tag)
+                    elif "폭" in nm and ("로" in nm.split("(")[0]):
+                        roads.append(tag)          # 대로·중로·소로 등 = 도시·군계획시설(도로)
+                    else:
+                        etc.append(tag)
+                out["yongdo_jiyok"] = ", ".join(jiyok) or None
+                # 조회 성공 시 없음도 명시 — 빈 칸이 '누락'으로 오해되는 것 방지(2026-09-04)
+                out["yongdo_jigu"] = ", ".join(jigu) or "해당없음"
+                out["yongdo_guyok"] = ", ".join(guyok) or "해당없음"
+                hint = _zone_limit_hint(jiyok, cortar)
+                if hint:
+                    out["zone_limit"] = hint      # 건폐·용적 상한 제안(출처 포함)
+                out["landuse_danwi"] = danwi
+                out["landuse_heoga"] = heoga
+                out["landuse_etc"] = ", ".join(etc) or None
+                out["landuse_roads"] = ", ".join(roads) or None    # → 도시·군계획시설
+        except Exception:
+            pass
+        try:
+            units = _vw_ned("getApartHousingPriceAttr", pnu)
+            best = None
+            if units:
+                yrs = [u.get("stdrYear", "") for u in units if u.get("stdrYear")]
+                cur = [u for u in units if u.get("stdrYear") == (max(yrs) if yrs else "")
+                       and u.get("pblntfPc")]
+                if cur and area:
+                    best = min(cur, key=lambda u: abs(float(u.get("prvuseAr") or 0) - area))
+                elif cur:
+                    best = cur[0]
+                if best:
+                    out["build_gongsi_price"] = int(best["pblntfPc"])        # ⑥ 주택공시가격
+                    out["gongsi_price_year"] = best.get("stdrYear")
+                    out["gongsi_price_area"] = float(best.get("prvuseAr") or 0) or None
+            if not best:
+                ind = _vw_ned("getIndvdHousingPriceAttr", pnu)
+                if ind:
+                    yrs = [u.get("stdrYear", "") for u in ind if u.get("stdrYear")]
+                    cur = [u for u in ind if u.get("stdrYear") == (max(yrs) if yrs else "")
+                           and u.get("housePc")]
+                    if cur:
+                        out["build_gongsi_price"] = int(cur[0]["housePc"])
+                        out["gongsi_price_year"] = cur[0].get("stdrYear")
+                        out["gongsi_whole"] = True                            # 건물 전체값(호별 아님)
+        except Exception:
+            pass
+    return {"ok": True, **out}
+
+
+@app.get("/biz/wcontracts/{wid}/offerinfo")
+def offerinfo_get(wid: int, user: dict = Depends(contract_user)):
+    with _reviews_db() as c:
+        w = c.execute("SELECT id FROM biz_wcontracts WHERE id=? AND user_id=? AND deleted_at IS NULL",
+                      (wid, user["id"])).fetchone()
+        if not w:
+            raise HTTPException(404, "계약서를 찾을 수 없습니다")
+        r = c.execute("SELECT form, body_json, updated_at, created_at FROM biz_offerinfo "
+                      "WHERE wcontract_id=?", (wid,)).fetchone()
+    if not r:
+        return {"exists": False}
+    return {"exists": True, "form": r[0], "body": _json.loads(r[1]),
+            "updated_at": r[2] or r[3]}
+
+
+class OfferInfoBody(BaseModel):
+    form: str = "R01"
+    body: dict
+
+
+@app.post("/biz/wcontracts/{wid}/offerinfo")
+def offerinfo_save(wid: int, req: OfferInfoBody, user: dict = Depends(contract_user)):
+    """저장(업서트). 한방 검증 준수: 공시지가·주택공시가격은 '해당없음' 또는 금액 필수."""
+    if req.form not in ("R01", "R02"):
+        raise HTTPException(400, "지원 서식: 주거용(R01)·비주거용(R02)")
+    b = req.body or {}
+    errs = []
+    # 임대차(작성방법: 개별공시지가·공시가격 생략 가능, 조세 제외)는 공시가 필수검증 면제
+    if str(b.get("offer_section") or "") != "2":
+        for k, nm in (("person_gongsi_jiga", "개별공시지가"), ("build_gongsi_price", "건물(주택)공시가격")):
+            v = str(b.get(k) or "").strip()
+            if not v:
+                errs.append(f"{nm}란에 '해당없음'을 입력하거나 금액을 입력하세요")
+    # 다가구 임대 별지 규칙(한방 §9): 다가구 선택 시 ⑧ 실제권리관계 필수
+    if b.get("dagagu_gb") and not str(b.get("etc1") or "").strip() and not (b.get("byulji_rows") or []):
+        errs.append("다가구 임대는 ⑩ 실제권리관계 또는 별지(선순위 임대차 현황)를 입력하세요")
+    if errs:
+        raise HTTPException(422, " / ".join(errs))
+    masked, enc = _contract_encrypt_jumins(b)
+    with _reviews_db() as c:
+        w = c.execute("SELECT id FROM biz_wcontracts WHERE id=? AND user_id=? AND deleted_at IS NULL",
+                      (wid, user["id"])).fetchone()
+        if not w:
+            raise HTTPException(404, "먼저 계약서를 저장해 주세요")
+        c.execute("INSERT INTO biz_offerinfo(wcontract_id, user_id, form, body_json, jumin_enc) "
+                  "VALUES(?,?,?,?,?) ON CONFLICT(wcontract_id) DO UPDATE SET "
+                  "form=excluded.form, body_json=excluded.body_json, jumin_enc=excluded.jumin_enc, "
+                  "updated_at=datetime('now','+9 hours')",
+                  (wid, user["id"], req.form, _json.dumps(masked, ensure_ascii=False), enc))
+        c.commit()
+    return {"ok": True}
+
+
+@app.get("/biz/wcontracts/{wid}/offerinfo/jumin")
+def offerinfo_jumin(wid: int, user: dict = Depends(contract_user)):
+    with _reviews_db() as c:
+        r = c.execute("SELECT o.jumin_enc FROM biz_offerinfo o JOIN biz_wcontracts w ON w.id=o.wcontract_id "
+                      "WHERE o.wcontract_id=? AND w.user_id=? AND w.deleted_at IS NULL",
+                      (wid, user["id"])).fetchone()
+    if not r:
+        raise HTTPException(404, "확인설명서를 찾을 수 없습니다")
+    _log_event("account", user_id=user["id"], email=user.get("email"),
+               path=f"/biz/wcontracts/{wid}/offerinfo/jumin", method="GET",
+               detail={"act": "jumin_reveal", "offerinfo_wid": wid})
+    return {"jumins": _contract_decrypt_jumins(r[0])}
+
+
+@app.get("/biz/wcontracts/tools/ledger")
+def wcontract_ledger(address: str, ho: str = "", user: dict = Depends(contract_user)):
+    """소재지 텍스트 → 건축물대장 표제부로 물건표시 자동채움(구조·용도·대지면적·연면적·사용승인).
+    주소를 bjd 법정동표로 해석(동 토큰+지번) → 온디맨드 표제부(캐시 RF). 지목·대지권비율은
+    대장 표제부에 없어 미반환(지목=토지대장, 대지권=등기부).
+    집합건물이면 전유부 동·호 목록(units)도 함께 반환 — 화면에서 호 선택 채움."""
+    from collector.ondemand_ledger import (ledger_full_for_jibun, expos_units_for_jibun,
+                                           expos_unit_search)
+    addr = (address or "").strip()
+    if len(addr) < 5:
+        raise HTTPException(400, "소재지를 입력하세요")
+    toks = [t for t in addr.replace(" 산 ", " 산") .split() if t]
+    _vw, dks = _audit_keys()
+    cortar = jibun = None
+    with _open_db() as d:
+        for i in range(len(toks) - 1, -1, -1):
+            tok = toks[i]
+            rows = d.execute("SELECT code10, sido_nm, sgg_nm FROM bjd WHERE umd_nm=?", (tok,)).fetchall()
+            if not rows:
+                continue
+            pick = None
+            for c10, sido, sgg in rows:
+                sido_ok = not sido or addr.startswith(sido[:2]) or (sido[:2] in addr[:12])
+                sgg_ok = not sgg or any(t in addr for t in sgg.split())
+                if sido_ok and sgg_ok:
+                    pick = c10
+                    break
+            if pick is None and len(rows) == 1:
+                pick = rows[0][0]
+            if pick:
+                cortar = pick
+                jibun = toks[i + 1] if i + 1 < len(toks) else ""
+                break
+    if not cortar or not jibun:
+        raise HTTPException(404, "주소에서 법정동·지번을 찾지 못했습니다 (예: 인천 연수구 송도동 22-22)")
+    led = ledger_full_for_jibun(cortar, jibun, dks)
+    if not led:
+        raise HTTPException(404, "건축물대장을 찾지 못했습니다 (지번을 확인하세요)")
+    if (ho or "").strip():          # 대형 건물: 호 서버필터 검색
+        units = expos_unit_search(cortar, jibun, ho, dks) or []
+    else:
+        units = expos_units_for_jibun(cortar, jibun, dks) or []
+    units.sort(key=lambda u: ((u.get("dong") or ""), (u.get("ho") or "")))
+    # 전유 목록이 비었는데 표제부에 호수가 있으면 대형(2,000호↑) — 호 검색 UI 유도
+    unit_search = (not units and not (ho or "").strip()
+                   and int(led.get("ho_cnt") or led.get("hhld_cnt") or 0) > 0)
+    return {"ok": True, "cortar": cortar, "jibun": jibun,
+            "build1": led.get("structure"), "build2": led.get("etc_purps") or led.get("main_purps"),
+            "land_py": led.get("plat_area"), "tot_area": led.get("tot_area"),
+            "bld_nm": led.get("bld_nm"), "use_apr": led.get("use_apr_day"),
+            "grnd_flr": led.get("grnd_flr"), "hhld_cnt": led.get("hhld_cnt"),
+            "units": units, "unit_search": unit_search}
+    # 대지권비율은 반환하지 않는다 — 등기사항이라 API에 없고, 근사 제안도 위험해
+    # 공란 유지 결정(사용자, 2026-09-02). 등기부 확인 후 직접 입력.
+
+
+@app.get("/biz/wcontracts/tools/myoffice")
+def wcontract_myoffice(user: dict = Depends(contract_user)):
+    """개업공인중개사 기재란 자동채움 — 라운지 연동 사무소의 상호·대표·등록번호·주소·전화.
+    (한방 스펙 §3.2(g): 중개사 최대 4개소 — 1번=내 사무소, 2~4=공동중개 수기)"""
+    with _reviews_db() as rc:
+        rid = _biz_realtor_id(rc, user["id"])
+    if not rid:
+        return {"office": None}
+    with _open_db() as d:
+        r = d.execute("SELECT realtor_name, representative_name, address, "
+                      "representative_tel_no, cell_phone_no FROM naver_realtors "
+                      "WHERE realtor_id=?", (rid,)).fetchone()
+        reg = d.execute(
+            "SELECT vb.ra_regno FROM realtor_match rm JOIN vworld_brokers vb "
+            "ON vb.sys_regno=rm.sys_regno WHERE rm.realtor_id=?", (rid,)).fetchone()
+    if not r:
+        return {"office": None}
+    return {"office": {"company": r[0] or "", "owner": r[1] or "",
+                       "reg_no": (reg[0] if reg else "") or "",
+                       "addr": r[2] or "", "tel": r[3] or r[4] or ""}}
+
+
+@app.get("/biz/wcontracts/{wid}")
+def wcontract_detail(wid: int, user: dict = Depends(contract_user)):
+    with _reviews_db() as c:
+        r = c.execute("SELECT id, category, sub_category, mtype1, status, title, form_version, "
+                      "body_json, created_at, updated_at FROM biz_wcontracts "
+                      "WHERE id=? AND user_id=? AND deleted_at IS NULL", (wid, user["id"])).fetchone()
+    if not r:
+        raise HTTPException(404, "계약서를 찾을 수 없습니다")
+    return {"id": r[0], "category": r[1], "sub_category": r[2], "mtype1": r[3], "status": r[4],
+            "title": r[5], "form_version": r[6], "body": _json.loads(r[7] or "{}"),
+            "created_at": r[8], "updated_at": r[9]}
+
+
+@app.get("/biz/wcontracts/{wid}/jumin")
+def wcontract_jumin(wid: int, user: dict = Depends(contract_user)):
+    """주민번호 원본 조회(레거시 전용 SP 패턴) — 인쇄/전자서명 직전에만 호출."""
+    with _reviews_db() as c:
+        r = c.execute("SELECT jumin_enc FROM biz_wcontracts WHERE id=? AND user_id=? "
+                      "AND deleted_at IS NULL", (wid, user["id"])).fetchone()
+    if not r:
+        raise HTTPException(404, "계약서를 찾을 수 없습니다")
+    # 개인정보 열람 감사로그(2026-09-02 검토 추가) — 누가 언제 어느 계약서 주민번호를 봤는지
+    _log_event("account", user_id=user["id"], email=user.get("email"),
+               path=f"/biz/wcontracts/{wid}/jumin", method="GET",
+               detail={"act": "jumin_reveal", "wcontract_id": wid})
+    return {"jumins": _contract_decrypt_jumins(r[0])}
+
+
+class WContractPdfReq(BaseModel):
+    html: str
+
+
+@app.post("/biz/wcontracts/render-pdf")
+def wcontract_render_pdf(req: WContractPdfReq, user: dict = Depends(contract_user)):
+    """계약서 HTML → 서버 headless Chrome으로 확정 A4 PDF 렌더.
+    브라우저 인쇄 대화상자(용지·여백·배율) 편차를 제거 — 모든 기기 동일 출력.
+    네트워크는 무효 프록시로 차단(SSRF 방지), 렌더는 로컬 파일만."""
+    if len(req.html) > 2_000_000:
+        raise HTTPException(413, "문서가 너무 큽니다")
+    import subprocess, tempfile, os as _os
+    with tempfile.TemporaryDirectory(prefix="wcpdf_") as td:
+        src = _os.path.join(td, "c.html")
+        out = _os.path.join(td, "c.pdf")
+        with open(src, "w", encoding="utf-8") as f:
+            f.write(req.html)
+        try:
+            subprocess.run(
+                ["google-chrome", "--headless=new", "--no-sandbox", "--disable-gpu",
+                 "--disable-dev-shm-usage", "--proxy-server=http://127.0.0.1:1",
+                 "--no-pdf-header-footer", f"--print-to-pdf={out}", f"file://{src}"],
+                check=True, capture_output=True, timeout=30,
+                env={**_os.environ, "HOME": td})
+        except subprocess.TimeoutExpired:
+            raise HTTPException(504, "PDF 렌더 시간 초과")
+        except subprocess.CalledProcessError as e:
+            raise HTTPException(500, f"PDF 렌더 실패: {(e.stderr or b'')[-300:].decode(errors='ignore')}")
+        if not _os.path.exists(out):
+            raise HTTPException(500, "PDF 생성 실패")
+        data = open(out, "rb").read()
+    from fastapi.responses import Response as _Resp
+    return _Resp(content=data, media_type="application/pdf",
+                 headers={"Content-Disposition": 'attachment; filename="contract.pdf"'})
+
+
+@app.post("/biz/wcontracts/{wid}/copy")
+def wcontract_copy(wid: int, user: dict = Depends(contract_user)):
+    """복사 — 제목에 (복사본), 일정은 동기화하지 않음(레거시 규칙 준용)."""
+    with _reviews_db() as c:
+        r = c.execute("SELECT category, sub_category, mtype1, title, haddress, hdong, hho, "
+                      "contract_date, sdate, edate, ecost_date, cost, fine_cost, charge, "
+                      "sell_name, buy_name, offer_code, body_json, jumin_enc, form_version, realtor_id "
+                      "FROM biz_wcontracts WHERE id=? AND user_id=? AND deleted_at IS NULL",
+                      (wid, user["id"])).fetchone()
+        if not r:
+            raise HTTPException(404, "계약서를 찾을 수 없습니다")
+        cur = c.execute(
+            "INSERT INTO biz_wcontracts(user_id, realtor_id, category, sub_category, mtype1, "
+            "title, haddress, hdong, hho, contract_date, sdate, edate, ecost_date, cost, "
+            "fine_cost, charge, sell_name, buy_name, offer_code, body_json, jumin_enc, form_version) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (user["id"], r[20], r[0], r[1], r[2], f"(복사본) {r[3]}"[:120], r[4], r[5], r[6],
+             r[7], r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15], r[16], r[17], r[18], r[19]))
+        c.commit()
+        return {"ok": True, "id": cur.lastrowid}
+
+
+@app.delete("/biz/wcontracts/{wid}")
+def wcontract_delete(wid: int, user: dict = Depends(contract_user)):
+    with _reviews_db() as c:
+        cur = c.execute("UPDATE biz_wcontracts SET deleted_at=datetime('now','+9 hours') "
+                        "WHERE id=? AND user_id=? AND deleted_at IS NULL", (wid, user["id"]))
+        c.execute("DELETE FROM biz_events WHERE user_id=? AND wcontract_id=?", (user["id"], wid))
+        c.commit()
+    if cur.rowcount == 0:
+        raise HTTPException(404, "계약서를 찾을 수 없습니다")
+    return {"ok": True}
+
+
 @app.get("/biz/contracts")
-def biz_contracts_list(q: str = "", limit: int = 100, user: dict = Depends(admin_user)):
+def biz_contracts_list(q: str = "", limit: int = 100, user: dict = Depends(contract_user)):
     """계약관리 목록 — 계약서별 종류·물건·금액·당사자·일정수. parsed_json에서 요약해 준다."""
     limit = max(1, min(limit, 300))
     with _reviews_db() as c:
@@ -19473,7 +21283,7 @@ def biz_contracts_list(q: str = "", limit: int = 100, user: dict = Depends(admin
 
 
 @app.get("/biz/customers/{customer_id}/contracts")
-def biz_customer_contracts(customer_id: int, user: dict = Depends(admin_user)):
+def biz_customer_contracts(customer_id: int, user: dict = Depends(contract_user)):
     """고객관리에서 고객 클릭 → 그 고객이 당사자로 들어간 계약 목록(역할 포함)."""
     with _reviews_db() as c:
         cu = c.execute("SELECT id, name, phone, is_company FROM biz_customers WHERE id=? AND user_id=?",
@@ -19565,7 +21375,7 @@ def biz_contract_doc(cid: int, user: dict = Depends(current_user)):
 
 
 @app.get("/biz/customers")
-def biz_customers_list(q: str = "", role: str = "", limit: int = 200, user: dict = Depends(admin_user)):
+def biz_customers_list(q: str = "", role: str = "", limit: int = 200, user: dict = Depends(contract_user)):
     """내 사무소 고객 목록 — 계약서에서 쌓인 임대인·임차인·매도인·매수인.
     다른 기능(상담리드·매물 매칭 등)에서 customer_id로 연결할 수 있게 한다."""
     limit = max(1, min(limit, 500))
@@ -19611,7 +21421,7 @@ def biz_customers_list(q: str = "", role: str = "", limit: int = 200, user: dict
 
 
 @app.delete("/biz/events/{eid}")
-def biz_event_delete(eid: int, user: dict = Depends(admin_user)):
+def biz_event_delete(eid: int, user: dict = Depends(contract_user)):
     with _reviews_db() as c:
         cur = c.execute("DELETE FROM biz_events WHERE id=? AND user_id=?", (eid, user["id"]))
         c.commit()
@@ -19621,7 +21431,7 @@ def biz_event_delete(eid: int, user: dict = Depends(admin_user)):
 
 
 @app.get("/biz/events/ics")
-def biz_events_ics(user: dict = Depends(admin_user)):
+def biz_events_ics(user: dict = Depends(contract_user)):
     """내 일정 전체 ICS — 구글/애플 캘린더 가져오기용."""
     with _reviews_db() as c:
         rows = c.execute(
