@@ -66,6 +66,11 @@ def _ymd_mismatch(val, led) -> bool:
     v = digits(val)
     if not v:
         return False
+    # 광고 사용승인일이 '일=00'(YYYYMM00 — 년·월만 표기, 일 미상)이면 년월까지만 대조한다.
+    # 대장 일자와 '일'만 다른 것을 '공부 불일치'로 오판하지 않기 위함(년월이 틀리면 여전히
+    # 걸린다). 기존 '자릿수 다르면 짧은 쪽까지' 규칙과 동일한 취지(6자리 년월 표기와 일관).
+    if len(v) == 8 and v[6:8] == "00":
+        v = v[:6]
     opts = led if isinstance(led, (list, set, tuple)) else [led]
     norms = [digits(x) for x in opts if digits(x)]
     if not norms:
@@ -275,8 +280,19 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         note = f" → 건축물대장 기준 총 {_fmt_led(led_tf)}층" if (led_tf and led_comparable) else ""
         add(6, "총 층수", "위반", "광고에 총 층수 미표시" + note)
     elif led_comparable and _ledger_mismatch(f.get("total_floor"), led_tf):
-        add(6, "총 층수", "위반",
-            f"광고 총층({f.get('total_floor')}) ≠ 건축물대장 기준 {_fmt_led(led_tf)}층 — 공부와 불일치")
+        # 광고 총층이 공부(대장)보다 '큰' 역전은 축소 위반과 성격이 다르다 — 대개 대장이 더
+        # 작은 상가동/근생동에 오매칭(예: 21층 건물인데 옆 2층 근생동 대장)됐거나 광고 과다
+        # 표기다. 하드 위반이 아니라 확인용 주의로 낮춘다.
+        _adf = _to_float(f.get("total_floor"))
+        _leds = led_tf if isinstance(led_tf, (list, set, tuple)) else [led_tf]
+        _maxled = max((x for x in (_to_float(y) for y in _leds) if x is not None), default=None)
+        if _adf is not None and _maxled is not None and _adf > _maxled:
+            add(6, "총 층수", "주의",
+                f"광고 총층({f.get('total_floor')})이 건축물대장({_fmt_led(led_tf)}층)보다 큼 — "
+                f"대장 매칭(상가동 오인) 또는 광고 과다표기 확인 필요")
+        else:
+            add(6, "총 층수", "위반",
+                f"광고 총층({f.get('total_floor')}) ≠ 건축물대장 기준 {_fmt_led(led_tf)}층 — 공부와 불일치")
     else:
         add(6, "총 층수", "통과", f"건축물대장 기준 {_fmt_led(led_tf)}층 일치" if (led_tf and led_comparable) else "")
 
