@@ -3,7 +3,7 @@
 //
 // 매물장과 따로 놀지 않게, 내놓은 요건은 우리 매물장 행을 그대로 물고 온다.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { UserRound, Search, Loader2, Building2, Link2, Phone, RefreshCw, Pencil, FileText } from "lucide-react";
+import { UserRound, UserPlus, Search, Loader2, Building2, Link2, Phone, RefreshCw, Pencil, FileText } from "lucide-react";
 import CustomerEdit, { type EditCustomer } from "./CustomerEdit";
 import ContractDetailModal from "./ContractDetailModal";
 
@@ -183,6 +183,10 @@ export default function CustomerLedger({ authH, onGoListings }: {
           <i>구하는 조건 {counts.buy}</i>
           <i>내놓은 물건 {counts.sell}</i>
         </span>
+        <button className="ai-send" style={{ padding: "7px 14px", marginLeft: "auto", gap: 5 }}
+          onClick={() => setEdit({ id: 0, name: "", phone: "", memo: "", needs: [] })}>
+          <UserPlus size={15} /> 새 고객
+        </button>
         <button className="cled-refresh" onClick={load} disabled={busy} aria-label="새로고침">
           {busy ? <Loader2 size={14} className="txm-spin" /> : <RefreshCw size={14} />}
         </button>
@@ -227,8 +231,8 @@ export default function CustomerLedger({ authH, onGoListings }: {
       {items === null && <p className="cled-empty">불러오는 중…</p>}
       {items !== null && shown.length === 0 && !err && (
         <p className="cled-empty">
-          아직 등록된 고객이 없어요. 대시보드 <b>빠른 입력</b>에 손님 문자나 매물을 넣으시면
-          여기에 쌓입니다.
+          아직 등록된 고객이 없어요. 위 <b>＋ 새 고객</b>으로 바로 등록하거나(AI 자동채움·수동 모두 가능),
+          대시보드 <b>빠른 입력</b>에 손님 문자를 넣어도 여기에 쌓입니다.
         </p>
       )}
 

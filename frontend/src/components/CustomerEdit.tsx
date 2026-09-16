@@ -146,14 +146,20 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
   authH: () => Record<string, string>; cust: EditCustomer;
   onClose: () => void; onSaved: () => void;
 }) {
+  const isNew = !cust.id;   // id 가 없으면 새 고객 등록 모드(생성) — 있으면 수정
   const [name, setName] = useState(cust.name || "");
   const [phone, setPhone] = useState(cust.phone || "");
   const [memo, setMemo] = useState(cust.memo || "");
-  const [needs, setNeeds] = useState<EditNeed[]>(cust.needs.map((n) => ({ ...n })));
+  // 새 고객은 요건 칸이 처음부터 보이게 빈 요건 하나로 시작한다(충분한 정보 입력 유도).
+  const [needs, setNeeds] = useState<EditNeed[]>(
+    cust.needs.length ? cust.needs.map((n) => ({ ...n }))
+      : isNew ? [{ kind: "구함", trade: "A1", status: "문의", _new: true }] : []);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [paste, setPaste] = useState("");
   const [parsing, setParsing] = useState(false);
+  const [aiText, setAiText] = useState("");        // 새 고객 AI 자동채움 입력
+  const [aiBusy, setAiBusy] = useState(false);
   const [calOpen, setCalOpen] = useState<number | null>(null);   // 달력을 연 요건
   const setN = (i: number, patch: Partial<EditNeed>) =>
     setNeeds((ns) => ns.map((n, j) => (i === j ? { ...n, ...patch } : n)));
@@ -188,6 +194,41 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
     } finally { setParsing(false); }
   };
 
+  // 새 고객 — 손님 문자·카톡·메모를 통째로 붙여넣으면 이름·전화·메모·요건까지 한 번에 채운다.
+  const mapNeed = (n: any): EditNeed => ({
+    kind: n.kind || "구함", ptype: n.ptype || null, trade: n.trade || "A1", role: roleNum(n.role),
+    budget_min: n.budget_min ?? null, budget_max: n.budget_max ?? null, ask_price: n.ask_price ?? null,
+    dong: n.region || null, address: n.complex_name || null,
+    area_min: n.area_min ?? null, area_max: n.area_max ?? null,
+    settle_date: n.settle_date || null, status: "문의", _new: true,
+  });
+  const runAiFill = async () => {
+    if (aiText.trim().length < 2 || aiBusy) return;
+    setAiBusy(true); setErr("");
+    try {
+      const r = await fetch(`${API_BASE}/lounge/quick-parse`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ text: aiText }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.detail || `오류 ${r.status}`);
+      const c0 = (j.고객 || [])[0];
+      if (c0?.name && !name.trim()) setName(c0.name);
+      if (c0?.phone && !phone.trim()) setPhone(c0.phone);
+      if (c0?.memo && !memo.trim()) setMemo(c0.memo);
+      const got = (c0?.요건 || []).map(mapNeed);
+      if (got.length) {
+        // 처음에 깔아 둔 빈 요건은 걷어내고 파싱 결과로 채운다.
+        setNeeds((ns) => [...ns.filter((x) => !(x._new && !needSummary(x))), ...got]);
+      } else if (!c0) {
+        setErr("문장에서 고객 정보를 못 읽었어요. 아래에 직접 입력해 주세요.");
+      }
+      setAiText("");
+    } catch (e: any) {
+      setErr(e?.message || "인식에 실패했어요");
+    } finally { setAiBusy(false); }
+  };
+
   const save = async () => {
     if (!name.trim()) { setErr("이름을 적어 주세요"); return; }
     setSaving(true); setErr("");
@@ -207,7 +248,16 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
         }
         return res;
       };
-      await send(`${API_BASE}/lounge/customers/${cust.id}`, "PATCH", { name, phone, memo });
+      // 새 고객이면 먼저 생성해 id 를 받고, 그 id 로 요건을 붙인다. 기존이면 정보만 수정.
+      let cid = cust.id;
+      if (isNew) {
+        const cr = await send(`${API_BASE}/lounge/customers`, "POST", { name, phone, memo, stage: "신규" });
+        const cj = await cr.json().catch(() => ({}));
+        cid = cj?.id;
+        if (!cid) throw new Error("고객을 생성하지 못했어요");
+      } else {
+        await send(`${API_BASE}/lounge/customers/${cust.id}`, "PATCH", { name, phone, memo });
+      }
       for (const n of needs) {
         if (n._del && n.id) {
           await send(`${API_BASE}/lounge/needs/${n.id}`, "DELETE");
@@ -223,7 +273,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
         if (n.id) {
           await send(`${API_BASE}/lounge/needs/${n.id}`, "PUT", body);
         } else {
-          await send(`${API_BASE}/lounge/needs`, "POST", { ...body, customer_id: cust.id });
+          await send(`${API_BASE}/lounge/needs`, "POST", { ...body, customer_id: cid });
         }
       }
       onSaved(); onClose();
@@ -241,7 +291,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
       <div className="ced">
         <div className="ced-hd">
           <UserRound size={16} />
-          <h3>{name || "고객"}<em> · 고객 정보 수정</em></h3>
+          <h3>{name || (isNew ? "새 고객" : "고객")}<em> · {isNew ? "새 고객 등록" : "고객 정보 수정"}</em></h3>
           <button className="ced-x" onClick={onClose} aria-label="닫기"><X size={17} /></button>
         </div>
 
@@ -265,11 +315,31 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
             <p className="ced-sec2">메모</p>
             <textarea className="ced-memo" value={memo} rows={3}
               placeholder="소개 경로·특이사항" onChange={(e) => setMemo(e.target.value)} />
-            <ContractList authH={authH} cid={cust.id} />
-            <ActivityLog authH={authH} cid={cust.id} />
+            {!isNew && <ContractList authH={authH} cid={cust.id} />}
+            {!isNew && <ActivityLog authH={authH} cid={cust.id} />}
           </aside>
 
           <div className="ced-main">
+            {isNew && (
+              <div style={{ background: "linear-gradient(135deg,#eef4ff,#f6f9ff)", border: "1px solid #d6e4ff",
+                borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "#1f2a44",
+                  marginBottom: 6, flexWrap: "wrap" }}>
+                  <Sparkles size={14} color="#3b5bdb" /> <b>AI로 한 번에 채우기</b>
+                  <span style={{ color: "#6b7280", fontWeight: 400 }}>— 문자·카톡·메모를 붙여넣으면 이름·전화·요건 자동 채움</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <textarea value={aiText} rows={2} style={{ flex: 1, resize: "vertical",
+                    border: "1px solid var(--c-border)", borderRadius: 8, padding: "8px 10px", fontSize: 13 }}
+                    placeholder="예: 김철수 010-3001-0001 고덕동 34평 매매 24~27억 10월 잔금 희망"
+                    onChange={(e) => setAiText(e.target.value)} />
+                  <button className="ai-send" style={{ padding: "8px 14px", whiteSpace: "nowrap" }}
+                    onClick={runAiFill} disabled={aiBusy || aiText.trim().length < 2}>
+                    {aiBusy ? <Loader2 size={14} className="txm-spin" /> : "자동 채우기"}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="ced-sec">
               <h4><Building2 size={13} /> 요건 {live.length}건</h4>
               <button className="ced-add" onClick={addNeed}><Plus size={13} /> 요건 추가</button>
@@ -405,7 +475,7 @@ export default function CustomerEdit({ authH, cust, onClose, onSaved }: {
           <button className="ced-cancel" onClick={onClose}>취소</button>
           <button className="ced-save" onClick={save} disabled={saving}>
             {saving ? <Loader2 size={14} className="txm-spin" /> : <Check size={14} />}
-            {saving ? "저장 중…" : "저장"}
+            {saving ? "저장 중…" : (isNew ? "고객 등록" : "저장")}
           </button>
         </div>
       </div>

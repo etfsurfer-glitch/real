@@ -17386,6 +17386,31 @@ def lounge_customer_update(cid: int, body: dict, user: dict = Depends(current_us
     return {"ok": True}
 
 
+@app.post("/lounge/customers")
+def lounge_customer_create(body: dict, user: dict = Depends(current_user)):
+    """새 고객 직접 생성(고객원장 '＋ 새 고객'). 이름 필수. 같은 이름+전화면 기존 고객으로
+    병합(중복 방지). 요건은 저장 후 /lounge/needs 로 붙인다(프런트가 새 id 로 이어 저장)."""
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "이름을 입력하세요")
+    phone = _digits(body.get("phone") or "") or None
+    memo = (body.get("memo") or "").strip()
+    stage = (body.get("stage") or "").strip() or "신규"
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.execute(
+            "INSERT INTO biz_customers(user_id, realtor_id, name, phone, memo, stage) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(user_id, name, COALESCE(phone,'')) DO UPDATE SET "
+            "  memo=COALESCE(NULLIF(excluded.memo,''), biz_customers.memo), "
+            "  stage=COALESCE(NULLIF(excluded.stage,''), biz_customers.stage), "
+            "  updated_at=datetime('now')",
+            (user["id"], rid, name, phone, memo, stage))
+        row = rc.execute(
+            "SELECT id FROM biz_customers WHERE user_id=? AND name=? AND COALESCE(phone,'')=?",
+            (user["id"], name, phone or "")).fetchone()
+    return {"ok": True, "id": row[0] if row else None}
+
+
 @app.put("/lounge/needs/{nid}")
 def lounge_need_update(nid: int, body: dict, user: dict = Depends(current_user)):
     """요건 수정."""
