@@ -24797,6 +24797,8 @@ _ALIMTALK_BODY = """[콕집] 손님 매물요청이 도착했습니다.
 손님 연락처는 전달되지 않으며,
 등록하신 제안을 보고 손님이 직접 연락드립니다.
 
+당 메시지는 고객님께서 요청하신 손님 매물요청 도착 알림이 있을 경우 발송됩니다.
+
 문의 : 콕집 고객센터"""
 
 _CS_URL = "https://pf.kakao.com/_ackPX/chat"   # 콕집 고객센터(카카오톡 채널·프런트와 동일)
@@ -24902,11 +24904,12 @@ def _aligo_send_alimtalk(receiver: str, req_id: int, rid: str) -> dict | None:
         "sender": settings.aligo_sender,
         "receiver_1": receiver,
         "subject_1": "손님 매물요청 도착",
-        "message_1": _ALIMTALK_BODY.format(cond=p["cond"], memo=p["memo"]),
-        "button_1": _authjson.dumps({"button": [{
-            "name": "매물 제안하기", "linkType": "WL",
-            "linkMo": link, "linkPc": link,
-        }]}, ensure_ascii=False),
+        "emtitle_1": "손님 매물요청 도착",   # 강조표기형 필수 — 승인 템플릿(UK_0429) 타이틀과 일치해야 함
+        "message_1": _ALIMTALK_BODY.format(cond=p["cond"], memo=p["memo"]).replace("\n", "\r\n"),
+        "button_1": _authjson.dumps({"button": [
+            {"name": "채널 추가", "linkType": "AC"},
+            {"name": "요청보기", "linkType": "WL", "linkMo": link, "linkPc": link},
+        ]}, ensure_ascii=False),
         "failover": "Y",
         "fsubject_1": "콕집 손님 매물요청 도착",
         "fmessage_1": _ALIMTALK_FALLBACK.format(cond=p["cond"], memo=p["memo"], link=link,
@@ -25294,20 +25297,22 @@ def _offer_notify_text(req_id: int, realtor_id: str = "") -> tuple:
 # ("수신자 요청/신청에 따른 정보"). 승인본과 글자·줄바꿈이 같아야 발송된다.
 _ALIMTALK_CUST_BODY = """[콕집] 요청하신 조건에 제안이 도착했습니다.
 
-▶ 요청 조건
-{cond}
+  ▶ 요청 조건
+  {cond}
 
-▶ 제안한 중개사무소
-{who}
-{contact}
+  ▶ 제안한 중개사무소
+  {who}
+  {contact}
 
-위 번호로 바로 전화하셔도 되고,
-아래 버튼에서 제안 매물을 보실 수 있습니다.
+  위 번호로 바로 전화하셔도 되고,
+  아래 버튼에서 제안 매물을 보실 수 있습니다.
 
-고객님 연락처는 중개사무소에 전달되지 않습니다.
-전화를 거실 때만 상대에게 알려집니다.
+  고객님 연락처는 중개사무소에 전달되지 않습니다.
+  전화를 거실 때만 상대에게 알려집니다.
 
-문의 : 콕집 고객센터"""
+  문의 : 콕집 고객센터
+
+해당 메시지는 고객님께서 요청하신 부동산매물 제안 도착 알림이 있을 경우 발송됩니다."""
 
 
 def _alimtalk_offer(receiver: str, req_id: int, realtor_id: str = "") -> dict | None:
@@ -25326,12 +25331,13 @@ def _alimtalk_offer(receiver: str, req_id: int, realtor_id: str = "") -> dict | 
         "sender": settings.aligo_sender,
         "receiver_1": receiver,
         "subject_1": "제안 도착",
+        "emtitle_1": "지금 바로 확인 하세요.",   # 강조표기형 필수 — 승인 템플릿(UK_0469) 타이틀과 일치
         "message_1": _ALIMTALK_CUST_BODY.format(
-            cond=b["cond"], who=who, contact=b["contact"] or "-"),
-        "button_1": _authjson.dumps({"button": [{
-            "name": "받은 제안 보기", "linkType": "WL",
-            "linkMo": b["link"], "linkPc": b["link"],
-        }]}, ensure_ascii=False),
+            cond=b["cond"], who=who, contact=b["contact"] or "-").replace("\n", "\r\n"),
+        "button_1": _authjson.dumps({"button": [
+            {"name": "채널 추가", "linkType": "AC"},
+            {"name": "제안확인", "linkType": "WL", "linkMo": b["link"], "linkPc": b["link"]},
+        ]}, ensure_ascii=False),
         "failover": "Y", "fsubject_1": "콕집 제안 도착", "fmessage_1": sms,
     }
     import urllib.parse as _up
