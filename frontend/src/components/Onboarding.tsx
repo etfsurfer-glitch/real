@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Search, Building2, ChevronRight, Bell } from "lucide-react";
-import { useAuth, loginKakao, loginGoogle } from "../auth";
+import { useAuth, loginKakao, loginGoogle, loginEmail } from "../auth";
 import { PhoneModal } from "./PhoneVerify";
 import { acceptPush, pushSupported } from "../lib/push";
 import AppleLoginButton from "./AppleLoginButton";
@@ -34,6 +34,12 @@ export default function Onboarding() {
   // choose→(general)→notify / choose→realtor→phone→notify
   const [step, setStep] = useState<"choose" | "realtor" | "phone" | "notify">("choose");
   const [utype, setUtype] = useState<"general" | "realtor">("general");
+  // 이메일 로그인(보조 경로) — 소셜 계정을 쓸 수 없는 환경용. 기본은 접어 둔다.
+  const [mailOpen, setMailOpen] = useState(false);
+  const [mail, setMail] = useState("");
+  const [pw, setPw] = useState("");
+  const [mailErr, setMailErr] = useState("");
+  const [mailBusy, setMailBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
 
   // 중개사 흐름에서 로그인 완료되면 번호인증 단계로 자동 전환
@@ -116,6 +122,28 @@ export default function Onboarding() {
               </button>
               <AppleLoginButton label="Apple로 시작하기" />
             </div>
+            {/* 이메일 로그인 — 소셜 계정을 쓸 수 없는 환경(사내 기기·외부 심사 등)을 위한 보조 경로.
+                평소에는 접어 두어 기본 흐름(카카오·구글)을 해치지 않는다. */}
+            {!mailOpen ? (
+              <button className="onb-mail-link" onClick={() => setMailOpen(true)}>
+                이메일로 로그인
+              </button>
+            ) : (
+              <form className="onb-mail" onSubmit={async (e) => {
+                e.preventDefault(); setMailErr(""); setMailBusy(true);
+                try { await loginEmail(mail, pw); }
+                catch (err: any) { setMailErr(err?.message || "로그인하지 못했어요"); }
+                finally { setMailBusy(false); }
+              }}>
+                <input type="email" value={mail} placeholder="이메일" autoComplete="username"
+                       onChange={(e) => setMail(e.target.value)} required />
+                <input type="password" value={pw} placeholder="비밀번호" autoComplete="current-password"
+                       onChange={(e) => setPw(e.target.value)} required />
+                {mailErr && <p className="onb-mail-err">{mailErr}</p>}
+                <button type="submit" disabled={mailBusy}>{mailBusy ? "로그인 중…" : "로그인"}</button>
+                <button type="button" className="onb-mail-close" onClick={() => setMailOpen(false)}>닫기</button>
+              </form>
+            )}
             <button className="onb-back" onClick={() => setStep("choose")}>← 뒤로</button>
           </>
         )}

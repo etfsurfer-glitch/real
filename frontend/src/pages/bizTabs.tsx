@@ -1730,6 +1730,29 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     </div>
   );
 
+  // 단지 묶음 통째로 비우기 — 엑셀을 잘못 올리면 한 단지 수십·수백 건이 어긋나는데
+  // 한 건씩 지우면 사실상 못 지운다(2026-10-02 요청). 낱건 삭제와 같게 보관만 해제한다.
+  const clearGroup = async (name: string, items: MLItem[]) => {
+    const inBook = items.filter((l) => l.private_id);
+    if (!inBook.length) {
+      alert("이 묶음에는 매물장에 담은 매물이 없습니다(네이버 광고만 있는 묶음).");
+      return;
+    }
+    if (!window.confirm(
+      `${name}\n\n이 단지의 매물장 ${inBook.length}건을 한 번에 비웁니다.\n` +
+      `네이버에 광고 중인 매물은 그대로 남습니다. 계속할까요?`)) return;
+    try {
+      const r = await fetch(`${API_BASE}/lounge/private-listings/bulk-close`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ complex_name: name === "단지명 없음" ? "" : name }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(d?.detail || `비우지 못했어요 (${r.status})`);
+      if (d?.blocked) alert(`${d.closed}건을 비웠습니다.\n(${d.blocked}건은 다른 분의 개인 매물이라 남겼습니다)`);
+      load();
+    } catch (e: any) { alert(e?.message || "비우지 못했어요"); }
+  };
+
   // 직접등록 매물 삭제 — 되돌릴 수 없으니 무엇을 지우는지 이름으로 확인받는다.
   // 서버는 status='closed' 로만 바꾼다(행은 남아 복구할 수 있다).
   const delPrivate = async (l: MLItem) => {
@@ -1854,6 +1877,13 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                       <span className="mlj2-fright">
                         <span className="mlj2-fcnt">{gi.length}</span>
                         {newN > 0 && <span className="mlj2-fnew">신규 {newN}</span>}
+                        {mode === "complex" && gi.some((l) => l.private_id) && (
+                          <button
+                            className="mlj2-fclear"
+                            title="이 단지의 매물장 비우기"
+                            onClick={(e) => { e.stopPropagation(); clearGroup(groupName(gi), gi); }}
+                          >비우기</button>
+                        )}
                       </span>
                       {big
                         ? <ChevronRight size={16} className="mlj2-chev" aria-hidden />

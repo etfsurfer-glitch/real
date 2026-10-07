@@ -24,7 +24,9 @@
   --notify 시 임계(BASELINE) 초과 항목만 텔레그램. 크론(daily)에서 --notify 로 실행.
 """
 import argparse
+import json
 import sqlite3
+from datetime import datetime
 import sys
 from pathlib import Path
 
@@ -164,14 +166,38 @@ def main():
             print(f"  [{flag}] {LABEL[k]}: {v:,} / 기준 {base:,}")
             for s in samples.get(k, [])[:3]:
                 print(f"        - {s[0][:24]} 매물 {s[1]}")
-    if a.notify and over:
+    # ── 추적 알림 ──────────────────────────────────────────────
+    # 기준 초과 때만 알리면 추세를 놓친다(단지형 미연결이 38→61 로 조용히 오르던 사례).
+    # 매일 전 지표 + 전일 대비 증감을 보낸다. 초과는 맨 위에 따로 세운다.
+    STATE = Path("/opt/koczip/maint/realtor_integrity_state.json")
+    prev = {}
+    try:
+        prev = json.loads(STATE.read_text())
+    except Exception:
+        pass
+
+    if a.notify:
+        lines = []
+        for k, v in res.items():
+            d = v - prev.get(k, v)
+            mark = "=" if d == 0 else ("▲%d" % d if d > 0 else "▼%d" % -d)
+            over_mark = " ⚠️" if v > BASELINE.get(k, 0) else ""
+            lines.append("· %s: %s (%s)%s" % (LABEL[k], format(v, ","), mark, over_mark))
+        head = ("🔴 기준 초과 %d건\n%s\n\n" % (len(over), "\n".join("· " + x for x in over))
+                if over else "🟢 전 지표 기준 내\n\n")
         try:
             from scripts.tg_notify import tg_send
-            body = "\n".join("· " + x for x in over)
-            top = "\n".join(f"   {s[0][:20]}({s[1]})" for s in samples.get("no_profile", [])[:3])
-            tg_send(f"[콕집] 중개사 연결 누락 감지\n{body}" + (f"\n프로필없음 상위:\n{top}" if top else ""))
+            tg_send("[콕집] 중개사 연결 추적 %s\n%s%s"
+                    % (datetime.now().strftime("%m-%d"), head, "\n".join(lines)))
         except Exception as e:
             print("텔레그램 실패:", e)
+
+    try:
+        STATE.parent.mkdir(parents=True, exist_ok=True)
+        STATE.write_text(json.dumps(res, ensure_ascii=False))
+    except Exception as e:
+        print("상태 저장 실패:", e)
+
     return 1 if over else 0
 
 

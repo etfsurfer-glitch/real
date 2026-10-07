@@ -14,7 +14,8 @@ type Row = Record<string, any> & { _row?: number; _dup?: string };
 type Sheet = { name: string; header_row: number; columns: Col[]; rows: Row[];
   skipped: { row: number; why: string; text: string }[]; n_skipped: number; n_dup: number;
   cut?: number; stopped_at?: number };
-type Preview = { sheets: Sheet[]; filename: string; fields: { key: string; label: string }[] };
+type Preview = { sheets: Sheet[]; filename: string; fields: { key: string; label: string }[];
+  needs_complex?: boolean; complex_hint?: string };
 
 const won = (v: any): string => {
   const n = Number(v);
@@ -59,6 +60,12 @@ export default function ImportListings({ authH, onClose, onSaved }: {
   // 올린 파일을 들고 있는다 — 열 매핑을 고치면 **다시 읽어야** 값도 따라 바뀐다.
   // 화면에서 값만 옮기면 금액 단위 계산이 어긋난다.
   const rawRef = useRef<File | null>(null);
+  // 단지가 특정되지 않은 매물장(행마다 단지명이 없는 단일 단지 파일)은 담기 전에
+  // 사용자가 단지를 고르게 한다 — 안 그러면 단지명 없는 매물이 쌓인다.
+  const [cxQ, setCxQ] = useState("");
+  const [cxHits, setCxHits] = useState<{ complex_no: string; complex_name: string; where?: string }[]>([]);
+  const [cxPick, setCxPick] = useState<{ complex_no: string; complex_name: string } | null>(null);
+  const [cxBusy, setCxBusy] = useState(false);
   const ovrRef = useRef<Record<string, { fields: Record<string, string>; units: Record<string, string> }>>({});
 
   const sheet = prev?.sheets[si] || null;
@@ -76,6 +83,10 @@ export default function ImportListings({ authH, onClose, onSaved }: {
       const d = await r.json().catch(() => null);
       if (!r.ok) throw new Error(d?.detail || `읽지 못했어요 (${r.status})`);
       setPrev(d); if (!keepOvr) setSi(0);
+      if (!keepOvr) {
+        setCxPick(null); setCxHits([]);
+        setCxQ(d?.needs_complex ? (d?.complex_hint || "") : "");
+      }
     } catch (e: any) {
       setErr(e.message || "읽지 못했어요");
     } finally { setBusy(false); }
@@ -93,18 +104,35 @@ export default function ImportListings({ authH, onClose, onSaved }: {
     upload(rawRef.current, true);
   };
 
+  const cxSearch = async (kw: string) => {
+    const q = kw.trim();
+    if (q.length < 2) { setCxHits([]); return; }
+    setCxBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}/lounge/complex-search?q=${encodeURIComponent(q)}`,
+        { headers: authH() });
+      const d = await r.json().catch(() => null);
+      setCxHits(r.ok ? (d?.items || []) : []);
+    } catch { setCxHits([]); } finally { setCxBusy(false); }
+  };
+
   const rows = sheet?.rows || [];
+  const needCx = !!prev?.needs_complex && !cxPick;
 
   const picked = useMemo(() => rows.filter((r, i) => !off.has(i) && !(skipDup && r._dup)),
     [rows, off, skipDup]);
 
   const commit = async () => {
     if (!picked.length) return;
+    if (needCx) { setErr("어느 단지의 매물장인지 먼저 골라 주세요."); return; }
     setBusy(true); setErr("");
     try {
       const r = await fetch(`${API_BASE}/lounge/import/commit`, {
         method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: picked, filename: nameRef.current, visibility: vis }),
+        body: JSON.stringify({
+          rows: picked, filename: nameRef.current, visibility: vis,
+          complex_no: cxPick?.complex_no, complex_name: cxPick?.complex_name,
+        }),
       });
       const d = await r.json().catch(() => null);
       if (!r.ok) throw new Error(d?.detail || `담지 못했어요 (${r.status})`);
@@ -195,6 +223,51 @@ export default function ImportListings({ authH, onClose, onSaved }: {
                 )}
 
                 {/* 열을 어떻게 읽었는지 — 여기가 이 화면의 핵심이다. 틀렸으면 바꾼다 */}
+                {prev?.needs_complex && (
+                  <div className={"imp-cx" + (cxPick ? " done" : "")}>
+                    {cxPick ? (
+                      <div className="imp-cx-done">
+                        <b>{cxPick.complex_name}</b> 매물로 담습니다
+                        <button onClick={() => { setCxPick(null); setCxHits([]); }}>바꾸기</button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="imp-cx-head">
+                          이 파일에는 줄마다 단지명이 없어요 — <b>어느 단지의 매물장인지 골라 주세요.</b>
+                        </div>
+                        <div className="imp-cx-find">
+                          <input
+                            value={cxQ}
+                            placeholder="단지명으로 찾기 (예: 칸타빌)"
+                            onChange={(e) => setCxQ(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") cxSearch(cxQ); }}
+                          />
+                          <button onClick={() => cxSearch(cxQ)} disabled={cxBusy || cxQ.trim().length < 2}>
+                            {cxBusy ? "찾는 중" : "찾기"}
+                          </button>
+                        </div>
+                        {cxHits.length > 0 && (
+                          <ul className="imp-cx-hits">
+                            {cxHits.map((h) => (
+                              <li key={h.complex_no}>
+                                <button onClick={() => { setCxPick(h); setErr(""); }}>
+                                  <b>{h.complex_name}</b>
+                                  {h.where && <i>{h.where}</i>}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {!cxBusy && cxQ.trim().length >= 2 && cxHits.length === 0 && (
+                          <div className="imp-cx-none">
+                            못 찾았어요. 지역을 함께 적어 보세요 (예: 아산 칸타빌).
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
                 <div className="imp-cols">
                   {sheet.columns.map((c) => (
                     <label key={c.index} className={"imp-col by-" + (c.by === "이름" ? "name" : c.by === "값" ? "val" : "guess")}>
@@ -283,7 +356,7 @@ export default function ImportListings({ authH, onClose, onSaved }: {
                 {err && <p className="imp-err"><AlertTriangle size={13} /> {err}</p>}
                 <div className="imp-foot">
                   <button className="imp-again" onClick={() => { setPrev(null); setErr(""); }}>다른 파일</button>
-                  <button className="imp-save" onClick={commit} disabled={busy || !picked.length}>
+                  <button className="imp-save" onClick={commit} disabled={busy || !picked.length || needCx}>
                     {busy ? <Loader2 size={14} className="txm-spin" /> : <Check size={14} />}
                     {picked.length.toLocaleString()}건 매물장에 담기
                   </button>

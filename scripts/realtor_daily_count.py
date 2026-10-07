@@ -1,6 +1,7 @@
 """중개사무소별 일별 매물수(매매/전세/월세) 스냅샷 → realtor_daily_count.
-관심중개사무소 대시보드의 '오늘 증감' 산출용. daily_run에서 매물 수집 후 1회 호출.
-listings_current(오늘 스냅샷) 기준으로 그날치를 upsert한다."""
+관심중개사무소 대시보드의 '오늘 증감' 산출용 + 사무소별 매물수 시계열 통계 원장.
+daily_run에서 매물 수집 후 1회 호출. listings_current(오늘 스냅샷) 기준으로 그날치를 upsert한다.
+이력은 영구 보존한다(재생성 불가 — 과거 스냅샷이 남지 않는다)."""
 import sqlite3
 import sys
 from pathlib import Path
@@ -39,8 +40,9 @@ def main():
         "INSERT INTO realtor_daily_count VALUES(?,?,?,?,?,?)",
         [(day, rid, a[0], a[1], a[2], a[0] + a[1] + a[2]) for rid, a in agg.items()],
     )
-    # 90일 넘은 이력은 정리(증감은 직전일만 필요)
-    con.execute("DELETE FROM realtor_daily_count WHERE snapshot_date < date(?, '-90 days')", (day,))
+    # 이력은 삭제하지 않고 영구 보존한다. '오늘 증감'에는 직전일만 필요하지만,
+    # 사무소별 매물수 시계열은 listings_current(현재 스냅샷만 보유)로 되돌릴 수 없어
+    # 한 번 지우면 복구가 불가능하다. 통계 자산으로 쌓는다(증가량 ≈ 월 0.1GB).
     con.commit()
     print(f"realtor_daily_count: {day} offices={len(agg)}")
 

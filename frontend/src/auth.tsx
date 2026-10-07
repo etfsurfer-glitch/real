@@ -410,6 +410,21 @@ export async function loginApple() {
   }
 }
 
+/** 이메일·비밀번호 로그인.
+ *
+ *  일반 사용자는 카카오·구글·애플만 쓴다. 이 경로는 **외부 심사·점검용**이다 —
+ *  Google Play 심사자가 기기 인증에 묶인 구글 계정으로는 로그인할 수 없어
+ *  앱 내부를 전혀 보지 못하고 리젝됐다(2026-10-05). Play 정책이 요구하는
+ *  '전용 테스트 우회 방법 또는 표준 로그인 사용자 인증 정보'가 이것이다.
+ *  Supabase 이메일 계정이라 2단계 인증·기기 연결이 걸리지 않는다. */
+export async function loginEmail(email: string, password: string) {
+  if (!authClient) throw new Error("로그인을 사용할 수 없습니다");
+  const { error } = await authClient.auth.signInWithPassword({
+    email: email.trim(), password,
+  });
+  if (error) throw new Error(error.message || "이메일 또는 비밀번호를 확인해주세요");
+}
+
 export async function logout() {
   await authClient?.auth.signOut();
 }

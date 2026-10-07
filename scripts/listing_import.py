@@ -663,7 +663,35 @@ def analyze(data: bytes, filename: str = "", max_rows: int = _MAX_ROWS,
     if not out:
         raise ValueError("읽을 수 있는 표가 없어요. 첫 시트에 매물 목록이 있는지 확인해 주세요.")
     out.sort(key=lambda x: (x["header_row"] > 0, len(x["columns"]), len(x["rows"])), reverse=True)
-    return {"sheets": out, "filename": filename}
+    # 단지 특정이 안 된 파일을 그대로 담으면 단지명 없는 매물이 쌓인다(2026-10-02 민원).
+    # 단일 단지 매물장은 행마다 단지명이 없고 파일명·시트명에만 있다 — 저장 전에
+    # 사용자가 단지를 골라 넣도록 화면에 신호를 준다.
+    needs = []
+    for sh in out:
+        got = {c.get("field") for c in sh.get("columns") or []}
+        has_name = ("complex_name" in got) or ("address" in got)
+        if not has_name:
+            needs.append(sh["name"])
+        sh["needs_complex"] = not has_name
+    return {"sheets": out, "filename": filename,
+            "needs_complex": bool(needs), "needs_complex_sheets": needs,
+            "complex_hint": _name_hint(filename, [s["name"] for s in out])}
+
+
+_HINT_DROP = re.compile(r"(매물장|매물|목록|리스트|현황|관리|대장|시트|sheet|list|\d{4}[-.]?\d{2}[-.]?\d{2}|"
+                        r"\(\d+\)|복사본|최종|수정|final|copy)", re.I)
+
+
+def _name_hint(filename: str, sheet_names: list) -> str:
+    """파일명·시트명에서 단지명 후보를 뽑는다. '칸타빌 매물장.xlsx' → '칸타빌'.
+    확정이 아니라 검색창에 미리 채워 줄 말이다 — 고르는 건 사용자다."""
+    for src in [filename.rsplit(".", 1)[0] if filename else ""] + list(sheet_names or []):
+        t = _HINT_DROP.sub(" ", str(src or ""))
+        t = re.sub(r"[_\-\[\]()]+", " ", t)
+        t = re.sub(r"\s+", " ", t).strip()
+        if len(t) >= 2:
+            return t[:40]
+    return ""
 
 
 def _analyze_sheet(name: str, rows: list, max_rows: int, ovr: dict | None = None) -> dict | None:
@@ -758,9 +786,15 @@ def _analyze_sheet(name: str, rows: list, max_rows: int, ovr: dict | None = None
             continue
         rec["_row"] = hidx + 2 + i
         parsed.append(rec)
+    parsed, n_merge, n_split = resolve_rows(parsed)
     return {"name": name, "header_row": hidx + 1 if hidx >= 0 else 0,
             "columns": columns, "rows": parsed, "skipped": skipped[:40],
-            "n_skipped": len(skipped), "cut": cut, "stopped_at": stopped}
+            "n_skipped": len(skipped), "cut": cut, "stopped_at": stopped,
+            "n_merged": n_merge, "n_split": n_split}
+
+
+# 면적타입으로 보이는 값: 59, 59A, 84B, 전용59, 33평, A, B …
+_AREA_TYPE = re.compile(r"(?:전용|공급)?\s*\d{2,3}\s*[A-Za-z]?|[A-Za-z]|\d{2,3}\s*평?[A-Za-z]?")
 
 
 def _infer_leftovers(mapping: dict, width: int, col, header) -> None:
@@ -789,6 +823,12 @@ def _infer_leftovers(mapping: dict, width: int, col, header) -> None:
             continue
         letters = sum(1 for v in vals if re.search(r"[가-힣A-Za-z]", v))
         if len(vals) >= 2 and letters >= len(vals) * 0.8 and max(len(v) for v in vals) <= 40:
+            # 평형·타입 열을 단지명으로 집어넣던 사고가 있었다(2026-10-02).
+            # '59A' '78' '57B' 'A' 처럼 숫자+알파벳 한 글자이거나 알파벳 한 글자인 값이
+            # 대부분이면 면적타입이지 이름이 아니다. 단지명으로 쓰지 않는다.
+            if sum(1 for v in vals if _AREA_TYPE.fullmatch(v)) >= len(vals) * 0.6:
+                mapping[j] = "area_name"; taken.add("area_name")
+                continue
             if "complex_name" not in taken and "address" not in taken:
                 mapping[j] = "complex_name"; taken.add("complex_name")
 
@@ -831,6 +871,8 @@ def _parse_row(r: list, mapping: dict, units: dict) -> dict:
             got = cell_text(v)[:300] or None
         if got not in (None, ""):
             rec[f] = got
+    if rec.get("trade_type"):
+        rec["_trade_col"] = True      # 사람이 칸에 적은 거래유형 — 추론으로 덮지 않는다
     _post(rec)
     return rec
 
@@ -879,6 +921,95 @@ def _post(rec: dict) -> None:
             if got and not (k == "complex_name" and got == "건물"):
                 rec["type"] = got
                 break
+
+
+# ── 양식 차이 흡수 ──────────────────────────────────────────────────────────
+# 매물장은 사무소마다 생김새가 다르다. 한 파일에 맞춰 고치면 다음 파일에서 또 깨지므로,
+# '어떤 생김새든 한 줄 = 한 매물'로 펴 주는 단계를 따로 둔다. 실제로 들어온 모양들:
+#
+#   ① 한 줄 = 한 매물                      → 손대지 않는다
+#   ② 한 집이 여러 줄(동·호 병합) + 줄마다 거래  → 줄마다 매물. 그대로 둔다
+#   ③ ②에서 금액도 거래도 없는 줄            → 매물이 아니라 메모줄. 같은 집 매물에 합친다
+#   ④ 한 줄에 매매가·전세가가 각각 다른 열      → 한 매물이 아니다. 둘로 가른다
+#   ⑤ 동·호도 금액도 없는 줄                → _why_skip 이 이미 버린다
+#
+# ③에서 '같은 집'은 **붙어 있는 줄**만 본다. 멀리 떨어져 같은 호가 또 나오는 것은
+# 대개 '[매매 물건]/[전월세 물건]' 처럼 표가 나뉜 경우라 각각 진짜 매물이다.
+
+def _unit_key(rec: dict) -> tuple:
+    where = _SP.sub("", str(rec.get("complex_name") or rec.get("address") or ""))
+    return (where, _SP.sub("", str(rec.get("dong") or "")), _SP.sub("", str(rec.get("ho") or "")))
+
+
+def _has_deal(rec: dict) -> bool:
+    """매물로 설 수 있는 줄인가 — 거래유형이든 금액이든 하나는 있어야 한다."""
+    return bool(rec.get("trade_type") or rec.get("price") or rec.get("deposit")
+                or rec.get("rent_price") or rec.get("premium"))
+
+
+def _split_wide(rec: dict) -> list:
+    """④ 매매가·전세가(·월세)가 각각 열인 가로형 매물장을 매물 둘로 가른다.
+
+    사람이 거래유형을 칸에 적었으면 그 말이 맞다 — 가르지 않는다. 적지 않았는데
+    매매가와 보증금이 둘 다 있으면 그건 '이 집은 매매로도 전세로도 내놨다'는 뜻이다.
+    한 줄로 담으면 매매 매물에 전세금이 붙어 가격이 뒤섞인다(실측).
+    """
+    if rec.get("_trade_col") or not rec.get("price") or not rec.get("deposit"):
+        return [rec]
+    sale = {k: v for k, v in rec.items() if k not in ("deposit", "rent_price")}
+    sale["trade_type"] = "매매"
+    rent = {k: v for k, v in rec.items() if k != "price"}
+    rent["trade_type"] = "월세" if rec.get("rent_price") else "전세"
+    return [sale, rent]
+
+
+def _merge_notes(dst: dict, src: dict) -> None:
+    """메모줄이 들고 있던 글·연락처를 매물 쪽으로 옮긴다. 있는 값은 덮지 않는다."""
+    for k in ("memo", "feature_desc"):
+        add = str(src.get(k) or "").strip()
+        if not add:
+            continue
+        cur = str(dst.get(k) or "").strip()
+        if add not in cur:
+            dst[k] = f"{cur}\n{add}".strip() if cur else add
+    for k in ("contact", "owner_name", "manager", "area_name", "direction", "floor_info"):
+        if src.get(k) and not dst.get(k):
+            dst[k] = src[k]
+
+
+def resolve_rows(parsed: list) -> tuple:
+    """줄 목록 → (편 줄 목록, 합친 줄 수, 가른 줄 수). 위 ①~④를 한 번에 처리한다."""
+    wide = []
+    n_split = 0
+    for rec in parsed:
+        got = _split_wide(rec)
+        n_split += len(got) - 1
+        wide.extend(got)
+
+    out, n_merge, i = [], 0, 0
+    while i < len(wide):
+        key = _unit_key(wide[i])
+        j = i + 1
+        # 같은 집이 붙어 있는 만큼이 한 블록이다. 동·호가 없으면 블록을 만들지 않는다.
+        if key[1] or key[2]:
+            while j < len(wide) and _unit_key(wide[j]) == key:
+                j += 1
+        block = wide[i:j]
+        deals = [r for r in block if _has_deal(r)]
+        notes = [r for r in block if not _has_deal(r)]
+        if deals and notes:
+            for nrec in notes:            # 메모줄은 그 집 매물 전부에 붙인다
+                for d in deals:
+                    _merge_notes(d, nrec)
+            n_merge += len(notes)
+            out.extend(deals)
+        else:
+            # 거래도 금액도 없는 줄만 있는 블록은 '조건 아직 미정' 매물이다 — 살린다
+            out.extend(block)
+        i = j
+    for r in out:
+        r.pop("_trade_col", None)
+    return out, n_merge, n_split
 
 
 def _why_skip(rec: dict, raw: list) -> str:

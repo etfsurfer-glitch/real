@@ -49,9 +49,21 @@ def open_db() -> sqlite3.Connection:
 
 
 def list_sigungus(
-    conn: sqlite3.Connection, sido_filter: str | None
+    conn: sqlite3.Connection, sido_filter: str | None, sgg_csv: str | None = None
 ) -> list[tuple[str, str, str]]:
-    """Returns [(sido_cd, sigungu_cd, name)] from regions table."""
+    """Returns [(sido_cd, sigungu_cd, name)].
+
+    기본은 regions 테이블에서 뽑는다. 다만 regions 는 행정개편 전 코드를 유지하는 정책이라
+    (예: 광주 29·전남 46 은 2026-07-01 통합 후에도 옛 코드로 남아 있다) vworld 가 신설 코드
+    12xxx 로만 응답하는 구간이 생긴다. 그 경우 --sgg 로 코드를 직접 지정한다.
+    이름은 bjd(법정동 원장) 에서 찾고, 없으면 코드를 그대로 쓴다."""
+    if sgg_csv:
+        out = []
+        for code in [c.strip() for c in sgg_csv.split(",") if c.strip()]:
+            row = conn.execute(
+                "SELECT sgg_nm FROM bjd WHERE sgg5=? LIMIT 1", (code,)).fetchone()
+            out.append((code[:2], code, (row[0] if row else code)))
+        return out
     q = "SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='dvsn'"
     params: list = []
     if sido_filter:
@@ -111,7 +123,7 @@ def _crawl_one_sigungu(client, sido, sgg, args, conn, now) -> tuple[int, int]:
 
 def crawl_list(args: argparse.Namespace) -> int:
     conn = open_db()
-    sgs = list_sigungus(conn, args.sido)
+    sgs = list_sigungus(conn, args.sido, getattr(args, 'sgg', None))
     print(f"[*] sigungus to crawl: {len(sgs)}  parallel={args.parallel}", flush=True)
     grand_total = 0
     started = time.time()
@@ -321,7 +333,7 @@ def _crawl_employees_one_sigungu(client, sido, sgg, args, conn, now) -> tuple[in
 
 def crawl_employees(args: argparse.Namespace) -> int:
     conn = open_db()
-    sgs = list_sigungus(conn, args.sido)
+    sgs = list_sigungus(conn, args.sido, getattr(args, 'sgg', None))
     # skip-done: 이미 employees가 어느정도 수집된 sgg는 건너뜀
     done_sggs: set[str] = set()
     if args.skip_done:
@@ -372,6 +384,8 @@ def main():
     p.add_argument("--detail", action="store_true", help="phone NULL인 사무소의 detail fetch")
     p.add_argument("--employees", action="store_true", help="시군구별 직원/공인중개사 목록 크롤")
     p.add_argument("--sido", help="시도코드 2자리 (예: 11=서울)")
+    p.add_argument("--sgg", help="시군구코드 5자리 쉼표목록. regions 에 없는 코드도 직접 지정 가능. "
+                                 "행정개편으로 신설된 코드(예: 광주+전남 통합 12xxx)를 크롤할 때 쓴다.")
     p.add_argument("--page-size", type=int, default=50, help="한 페이지당 행 수 (10/20/50)")
     p.add_argument("--max-pages", type=int, default=200)
     p.add_argument("--sleep", type=float, default=0.4, help="요청 간 sleep 초")

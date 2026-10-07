@@ -362,6 +362,95 @@ def step3_rep_phone(conn) -> int:
     return matched
 
 
+# ---------------------------------------------------------------------------
+# step5: 법정동 + 대표자명 (+ 상호 핵심어)  — 지번주소만 있는 신축 단지내 상가 대응
+# ---------------------------------------------------------------------------
+_GENERIC_BIZ = re.compile(
+    r"공인중개사사무소|공인중개사무소|공인중개사|공인중개|중개사사무소|중개인사무소|"
+    r"중개사무소|중개법인|부동산중개|부동산|중개사|사무소|주식회사|\(주\)")
+_NONWORD_BIZ = re.compile(r"[^0-9A-Za-z가-힣]")
+
+
+def _core_biz(s: str) -> str:
+    return _NONWORD_BIZ.sub("", _GENERIC_BIZ.sub("", s or "")).lower()
+
+
+def _biz_name_ok(a: str, b: str) -> bool:
+    """업종 일반어를 걷어낸 핵심어가 2자 이상 겹치면 같은 사무소로 본다."""
+    ca, cb = _core_biz(a), _core_biz(b)
+    if not ca or not cb:
+        return False
+    if ca == cb:
+        return True
+    short, long_ = (ca, cb) if len(ca) <= len(cb) else (cb, ca)
+    return len(short) >= 2 and short in long_
+
+
+def step5_dong_rep(conn) -> int:
+    """법정동 + 대표자명 유일일치 + 상호 핵심어 겹침.
+
+    신축 단지내 상가에 입점한 신규 사무소는 네이버에 등록번호가 비어 있고
+    (2026-10-01 기준 미연결 61곳 중 54곳), 상호도
+    '곰단지내02-522-4145부동산중개디에이치방배' 처럼 단지·전화를 붙여 지어
+    vworld 공식 등록명과 다르다. 게다가 네이버 주소가 지번('방배동 946-8')이라
+    도로명 기반인 step4_addr_rep 의 _addr_key 와 만나지 못한다.
+
+    안전장치 — 오귀속 0 원칙
+      · naver_realtors.cortar_no 는 옛 등록지가 남아 있을 수 있어 단독으로 쓰지 않는다.
+        (이민재: 주소는 평택 고덕동인데 cortar_no 는 장안동 → 이전 전 사무소에 붙음)
+        그래서 **네이버 주소 원문과 vworld 주소 원문 양쪽**에 같은 동명이 있어야 한다.
+      · 상호 핵심어 겹침이 없으면 읍·면·대동에서 동명이인이 그대로 붙는다.
+        ('엄지부동산(배방읍) → 탕정단지내대박', '부여(염리동) → 행운')
+    """
+    rows = conn.execute(
+        """
+        SELECT nr.realtor_id, nr.realtor_name, nr.representative_name rep,
+               substr(nr.cortar_no,1,5) sgg5, nr.address naddr,
+               (SELECT umd_nm FROM bjd WHERE code10 = nr.cortar_no) dong
+        FROM naver_realtors nr
+        LEFT JOIN realtor_match m ON m.realtor_id = nr.realtor_id
+        WHERE m.sys_regno IS NULL
+          AND nr.representative_name IS NOT NULL AND nr.representative_name <> ''
+          AND nr.cortar_no IS NOT NULL AND nr.address IS NOT NULL
+        """
+    ).fetchall()
+    print(f"  pending with dong+rep: {len(rows):,}", flush=True)
+
+    matched = ambiguous = name_rejected = 0
+    now = datetime.now().isoformat(timespec="seconds")
+    for r in rows:
+        dong = r["dong"]
+        if not dong or dong not in (r["naddr"] or ""):
+            continue                       # 네이버 주소 원문에도 그 동이 있어야
+        cands = conn.execute(
+            "SELECT sys_regno, business_name, representative, status FROM vworld_brokers "
+            "WHERE sgg_cd=? AND representative=? AND COALESCE(status,'') NOT LIKE '%폐업%' "
+            "  AND address LIKE '%' || ? || '%'",
+            (r["sgg5"], r["rep"], dong)).fetchall()
+        if not cands:
+            continue
+        if len(cands) > 1:
+            ambiguous += 1
+            continue
+        c = cands[0]
+        if not _biz_name_ok(r["realtor_name"], c["business_name"]):
+            name_rejected += 1
+            continue
+        conn.execute(
+            """INSERT INTO realtor_match(realtor_id, sys_regno, vworld_name, vworld_rep,
+                                         match_type, matched_at, vworld_status)
+               VALUES (?,?,?,?,'dong_rep',?,?)
+               ON CONFLICT(realtor_id) DO UPDATE SET sys_regno=excluded.sys_regno,
+                 vworld_name=excluded.vworld_name, vworld_rep=excluded.vworld_rep,
+                 match_type=excluded.match_type""",
+            (r["realtor_id"], c["sys_regno"], c["business_name"], r["rep"], now, c["status"]))
+        matched += 1
+    conn.commit()
+    print(f"  step5 dong+rep matched: {matched:,}  "
+          f"(모호 {ambiguous} · 상호불일치 제외 {name_rejected})", flush=True)
+    return matched
+
+
 def populate_naver_fields(conn) -> None:
     """realtor_match에 naver_name/primary_sgg 같은 부가 필드 채워두기 (UI 용)."""
     now = datetime.now().isoformat(timespec="seconds")
@@ -420,9 +509,13 @@ def main():
     r3 = step3_rep_phone(conn)
     print(f"  matched: {r3:,}", flush=True)
 
-    print("\n[4/4] addr+rep match (주소·대표 유일일치, 이름/전화 변형 보완)...", flush=True)
+    print("\n[4/5] addr+rep match (주소·대표 유일일치, 이름/전화 변형 보완)...", flush=True)
     r4 = step4_addr_rep(conn)
     print(f"  matched: {r4:,}", flush=True)
+
+    print("\n[5/5] dong+rep match (지번주소만 있는 신축 단지내 상가 대응)...", flush=True)
+    r5 = step5_dong_rep(conn)
+    print(f"  matched: {r5:,}", flush=True)
 
     # 매칭 안 된 naver realtor도 row는 만들어두기 (match_type='none')
     print("\n[*] back-filling unmatched as 'none'...", flush=True)

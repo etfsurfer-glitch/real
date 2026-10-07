@@ -14510,9 +14510,59 @@ def lounge_office_roster(realtor_id: str, user: dict = Depends(current_user)):
                       for r in rows]}
 
 
+def _office_auto_approve(c, rid: str) -> bool:
+    """이 사무소가 직원 가입을 자동승인하는가.
+
+    기본은 꺼짐이다 — 전화인증만 통과하면 누구나 그 사무소의 매물장·고객원장을 보게
+    되므로, 대표 승인이 기본 방어선이다. 켠 사무소는 대표가 그 위험을 받아들인 것이고,
+    가입 즉시 대표에게 '자동승인되었습니다' 푸시를 보내 되돌릴 수 있게 한다.
+    """
+    c.execute("CREATE TABLE IF NOT EXISTS realtor_office_settings("
+              "realtor_id TEXT PRIMARY KEY, auto_approve INTEGER NOT NULL DEFAULT 0, "
+              "updated_at TEXT, updated_by TEXT)")
+    r = c.execute("SELECT auto_approve FROM realtor_office_settings WHERE realtor_id=?",
+                  (rid,)).fetchone()
+    return bool(r and r[0])
+
+
+@app.get("/admin/office-settings")
+def admin_office_settings(_admin: dict = Depends(admin_user)) -> dict:
+    """자동승인을 켠 사무소 목록."""
+    with _reviews_db() as c:
+        _office_auto_approve(c, "")        # 테이블 보장
+        rows = c.execute("SELECT realtor_id, auto_approve, updated_at, updated_by "
+                         "FROM realtor_office_settings WHERE auto_approve=1").fetchall()
+    out = []
+    with _open_db() as d:
+        for r in rows:
+            nm = d.execute("SELECT realtor_name FROM naver_realtors WHERE realtor_id=?",
+                           (r[0],)).fetchone()
+            out.append({"realtor_id": r[0], "realtor_name": nm[0] if nm else "",
+                        "updated_at": r[2], "updated_by": r[3]})
+    return {"items": out}
+
+
+@app.post("/admin/office-settings")
+def admin_set_office_settings(body: dict, admin: dict = Depends(admin_user)) -> dict:
+    """사무소 자동승인 켜기/끄기(관리자)."""
+    rid = str(body.get("realtor_id") or "").strip()
+    on = 1 if body.get("auto_approve") else 0
+    if not rid:
+        raise HTTPException(400, "realtor_id required")
+    with _reviews_db() as c:
+        _office_auto_approve(c, rid)
+        c.execute("INSERT INTO realtor_office_settings(realtor_id,auto_approve,updated_at,updated_by) "
+                  "VALUES(?,?,datetime('now'),?) ON CONFLICT(realtor_id) DO UPDATE SET "
+                  "auto_approve=excluded.auto_approve, updated_at=excluded.updated_at, "
+                  "updated_by=excluded.updated_by", (rid, on, admin.get("id")))
+        c.commit()
+    return {"ok": True, "realtor_id": rid, "auto_approve": bool(on)}
+
+
 @app.post("/lounge/staff/apply")
 def lounge_staff_apply(body: dict, user: dict = Depends(current_user)):
-    """직원 가입 신청 — 전화인증 필수, 대표 승인 대기(pending)로 저장."""
+    """직원 가입 신청 — 전화인증 필수. 기본은 대표 승인 대기(pending),
+    자동승인을 켠 사무소는 바로 active 로 들어가고 대표에게 알린다."""
     rid = (body.get("realtor_id") or "").strip()
     role = body.get("role") or ""
     name = (body.get("name") or "").strip()[:20]
@@ -14523,11 +14573,13 @@ def lounge_staff_apply(body: dict, user: dict = Depends(current_user)):
         phone = _my_phone(c, uid)
         if not phone:
             raise HTTPException(403, "전화인증이 필요합니다")
+        auto = _office_auto_approve(c, rid)
+        st = "active" if auto else "pending"
         c.execute(
             "INSERT INTO realtor_members(user_id,realtor_id,method,matched_phone,role,status,staff_name,updated_at) "
-            "VALUES(?,?,'staff',?,?,'pending',?,datetime('now')) "
+            f"VALUES(?,?,'staff',?,?,'{st}',?,datetime('now')) "
             "ON CONFLICT(user_id) DO UPDATE SET realtor_id=excluded.realtor_id, method='staff', "
-            "role=excluded.role, status='pending', staff_name=excluded.staff_name, updated_at=datetime('now')",
+            f"role=excluded.role, status='{st}', staff_name=excluded.staff_name, updated_at=datetime('now')",
             (uid, rid, phone, role, name))
         c.commit()
         # 대표(들)에게 즉시 푸시 — 승인 요청
@@ -14536,12 +14588,20 @@ def lounge_staff_apply(body: dict, user: dict = Depends(current_user)):
             (rid,)).fetchall()]
     if owners:
         try:
-            _send_web_push(owners, "직원 가입 승인 요청 👤",
-                           f"{name or '직원'}({_STAFF_ROLE_KR.get(role, role)})님이 가입을 신청했어요. "
-                           "직원관리에서 승인해 주세요.", url="/lounge?tab=staff", tag="staff-apply")
+            if auto:
+                # 자동승인이라도 대표는 반드시 알아야 한다 — 모르는 사람이 들어왔으면
+                # 직원관리에서 바로 내보낼 수 있어야 한다.
+                _send_web_push(owners, "직원 자동승인 👤",
+                               f"{name or '직원'}({_STAFF_ROLE_KR.get(role, role)})님이 가입해 "
+                               "바로 승인됐어요. 모르는 분이면 직원관리에서 내보내 주세요.",
+                               url="/lounge?tab=staff", tag="staff-auto")
+            else:
+                _send_web_push(owners, "직원 가입 승인 요청 👤",
+                               f"{name or '직원'}({_STAFF_ROLE_KR.get(role, role)})님이 가입을 신청했어요. "
+                               "직원관리에서 승인해 주세요.", url="/lounge?tab=staff", tag="staff-apply")
         except Exception:
             pass
-    return {"ok": True, "status": "pending"}
+    return {"ok": True, "status": st}
 
 
 @app.get("/lounge/staff")
@@ -15001,6 +15061,74 @@ def _ml_pair_key(x: dict):
     return (base, tr, price) if (base and price and tr) else None
 
 
+# '101동'·'A동'·'가동'은 건물 동이고 '송도동'·'안서동'은 법정동이다. 가르는 기준은
+# **동 앞 글자 수** — 한 음절짜리 법정동은 없고, 건물 동은 숫자이거나 한 글자다.
+_ML_BLD_DONG = _re.compile(r"^(\d+(?:-\d+)?|[A-Za-z]|[가-힣])\s*동?$")
+
+
+def _ml_bld_dong(x: dict) -> str:
+    """건물 동 표기만('101동'→'101', 'A동'→'A', '가동'→'가'). 모르면 빈 문자열.
+
+    두 쪽이 동을 다른 칸에 담는다 — 네이버 매물은 building_name 이 '101동'이고
+    dong 은 **법정동**('안서동')이다. 매물장 매물은 dong 이 '101동'이다. 그대로 비교하면
+    영영 안 맞으므로 숫자로 시작하는 쪽만 건물 동으로 본다.
+    """
+    for v in (str(x.get("building_name") or ""), str(x.get("dong") or "")):
+        m = _ML_BLD_DONG.match(v.strip())
+        if m:
+            return m.group(1).upper()
+    return ""
+
+
+def _ml_floor_of_ho(ho) -> int | None:
+    """호에서 층을 뽑는다 — 402호→4, 1802호→18, 2101호→21. 두 자리 이하는 알 수 없다."""
+    d = _re.sub(r"\D", "", str(ho or ""))
+    if len(d) < 3:
+        return None
+    try:
+        f = int(d[:-2])
+    except ValueError:
+        return None
+    return f or None
+
+
+def _ml_floor_ok(p: dict, x: dict) -> bool:
+    """매물장의 호에서 뽑은 층이 네이버 광고의 층 표기와 맞는가.
+
+    네이버는 '21/41' 처럼 실제 층을 적기도 하고 '저/41' 처럼 구간만 적기도 한다.
+    구간은 총 층수를 삼등분한 것으로 본다. 어느 쪽이든 모르면 참으로 둔다 —
+    이 함수는 후보가 여럿일 때 **가리는 데만** 쓰고, 하나뿐인 후보를 떨어뜨리지 않는다.
+    """
+    f = _ml_floor_of_ho(p.get("ho"))
+    if f is None:
+        return True
+    s = str(x.get("floor_info") or "")
+    m = _re.match(r"^(\d+)\s*/\s*(\d+)", s)
+    if m:
+        return int(m.group(1)) == f
+    m = _re.match(r"^([저중고])\s*/\s*(\d+)", s)
+    if not m:
+        return True
+    tot = int(m.group(2))
+    if not tot:
+        return True
+    band = "저" if f <= tot / 3.0 else ("중" if f <= tot * 2 / 3.0 else "고")
+    return band == m.group(1)
+
+
+def _ml_dir_ok(p: dict, x: dict) -> bool:
+    a = str(p.get("direction") or "").strip().replace("향", "")
+    b = str(x.get("direction") or "").strip().replace("향", "")
+    return not (a and b and a != b)
+
+
+def _ml_ad_key(x: dict) -> tuple:
+    """같은 물건을 CP 채널마다 올려 매물번호만 다른 광고를 묶는 열쇠."""
+    return (x.get("complex_no"), x.get("building_name") or "", x.get("trade_type") or "",
+            x.get("price") or 0, x.get("rent_price") or 0, x.get("area_name") or "",
+            x.get("floor_info") or "", x.get("direction") or "")
+
+
 def _merge_private_naver(priv: list, items: list) -> list:
     """같은 물건이 비공개매물과 네이버 매물로 두 번 서 있으면 한 줄로 합친다.
 
@@ -15016,7 +15144,7 @@ def _merge_private_naver(priv: list, items: list) -> list:
     if not priv or not items:
         return priv + items
     by_no = {it.get("article_no"): it for it in items}
-    used, link = set(), {}
+    used, link, sibs = set(), {}, {}
     for p in priv:                       # ① 확실한 연결
         src = (p.get("source_article_no") or "").strip()
         if src and src in by_no and src not in used:
@@ -15036,12 +15164,43 @@ def _merge_private_naver(priv: list, items: list) -> list:
         if not k:
             continue
         pa = p.get("area2_m2") or 0
+        # 동이 서로 다르면 다른 집이다 — 실측으로 '101동 2302호 전세'가 103동 광고에
+        # 붙어 중개사 메모가 엉뚱한 매물에 달렸다(2026-10-06). 한쪽이 동을 모르면
+        # 예전처럼 동은 따지지 않는다(그때까지 붙던 짝을 잃지 않게).
+        pd = _ml_bld_dong(p)
         cands = [c for c in buckets.get(k, ())
                  if c.get("article_no") not in used
-                 and abs((c.get("area2_m2") or 0) - pa) <= 1.5]
+                 and abs((c.get("area2_m2") or 0) - pa) <= 1.5
+                 and not (pd and _ml_bld_dong(c) and _ml_bld_dong(c) != pd)]
+        # 한 물건을 CP 채널마다 올린 광고는 한 후보로 센다 — 안 그러면 '후보가 여럿'이라
+        # 영영 못 붙는다(실측: 그 때문에 못 붙은 매물장 행이 40건 중 다수였다).
+        if len(cands) > 1:
+            grp: dict = {}
+            for c in cands:
+                grp.setdefault(_ml_ad_key(c), []).append(c)
+            if len(grp) == 1:
+                cands = [sorted(next(iter(grp.values())),
+                                key=lambda z: z.get("confirm_ymd") or "", reverse=True)[0]]
+                del grp
+        # 그래도 여럿이면 층·향으로 가린다. 매물장은 호(=층)를 알고 네이버는 층·향을 준다.
+        # **좁히는 데만** 쓴다 — 하나뿐인 후보를 이걸로 떨어뜨리면 지금 붙던 짝을 잃는다.
+        if len(cands) > 1:
+            nar = [c for c in cands if _ml_floor_ok(p, c) and _ml_dir_ok(p, c)]
+            if len(nar) != 1:
+                nar = [c for c in cands if _ml_floor_ok(p, c)]
+            if len(nar) == 1:
+                cands = nar
         if len(cands) == 1:
-            used.add(cands[0]["article_no"])
-            link[id(p)] = cands[0]
+            pick = cands[0]
+            # 같은 물건을 CP 채널마다 올린 **형제 광고도 함께** 가져온다. 대표 하나만
+            # 가져가면 '매물장+광고A' 한 줄과 '광고B·C' 한 줄로 같은 물건이 두 번 선다
+            # (중개사가 '같은 매물이 두 개'라고 본 그 모양이다, 2026-10-06).
+            fam = [c for c in buckets.get(k, ())
+                   if c.get("article_no") not in used and _ml_ad_key(c) == _ml_ad_key(pick)]
+            for c in fam:
+                used.add(c["article_no"])
+            link[id(p)] = pick
+            sibs[id(p)] = [c for c in fam if c.get("article_no") != pick.get("article_no")]
     for p in priv:
         nv = link.get(id(p))
         if not nv:
@@ -15049,6 +15208,9 @@ def _merge_private_naver(priv: list, items: list) -> list:
         p["also_naver"] = True
         p["naver_article_no"] = nv.get("article_no")
         p["naver_url"] = nv.get("naver_url") or ""
+        p["cp_name"] = p.get("cp_name") or nv.get("cp_name") or ""
+        if sibs.get(id(p)):
+            p["ad_dupes"] = sibs[id(p)]      # 화면에서 '광고 N' 으로 접혀 보인다
         # 네이버 행에만 있던 것들 — 메모·담당은 광고 쪽에 적어 뒀을 수 있어 같이 살린다
         for k in ("confirm_ymd", "verification_type", "same_addr_cnt",
                   "same_addr_min", "same_addr_max", "bld_name",
@@ -15080,18 +15242,33 @@ def realtor_listings_public(realtor_id: str, cat: str = "", trade: str = "",
 @app.get("/lounge/listings")
 def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str = "",
                     cat: str = "", manager: str = "", sort: str = "confirm", limit: int = 1500,
-                    private: int = 0, private_only: int = 0):
+                    private: int = 0, private_only: int = 0, as_realtor: str = ""):
     """매물장 — 내 중개사무소(realtor_id)의 매물 통합. trade=매매/전세/월세, cat=유형, manager=담당자.
-    private=1 이면 비공개매물도 함께, private_only=1 이면 비공개매물만(공개범위 규칙 적용)."""
+    private=1 이면 비공개매물도 함께, private_only=1 이면 비공개매물만(공개범위 규칙 적용).
+
+    as_realtor — 관리자 전용 '사무소로 보기'(읽기만). 민원을 받으면 그 사무소가 실제로
+    무엇을 보는지 확인해야 하는데, 남의 계정으로 들어갈 수는 없다. 공개범위('나만 보기')
+    까지 똑같이 재현하려면 그 사무소 대표의 user_id 기준으로 봐야 한다.
+    """
     with _reviews_db() as rc:
-        rid = _require_member(rc, user["id"])
+        if as_realtor:
+            if not user.get("is_admin"):
+                raise HTTPException(403, "관리자 전용 기능입니다.")
+            rid = as_realtor.strip()
+            own = rc.execute(
+                "SELECT user_id FROM realtor_members WHERE realtor_id=? AND role='owner' "
+                "AND status='active' ORDER BY rowid LIMIT 1", (rid,)).fetchone()
+            vuid = own[0] if own else user["id"]
+        else:
+            rid = _require_member(rc, user["id"])
+            vuid = user["id"]
         _ensure_lounge_notes(rc)
         notes = {r[0]: (r[1], r[2], r[3]) for r in rc.execute(
             "SELECT article_no, memo, contact, manager FROM lounge_notes WHERE realtor_id=?", (rid,)).fetchall()}
         priv = []
         if private or private_only:
             rc.row_factory = sqlite3.Row
-            priv = _collect_private_listings(rc, rid, user["id"], _TRADE_CODE.get(trade), cat)
+            priv = _collect_private_listings(rc, rid, vuid, _TRADE_CODE.get(trade), cat)
     items = [] if private_only else _collect_realtor_listings(rid, _TRADE_CODE.get(trade), cat)
 
     # 메모/연락처/담당자 결합 → 검색·담당자 필터 → 정렬 → 컷
@@ -15120,7 +15297,13 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
     else:
         items.sort(key=lambda x: x["confirm_ymd"] or "", reverse=True)
     items = items[:min(max(int(limit), 1), 3000)]
-    return {"realtor_id": rid, "count": len(items), "listings": items}
+    out = {"realtor_id": rid, "count": len(items), "listings": items}
+    if as_realtor:
+        with _open_db() as c:
+            nm = c.execute("SELECT realtor_name FROM naver_realtors WHERE realtor_id=?", (rid,)).fetchone()
+        out["as_realtor"] = True
+        out["realtor_name"] = (nm[0] if nm else "") or rid
+    return out
 
 
 # ── 비공개매물 ──────────────────────────────────────────────────────────────
@@ -15980,6 +16163,12 @@ def _qa_num_variants(key: str) -> list:
     return out[:6]
 
 
+# 단지 행 컬럼 순서. _qa_match_complex 와 '이미 고른 단지' 직접 조회가 같은 순서를 써야
+# 아래 cx[...] 인덱스가 맞는다.
+_QA_CX_COLS = ("complex_no, complex_name, cortar_no, detail_address, use_approve_ymd, "
+               "parking_per_household, heat_method_code, road_address, total_household_count")
+
+
 def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tuple:
     """(단지행, 후보목록, 사유). 지역 힌트로 좁히고 완전 → 접두 → 부분 순으로 찾는다.
 
@@ -15995,8 +16184,7 @@ def _qa_match_complex(c, name: str, hint: str, near: list | None = None) -> tupl
     rounds = [raw] + ([key] if key and key != raw and len(key) >= 2 else [])
     # 번호 표기 변형은 맨 뒤 — 위에서 그대로 찾히면 굳이 다른 표기를 뒤질 이유가 없다
     rounds += [v for v in _qa_num_variants(raw) if v not in rounds]
-    cols = ("complex_no, complex_name, cortar_no, detail_address, use_approve_ymd, "
-            "parking_per_household, heat_method_code, road_address, total_household_count")
+    cols = _QA_CX_COLS
     # 지역 힌트(동·구 이름)가 글에 있으면 그 지역으로 먼저 좁힌다
     # 사무소 인근을 먼저 본다 — 같은 이름이 전국에 흩어져 있어도 다루는 건 대개 근처다
     prefixes = list(near or [])
@@ -16280,7 +16468,16 @@ def _qa_enrich_listing(row: dict, rid: str | None = None) -> dict:
             # 글에 지역이 없으면 사무소 동·시군구를 힌트로 쓴다
             dg, sg = _office_region(rid) if rid else (None, None)
             near = [x for x in (dg and dg[:8], sg) if x]
-            hit, cands, why = _qa_match_complex(c, name, hint, near)
+            # 사람이 이미 단지를 고른 뒤라면(엑셀 가져오기의 단지 선택, 앞선 보강) 그 단지로 간다.
+            # 이름으로 다시 찾으면 '한마루' 처럼 같은 이름이 여럿일 때 확정을 도로 잃어,
+            # 가져오기에서 단지를 골랐는데도 대장까지 못 가는 일이 생긴다(2026-10-06 지적).
+            cno0 = str(row.get("complex_no") or "").strip()
+            hit, cands, why = None, [], ""
+            if cno0:
+                hit = c.execute(f"SELECT {_QA_CX_COLS} FROM complexes WHERE complex_no=?",
+                                (cno0,)).fetchone()
+            if hit is None:
+                hit, cands, why = _qa_match_complex(c, name, hint, near)
             if not hit and cands:
                 # 지번이 같아 이름만으로 못 가르는 경우가 있다 → 대장 건물명으로 한 번 더 가린다
                 d0, h0 = _qa_norm_dong_ho(row.get("dong"), row.get("ho"))
@@ -16471,6 +16668,65 @@ def _qa_norm_dong_ho(dong, ho):
     return (d or None), (h or None)
 
 
+def _dgk_keys() -> tuple:
+    """건축HUB 서비스키 목록. .env 에 DATA_GO_KR_SERVICE_KEY[, 2..9] 로 여러 개 넣어 둔다.
+    키마다 일일 쿼터가 따로라 하나가 막혀도 다음 키로 이어 갈 수 있다."""
+    out: list[str] = []
+    names = ["DATA_GO_KR_SERVICE_KEY"] + [f"DATA_GO_KR_SERVICE_KEY{i}" for i in range(2, 10)]
+    for nm in names:
+        for k in (os.getenv(nm) or "").split(","):
+            k = k.strip()
+            if k and k not in out:
+                out.append(k)
+    return tuple(out)
+
+
+# (오퍼레이션, 키) → 다시 시도해도 되는 시각. 403(미신청)·429(쿼터소진)을 만난 키를
+# 매 호출마다 또 찔러 보면 왕복만 늘어난다. 실측: 6개 키 중 건축HUB 가 열린 건 2개뿐이라
+# 나머지 4개를 매번 때리면 한 번 조회에 왕복이 5번이 된다.
+_DGK_SKIP: dict = {}
+
+
+def _dgk_get(op: str, prm: dict, timeout: int = 12):
+    """건축HUB 한 번 호출. 키를 돌려 가며 쓴다.
+
+    401·429 는 '그 키의 쿼터가 찼다'는 신호다 — 실측으로 같은 요청이 다른 키로는 200 이
+    온다. 전에는 첫 키만 써서, 표제부 쿼터가 차면 총 층수를 통째로 못 채웠다(2026-10-06).
+    5xx·타임아웃은 일시 장애라 같은 키로 잠깐 쉬었다 다시 본다.
+    """
+    import urllib.parse as _up, urllib.request as _ur
+    import xml.etree.ElementTree as _ET
+    import time as _t
+    keys = _dgk_keys()
+    if not keys:
+        return None
+    base = f"https://apis.data.go.kr/1613000/BldRgstHubService/{op}?"
+    now = _t.time()
+    for key in keys:
+        until = _DGK_SKIP.get((op, key))
+        if until and until > now:
+            continue                           # 막힌 걸 아는 키는 건너뛴다
+        qs = _up.urlencode({**prm, "serviceKey": key}, safe="%")
+        for attempt in range(3):
+            try:
+                with _ur.urlopen(base + qs, timeout=timeout) as r:
+                    root = _ET.fromstring(r.read())
+                _DGK_SKIP.pop((op, key), None)
+                return root
+            except Exception as e:  # noqa: BLE001
+                code = getattr(e, "code", None)
+                if code in (401, 403, 429):
+                    # 403 = 그 서비스 미신청(오늘 안 풀린다). 429·401 = 일일 쿼터 소진
+                    # (자정에 풀린다). 둘 다 이 키로 더 때려 봐야 소용없다.
+                    _DGK_SKIP[(op, key)] = now + (6 * 3600 if code == 403 else 1800)
+                    break
+                if attempt < 2:
+                    _t.sleep(1.2 * (attempt + 1))
+                    continue
+                break
+    return None
+
+
 def _qa_title(cortar_no: str, detail_address: str, dong: str) -> dict | None:
     """건축물대장 표제부 — 그 동의 총 층수·사용승인·승강기.
 
@@ -16481,28 +16737,17 @@ def _qa_title(cortar_no: str, detail_address: str, dong: str) -> dict | None:
     import urllib.parse as _up, urllib.request as _ur
     import xml.etree.ElementTree as _ET
     parsed = _parse_jibun(cortar_no, detail_address)
-    key = (os.getenv("DATA_GO_KR_SERVICE_KEY") or "").split(",")[0].strip()
-    if not parsed or not key:
+    if not parsed or not _dgk_keys():
         return None
     sgg, plat, bun, ji, bjd = parsed
     # dongNm 필터를 API 에 맡기면 엉뚱한 동이 온다 — '104동' 을 넣었더니 '지하주차장(삼성)'
     # 이 돌아왔다(실측). 전부 받아서 동명을 직접 대조한다.
-    qs = _up.urlencode({"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
-                        "bun": bun, "ji": ji, "numOfRows": "100", "pageNo": "1",
-                        "_type": "xml"}, safe="%")
     # pageNo 를 빼면 numOfRows 를 무시하고 1건만 준다(실측: total 36 인데 items 1).
-    url = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo?" + qs
-    for attempt in range(4):
-        try:
-            with _ur.urlopen(url, timeout=12) as r:
-                root = _ET.fromstring(r.read())
-            break
-        except Exception:  # noqa: BLE001
-            if attempt < 3:
-                import time as _t
-                _t.sleep(1.2 * (attempt + 1))     # 503 이 몰려 올 때가 있다 — 넉넉히 기다린다
-                continue
-            return None
+    root = _dgk_get("getBrTitleInfo",
+                    {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji,
+                     "numOfRows": "100", "pageNo": "1", "_type": "xml"})
+    if root is None:
+        return None
     g = lambda it, t: (it.findtext(t) or "").strip()   # noqa: E731
     want = str(dong or "").replace(" ", "")
     items = [it for it in root.findall(".//item")
@@ -16558,31 +16803,19 @@ def _qa_expos(cortar_no: str, detail_address: str, dong: str, ho: str,
     if not parsed:
         return None
     sgg, plat, bun, ji, bjd = parsed
-    key = (os.getenv("DATA_GO_KR_SERVICE_KEY") or "").split(",")[0].strip()
-    if not key:
+    if not _dgk_keys():
         return None
     # 호 표기가 단지마다 다르다 — 고덕그라시움은 '2004', 한마루럭키는 '1506호'(실측).
     # 어느 쪽인지 미리 알 수 없으니 두 형태를 차례로 넣어 본다.
     ho_forms = [ho, ho + "호"] if not str(ho).endswith("호") else [ho, str(ho)[:-1]]
     base = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo?"
     for hf in ho_forms:
-        prm = {"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd,
+        prm = {"sigunguCd": sgg, "bjdongCd": bjd,
                "platGbCd": plat, "bun": bun, "ji": ji,
                "hoNm": hf, "numOfRows": "100", "pageNo": "1", "_type": "xml"}
         if dong:                      # 빌라는 동이 없다 — 빈 값을 보내면 0건이 온다
             prm["dongNm"] = dong
-        qs = _up.urlencode(prm, safe="%")
-        for attempt in range(4):
-            try:
-                with _ur.urlopen(base + qs, timeout=12) as r:
-                    root = _ET.fromstring(r.read())
-            except Exception:  # noqa: BLE001
-                if attempt < 3:
-                    import time as _t
-                    _t.sleep(1.2 * (attempt + 1))
-                    continue
-                root = None
-            break
+        root = _dgk_get("getBrExposPubuseAreaInfo", prm)
         if root is None:
             continue
         gg = lambda it, t: (it.findtext(t) or "").strip()   # noqa: E731
@@ -16644,6 +16877,92 @@ def lounge_private_enrich(pid: int, body: dict, user: dict = Depends(current_use
                        list(changed.values()) + [pid])
     return {"ok": True, "filled": list(changed), "auto": auto,
             "note": r.get("_note"), "cands": r.get("_complex_cands") or []}
+
+
+@app.get("/lounge/private-listings/{pid}/link-candidates")
+def lounge_link_candidates(pid: int, user: dict = Depends(current_user)) -> dict:
+    """이 매물장 매물과 이어 붙일 만한 **우리 사무소의** 네이버 광고 목록.
+
+    자동 짝 맞추기는 '후보가 딱 하나일 때만' 붙인다 — 틀리면 중개사 메모가 엉뚱한
+    매물에 달리기 때문이다. 그래서 같은 동·같은 층대 물건이 여럿이면 영영 못 붙는다.
+    그건 사람이 가장 잘 안다. 여기서 후보를 보여 주고 중개사가 고르게 한다.
+    """
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        rc.row_factory = sqlite3.Row
+        _ensure_private_listings(rc)
+        row = rc.execute("SELECT * FROM private_listings WHERE id=? AND realtor_id=?",
+                         (pid, rid)).fetchone()
+        if not row:
+            raise HTTPException(404, "매물을 찾을 수 없어요")
+        p = _pl_row_to_item(row)
+        # 이미 다른 매물장 행이 가져간 광고는 후보에서 뺀다(한 광고가 두 물건이 될 수 없다)
+        taken = {str(r[0]) for r in rc.execute(
+            "SELECT source_article_no FROM private_listings WHERE realtor_id=? AND status='active' "
+            "AND id<>? AND source_article_no IS NOT NULL AND source_article_no<>''",
+            (rid, pid)).fetchall()}
+
+    nav = _collect_realtor_listings(rid, None, "")
+    pd, pa = _ml_bld_dong(p), (p.get("area2_m2") or 0)
+    out = []
+    for x in nav:
+        if x["article_no"] in taken:
+            continue
+        sc, why = 0, []
+        if p.get("complex_no") and x.get("complex_no") == p.get("complex_no"):
+            sc += 40; why.append("같은 단지")
+        xd = _ml_bld_dong(x)
+        if pd and xd:
+            if xd != pd:
+                continue                      # 동이 다르면 다른 집 — 후보에서 뺀다
+            sc += 30; why.append(f"{pd}동")
+        if p.get("trade_type") and x.get("trade_type") == p.get("trade_type"):
+            sc += 10; why.append(x["trade_type"])
+        if int(p.get("price_man") or 0) and int(x.get("price_man") or 0) == int(p.get("price_man") or 0):
+            sc += 20; why.append("같은 가격")
+        if pa and abs((x.get("area2_m2") or 0) - pa) <= 1.5:
+            sc += 10; why.append("같은 전용")
+        if _ml_floor_of_ho(p.get("ho")) and _ml_floor_ok(p, x):
+            sc += 15; why.append("층 맞음")
+        if _ml_dir_ok(p, x) and p.get("direction") and x.get("direction"):
+            sc += 5; why.append(x["direction"])
+        if sc < 40:
+            continue
+        out.append({"article_no": x["article_no"], "score": sc, "why": " · ".join(why),
+                    "trade_type": x.get("trade_type"), "price_text": x.get("price_text"),
+                    "rent_price_text": x.get("rent_price_text"),
+                    "building_name": x.get("building_name"), "area_name": x.get("area_name"),
+                    "floor_info": x.get("floor_info"), "direction": x.get("direction"),
+                    "cp_name": x.get("cp_name"), "confirm_ymd": x.get("confirm_ymd"),
+                    "feature_desc": (x.get("feature_desc") or "")[:60]})
+    out.sort(key=lambda z: -z["score"])
+    return {"linked": (p.get("source_article_no") or ""), "candidates": out[:40],
+            "listing": {"dong": p.get("dong"), "ho": p.get("ho"), "trade_type": p.get("trade_type"),
+                        "price_text": p.get("price_text"), "area_name": p.get("area_name")}}
+
+
+@app.post("/lounge/private-listings/{pid}/link")
+def lounge_link_naver(pid: int, body: dict, user: dict = Depends(current_user)) -> dict:
+    """중개사가 고른 네이버 광고를 이 매물장 매물에 잇는다. article_no 가 비면 해제."""
+    an = str(body.get("article_no") or "").strip()
+    with _reviews_db() as rc:
+        rid = _require_member(rc, user["id"])
+        _ensure_private_listings(rc)
+        if not rc.execute("SELECT 1 FROM private_listings WHERE id=? AND realtor_id=?",
+                          (pid, rid)).fetchone():
+            raise HTTPException(404, "매물을 찾을 수 없어요")
+        if an:
+            # 남의 사무소 광고를 내 물건으로 붙이지 못하게 한다
+            if an not in {x["article_no"] for x in _collect_realtor_listings(rid, None, "")}:
+                raise HTTPException(400, "우리 사무소 광고가 아니에요")
+            dup = rc.execute("SELECT id FROM private_listings WHERE realtor_id=? AND id<>? "
+                             "AND status='active' AND source_article_no=?", (rid, pid, an)).fetchone()
+            if dup:
+                raise HTTPException(409, f"그 광고는 이미 다른 매물({dup[0]})에 연결돼 있어요")
+        rc.execute("UPDATE private_listings SET source_article_no=?, "
+                   "source_saved_at=datetime('now'), updated_at=datetime('now') WHERE id=?",
+                   (an or None, pid))
+    return {"ok": True, "linked": an}
 
 
 @app.post("/lounge/quick-enrich")
@@ -18059,26 +18378,14 @@ def _br_units(cortar_no: str, jibun: str) -> list | None:
     import urllib.parse as _up, urllib.request as _ur
     import xml.etree.ElementTree as _ET
     parsed = _parse_jibun(cortar_no, jibun)
-    key = (os.getenv("DATA_GO_KR_SERVICE_KEY") or "").split(",")[0].strip()
-    if not parsed or not key:
+    if not parsed:
         return None
     sgg, plat, bun, ji, bjd = parsed
-    qs = _up.urlencode({"serviceKey": key, "sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat,
-                        "bun": bun, "ji": ji, "numOfRows": "300", "pageNo": "1",
-                        "_type": "xml"}, safe="%")
-    url = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo?" + qs
-    root = None
-    for attempt in range(4):
-        try:
-            with _ur.urlopen(url, timeout=15) as r:
-                root = _ET.fromstring(r.read())
-            break
-        except Exception:  # noqa: BLE001
-            if attempt < 3:
-                import time as _t
-                _t.sleep(1.2 * (attempt + 1))
-                continue
-            return None
+    root = _dgk_get("getBrExposPubuseAreaInfo",
+                    {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji,
+                     "numOfRows": "300", "pageNo": "1", "_type": "xml"}, timeout=15)
+    if root is None:
+        return None
     g = lambda it, t: (it.findtext(t) or "").strip()   # noqa: E731
     out, seen = [], set()
     for it in root.findall(".//item"):
@@ -18193,8 +18500,13 @@ def lounge_import_commit(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "한 번에 3,000건까지 담을 수 있어요.")
     fname = str(body.get("filename") or "")[:120]
     vis = "me" if (body.get("visibility") == "me") else "office"
+    # 단일 단지 매물장(행마다 단지명이 없는 파일)을 위해 화면에서 고른 단지를 받는다.
+    # 2026-10-02 민원: 단지가 특정되지 않은 채 담겨 매물장에 단지명이 비어 보였다.
+    # 사용자가 /lounge/complex-search 로 고른 값만 들어온다 — 비어 있는 줄에만 채운다.
+    dflt_no = str(body.get("complex_no") or "").strip() or None
+    dflt_name = str(body.get("complex_name") or "").strip()[:60] or None
     import listing_import as _li
-    saved, skipped = 0, []
+    saved, skipped, new_ids = 0, [], []
     with _reviews_db() as rc:
         rc.row_factory = sqlite3.Row
         rid = _require_member(rc, user["id"])
@@ -18235,15 +18547,24 @@ def lounge_import_commit(body: dict, user: dict = Depends(current_user)):
                         v = None
                 vals[f] = v if v not in ("",) else None
             vals["dong"], vals["ho"] = _qa_norm_dong_ho(vals.get("dong"), vals.get("ho"))
+            # 줄에 단지명이 없으면 화면에서 고른 단지로 채운다(덮어쓰지 않는다).
+            if dflt_name and not (vals.get("complex_name") or "").strip():
+                vals["complex_name"] = dflt_name
+            if dflt_no and not (vals.get("complex_no") or "").strip():
+                vals["complex_no"] = dflt_no
             cols = ["realtor_id", "created_by", "visibility", "import_file", "import_at"] + list(vals)
             q = (f"INSERT INTO private_listings({','.join(cols)}) "
                  f"VALUES({','.join('?' * len(cols))})")
             try:
-                rc.execute(q, [rid, user["id"], vis, fname, now] + list(vals.values()))
+                cur = rc.execute(q, [rid, user["id"], vis, fname, now] + list(vals.values()))
                 saved += 1
+                # 방금 담은 행의 id — 가져오기 직후 건축물대장으로 빈 칸을 채울 때 쓴다.
+                if cur.lastrowid:
+                    new_ids.append(int(cur.lastrowid))
             except Exception as e:  # noqa: BLE001
                 skipped.append({"row": raw.get("_row"), "why": f"저장 실패({type(e).__name__})"})
-    return {"ok": True, "saved": saved, "skipped": skipped[:50], "n_skipped": len(skipped)}
+    return {"ok": True, "saved": saved, "skipped": skipped[:50], "n_skipped": len(skipped),
+            "ids": new_ids[:1000]}
 
 
 @app.post("/lounge/private-listings")
@@ -18365,6 +18686,64 @@ def lounge_private_delete(pid: int, user: dict = Depends(current_user)):
         c.execute("UPDATE private_listings SET status='closed', updated_at=datetime('now') WHERE id=?", (pid,))
         c.commit()
     return {"ok": True}
+
+
+@app.post("/lounge/private-listings/bulk-close")
+def lounge_private_bulk_close(body: dict, user: dict = Depends(current_user)):
+    """매물장을 단지(또는 가져온 파일) 단위로 한 번에 비운다.
+
+    엑셀을 잘못 올려 한 단지 매물이 통째로 어긋나는 일이 있다. 한 건씩 지우면
+    수십~수백 번을 눌러야 해서 사실상 못 지운다(2026-10-02 요청).
+    낱건 삭제와 같게 **status='closed'** 로만 바꾼다 — 되살릴 수 있다.
+
+    body: {ids?, complex_name?, complex_no?, import_file?, dry_run?}
+      · ids 는 화면에서 체크한 매물 번호들(선택 삭제). 나머지는 묶음 삭제용이다.
+      · 넷 중 최소 하나는 있어야 한다. 조건 없는 전체 삭제는 막는다.
+      · complex_name 은 빈 단지명을 고르려고 "" 를 명시적으로 보낼 수 있다(_EMPTY).
+      · 사무소 공개(office) 매물은 구성원 누구나, 개인(me) 매물은 작성자만 지운다.
+    """
+    cname = body.get("complex_name")
+    cno = (str(body.get("complex_no") or "")).strip()
+    ifile = (str(body.get("import_file") or "")).strip()
+    raw_ids = body.get("ids") or []
+    ids = [int(x) for x in raw_ids if str(x).strip().lstrip("-").isdigit()][:3000]
+    dry = bool(body.get("dry_run"))
+    if not ids and cname is None and not cno and not ifile:
+        raise HTTPException(400, "지울 매물을 골라 주세요.")
+
+    where, args = ["realtor_id=?", "status='active'"], []
+    if ids:
+        where.append("id IN (%s)" % ",".join("?" * len(ids)))
+        args += ids
+    if cname is not None:
+        cs = str(cname).strip()
+        if cs:
+            where.append("COALESCE(complex_name,'')=?"); args.append(cs)
+        else:
+            where.append("COALESCE(complex_name,'')=''")      # 단지명 없는 매물 묶음
+    if cno:
+        where.append("COALESCE(complex_no,'')=?"); args.append(cno)
+    if ifile:
+        where.append("COALESCE(import_file,'')=?"); args.append(ifile)
+
+    with _reviews_db() as c:
+        c.row_factory = sqlite3.Row
+        rid = _require_member(c, user["id"])
+        _ensure_private_listings(c)
+        sql_where = " AND ".join(where)
+        rows = c.execute(f"SELECT id, created_by, visibility FROM private_listings WHERE {sql_where}",
+                         [rid] + args).fetchall()
+        mine = [r["id"] for r in rows
+                if r["visibility"] != "me" or r["created_by"] == user["id"]]
+        blocked = len(rows) - len(mine)
+        if dry:
+            return {"ok": True, "dry_run": True, "n": len(mine), "blocked": blocked}
+        if mine:
+            ph = ",".join("?" * len(mine))
+            c.execute(f"UPDATE private_listings SET status='closed', updated_at=datetime('now') "
+                      f"WHERE id IN ({ph})", mine)
+            c.commit()
+    return {"ok": True, "closed": len(mine), "blocked": blocked}
 
 
 @app.post("/lounge/private-listings/photo")
@@ -20332,12 +20711,15 @@ def biz_terms_status(user: dict = Depends(current_user)):
 
 @app.post("/biz/terms/agree")
 def biz_terms_agree(user: dict = Depends(current_user)):
-    """중개사 약관 동의 저장(현행 버전). 중개사 회원만 — 동의 이력은 버전별 보존."""
+    """중개사 약관 동의 저장(현행 버전). 동의 이력은 버전별 보존.
+
+    회원 연동 여부를 요구하지 않는다. 사무소 연동 신청 화면이
+    '동의 저장 → 연동 신청' 순서로 동작하기 때문에(BizTermsConsentModal),
+    여기서 realtor_members active 를 요구하면 아직 연동되지 않은 신규 직원은
+    동의도 연동도 못 하는 교착에 빠진다(2026-10-01 민원).
+    실제 기능 차단은 contract_user 에서 ①연동 ②동의 를 모두 확인하므로
+    여기서 한 번 더 막을 필요가 없다."""
     with _reviews_db() as c:
-        m = c.execute("SELECT realtor_id, status FROM realtor_members WHERE user_id=?",
-                      (user["id"],)).fetchone()
-        if not (user.get("is_admin") or (m and (m[1] or "active") == "active")):
-            raise HTTPException(403, "중개사 인증(사무소 연동) 후 동의할 수 있습니다.")
         c.execute("INSERT OR IGNORE INTO biz_terms_agreements(user_id, version) VALUES(?,?)",
                   (user["id"], BIZ_TERMS_VERSION))
         c.commit()
@@ -20458,22 +20840,39 @@ def _mulgeon_key(r: dict) -> tuple:
 
 
 @app.get("/biz/my-rank")
-def biz_my_rank(response: Response, user: dict = Depends(current_user)):
+def biz_my_rank(response: Response, user: dict = Depends(current_user),
+                complexes: str = "", articles: str = "", as_realtor: str = ""):
     """중개사 라운지 '내 매물 순위' — 내 사무소 매물이 네이버 단지 랭킹순에서
     ① 같은 물건 N곳 중 몇 등(중개사 경쟁 순위) ② 단지 전체 물건 중 몇 번째 물건인지.
     수집 시 저장한 rank_in_complex(=네이버 응답 순서=랭킹순)를 우선 사용하고,
-    아직 안 채워진 단지는 확인일·확인유형으로 근사(method='estimated')."""
+    아직 안 채워진 단지는 확인일·확인유형으로 근사(method='estimated').
+
+    complexes — 단지번호 콤마 목록. 매물장에서 '화면에 보이는 것만' 점검할 때 쓴다.
+    한 단지의 등수를 내려면 그 단지의 **모든 중개사 매물**을 읽어야 한다. 사무소가
+    77개 단지를 다루면 매번 77개 단지를 통째로 읽게 되므로, 보고 있는 단지만 받는다.
+    articles — 그중에서도 돌려줄 매물번호를 좁힌다(응답 크기 절약).
+    """
     response.headers["Cache-Control"] = "no-store"  # 사무소별 개인화 — 캐시 금지
     with _reviews_db() as rc:
-        rid = _require_member(rc, user["id"])
+        if as_realtor:                       # 관리자 '사무소로 보기' — 읽기만
+            if not user.get("is_admin"):
+                raise HTTPException(403, "관리자 전용 기능입니다.")
+            rid = as_realtor.strip()
+        else:
+            rid = _require_member(rc, user["id"])
     import datetime as _dt
     today_ymd = int((_dt.datetime.utcnow() + _dt.timedelta(hours=9)).strftime("%Y%m%d"))
 
     items = []
     with _open_db() as d:
-        pairs = d.execute(
-            "SELECT DISTINCT complex_no, trade_type FROM listings_current "
-            "WHERE realtor_id=? AND complex_no IS NOT NULL", (rid,)).fetchall()
+        want_cx = [x.strip() for x in complexes.split(",") if x.strip()][:200]
+        q = ("SELECT DISTINCT complex_no, trade_type FROM listings_current "
+             "WHERE realtor_id=? AND complex_no IS NOT NULL")
+        a: list = [rid]
+        if want_cx:
+            q += f" AND complex_no IN ({','.join('?' * len(want_cx))})"
+            a += want_cx
+        pairs = d.execute(q, a).fetchall()
         for pr in pairs:
             cno, trade = pr["complex_no"], pr["trade_type"]
             rows = [dict(r) for r in d.execute(
@@ -20553,6 +20952,9 @@ def biz_my_rank(response: Response, user: dict = Depends(current_user)):
                     "naver_url": f"https://new.land.naver.com/complexes/{cno}?articleNo={r['article_no']}",
                 })
     # 광고 물건별로, 좋은 등수(1등)부터 — 경쟁 큰 물건(N곳 많음)을 타이브레이크로 위에.
+    want_an = {x.strip() for x in articles.split(",") if x.strip()}
+    if want_an:
+        items = [x for x in items if x["article_no"] in want_an]
     items.sort(key=lambda x: (x["rank_in_group"], -(x["group_size"] or 0)))
     est = any(x["method"] == "estimated" for x in items)
     return {"realtor_id": rid, "count": len(items),

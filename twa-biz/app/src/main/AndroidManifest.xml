@@ -1,0 +1,253 @@
+<!--
+    Copyright 2019 Google Inc. All Rights Reserved.
+
+     Licensed under the Apache License, Version 2.0 (the "License");
+     you may not use this file except in compliance with the License.
+     You may obtain a copy of the License at
+
+         http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.
+-->
+
+<!-- The "package" attribute is rewritten by the Gradle build with the value of applicationId.
+     It is still required here, as it is used to derive paths, for instance when referring
+     to an Activity by ".MyActivity" instead of the full name. If more Activities are added to the
+     application, the package attribute will need to reflect the correct path in order to use
+     the abbreviated format. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.koczip.realtor">
+
+    
+        <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+        <!-- 통화 고객알림: 통화 상태 전이(수신중/통화중/종료) 감지 — 번호는 CallScreening 역할로 취득 -->
+        <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+        <!-- 삼성 등 CallScreeningService 미동작 기기 대비: 수신벨(PHONE_STATE)에서 번호 취득 -->
+        <uses-permission android:name="android.permission.READ_CALL_LOG"/>
+        <uses-permission android:name="android.permission.INTERNET"/>
+        <!-- 통화 후 지연 재조회 잡의 네트워크 제약에 필요(일반 권한) -->
+        <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+        <!-- 발신자 카드를 전화 화면 위에 띄우기(헤드업 알림은 통화 알림에 가려짐) -->
+        <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+        <!-- 배터리 최적화 예외 요청(백그라운드에서 통화감지 유지) — 설정 대신 팝업 '허용' 한 번 -->
+        <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    
+
+    
+
+    
+
+    
+
+    <application
+        android:name="Application"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/appName"
+        
+        android:manageSpaceActivity="com.google.androidbrowserhelper.trusted.ManageDataLauncherActivity"
+        
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Translucent.NoTitleBar">
+
+        <meta-data
+            android:name="asset_statements"
+            android:resource="@string/assetStatements" />
+
+        
+            <meta-data
+                android:name="web_manifest_url"
+                android:value="@string/webManifestUrl" />
+        
+
+        <meta-data
+            android:name="twa_generator"
+            android:value="@string/generatorApp" />
+
+        
+
+        
+
+        
+            <activity android:name="com.google.androidbrowserhelper.trusted.ManageDataLauncherActivity"
+                android:exported="false"
+                android:enabled="true"
+                android:excludeFromRecents="true">
+                <meta-data
+                    android:name="android.support.customtabs.trusted.MANAGE_SPACE_URL"
+                    android:value="@string/launchUrl" />
+                <intent-filter>
+                    <action android:name="android.intent.action.APPLICATION_PREFERENCES" />
+                    <category android:name="android.intent.category.DEFAULT" />
+                </intent-filter>
+            </activity>
+        
+
+        <activity android:name="LauncherActivity"
+            android:alwaysRetainTaskState="true"
+            android:label="@string/launcherName"
+            android:exported="true">
+            <meta-data android:name="android.support.customtabs.trusted.DEFAULT_URL"
+                android:value="@string/launchUrl" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR"
+                android:resource="@color/colorPrimary" />
+
+            
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR_DARK"
+                android:resource="@color/colorPrimaryDark" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR"
+                android:resource="@color/navigationColor" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR_DARK"
+                android:resource="@color/navigationColorDark" />
+
+            <meta-data
+                android:name="androix.browser.trusted.NAVIGATION_BAR_DIVIDER_COLOR"
+                android:resource="@color/navigationDividerColor" />
+
+            <meta-data
+                android:name="androix.browser.trusted.NAVIGATION_BAR_DIVIDER_COLOR_DARK"
+                android:resource="@color/navigationDividerColorDark" />
+
+            <meta-data android:name="android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE"
+                android:resource="@drawable/splash"/>
+
+            <meta-data android:name="android.support.customtabs.trusted.SPLASH_SCREEN_BACKGROUND_COLOR"
+                android:resource="@color/backgroundColor"/>
+
+            <meta-data android:name="android.support.customtabs.trusted.SPLASH_SCREEN_FADE_OUT_DURATION"
+                android:value="@integer/splashScreenFadeOutDuration"/>
+
+            <meta-data android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY"
+                android:value="@string/providerAuthority"/>
+
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
+
+            <meta-data android:name="android.support.customtabs.trusted.FALLBACK_STRATEGY"
+                android:value="@string/fallbackType" />
+
+            
+
+            
+
+            <meta-data android:name="android.support.customtabs.trusted.SCREEN_ORIENTATION"
+                android:value="@string/orientation"/>
+
+            
+
+            
+
+            
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                    android:host="@string/hostName"
+                
+                    android:pathPrefix="/biz"
+                
+                />
+            </intent-filter>
+
+            
+
+            
+        </activity>
+
+        <activity android:name="com.google.androidbrowserhelper.trusted.FocusActivity" />
+
+        <activity android:name="com.google.androidbrowserhelper.trusted.WebViewFallbackActivity"
+            android:configChanges="orientation|screenSize" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="@string/providerAuthority"
+            android:grantUriPermissions="true"
+            android:exported="false">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
+
+        <service
+            android:name=".DelegationService"
+            android:enabled="@bool/enableNotification"
+            android:exported="@bool/enableNotification">
+
+            
+                <meta-data
+                    android:name="android.support.customtabs.trusted.SMALL_ICON"
+                    android:resource="@drawable/ic_notification_icon" />
+            
+
+            <intent-filter>
+                <action android:name="android.support.customtabs.trusted.TRUSTED_WEB_ACTIVITY_SERVICE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </service>
+
+        
+            <activity android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity" />
+        
+
+        <!-- ═══ 통화 고객알림 사이드카 (design/biz_call_detect_설계안.md) ═══ -->
+        <activity android:name=".call.CallSetupActivity"
+            android:exported="true"
+            android:label="전화 고객알림 설정"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <!-- 웹(라운지)의 '전화 알림 켜기' → koczip://call-enable?t=<토큰> 핸드오프(웹세션 재사용) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="koczip" android:host="call-enable" />
+            </intent-filter>
+            <!-- 로그인 없이 발신자 확인 설정만 여는 경로(앱 바로가기·안내 링크).
+                 2026-10-05: Play 심사자가 로그인에 막혀 권한 화면에 도달하지 못했다. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="koczip" android:host="call-setup" />
+            </intent-filter>
+        </activity>
+
+        <service android:name=".call.KoczipCallScreeningService"
+            android:exported="true"
+            android:permission="android.permission.BIND_SCREENING_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
+            </intent-filter>
+        </service>
+
+        <receiver android:name=".call.CallStateReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 통화 후 지연 재조회: 네트워크가 돌아올 때 실행돼 알림 카드에 고객 이름을 채움 -->
+        <service android:name=".call.CallRetryJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
+
+    </application>
+</manifest>

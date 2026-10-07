@@ -6126,3 +6126,49 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .biz-rail.mini .biz-rail-g{margin-bottom:2px;}
 .biz-rail.mini .biz-rail-i{justify-content:center;padding:10px 0;gap:0;}
 .biz-rail-div{height:1px;background:#EDEFF3;margin:6px 8px;}
+
+/* 매물장 업로드 — 단지가 특정되지 않은 파일에서 단지를 고르게 하는 영역 (2026-10-02)
+   줄마다 단지명이 없는 단일 단지 매물장이 흔하다. 그대로 담으면 단지명 없는 매물이
+   쌓여 목록에서 뭐가 뭔지 알 수 없다 — 담기 전에 반드시 고르게 막는다. */
+.imp-cx { margin: 10px 0 14px; padding: 12px 14px; border: 1px solid #f0c36d;
+          background: #fff8e8; border-radius: 10px; }
+.imp-cx.done { border-color: #bcdcc4; background: #f2fbf4; }
+.imp-cx-head { font-size: 13px; line-height: 1.5; margin-bottom: 9px; }
+.imp-cx-find { display: flex; gap: 6px; }
+.imp-cx-find input { flex: 1; min-width: 0; padding: 8px 10px; font-size: 13px;
+                     border: 1px solid #d7dde5; border-radius: 8px; }
+.imp-cx-find button { padding: 8px 14px; font-size: 13px; white-space: nowrap;
+                      border: 0; border-radius: 8px; background: #1268d3; color: #fff; cursor: pointer; }
+.imp-cx-find button:disabled { background: #b9c6d6; cursor: default; }
+.imp-cx-hits { list-style: none; margin: 9px 0 0; padding: 0; max-height: 190px; overflow: auto; }
+.imp-cx-hits li { margin-bottom: 5px; }
+.imp-cx-hits button { width: 100%; text-align: left; padding: 8px 11px; cursor: pointer;
+                      border: 1px solid #d7dde5; border-radius: 8px; background: #fff; font-size: 13px; }
+.imp-cx-hits button:hover { border-color: #1268d3; background: #f4f8ff; }
+.imp-cx-hits i { font-style: normal; color: #6a7686; margin-left: 7px; font-size: 12px; }
+.imp-cx-none { margin-top: 8px; font-size: 12.5px; color: #8a6d3b; }
+.imp-cx-done { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
+.imp-cx-done button { margin-left: auto; padding: 5px 11px; font-size: 12.5px; cursor: pointer;
+                      border: 1px solid #d7dde5; border-radius: 7px; background: #fff; }
+
+/* 매물장 단지 묶음 — 통째로 비우기 (2026-10-02)
+   엑셀을 잘못 올리면 한 단지 수십·수백 건이 어긋난다. 한 건씩 지우게 두면 못 지운다.
+   헤더를 눌러 펼치는 동작과 겹치지 않게 버튼 자체가 클릭을 삼킨다. */
+.mlj2-fclear { margin-left: 8px; padding: 3px 9px; font-size: 11.5px; line-height: 1.5;
+               color: #b4232a; background: #fff; border: 1px solid #e8b9bc;
+               border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.mlj2-fclear:hover { background: #fff2f3; border-color: #d4747c; }
+
+/* 온보딩 — 이메일 로그인 보조 경로 (2026-10-05)
+   소셜 계정을 쓸 수 없는 환경(사내 기기·외부 심사)을 위한 길. 기본 흐름을 가리지 않게
+   평소엔 작은 링크로만 두고, 눌렀을 때만 펼친다. */
+.onb-mail-link { margin-top: 10px; background: none; border: 0; cursor: pointer;
+                 font-size: 13px; color: #6b7280; text-decoration: underline; }
+.onb-mail { display: flex; flex-direction: column; gap: 7px; margin-top: 12px;
+            padding: 12px; border: 1px solid #e3e8ef; border-radius: 10px; background: #fafbfc; }
+.onb-mail input { padding: 10px 11px; font-size: 14px; border: 1px solid #d7dde5; border-radius: 8px; }
+.onb-mail button[type="submit"] { padding: 10px; font-size: 14px; font-weight: 600; cursor: pointer;
+                                  border: 0; border-radius: 8px; background: #1268d3; color: #fff; }
+.onb-mail button[type="submit"]:disabled { background: #b9c6d6; }
+.onb-mail-close { background: none; border: 0; cursor: pointer; font-size: 12.5px; color: #8a93a0; }
+.onb-mail-err { margin: 0; font-size: 12.5px; color: #c0392b; }
