@@ -34,6 +34,12 @@ def open_db():
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=30000")
     # 대표자명 수동 고정(사무소 인수/양수도 등 수집값이 옛 대표로 되돌리는 것 방지)
+    # 연락처 수동 고정 — 사무소가 알려 준 실제 번호가 네이버 수집값으로 되돌아가는 것 방지.
+    # 세부페이지·브리핑·홈페이지빌더가 모두 naver_realtors 를 읽으므로 여기서 지켜야
+    # 읽는 쪽을 하나씩 고치지 않아도 된다.
+    c.execute("CREATE TABLE IF NOT EXISTS realtor_contact_locks("
+              "realtor_id TEXT PRIMARY KEY, note TEXT, "
+              "locked_at TEXT DEFAULT (datetime('now')))")
     c.execute("CREATE TABLE IF NOT EXISTS realtor_rep_locks("
               "realtor_id TEXT PRIMARY KEY, representative_name TEXT, note TEXT, "
               "locked_at TEXT DEFAULT (datetime('now')))")
@@ -65,7 +71,9 @@ def upsert_realtor(conn, rid, r, now):
                 THEN representative_name ELSE COALESCE(excluded.representative_name, representative_name) END,
             address=COALESCE(excluded.address, address),
             representative_tel_no=COALESCE(excluded.representative_tel_no, representative_tel_no),
-            cell_phone_no=COALESCE(excluded.cell_phone_no, cell_phone_no),
+            cell_phone_no=CASE WHEN EXISTS(
+                SELECT 1 FROM realtor_contact_locks k WHERE k.realtor_id=naver_realtors.realtor_id)
+                THEN cell_phone_no ELSE COALESCE(excluded.cell_phone_no, cell_phone_no) END,
             cortar_no=COALESCE(excluded.cortar_no, cortar_no),
             latitude=COALESCE(excluded.latitude, latitude),
             longitude=COALESCE(excluded.longitude, longitude),

@@ -72,6 +72,9 @@ def fetch_one(creds, article_no, ret, tt):
 
 def upsert_realtor(conn, rid, art, ar, now):
     raw = json.dumps(ar, ensure_ascii=False)
+    conn.execute("CREATE TABLE IF NOT EXISTS realtor_contact_locks("
+                 "realtor_id TEXT PRIMARY KEY, note TEXT, "
+                 "locked_at TEXT DEFAULT (datetime('now')))")
     conn.execute(
         """
         INSERT INTO naver_realtors
@@ -85,8 +88,12 @@ def upsert_realtor(conn, rid, art, ar, now):
             representative_name=excluded.representative_name,
             address=excluded.address,
             establish_registration_no=excluded.establish_registration_no,
-            representative_tel_no=excluded.representative_tel_no,
-            cell_phone_no=excluded.cell_phone_no,
+            representative_tel_no=CASE WHEN EXISTS(
+                SELECT 1 FROM realtor_contact_locks k WHERE k.realtor_id=naver_realtors.realtor_id)
+                THEN naver_realtors.representative_tel_no ELSE excluded.representative_tel_no END,
+            cell_phone_no=CASE WHEN EXISTS(
+                SELECT 1 FROM realtor_contact_locks k WHERE k.realtor_id=naver_realtors.realtor_id)
+                THEN naver_realtors.cell_phone_no ELSE excluded.cell_phone_no END,
             cortar_no=excluded.cortar_no,
             latitude=excluded.latitude,
             longitude=excluded.longitude,
