@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사라지는 전세</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@700;800&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FBFAF6; --panel:#FFFFFF; --ink:#191A1E; --ink-soft:#3D3F45;
+  --muted:#6E7076; --faint:#9A9BA0; --line:#E6E2D8; --line2:#EFEBE1;
+  --jeonse:#9E2B25; --jeonse-soft:#C9736D; --wolse:#2F3B49; --wolse-soft:#66788C;
+  --seoul:#9E2B25; --gyeong:#B07A2E; --local:#4E6E81; --nation:#191A1E;
+  --mark:#8C8577; --good:#2F6F4E; --band:#F3EFE6;
+  --serif:"Nanum Myeongjo",serif; --sans:"Noto Sans KR",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#131519; --panel:#1A1D23; --ink:#ECEAE3; --ink-soft:#C7C6C0;
+  --muted:#9A9CA2; --faint:#71737A; --line:#2C3038; --line2:#242830;
+  --jeonse:#E0655D; --jeonse-soft:#8E3B37; --wolse:#9FB2C6; --wolse-soft:#5C6B7C;
+  --seoul:#E0655D; --gyeong:#D3A254; --local:#7FA6BC; --nation:#ECEAE3;
+  --mark:#6B6659; --good:#5FB088; --band:#20242C;
+}}
+:root[data-theme="dark"]{
+  --paper:#131519; --panel:#1A1D23; --ink:#ECEAE3; --ink-soft:#C7C6C0;
+  --muted:#9A9CA2; --faint:#71737A; --line:#2C3038; --line2:#242830;
+  --jeonse:#E0655D; --jeonse-soft:#8E3B37; --wolse:#9FB2C6; --wolse-soft:#5C6B7C;
+  --seoul:#E0655D; --gyeong:#D3A254; --local:#7FA6BC; --nation:#ECEAE3;
+  --mark:#6B6659; --good:#5FB088; --band:#20242C;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-weight:400;line-height:1.75;font-size:17px;
+  -webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 0;}
+.wrap{max-width:760px;margin:0 auto;padding:0 20px}
+.full{max-width:1000px;margin:0 auto;padding:0 20px}
+h1,h2,h3{font-family:var(--serif);font-weight:800;line-height:1.22;letter-spacing:-.01em;
+  text-wrap:balance;color:var(--ink);margin:0}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* masthead */
+.mast{border-bottom:1px solid var(--line);margin-top:26px;padding-bottom:12px;
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand{font-family:var(--sans);font-weight:900;font-size:15px;letter-spacing:.02em;color:var(--ink)}
+.brand span{color:var(--jeonse)}
+.mast .meta{font-size:12.5px;color:var(--muted);letter-spacing:.01em}
+
+/* hero */
+.hero{padding:52px 0 30px}
+.kicker{font-family:var(--sans);font-weight:700;font-size:13px;letter-spacing:.14em;
+  color:var(--jeonse);text-transform:uppercase;margin-bottom:20px}
+.hero h1{font-size:clamp(44px,9vw,78px);line-height:1.04;font-weight:800;letter-spacing:-.02em}
+.hero .sub{font-family:var(--serif);font-weight:700;font-size:clamp(19px,3.2vw,25px);
+  color:var(--ink-soft);margin-top:22px;line-height:1.5;max-width:640px}
+.byline{margin-top:26px;font-size:13px;color:var(--muted);font-family:var(--sans)}
+.byline b{color:var(--ink-soft);font-weight:700}
+
+/* stat band */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);margin:38px 0 8px;border-radius:3px;overflow:hidden}
+.stat{background:var(--panel);padding:24px 20px}
+.stat .n{font-family:var(--serif);font-weight:800;font-size:clamp(30px,5.5vw,42px);
+  color:var(--jeonse);line-height:1;letter-spacing:-.02em}
+.stat .n small{font-size:.5em;font-weight:700;color:var(--muted);letter-spacing:0}
+.stat .k{font-size:13px;color:var(--muted);margin-top:12px;line-height:1.5;font-family:var(--sans)}
+.stat .k b{color:var(--ink-soft);font-weight:700}
+@media(max-width:620px){.stats{grid-template-columns:1fr}}
+
+/* lede */
+.lede{font-family:var(--serif);font-weight:700;font-size:20px;line-height:1.7;
+  color:var(--ink);margin:44px 0 10px}
+.lede .hl{color:var(--jeonse)}
+p{margin:20px 0;color:var(--ink-soft)}
+p .em{color:var(--ink);font-weight:500}
+strong{color:var(--ink);font-weight:700}
+
+/* section */
+section{padding:34px 0}
+.sec-no{font-family:var(--sans);font-weight:900;font-size:13px;letter-spacing:.12em;
+  color:var(--jeonse);margin-bottom:12px}
+h2{font-size:clamp(26px,4.8vw,36px);margin-bottom:8px}
+.dek{font-family:var(--sans);font-weight:400;color:var(--muted);font-size:15.5px;
+  margin:14px 0 8px;line-height:1.65;max-width:660px}
+
+/* figure */
+figure{margin:30px 0 6px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  padding:22px 20px 16px}
+.fig-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  margin-bottom:6px;flex-wrap:wrap}
+.fig-t{font-family:var(--sans);font-weight:700;font-size:15px;color:var(--ink)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);
+  font-family:var(--sans);align-items:center}
+.legend i{display:inline-block;width:20px;height:3px;border-radius:2px;
+  vertical-align:middle;margin-right:6px}
+.legend .dash{height:0;border-top:2px dashed var(--mark);width:18px}
+figcaption{font-size:12.5px;color:var(--faint);margin-top:12px;line-height:1.6;
+  font-family:var(--sans);padding-left:2px}
+svg{display:block;width:100%;height:auto;overflow:visible}
+.axis{font-family:var(--sans);font-size:11px;fill:var(--faint)}
+.axis-k{font-family:var(--sans);font-size:11.5px;fill:var(--muted)}
+
+/* gu bars */
+.gugrid{display:grid;grid-template-columns:1fr;gap:0}
+.gurow{display:grid;grid-template-columns:52px 1fr 116px;align-items:center;gap:10px;
+  padding:6px 0;border-bottom:1px solid var(--line2);font-family:var(--sans)}
+.gurow:last-child{border-bottom:0}
+.guname{font-size:13.5px;font-weight:700;color:var(--ink);text-align:right}
+.gubar-track{position:relative;height:22px}
+.gubar{position:absolute;right:0;top:0;height:22px;border-radius:3px;
+  background:linear-gradient(90deg,var(--jeonse-soft),var(--jeonse))}
+.guval{font-size:13px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.guval b{color:var(--jeonse);font-weight:700}
+.guval .a{color:var(--faint)}
+
+/* mechanism cards */
+.mech{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:26px 0 6px}
+.mcard{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px 18px}
+.mcard .t{font-family:var(--serif);font-weight:800;font-size:18px;color:var(--ink);margin-bottom:8px}
+.mcard .t .num{color:var(--jeonse);margin-right:8px}
+.mcard p{margin:0;font-size:14.5px;color:var(--ink-soft);line-height:1.65}
+@media(max-width:620px){.mech{grid-template-columns:1fr}}
+
+/* timeline */
+.tl{border-left:2px solid var(--line);margin:26px 0 6px;padding-left:0}
+.tlrow{position:relative;padding:14px 0 14px 26px;border-bottom:1px solid var(--line2)}
+.tlrow:last-child{border-bottom:0}
+.tlrow::before{content:"";position:absolute;left:-6px;top:20px;width:9px;height:9px;
+  border-radius:50%;background:var(--mark);border:2px solid var(--paper)}
+.tlrow.key::before{background:var(--jeonse);width:11px;height:11px;left:-7px}
+.tlrow.soft::before{background:var(--good)}
+.tld{font-family:var(--sans);font-weight:900;font-size:12.5px;color:var(--jeonse);
+  letter-spacing:.02em;margin-bottom:3px;font-variant-numeric:tabular-nums}
+.tlrow.soft .tld{color:var(--good)}
+.tlt{font-family:var(--sans);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:2px}
+.tlx{font-size:13.5px;color:var(--muted);line-height:1.55}
+.tag{display:inline-block;font-family:var(--sans);font-weight:700;font-size:11px;
+  padding:2px 8px;border-radius:20px;margin-left:6px;vertical-align:middle}
+.tag.push{background:rgba(158,43,37,.1);color:var(--jeonse)}
+.tag.pull{background:rgba(47,111,78,.12);color:var(--good)}
+
+/* pullquote */
+.pq{font-family:var(--serif);font-weight:800;font-size:clamp(22px,4vw,30px);
+  line-height:1.4;color:var(--ink);border-top:2px solid var(--jeonse);
+  border-bottom:1px solid var(--line);padding:26px 0;margin:40px 0;text-wrap:balance}
+.pq .hl{color:var(--jeonse)}
+
+/* method */
+.method{background:var(--band);border-radius:6px;padding:22px 22px;margin:30px 0 0;
+  font-size:13px;color:var(--muted);line-height:1.7;font-family:var(--sans)}
+.method h3{font-family:var(--sans);font-size:13px;font-weight:900;color:var(--ink-soft);
+  letter-spacing:.06em;margin-bottom:10px;text-transform:uppercase}
+.method b{color:var(--ink-soft);font-weight:700}
+.foot{border-top:1px solid var(--line);margin-top:44px;padding:26px 0 60px;
+  font-size:12.5px;color:var(--faint);font-family:var(--sans);line-height:1.7}
+.foot b{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="mast">
+    <div class="brand"><span>콕집</span> · 부동산 리포트</div>
+    <div class="meta">데이터 저널리즘 &nbsp;|&nbsp; 2026. 09. 19.</div>
+  </div>
+</div>
+
+<header class="wrap hero">
+  <div class="kicker">전월세 시장 구조 변화 · 3년 추적</div>
+  <h1>사라지는 전세</h1>
+  <div class="sub">한 시대의 주거 방식이 세법의 설계대로 조용히 저물고 있다. 전세는 이제 임대차 계약의 절반을 넘지 못한다.</div>
+  <div class="byline"><b>콕집</b> · 국토교통부 전월세 실거래 350만 건(2023.6~2026.9) 분석</div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="n">56.7<small>%</small><span style="color:var(--muted)"> → </span>44.6<small>%</small></div>
+      <div class="k"><b>신규 임대차 중 전세 비중</b><br>2023년 → 2026년, 전국. 3년 만에 12%p 붕괴</div>
+    </div>
+    <div class="stat">
+      <div class="n" id="s-seoul">–</div>
+      <div class="k"><b>서울 전세 거래량</b><br>2024년 상반기 대비 2026년 상반기 감소</div>
+    </div>
+    <div class="stat">
+      <div class="n">25<small> / 25</small></div>
+      <div class="k"><b>전세가 줄어든 서울 자치구</b><br>예외 없이 전 자치구에서 감소</div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <p class="lede">전세는 한국에만 있는 독특한 주거 사다리였다. 목돈을 맡기고 이자 대신 집을 빌리는 이 방식은, 세입자에게는 월 부담 없는 임시 거처를, 집주인에게는 무이자 자금을 안겼다. 그 균형이 지금 <span class="hl">빠르게 무너지고 있다.</span></p>
+
+  <p>국토교통부 전월세 실거래 <span class="em">350만 건</span>을 3년간 시계열로 추적한 결과, 신규 임대차 계약에서 전세가 차지하는 비중은 2023년 <span class="em">56.7%</span>에서 2026년(1~8월) <span class="em">44.6%</span>로 내려앉았다. 계약 두 건 중 한 건이 전세이던 시장이, 이제는 절반에 못 미친다. 특정 지역의 일이 아니다. 서울 25개 자치구가 <strong>한 곳도 빠짐없이</strong> 전세 거래가 줄었다.</p>
+
+  <p>이 흐름은 우발적이지 않다. 지난 10년간 층층이 쌓인 부동산 세제는 하나의 방향을 가리켜 왔다. <strong>집주인이 직접 들어가 살면 세금을 깎아 주고, 세를 놓으면 물린다.</strong> 이 리포트는 그 설계가 전세 시장에 남긴 자국을 데이터로 따라간다.</p>
+
+  <!-- §1 -->
+  <section>
+    <div class="sec-no">01 — 3년의 하강</div>
+    <h2>전세 비중, 절반선이 무너지다</h2>
+    <p class="dek">신규 임대차 계약 중 전세 비율. 월별 신고지연·이사철 계절성에 영향받지 않는 구조 지표다. 전국·서울·수도권·지방 모두 완만하지만 <span style="color:var(--jeonse);font-weight:600">멈추지 않는 하강</span>을 그린다.</p>
+    <figure>
+      <div class="card">
+        <div class="fig-h">
+          <div class="fig-t">신규 임대차 중 전세 비중 (%)</div>
+          <div class="legend">
+            <span><i style="background:var(--nation)"></i>전국</span>
+            <span><i style="background:var(--seoul)"></i>서울</span>
+            <span><i style="background:var(--gyeong)"></i>수도권</span>
+            <span><i style="background:var(--local)"></i>지방</span>
+          </div>
+        </div>
+        <div id="chart-line"></div>
+      </div>
+      <figcaption>자료: 국토교통부 전월세 실거래가 · 콕집. 2023년 6월~2026년 8월(2026년 9월은 신고 진행 중이라 제외). 절반선(50%) 점선 표시.</figcaption>
+    </figure>
+    <p>2023년 여름만 해도 전국 전세 비중은 <span class="em">56%대</span>에서 안정적이었다. 그러나 2024년 말 <span class="em">50%</span>선이 뚫렸고, 2025년 하반기부터는 <strong>지방이 먼저, 이어 수도권과 서울이</strong> 차례로 절반 아래로 내려갔다. 서울은 전세의 마지막 보루로 불렸지만, 2026년 들어 여러 달 <span class="em">40%대 중반</span>까지 떨어졌다. 3년에 걸친 이 하강에는 급반등이 없다 — 일시적 충격이 아니라 <strong>구조가 바뀌고 있다는 신호</strong>다.</p>
+  </section>
+
+  <!-- §2 -->
+  <section>
+    <div class="sec-no">02 — 예외 없는 후퇴</div>
+    <h2>서울 25개 자치구, 전부 줄었다</h2>
+    <p class="dek">같은 계절끼리 비교했다 — 2024년 상반기 대 2026년 상반기, 자치구별 전세 실거래 건수 증감. 강남도 노원도, 도심도 외곽도 방향이 같다.</p>
+    <figure>
+      <div class="card">
+        <div class="fig-h"><div class="fig-t">서울 자치구별 전세 거래 증감률 · 2024 상반기 → 2026 상반기</div></div>
+        <div class="gugrid" id="gu-bars"></div>
+      </div>
+      <figcaption>자료: 국토교통부 전월세 실거래가 · 콕집. 각 해 1~6월 전세(보증금만·월세 0원) 계약 건수 비교. 값이 클수록 감소폭이 크다.</figcaption>
+    </figure>
+    <p>감소는 서민 주거지에서 더 가팔랐다. <span class="em">중랑(-30%)·금천(-27%)·강북(-25%)</span> 등 상대적 저가 지역의 전세가 먼저 말랐다. 전세를 지탱하던 실수요층이 <strong>보증금을 감당 못 해 월세로 밀려나거나</strong>, 집주인이 전세를 거둔 자리다. 강남·서초·송파도 15~23% 줄어, 지역과 소득을 가리지 않는 <span style="color:var(--jeonse);font-weight:600">전면적 후퇴</span>가 확인된다.</p>
+  </section>
+
+  <div class="pq">전세가 빠진 자리를 <span class="hl">월세</span>가 메운다.<br>세입자는 목돈 대신 매달 현금을 낸다.</div>
+
+  <!-- §3 -->
+  <section>
+    <div class="sec-no">03 — 대체와 잠금</div>
+    <h2>월세로의 대이동, 그리고 잠긴 매물</h2>
+    <p class="dek">전세가 줄어든 만큼 월세가 늘었다. 동시에, 시장에 남은 전세는 갱신계약으로 <span style="color:var(--jeonse);font-weight:600">잠겨</span> 신규로 나오지 않는다.</p>
+    <figure>
+      <div class="card">
+        <div class="fig-h">
+          <div class="fig-t">서울 임대차 구성 · 전세 vs 월세 비중 (%)</div>
+          <div class="legend">
+            <span><i style="background:var(--jeonse)"></i>전세</span>
+            <span><i style="background:var(--wolse)"></i>월세·반전세</span>
+          </div>
+        </div>
+        <div id="chart-stack"></div>
+      </div>
+      <figcaption>자료: 국토교통부 전월세 실거래가 · 콕집. 서울 신규 임대차, 2023.6~2026.8. 월세는 보증금부 월세·반전세 포함.</figcaption>
+    </figure>
+    <p>서울에서 월세·반전세 비중은 2023년 <span class="em">40%</span>에서 2026년 <span class="em">50%</span>대로 올라섰다. 전세의 감소와 월세의 증가가 <strong>정확히 맞물린다</strong> — 수요가 사라진 게 아니라, 계약의 형태가 바뀐 것이다.</p>
+    <p>남은 전세마저 시장에 잘 나오지 않는다. 서울 임대차 계약 중 <strong>갱신계약 비중은 3년 새 23%에서 50% 이상</strong>으로 뛰었다. 세입자들이 계약갱신청구권으로 살던 집에 눌러앉으면서, 신규 전세 매물이 그만큼 시장에서 <span style="color:var(--jeonse);font-weight:600">잠긴다.</span> '씨가 마른다'는 체감은 여기서 온다.</p>
+  </section>
+
+  <!-- §4 -->
+  <section>
+    <div class="sec-no">04 — 왜</div>
+    <h2>세법은 '실거주'에 상을 준다</h2>
+    <p class="dek">전세가 마르는 뿌리에는 지난 10년간 층층이 쌓인 세제가 있다. 그 설계는 일관되게 한 방향을 가리킨다 — 집주인이 <strong>직접 들어가 살수록 유리하게.</strong></p>
+
+    <div class="mech">
+      <div class="mcard"><div class="t"><span class="num">01</span>양도세 비과세</div><p>1주택 양도세 비과세는 조정대상지역에서 <b style="color:var(--ink)">2년 실거주</b>를 요구한다. 세를 놓아 거주요건을 못 채우면 수억 원의 비과세 혜택이 사라진다.</p></div>
+      <div class="mcard"><div class="t"><span class="num">02</span>장기보유 공제</div><p>최대 <b style="color:var(--ink)">80%</b>에 이르는 장기보유특별공제도 '거주한 기간'을 따진다. 세만 놓았다면 공제는 반토막 난다.</p></div>
+      <div class="mcard"><div class="t"><span class="num">03</span>다주택 중과</div><p>취득·보유·양도 <b style="color:var(--ink)">세 단계 모두</b> 다주택자에게 무겁다. 여러 채를 세놓는 것은 삼중의 세부담을 진다는 뜻이다.</p></div>
+      <div class="mcard"><div class="t"><span class="num">04</span>전세가 먼저 마른다</div><p>월세는 임대소득이라도 남지만, 전세는 보증금 이자수익뿐이다. 세금 위험까지 떠안으면 <b style="color:var(--ink)">전세를 유지할 이유가 없다.</b></p></div>
+    </div>
+
+    <p style="margin-top:30px">개별 집주인의 선택은 합리적이다. 세를 놓아 얻는 이익보다 <strong>직접 거주해 지키는 세금 혜택이 크다면</strong>, 세놓던 집 — 특히 이문이 얇은 전세 — 을 거두어 들어가 사는 것이 정답이 된다. 수십만 명이 같은 계산을 하면, 그 합계가 곧 <span style="color:var(--jeonse);font-weight:600">시장에서 사라진 전세</span>다.</p>
+
+    <h3 style="font-family:var(--sans);font-size:15px;font-weight:900;letter-spacing:.04em;margin:34px 0 4px;color:var(--ink-soft)">실거주를 압박해 온 세제 연표</h3>
+    <div class="tl">
+      <div class="tlrow key"><div class="tld">2017.08</div><div class="tlt">8·2 대책 — 비과세 거주요건 신설<span class="tag push">전세 압박</span></div><div class="tlx">조정대상지역 1주택 양도세 비과세에 '2년 실거주' 요건이 처음 붙었다. 세놓기와 비과세를 양립할 수 없게 된 출발점.</div></div>
+      <div class="tlrow key"><div class="tld">2019.12</div><div class="tlt">12·16 대책 — 장기보유공제 거주요건 강화<span class="tag push">전세 압박</span></div><div class="tlx">장기보유특별공제를 보유기간과 거주기간으로 쪼갰다(2021 시행). 실거주 없이는 고가주택 공제가 크게 줄도록.</div></div>
+      <div class="tlrow key"><div class="tld">2020.07</div><div class="tlt">7·10 대책 — 다주택 취득·보유·양도 중과<span class="tag push">전세 압박</span></div><div class="tlx">취득세 최대 12%, 종부세·양도세 중과. 여러 채를 세놓는 구조 자체에 삼중의 세부담을 얹었다.</div></div>
+      <div class="tlrow"><div class="tld">2020.07</div><div class="tlt">임대차 2법 시행</div><div class="tlx">계약갱신청구권·전월세상한제 도입. 기존 세입자가 눌러앉으며 신규 전세 매물이 잠기기 시작했다.</div></div>
+      <div class="tlrow key"><div class="tld">2021.06</div><div class="tlt">다주택 양도세 중과 시행</div><div class="tlx">중과세율이 실제 적용되며 다주택 보유의 실익이 급감. '팔거나, 들어가 살거나'의 압력이 정점에 달했다.</div></div>
+      <div class="tlrow soft"><div class="tld">2022.06</div><div class="tlt">상생임대인 제도 확대<span class="tag pull">전세 유인</span></div><div class="tlx">임대료를 5% 이내로 올린 집주인에게 2년 실거주 요건을 면제. 전세 유지를 북돋운 드문 반대 방향 조치였으나, 한시적 성격이 짙었다.</div></div>
+      <div class="tlrow"><div class="tld">2023.01</div><div class="tlt">규제지역 대폭 해제</div><div class="tlx">강남3구·용산을 제외한 전 지역이 조정대상지역에서 풀렸다. 다만 누적된 거주요건·중과의 관성은 이미 시장에 자리잡은 뒤였다.</div></div>
+      <div class="tlrow key"><div class="tld">2026.08</div><div class="tlt">2026년 세제개편안 발표<span class="tag push">전세 압박</span></div><div class="tlx">고가·다주택 과세를 재차 손보며 실거주 우대 기조가 이어졌다. 전세 비중은 발표 시점에도 40%대 중반에 머물렀다.</div></div>
+    </div>
+  </section>
+
+  <p class="lede" style="margin-top:46px">전세의 퇴장은 통계 이전에 <span class="hl">세입자의 생활</span>이다. 목돈을 굴려 주거비를 아끼던 사다리가 사라지면, 그 자리를 매달 나가는 월세가 대신한다.</p>
+  <p>물론 전세의 후퇴에는 고금리와 전세사기 여파도 작용했다. 그러나 이 하강이 <strong>3년 내내, 전 지역에서, 예외 없이, 급반등 없이</strong> 진행됐다는 사실은 한때의 충격이 아니라 <span class="em">제도가 만든 유인구조</span>를 가리킨다. 실거주에 상을 주고 세놓기에 벌금을 매기는 세법이 그대로라면, 전세라는 이름의 주거 방식은 통계의 소수점 아래로 계속 밀려갈 것이다.</p>
+
+  <div class="method">
+    <h3>데이터 및 방법</h3>
+    <b>· 자료</b> 국토교통부 아파트·주택 전월세 실거래가 신고 자료(2023년 6월~2026년 9월, 약 350만 건). 콕집이 수집·정제·지역 매핑.<br>
+    <b>· 전세/월세 구분</b> 월세액 0원 = 전세, 0원 초과 = 월세·반전세.<br>
+    <b>· 대표지표</b> '신규 임대차 중 전세 비중'은 신고지연·이사철 계절성에 강건해 구조 변화를 보는 데 적합하다. 최근 2개월(2026.8~9)은 신고가 진행 중이라 거래 '건수'는 잠정치이며, 비중 지표에는 왜곡이 작다.<br>
+    <b>· 자치구 비교</b> 계절성 통제를 위해 상반기(1~6월)끼리, 2024년과 2026년을 맞대어 비교했다.<br>
+    <b>· 한계</b> 실거래 신고 기준이므로 미신고·직거래는 포함되지 않는다. 세제와 전세 감소의 관계는 상관을 넘어선 인과의 단정이 아니라, 데이터가 가리키는 방향에 대한 해석이다.
+  </div>
+
+  <div class="foot">
+    <b>콕집</b> · 부동산 데이터 저널리즘 리포트<br>
+    본 리포트의 수치는 공개 실거래 통계에 기반하며, 재인용 시 출처(콕집·국토교통부)를 밝혀 주시기 바랍니다.
+  </div>
+</main>
+
+<script>
+const DATA = __DATA__;
+
+const isDark = () => {
+  const t = document.documentElement.getAttribute('data-theme');
+  if (t === 'dark') return true; if (t === 'light') return false;
+  return matchMedia('(prefers-color-scheme: dark)').matches;
+};
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// ---- hero seoul number ----
+(function(){
+  let a=0,b=0;
+  DATA.gurank.forEach(g=>{a+=g.j24;b+=g.j26;});
+  const pct = Math.round((1-b/a)*100);
+  document.getElementById('s-seoul').innerHTML = '−'+pct+'<small>%</small>';
+})();
+
+// ---- line chart: 전세 비중 ----
+function lineChart(){
+  const el = document.getElementById('chart-line'); el.innerHTML='';
+  const W=1000,H=420, m={t:24,r:64,b:44,l:44};
+  const months = DATA.months.filter(x=>x<='2026-08');
+  const iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const y0=38,y1=64;
+  const X=i=>m.l+iw*i/(months.length-1);
+  const Y=v=>m.t+ih*(1-(v-y0)/(y1-y0));
+  const svg=['<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" role="img" aria-label="전세 비중 시계열">'];
+  // gridlines
+  for(let v=40;v<=60;v+=5){
+    const y=Y(v);
+    svg.push('<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+y+'" y2="'+y+'" stroke="'+cssv('--line')+'" stroke-width="1"/>');
+    svg.push('<text class="axis" x="'+(W-m.r+8)+'" y="'+(y+4)+'">'+v+'</text>');
+  }
+  // 50% line emphasized
+  const y50=Y(50);
+  svg.push('<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+y50+'" y2="'+y50+'" stroke="'+cssv('--mark')+'" stroke-width="1.3" stroke-dasharray="5 4"/>');
+  svg.push('<text class="axis" x="'+m.l+'" y="'+(y50-7)+'" fill="'+cssv('--mark')+'" font-weight="700">절반선 50%</text>');
+  // x labels (Jan of each year)
+  months.forEach((mo,i)=>{ if(mo.slice(5)==='01'||i===0){ svg.push('<text class="axis-k" x="'+X(i)+'" y="'+(H-16)+'" text-anchor="middle">'+mo.slice(0,4)+'</text>'); }});
+  const regs=[['지방','--local'],['수도권','--gyeong'],['서울','--seoul'],['전국','--nation']];
+  regs.forEach(([name,col])=>{
+    const s=DATA.monthly[name].filter(d=>d&&d.ym<='2026-08');
+    const c=cssv(col);
+    let d='';
+    s.forEach((pt,i)=>{ d+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(pt.jeonse_pct).toFixed(1)+' '; });
+    const wide = name==='전국';
+    svg.push('<path d="'+d+'" fill="none" stroke="'+c+'" stroke-width="'+(wide?3.2:2)+'" stroke-linejoin="round" stroke-linecap="round" opacity="'+(wide?1:.92)+'"/>');
+    // end label
+    const last=s[s.length-1];
+    svg.push('<circle cx="'+X(s.length-1)+'" cy="'+Y(last.jeonse_pct)+'" r="'+(wide?4:3)+'" fill="'+c+'"/>');
+  });
+  svg.push('</svg>');
+  el.innerHTML=svg.join('');
+}
+
+// ---- stacked area: 서울 전세 vs 월세 ----
+function stackChart(){
+  const el=document.getElementById('chart-stack'); el.innerHTML='';
+  const W=1000,H=300,m={t:16,r:16,b:40,l:40};
+  const s=DATA.monthly['서울'].filter(d=>d&&d.ym<='2026-08');
+  const iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const X=i=>m.l+iw*i/(s.length-1);
+  const Y=v=>m.t+ih*(1-v/100);
+  const svg=['<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="서울 전세 월세 구성">'];
+  // 전세 area (bottom)
+  let top='M'+m.l+' '+Y(0);
+  s.forEach((pt,i)=> top+=' L'+X(i).toFixed(1)+' '+Y(pt.jeonse_pct).toFixed(1));
+  top+=' L'+X(s.length-1)+' '+Y(0)+' Z';
+  svg.push('<path d="'+top+'" fill="'+cssv('--jeonse')+'" opacity="'+(isDark()?.35:.16)+'"/>');
+  // 월세 area (top)
+  let bot='M'+m.l+' '+Y(100);
+  s.forEach((pt,i)=> bot+=' L'+X(i).toFixed(1)+' '+Y(pt.jeonse_pct).toFixed(1));
+  bot+=' L'+X(s.length-1)+' '+Y(100)+' Z';
+  svg.push('<path d="'+bot+'" fill="'+cssv('--wolse')+'" opacity="'+(isDark()?.30:.12)+'"/>');
+  // boundary line
+  let d='';
+  s.forEach((pt,i)=> d+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(pt.jeonse_pct).toFixed(1)+' ');
+  svg.push('<path d="'+d+'" fill="none" stroke="'+cssv('--jeonse')+'" stroke-width="2.4" stroke-linejoin="round"/>');
+  // 50 ref
+  svg.push('<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+Y(50)+'" y2="'+Y(50)+'" stroke="'+cssv('--mark')+'" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>');
+  svg.push('</svg>');
+  // labels overlay via foreignless: axis in separate svg group with non-stretch — use simple HTML labels
+  el.innerHTML=svg.join('')+'<div style="display:flex;justify-content:space-between;font-family:var(--sans);font-size:11.5px;color:var(--muted);margin-top:6px"><span>2023</span><span>2024</span><span>2025</span><span>2026</span></div>';
+}
+
+// ---- gu bars ----
+function guBars(){
+  const el=document.getElementById('gu-bars'); el.innerHTML='';
+  const rows=DATA.gurank.slice(); // already sorted worst-first
+  const max=Math.max(...rows.map(r=>Math.abs(r.chg)));
+  el.innerHTML = rows.map(r=>{
+    const w=Math.abs(r.chg)/max*100;
+    return '<div class="gurow"><div class="guname">'+r.gu+'</div>'+
+      '<div class="gubar-track"><div class="gubar" style="width:'+w.toFixed(0)+'%"></div></div>'+
+      '<div class="guval"><b>'+r.chg+'%</b> &nbsp;<span class="a">'+r.j24.toLocaleString()+'→'+r.j26.toLocaleString()+'</span></div></div>';
+  }).join('');
+}
+
+function drawAll(){ lineChart(); stackChart(); guBars(); }
+drawAll();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawAll);
+let rt; addEventListener('resize', ()=>{clearTimeout(rt);rt=setTimeout(drawAll,150);});
+</script>
+</body>
+</html>

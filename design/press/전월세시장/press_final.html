@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사라지는 전세</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@700;800&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FBFAF6; --panel:#FFFFFF; --ink:#191A1E; --ink-soft:#3D3F45;
+  --muted:#6E7076; --faint:#9A9BA0; --line:#E6E2D8; --line2:#EFEBE1;
+  --jeonse:#9E2B25; --jeonse-soft:#C9736D; --wolse:#2F3B49; --wolse-soft:#66788C;
+  --seoul:#9E2B25; --gyeong:#B07A2E; --local:#4E6E81; --nation:#191A1E;
+  --mark:#8C8577; --good:#2F6F4E; --band:#F3EFE6;
+  --serif:"Nanum Myeongjo",serif; --sans:"Noto Sans KR",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#131519; --panel:#1A1D23; --ink:#ECEAE3; --ink-soft:#C7C6C0;
+  --muted:#9A9CA2; --faint:#71737A; --line:#2C3038; --line2:#242830;
+  --jeonse:#E0655D; --jeonse-soft:#8E3B37; --wolse:#9FB2C6; --wolse-soft:#5C6B7C;
+  --seoul:#E0655D; --gyeong:#D3A254; --local:#7FA6BC; --nation:#ECEAE3;
+  --mark:#6B6659; --good:#5FB088; --band:#20242C;
+}}
+:root[data-theme="dark"]{
+  --paper:#131519; --panel:#1A1D23; --ink:#ECEAE3; --ink-soft:#C7C6C0;
+  --muted:#9A9CA2; --faint:#71737A; --line:#2C3038; --line2:#242830;
+  --jeonse:#E0655D; --jeonse-soft:#8E3B37; --wolse:#9FB2C6; --wolse-soft:#5C6B7C;
+  --seoul:#E0655D; --gyeong:#D3A254; --local:#7FA6BC; --nation:#ECEAE3;
+  --mark:#6B6659; --good:#5FB088; --band:#20242C;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-weight:400;line-height:1.75;font-size:17px;
+  -webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 0;}
+.wrap{max-width:760px;margin:0 auto;padding:0 20px}
+.full{max-width:1000px;margin:0 auto;padding:0 20px}
+h1,h2,h3{font-family:var(--serif);font-weight:800;line-height:1.22;letter-spacing:-.01em;
+  text-wrap:balance;color:var(--ink);margin:0}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* masthead */
+.mast{border-bottom:1px solid var(--line);margin-top:26px;padding-bottom:12px;
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand{font-family:var(--sans);font-weight:900;font-size:15px;letter-spacing:.02em;color:var(--ink)}
+.brand span{color:var(--jeonse)}
+.mast .meta{font-size:12.5px;color:var(--muted);letter-spacing:.01em}
+
+/* hero */
+.hero{padding:52px 0 30px}
+.kicker{font-family:var(--sans);font-weight:700;font-size:13px;letter-spacing:.14em;
+  color:var(--jeonse);text-transform:uppercase;margin-bottom:20px}
+.hero h1{font-size:clamp(44px,9vw,78px);line-height:1.04;font-weight:800;letter-spacing:-.02em}
+.hero .sub{font-family:var(--serif);font-weight:700;font-size:clamp(19px,3.2vw,25px);
+  color:var(--ink-soft);margin-top:22px;line-height:1.5;max-width:640px}
+.byline{margin-top:26px;font-size:13px;color:var(--muted);font-family:var(--sans)}
+.byline b{color:var(--ink-soft);font-weight:700}
+
+/* stat band */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);margin:38px 0 8px;border-radius:3px;overflow:hidden}
+.stat{background:var(--panel);padding:24px 20px}
+.stat .n{font-family:var(--serif);font-weight:800;font-size:clamp(30px,5.5vw,42px);
+  color:var(--jeonse);line-height:1;letter-spacing:-.02em}
+.stat .n small{font-size:.5em;font-weight:700;color:var(--muted);letter-spacing:0}
+.stat .k{font-size:13px;color:var(--muted);margin-top:12px;line-height:1.5;font-family:var(--sans)}
+.stat .k b{color:var(--ink-soft);font-weight:700}
+@media(max-width:620px){.stats{grid-template-columns:1fr}}
+
+/* lede */
+.lede{font-family:var(--serif);font-weight:700;font-size:20px;line-height:1.7;
+  color:var(--ink);margin:44px 0 10px}
+.lede .hl{color:var(--jeonse)}
+p{margin:20px 0;color:var(--ink-soft)}
+p .em{color:var(--ink);font-weight:500}
+strong{color:var(--ink);font-weight:700}
+
+/* section */
+section{padding:34px 0}
+.sec-no{font-family:var(--sans);font-weight:900;font-size:13px;letter-spacing:.12em;
+  color:var(--jeonse);margin-bottom:12px}
+h2{font-size:clamp(26px,4.8vw,36px);margin-bottom:8px}
+.dek{font-family:var(--sans);font-weight:400;color:var(--muted);font-size:15.5px;
+  margin:14px 0 8px;line-height:1.65;max-width:660px}
+
+/* figure */
+figure{margin:30px 0 6px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  padding:22px 20px 16px}
+.fig-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  margin-bottom:6px;flex-wrap:wrap}
+.fig-t{font-family:var(--sans);font-weight:700;font-size:15px;color:var(--ink)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);
+  font-family:var(--sans);align-items:center}
+.legend i{display:inline-block;width:20px;height:3px;border-radius:2px;
+  vertical-align:middle;margin-right:6px}
+.legend .dash{height:0;border-top:2px dashed var(--mark);width:18px}
+figcaption{font-size:12.5px;color:var(--faint);margin-top:12px;line-height:1.6;
+  font-family:var(--sans);padding-left:2px}
+svg{display:block;width:100%;height:auto;overflow:visible}
+.axis{font-family:var(--sans);font-size:11px;fill:var(--faint)}
+.axis-k{font-family:var(--sans);font-size:11.5px;fill:var(--muted)}
+
+/* gu bars */
+.gugrid{display:grid;grid-template-columns:1fr;gap:0}
+.gurow{display:grid;grid-template-columns:52px 1fr 116px;align-items:center;gap:10px;
+  padding:6px 0;border-bottom:1px solid var(--line2);font-family:var(--sans)}
+.gurow:last-child{border-bottom:0}
+.guname{font-size:13.5px;font-weight:700;color:var(--ink);text-align:right}
+.gubar-track{position:relative;height:22px}
+.gubar{position:absolute;right:0;top:0;height:22px;border-radius:3px;
+  background:linear-gradient(90deg,var(--jeonse-soft),var(--jeonse))}
+.guval{font-size:13px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.guval b{color:var(--jeonse);font-weight:700}
+.guval .a{color:var(--faint)}
+
+/* mechanism cards */
+.mech{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:26px 0 6px}
+.mcard{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px 18px}
+.mcard .t{font-family:var(--serif);font-weight:800;font-size:18px;color:var(--ink);margin-bottom:8px}
+.mcard .t .num{color:var(--jeonse);margin-right:8px}
+.mcard p{margin:0;font-size:14.5px;color:var(--ink-soft);line-height:1.65}
+@media(max-width:620px){.mech{grid-template-columns:1fr}}
+
+/* timeline */
+.tl{border-left:2px solid var(--line);margin:26px 0 6px;padding-left:0}
+.tlrow{position:relative;padding:14px 0 14px 26px;border-bottom:1px solid var(--line2)}
+.tlrow:last-child{border-bottom:0}
+.tlrow::before{content:"";position:absolute;left:-6px;top:20px;width:9px;height:9px;
+  border-radius:50%;background:var(--mark);border:2px solid var(--paper)}
+.tlrow.key::before{background:var(--jeonse);width:11px;height:11px;left:-7px}
+.tlrow.soft::before{background:var(--good)}
+.tld{font-family:var(--sans);font-weight:900;font-size:12.5px;color:var(--jeonse);
+  letter-spacing:.02em;margin-bottom:3px;font-variant-numeric:tabular-nums}
+.tlrow.soft .tld{color:var(--good)}
+.tlt{font-family:var(--sans);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:2px}
+.tlx{font-size:13.5px;color:var(--muted);line-height:1.55}
+.tag{display:inline-block;font-family:var(--sans);font-weight:700;font-size:11px;
+  padding:2px 8px;border-radius:20px;margin-left:6px;vertical-align:middle}
+.tag.push{background:rgba(158,43,37,.1);color:var(--jeonse)}
+.tag.pull{background:rgba(47,111,78,.12);color:var(--good)}
+
+/* pullquote */
+.pq{font-family:var(--serif);font-weight:800;font-size:clamp(22px,4vw,30px);
+  line-height:1.4;color:var(--ink);border-top:2px solid var(--jeonse);
+  border-bottom:1px solid var(--line);padding:26px 0;margin:40px 0;text-wrap:balance}
+.pq .hl{color:var(--jeonse)}
+
+/* method */
+.method{background:var(--band);border-radius:6px;padding:22px 22px;margin:30px 0 0;
+  font-size:13px;color:var(--muted);line-height:1.7;font-family:var(--sans)}
+.method h3{font-family:var(--sans);font-size:13px;font-weight:900;color:var(--ink-soft);
+  letter-spacing:.06em;margin-bottom:10px;text-transform:uppercase}
+.method b{color:var(--ink-soft);font-weight:700}
+.foot{border-top:1px solid var(--line);margin-top:44px;padding:26px 0 60px;
+  font-size:12.5px;color:var(--faint);font-family:var(--sans);line-height:1.7}
+.foot b{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="mast">
+    <div class="brand"><span>콕집</span> · 부동산 리포트</div>
+    <div class="meta">데이터 저널리즘 &nbsp;|&nbsp; 2026. 09. 19.</div>
+  </div>
+</div>
+
+<header class="wrap hero">
+  <div class="kicker">전월세 시장 구조 변화 · 3년 추적</div>
+  <h1>사라지는 전세</h1>
+  <div class="sub">한 시대의 주거 방식이 세법의 설계대로 조용히 저물고 있다. 전세는 이제 임대차 계약의 절반을 넘지 못한다.</div>
+  <div class="byline"><b>콕집</b> · 국토교통부 전월세 실거래 350만 건(2023.6~2026.9) 분석</div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="n">56.7<small>%</small><span style="color:var(--muted)"> → </span>44.6<small>%</small></div>
+      <div class="k"><b>신규 임대차 중 전세 비중</b><br>2023년 → 2026년, 전국. 3년 만에 12%p 붕괴</div>
+    </div>
+    <div class="stat">
+      <div class="n" id="s-seoul">–</div>
+      <div class="k"><b>서울 전세 거래량</b><br>2024년 상반기 대비 2026년 상반기 감소</div>
+    </div>
+    <div class="stat">
+      <div class="n">25<small> / 25</small></div>
+      <div class="k"><b>전세가 줄어든 서울 자치구</b><br>예외 없이 전 자치구에서 감소</div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <p class="lede">전세는 한국에만 있는 독특한 주거 사다리였다. 목돈을 맡기고 이자 대신 집을 빌리는 이 방식은, 세입자에게는 월 부담 없는 임시 거처를, 집주인에게는 무이자 자금을 안겼다. 그 균형이 지금 <span class="hl">빠르게 무너지고 있다.</span></p>
+
+  <p>국토교통부 전월세 실거래 <span class="em">350만 건</span>을 3년간 시계열로 추적한 결과, 신규 임대차 계약에서 전세가 차지하는 비중은 2023년 <span class="em">56.7%</span>에서 2026년(1~8월) <span class="em">44.6%</span>로 내려앉았다. 계약 두 건 중 한 건이 전세이던 시장이, 이제는 절반에 못 미친다. 특정 지역의 일이 아니다. 서울 25개 자치구가 <strong>한 곳도 빠짐없이</strong> 전세 거래가 줄었다.</p>
+
+  <p>이 흐름은 우발적이지 않다. 지난 10년간 층층이 쌓인 부동산 세제는 하나의 방향을 가리켜 왔다. <strong>집주인이 직접 들어가 살면 세금을 깎아 주고, 세를 놓으면 물린다.</strong> 이 리포트는 그 설계가 전세 시장에 남긴 자국을 데이터로 따라간다.</p>
+
+  <!-- §1 -->
+  <section>
+    <div class="sec-no">01 — 3년의 하강</div>
+    <h2>전세 비중, 절반선이 무너지다</h2>
+    <p class="dek">신규 임대차 계약 중 전세 비율. 월별 신고지연·이사철 계절성에 영향받지 않는 구조 지표다. 전국·서울·수도권·지방 모두 완만하지만 <span style="color:var(--jeonse);font-weight:600">멈추지 않는 하강</span>을 그린다.</p>
+    <figure>
+      <div class="card">
+        <div class="fig-h">
+          <div class="fig-t">신규 임대차 중 전세 비중 (%)</div>
+          <div class="legend">
+            <span><i style="background:var(--nation)"></i>전국</span>
+            <span><i style="background:var(--seoul)"></i>서울</span>
+            <span><i style="background:var(--gyeong)"></i>수도권</span>
+            <span><i style="background:var(--local)"></i>지방</span>
+          </div>
+        </div>
+        <div id="chart-line"></div>
+      </div>
+      <figcaption>자료: 국토교통부 전월세 실거래가 · 콕집. 2023년 6월~2026년 8월(2026년 9월은 신고 진행 중이라 제외). 절반선(50%) 점선 표시.</figcaption>
+    </figure>
+    <p>2023년 여름만 해도 전국 전세 비중은 <span class="em">56%대</span>에서 안정적이었다. 그러나 2024년 말 <span class="em">50%</span>선이 뚫렸고, 2025년 하반기부터는 <strong>지방이 먼저, 이어 수도권과 서울이</strong> 차례로 절반 아래로 내려갔다. 서울은 전세의 마지막 보루로 불렸지만, 2026년 들어 여러 달 <span class="em">40%대 중반</span>까지 떨어졌다. 3년에 걸친 이 하강에는 급반등이 없다 — 일시적 충격이 아니라 <strong>구조가 바뀌고 있다는 신호</strong>다.</p>
+  </section>
+
+  <!-- §2 -->
+  <section>
+    <div class="sec-no">02 — 예외 없는 후퇴</div>
+    <h2>서울 25개 자치구, 전부 줄었다</h2>
+    <p class="dek">같은 계절끼리 비교했다 — 2024년 상반기 대 2026년 상반기, 자치구별 전세 실거래 건수 증감. 강남도 노원도, 도심도 외곽도 방향이 같다.</p>
+    <figure>
+      <div class="card">
+        <div class="fig-h"><div class="fig-t">서울 자치구별 전세 거래 증감률 · 2024 상반기 → 2026 상반기</div></div>
+        <div class="gugrid" id="gu-bars"></div>
+      </div>
+      <figcaption>자료: 국토교통부 전월세 실거래가 · 콕집. 각 해 1~6월 전세(보증금만·월세 0원) 계약 건수 비교. 값이 클수록 감소폭이 크다.</figcaption>
+    </figure>
+    <p>감소는 서민 주거지에서 더 가팔랐다. <span class="em">중랑(-30%)·금천(-27%)·강북(-25%)</span> 등 상대적 저가 지역의 전세가 먼저 말랐다. 전세를 지탱하던 실수요층이 <strong>보증금을 감당 못 해 월세로 밀려나거나</strong>, 집주인이 전세를 거둔 자리다. 강남·서초·송파도 15~23% 줄어, 지역과 소득을 가리지 않는 <span style="color:var(--jeonse);font-weight:600">전면적 후퇴</span>가 확인된다.</p>
+  </section>
+
+  <div class="pq">전세가 빠진 자리를 <span class="hl">월세</span>가 메운다.<br>세입자는 목돈 대신 매달 현금을 낸다.</div>
+
+  <!-- §3 -->
+  <section>
+    <div class="sec-no">03 — 대체와 잠금</div>
+    <h2>월세로의 대이동, 그리고 잠긴 매물</h2>
+    <p class="dek">전세가 줄어든 만큼 월세가 늘었다. 동시에, 시장에 남은 전세는 갱신계약으로 <span style="color:var(--jeonse);font-weight:600">잠겨</span> 신규로 나오지 않는다.</p>
+    <figure>
+      <div class="card">
+        <div class="fig-h">
+          <div class="fig-t">서울 임대차 구성 · 전세 vs 월세 비중 (%)</div>
+          <div class="legend">
+            <span><i style="background:var(--jeonse)"></i>전세</span>
+            <span><i style="background:var(--wolse)"></i>월세·반전세</span>
+          </div>
+        </div>
+        <div id="chart-stack"></div>
+      </div>
+      <figcaption>자료: 국토교통부 전월세 실거래가 · 콕집. 서울 신규 임대차, 2023.6~2026.8. 월세는 보증금부 월세·반전세 포함.</figcaption>
+    </figure>
+    <p>서울에서 월세·반전세 비중은 2023년 <span class="em">40%</span>에서 2026년 <span class="em">50%</span>대로 올라섰다. 전세의 감소와 월세의 증가가 <strong>정확히 맞물린다</strong> — 수요가 사라진 게 아니라, 계약의 형태가 바뀐 것이다.</p>
+    <p>남은 전세마저 시장에 잘 나오지 않는다. 서울 임대차 계약 중 <strong>갱신계약 비중은 3년 새 23%에서 50% 이상</strong>으로 뛰었다. 세입자들이 계약갱신청구권으로 살던 집에 눌러앉으면서, 신규 전세 매물이 그만큼 시장에서 <span style="color:var(--jeonse);font-weight:600">잠긴다.</span> '씨가 마른다'는 체감은 여기서 온다.</p>
+  </section>
+
+  <!-- §4 -->
+  <section>
+    <div class="sec-no">04 — 왜</div>
+    <h2>세법은 '실거주'에 상을 준다</h2>
+    <p class="dek">전세가 마르는 뿌리에는 지난 10년간 층층이 쌓인 세제가 있다. 그 설계는 일관되게 한 방향을 가리킨다 — 집주인이 <strong>직접 들어가 살수록 유리하게.</strong></p>
+
+    <div class="mech">
+      <div class="mcard"><div class="t"><span class="num">01</span>양도세 비과세</div><p>1주택 양도세 비과세는 조정대상지역에서 <b style="color:var(--ink)">2년 실거주</b>를 요구한다. 세를 놓아 거주요건을 못 채우면 수억 원의 비과세 혜택이 사라진다.</p></div>
+      <div class="mcard"><div class="t"><span class="num">02</span>장기보유 공제</div><p>최대 <b style="color:var(--ink)">80%</b>에 이르는 장기보유특별공제도 '거주한 기간'을 따진다. 세만 놓았다면 공제는 반토막 난다.</p></div>
+      <div class="mcard"><div class="t"><span class="num">03</span>다주택 중과</div><p>취득·보유·양도 <b style="color:var(--ink)">세 단계 모두</b> 다주택자에게 무겁다. 여러 채를 세놓는 것은 삼중의 세부담을 진다는 뜻이다.</p></div>
+      <div class="mcard"><div class="t"><span class="num">04</span>전세가 먼저 마른다</div><p>월세는 임대소득이라도 남지만, 전세는 보증금 이자수익뿐이다. 세금 위험까지 떠안으면 <b style="color:var(--ink)">전세를 유지할 이유가 없다.</b></p></div>
+    </div>
+
+    <p style="margin-top:30px">개별 집주인의 선택은 합리적이다. 세를 놓아 얻는 이익보다 <strong>직접 거주해 지키는 세금 혜택이 크다면</strong>, 세놓던 집 — 특히 이문이 얇은 전세 — 을 거두어 들어가 사는 것이 정답이 된다. 수십만 명이 같은 계산을 하면, 그 합계가 곧 <span style="color:var(--jeonse);font-weight:600">시장에서 사라진 전세</span>다.</p>
+
+    <h3 style="font-family:var(--sans);font-size:15px;font-weight:900;letter-spacing:.04em;margin:34px 0 4px;color:var(--ink-soft)">실거주를 압박해 온 세제 연표</h3>
+    <div class="tl">
+      <div class="tlrow key"><div class="tld">2017.08</div><div class="tlt">8·2 대책 — 비과세 거주요건 신설<span class="tag push">전세 압박</span></div><div class="tlx">조정대상지역 1주택 양도세 비과세에 '2년 실거주' 요건이 처음 붙었다. 세놓기와 비과세를 양립할 수 없게 된 출발점.</div></div>
+      <div class="tlrow key"><div class="tld">2019.12</div><div class="tlt">12·16 대책 — 장기보유공제 거주요건 강화<span class="tag push">전세 압박</span></div><div class="tlx">장기보유특별공제를 보유기간과 거주기간으로 쪼갰다(2021 시행). 실거주 없이는 고가주택 공제가 크게 줄도록.</div></div>
+      <div class="tlrow key"><div class="tld">2020.07</div><div class="tlt">7·10 대책 — 다주택 취득·보유·양도 중과<span class="tag push">전세 압박</span></div><div class="tlx">취득세 최대 12%, 종부세·양도세 중과. 여러 채를 세놓는 구조 자체에 삼중의 세부담을 얹었다.</div></div>
+      <div class="tlrow"><div class="tld">2020.07</div><div class="tlt">임대차 2법 시행</div><div class="tlx">계약갱신청구권·전월세상한제 도입. 기존 세입자가 눌러앉으며 신규 전세 매물이 잠기기 시작했다.</div></div>
+      <div class="tlrow key"><div class="tld">2021.06</div><div class="tlt">다주택 양도세 중과 시행</div><div class="tlx">중과세율이 실제 적용되며 다주택 보유의 실익이 급감. '팔거나, 들어가 살거나'의 압력이 정점에 달했다.</div></div>
+      <div class="tlrow soft"><div class="tld">2022.06</div><div class="tlt">상생임대인 제도 확대<span class="tag pull">전세 유인</span></div><div class="tlx">임대료를 5% 이내로 올린 집주인에게 2년 실거주 요건을 면제. 전세 유지를 북돋운 드문 반대 방향 조치였으나, 한시적 성격이 짙었다.</div></div>
+      <div class="tlrow"><div class="tld">2023.01</div><div class="tlt">규제지역 대폭 해제</div><div class="tlx">강남3구·용산을 제외한 전 지역이 조정대상지역에서 풀렸다. 다만 누적된 거주요건·중과의 관성은 이미 시장에 자리잡은 뒤였다.</div></div>
+      <div class="tlrow key"><div class="tld">2026.08</div><div class="tlt">2026년 세제개편안 발표<span class="tag push">전세 압박</span></div><div class="tlx">고가·다주택 과세를 재차 손보며 실거주 우대 기조가 이어졌다. 전세 비중은 발표 시점에도 40%대 중반에 머물렀다.</div></div>
+    </div>
+  </section>
+
+  <p class="lede" style="margin-top:46px">전세의 퇴장은 통계 이전에 <span class="hl">세입자의 생활</span>이다. 목돈을 굴려 주거비를 아끼던 사다리가 사라지면, 그 자리를 매달 나가는 월세가 대신한다.</p>
+  <p>물론 전세의 후퇴에는 고금리와 전세사기 여파도 작용했다. 그러나 이 하강이 <strong>3년 내내, 전 지역에서, 예외 없이, 급반등 없이</strong> 진행됐다는 사실은 한때의 충격이 아니라 <span class="em">제도가 만든 유인구조</span>를 가리킨다. 실거주에 상을 주고 세놓기에 벌금을 매기는 세법이 그대로라면, 전세라는 이름의 주거 방식은 통계의 소수점 아래로 계속 밀려갈 것이다.</p>
+
+  <div class="method">
+    <h3>데이터 및 방법</h3>
+    <b>· 자료</b> 국토교통부 아파트·주택 전월세 실거래가 신고 자료(2023년 6월~2026년 9월, 약 350만 건). 콕집이 수집·정제·지역 매핑.<br>
+    <b>· 전세/월세 구분</b> 월세액 0원 = 전세, 0원 초과 = 월세·반전세.<br>
+    <b>· 대표지표</b> '신규 임대차 중 전세 비중'은 신고지연·이사철 계절성에 강건해 구조 변화를 보는 데 적합하다. 최근 2개월(2026.8~9)은 신고가 진행 중이라 거래 '건수'는 잠정치이며, 비중 지표에는 왜곡이 작다.<br>
+    <b>· 자치구 비교</b> 계절성 통제를 위해 상반기(1~6월)끼리, 2024년과 2026년을 맞대어 비교했다.<br>
+    <b>· 한계</b> 실거래 신고 기준이므로 미신고·직거래는 포함되지 않는다. 세제와 전세 감소의 관계는 상관을 넘어선 인과의 단정이 아니라, 데이터가 가리키는 방향에 대한 해석이다.
+  </div>
+
+  <div class="foot">
+    <b>콕집</b> · 부동산 데이터 저널리즘 리포트<br>
+    본 리포트의 수치는 공개 실거래 통계에 기반하며, 재인용 시 출처(콕집·국토교통부)를 밝혀 주시기 바랍니다.
+  </div>
+</main>
+
+<script>
+const DATA = {"months": ["2023-06", "2023-07", "2023-08", "2023-09", "2023-10", "2023-11", "2023-12", "2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06", "2024-07", "2024-08", "2024-09", "2024-10", "2024-11", "2024-12", "2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06", "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"], "monthly": {"전국": [{"ym": "2023-06", "tot": 97634, "jeonse_pct": 56.2, "wolse_pct": 43.8, "jeonse": 54904, "wolse": 42730, "renew_pct": 20.2}, {"ym": "2023-07", "tot": 94769, "jeonse_pct": 57.9, "wolse_pct": 42.1, "jeonse": 54905, "wolse": 39864, "renew_pct": 19.9}, {"ym": "2023-08", "tot": 94546, "jeonse_pct": 57.2, "wolse_pct": 42.8, "jeonse": 54062, "wolse": 40484, "renew_pct": 18.8}, {"ym": "2023-09", "tot": 94122, "jeonse_pct": 55.0, "wolse_pct": 45.0, "jeonse": 51745, "wolse": 42377, "renew_pct": 20.9}, {"ym": "2023-10", "tot": 100984, "jeonse_pct": 56.2, "wolse_pct": 43.8, "jeonse": 56798, "wolse": 44186, "renew_pct": 21.2}, {"ym": "2023-11", "tot": 96743, "jeonse_pct": 54.4, "wolse_pct": 45.6, "jeonse": 52631, "wolse": 44112, "renew_pct": 20.2}, {"ym": "2023-12", "tot": 99640, "jeonse_pct": 55.2, "wolse_pct": 44.8, "jeonse": 54998, "wolse": 44642, "renew_pct": 20.8}, {"ym": "2024-01", "tot": 105564, "jeonse_pct": 56.9, "wolse_pct": 43.1, "jeonse": 60066, "wolse": 45498, "renew_pct": 22.6}, {"ym": "2024-02", "tot": 93895, "jeonse_pct": 55.3, "wolse_pct": 44.7, "jeonse": 51955, "wolse": 41940, "renew_pct": 30.0}, {"ym": "2024-03", "tot": 98466, "jeonse_pct": 56.6, "wolse_pct": 43.4, "jeonse": 55688, "wolse": 42778, "renew_pct": 26.7}, {"ym": "2024-04", "tot": 86211, "jeonse_pct": 55.9, "wolse_pct": 44.1, "jeonse": 48224, "wolse": 37987, "renew_pct": 27.6}, {"ym": "2024-05", "tot": 89308, "jeonse_pct": 54.8, "wolse_pct": 45.2, "jeonse": 48955, "wolse": 40353, "renew_pct": 27.7}, {"ym": "2024-06", "tot": 86238, "jeonse_pct": 56.3, "wolse_pct": 43.7, "jeonse": 48549, "wolse": 37689, "renew_pct": 28.4}, {"ym": "2024-07", "tot": 86209, "jeonse_pct": 57.6, "wolse_pct": 42.4, "jeonse": 49691, "wolse": 36518, "renew_pct": 26.6}, {"ym": "2024-08", "tot": 86254, "jeonse_pct": 55.6, "wolse_pct": 44.4, "jeonse": 47942, "wolse": 38312, "renew_pct": 26.0}, {"ym": "2024-09", "tot": 75300, "jeonse_pct": 53.6, "wolse_pct": 46.4, "jeonse": 40341, "wolse": 34959, "renew_pct": 30.1}, {"ym": "2024-10", "tot": 91293, "jeonse_pct": 54.0, "wolse_pct": 46.0, "jeonse": 49330, "wolse": 41963, "renew_pct": 28.5}, {"ym": "2024-11", "tot": 84790, "jeonse_pct": 52.5, "wolse_pct": 47.5, "jeonse": 44524, "wolse": 40266, "renew_pct": 28.1}, {"ym": "2024-12", "tot": 90889, "jeonse_pct": 50.4, "wolse_pct": 49.6, "jeonse": 45824, "wolse": 45065, "renew_pct": 28.6}, {"ym": "2025-01", "tot": 83501, "jeonse_pct": 54.9, "wolse_pct": 45.1, "jeonse": 45862, "wolse": 37639, "renew_pct": 31.2}, {"ym": "2025-02", "tot": 103321, "jeonse_pct": 55.3, "wolse_pct": 44.7, "jeonse": 57165, "wolse": 46156, "renew_pct": 31.8}, {"ym": "2025-03", "tot": 99502, "jeonse_pct": 56.9, "wolse_pct": 43.1, "jeonse": 56624, "wolse": 42878, "renew_pct": 31.2}, {"ym": "2025-04", "tot": 88089, "jeonse_pct": 54.0, "wolse_pct": 46.0, "jeonse": 47557, "wolse": 40532, "renew_pct": 32.5}, {"ym": "2025-05", "tot": 89629, "jeonse_pct": 53.2, "wolse_pct": 46.8, "jeonse": 47719, "wolse": 41910, "renew_pct": 34.3}, {"ym": "2025-06", "tot": 89374, "jeonse_pct": 52.6, "wolse_pct": 47.4, "jeonse": 46991, "wolse": 42383, "renew_pct": 33.5}, {"ym": "2025-07", "tot": 89350, "jeonse_pct": 51.7, "wolse_pct": 48.3, "jeonse": 46170, "wolse": 43180, "renew_pct": 32.8}, {"ym": "2025-08", "tot": 82047, "jeonse_pct": 50.8, "wolse_pct": 49.2, "jeonse": 41710, "wolse": 40337, "renew_pct": 32.0}, {"ym": "2025-09", "tot": 88558, "jeonse_pct": 49.6, "wolse_pct": 50.4, "jeonse": 43900, "wolse": 44658, "renew_pct": 32.4}, {"ym": "2025-10", "tot": 79860, "jeonse_pct": 50.1, "wolse_pct": 49.9, "jeonse": 40033, "wolse": 39827, "renew_pct": 32.3}, {"ym": "2025-11", "tot": 91554, "jeonse_pct": 50.7, "wolse_pct": 49.3, "jeonse": 46429, "wolse": 45125, "renew_pct": 30.8}, {"ym": "2025-12", "tot": 97870, "jeonse_pct": 48.3, "wolse_pct": 51.7, "jeonse": 47272, "wolse": 50598, "renew_pct": 33.2}, {"ym": "2026-01", "tot": 98054, "jeonse_pct": 51.0, "wolse_pct": 49.0, "jeonse": 50009, "wolse": 48045, "renew_pct": 33.6}, {"ym": "2026-02", "tot": 81014, "jeonse_pct": 50.2, "wolse_pct": 49.8, "jeonse": 40646, "wolse": 40368, "renew_pct": 34.3}, {"ym": "2026-03", "tot": 91170, "jeonse_pct": 49.8, "wolse_pct": 50.2, "jeonse": 45428, "wolse": 45742, "renew_pct": 33.4}, {"ym": "2026-04", "tot": 84994, "jeonse_pct": 46.7, "wolse_pct": 53.3, "jeonse": 39705, "wolse": 45289, "renew_pct": 33.9}, {"ym": "2026-05", "tot": 79143, "jeonse_pct": 48.3, "wolse_pct": 51.7, "jeonse": 38188, "wolse": 40955, "renew_pct": 37.4}, {"ym": "2026-06", "tot": 78003, "jeonse_pct": 47.4, "wolse_pct": 52.6, "jeonse": 36954, "wolse": 41049, "renew_pct": 35.9}, {"ym": "2026-07", "tot": 75245, "jeonse_pct": 48.2, "wolse_pct": 51.8, "jeonse": 36287, "wolse": 38958, "renew_pct": 36.0}, {"ym": "2026-08", "tot": 63846, "jeonse_pct": 48.3, "wolse_pct": 51.7, "jeonse": 30847, "wolse": 32999, "renew_pct": 37.8}, {"ym": "2026-09", "tot": 30730, "jeonse_pct": 48.3, "wolse_pct": 51.7, "jeonse": 14830, "wolse": 15900, "renew_pct": 43.7}], "서울": [{"ym": "2023-06", "tot": 22502, "jeonse_pct": 57.5, "wolse_pct": 42.5, "jeonse": 12938, "wolse": 9564, "renew_pct": 23.3}, {"ym": "2023-07", "tot": 21431, "jeonse_pct": 59.6, "wolse_pct": 40.4, "jeonse": 12783, "wolse": 8648, "renew_pct": 24.7}, {"ym": "2023-08", "tot": 21031, "jeonse_pct": 60.0, "wolse_pct": 40.0, "jeonse": 12626, "wolse": 8405, "renew_pct": 23.0}, {"ym": "2023-09", "tot": 20127, "jeonse_pct": 59.9, "wolse_pct": 40.1, "jeonse": 12060, "wolse": 8067, "renew_pct": 22.2}, {"ym": "2023-10", "tot": 22070, "jeonse_pct": 60.0, "wolse_pct": 40.0, "jeonse": 13249, "wolse": 8821, "renew_pct": 25.5}, {"ym": "2023-11", "tot": 20794, "jeonse_pct": 61.2, "wolse_pct": 38.8, "jeonse": 12720, "wolse": 8074, "renew_pct": 26.3}, {"ym": "2023-12", "tot": 24147, "jeonse_pct": 57.0, "wolse_pct": 43.0, "jeonse": 13757, "wolse": 10390, "renew_pct": 23.9}, {"ym": "2024-01", "tot": 23210, "jeonse_pct": 57.9, "wolse_pct": 42.1, "jeonse": 13450, "wolse": 9760, "renew_pct": 27.7}, {"ym": "2024-02", "tot": 20216, "jeonse_pct": 57.4, "wolse_pct": 42.6, "jeonse": 11603, "wolse": 8613, "renew_pct": 33.4}, {"ym": "2024-03", "tot": 22945, "jeonse_pct": 56.6, "wolse_pct": 43.4, "jeonse": 12990, "wolse": 9955, "renew_pct": 28.8}, {"ym": "2024-04", "tot": 18223, "jeonse_pct": 58.9, "wolse_pct": 41.1, "jeonse": 10726, "wolse": 7497, "renew_pct": 31.4}, {"ym": "2024-05", "tot": 20311, "jeonse_pct": 56.5, "wolse_pct": 43.5, "jeonse": 11466, "wolse": 8845, "renew_pct": 28.5}, {"ym": "2024-06", "tot": 19238, "jeonse_pct": 58.5, "wolse_pct": 41.5, "jeonse": 11248, "wolse": 7990, "renew_pct": 30.8}, {"ym": "2024-07", "tot": 19647, "jeonse_pct": 59.2, "wolse_pct": 40.8, "jeonse": 11636, "wolse": 8011, "renew_pct": 29.8}, {"ym": "2024-08", "tot": 19553, "jeonse_pct": 59.3, "wolse_pct": 40.7, "jeonse": 11595, "wolse": 7958, "renew_pct": 29.3}, {"ym": "2024-09", "tot": 16003, "jeonse_pct": 55.3, "wolse_pct": 44.7, "jeonse": 8842, "wolse": 7161, "renew_pct": 31.6}, {"ym": "2024-10", "tot": 19358, "jeonse_pct": 57.4, "wolse_pct": 42.6, "jeonse": 11115, "wolse": 8243, "renew_pct": 31.2}, {"ym": "2024-11", "tot": 19333, "jeonse_pct": 54.2, "wolse_pct": 45.8, "jeonse": 10469, "wolse": 8864, "renew_pct": 32.5}, {"ym": "2024-12", "tot": 21349, "jeonse_pct": 53.4, "wolse_pct": 46.6, "jeonse": 11396, "wolse": 9953, "renew_pct": 32.0}, {"ym": "2025-01", "tot": 19606, "jeonse_pct": 56.1, "wolse_pct": 43.9, "jeonse": 11006, "wolse": 8600, "renew_pct": 34.8}, {"ym": "2025-02", "tot": 24848, "jeonse_pct": 54.5, "wolse_pct": 45.5, "jeonse": 13546, "wolse": 11302, "renew_pct": 37.0}, {"ym": "2025-03", "tot": 23916, "jeonse_pct": 60.8, "wolse_pct": 39.2, "jeonse": 14550, "wolse": 9366, "renew_pct": 36.7}, {"ym": "2025-04", "tot": 21485, "jeonse_pct": 56.6, "wolse_pct": 43.4, "jeonse": 12161, "wolse": 9324, "renew_pct": 38.0}, {"ym": "2025-05", "tot": 22105, "jeonse_pct": 54.1, "wolse_pct": 45.9, "jeonse": 11956, "wolse": 10149, "renew_pct": 38.4}, {"ym": "2025-06", "tot": 21454, "jeonse_pct": 57.4, "wolse_pct": 42.6, "jeonse": 12318, "wolse": 9136, "renew_pct": 38.2}, {"ym": "2025-07", "tot": 20684, "jeonse_pct": 55.2, "wolse_pct": 44.8, "jeonse": 11408, "wolse": 9276, "renew_pct": 39.3}, {"ym": "2025-08", "tot": 19332, "jeonse_pct": 55.7, "wolse_pct": 44.3, "jeonse": 10760, "wolse": 8572, "renew_pct": 39.9}, {"ym": "2025-09", "tot": 20312, "jeonse_pct": 56.2, "wolse_pct": 43.8, "jeonse": 11416, "wolse": 8896, "renew_pct": 38.3}, {"ym": "2025-10", "tot": 19288, "jeonse_pct": 54.6, "wolse_pct": 45.4, "jeonse": 10523, "wolse": 8765, "renew_pct": 39.3}, {"ym": "2025-11", "tot": 20926, "jeonse_pct": 55.2, "wolse_pct": 44.8, "jeonse": 11549, "wolse": 9377, "renew_pct": 38.5}, {"ym": "2025-12", "tot": 23784, "jeonse_pct": 49.8, "wolse_pct": 50.2, "jeonse": 11845, "wolse": 11939, "renew_pct": 42.6}, {"ym": "2026-01", "tot": 22803, "jeonse_pct": 51.7, "wolse_pct": 48.3, "jeonse": 11795, "wolse": 11008, "renew_pct": 44.6}, {"ym": "2026-02", "tot": 18371, "jeonse_pct": 51.8, "wolse_pct": 48.2, "jeonse": 9512, "wolse": 8859, "renew_pct": 46.2}, {"ym": "2026-03", "tot": 20965, "jeonse_pct": 49.3, "wolse_pct": 50.7, "jeonse": 10339, "wolse": 10626, "renew_pct": 45.0}, {"ym": "2026-04", "tot": 18208, "jeonse_pct": 49.4, "wolse_pct": 50.6, "jeonse": 8990, "wolse": 9218, "renew_pct": 42.2}, {"ym": "2026-05", "tot": 17598, "jeonse_pct": 49.4, "wolse_pct": 50.6, "jeonse": 8699, "wolse": 8899, "renew_pct": 46.5}, {"ym": "2026-06", "tot": 18621, "jeonse_pct": 44.2, "wolse_pct": 55.8, "jeonse": 8239, "wolse": 10382, "renew_pct": 45.1}, {"ym": "2026-07", "tot": 17728, "jeonse_pct": 48.6, "wolse_pct": 51.4, "jeonse": 8620, "wolse": 9108, "renew_pct": 46.5}, {"ym": "2026-08", "tot": 14685, "jeonse_pct": 49.2, "wolse_pct": 50.8, "jeonse": 7231, "wolse": 7454, "renew_pct": 50.6}, {"ym": "2026-09", "tot": 7342, "jeonse_pct": 46.2, "wolse_pct": 53.8, "jeonse": 3390, "wolse": 3952, "renew_pct": 52.4}], "수도권": [{"ym": "2023-06", "tot": 40225, "jeonse_pct": 56.4, "wolse_pct": 43.6, "jeonse": 22668, "wolse": 17557, "renew_pct": 23.6}, {"ym": "2023-07", "tot": 39241, "jeonse_pct": 57.9, "wolse_pct": 42.1, "jeonse": 22726, "wolse": 16515, "renew_pct": 23.3}, {"ym": "2023-08", "tot": 38350, "jeonse_pct": 57.3, "wolse_pct": 42.7, "jeonse": 21962, "wolse": 16388, "renew_pct": 22.5}, {"ym": "2023-09", "tot": 40431, "jeonse_pct": 51.1, "wolse_pct": 48.9, "jeonse": 20666, "wolse": 19765, "renew_pct": 26.7}, {"ym": "2023-10", "tot": 40978, "jeonse_pct": 54.2, "wolse_pct": 45.8, "jeonse": 22192, "wolse": 18786, "renew_pct": 24.8}, {"ym": "2023-11", "tot": 39010, "jeonse_pct": 51.3, "wolse_pct": 48.7, "jeonse": 20001, "wolse": 19009, "renew_pct": 23.3}, {"ym": "2023-12", "tot": 38029, "jeonse_pct": 54.0, "wolse_pct": 46.0, "jeonse": 20519, "wolse": 17510, "renew_pct": 23.9}, {"ym": "2024-01", "tot": 41531, "jeonse_pct": 56.2, "wolse_pct": 43.8, "jeonse": 23357, "wolse": 18174, "renew_pct": 26.2}, {"ym": "2024-02", "tot": 38242, "jeonse_pct": 53.8, "wolse_pct": 46.2, "jeonse": 20562, "wolse": 17680, "renew_pct": 35.1}, {"ym": "2024-03", "tot": 40857, "jeonse_pct": 57.4, "wolse_pct": 42.6, "jeonse": 23449, "wolse": 17408, "renew_pct": 31.0}, {"ym": "2024-04", "tot": 36066, "jeonse_pct": 56.0, "wolse_pct": 44.0, "jeonse": 20187, "wolse": 15879, "renew_pct": 31.9}, {"ym": "2024-05", "tot": 37317, "jeonse_pct": 54.3, "wolse_pct": 45.7, "jeonse": 20251, "wolse": 17066, "renew_pct": 33.4}, {"ym": "2024-06", "tot": 35138, "jeonse_pct": 57.6, "wolse_pct": 42.4, "jeonse": 20243, "wolse": 14895, "renew_pct": 31.7}, {"ym": "2024-07", "tot": 34815, "jeonse_pct": 59.9, "wolse_pct": 40.1, "jeonse": 20860, "wolse": 13955, "renew_pct": 30.0}, {"ym": "2024-08", "tot": 34936, "jeonse_pct": 56.4, "wolse_pct": 43.6, "jeonse": 19701, "wolse": 15235, "renew_pct": 28.5}, {"ym": "2024-09", "tot": 31285, "jeonse_pct": 54.1, "wolse_pct": 45.9, "jeonse": 16910, "wolse": 14375, "renew_pct": 36.0}, {"ym": "2024-10", "tot": 37581, "jeonse_pct": 52.8, "wolse_pct": 47.2, "jeonse": 19835, "wolse": 17746, "renew_pct": 33.7}, {"ym": "2024-11", "tot": 33505, "jeonse_pct": 52.1, "wolse_pct": 47.9, "jeonse": 17468, "wolse": 16037, "renew_pct": 32.4}, {"ym": "2024-12", "tot": 34747, "jeonse_pct": 50.1, "wolse_pct": 49.9, "jeonse": 17403, "wolse": 17344, "renew_pct": 32.6}, {"ym": "2025-01", "tot": 31533, "jeonse_pct": 55.8, "wolse_pct": 44.2, "jeonse": 17584, "wolse": 13949, "renew_pct": 37.5}, {"ym": "2025-02", "tot": 39329, "jeonse_pct": 57.9, "wolse_pct": 42.1, "jeonse": 22788, "wolse": 16541, "renew_pct": 37.7}, {"ym": "2025-03", "tot": 40595, "jeonse_pct": 57.4, "wolse_pct": 42.6, "jeonse": 23319, "wolse": 17276, "renew_pct": 35.7}, {"ym": "2025-04", "tot": 35645, "jeonse_pct": 54.6, "wolse_pct": 45.4, "jeonse": 19472, "wolse": 16173, "renew_pct": 37.8}, {"ym": "2025-05", "tot": 36513, "jeonse_pct": 55.2, "wolse_pct": 44.8, "jeonse": 20153, "wolse": 16360, "renew_pct": 40.6}, {"ym": "2025-06", "tot": 35853, "jeonse_pct": 53.9, "wolse_pct": 46.1, "jeonse": 19331, "wolse": 16522, "renew_pct": 37.9}, {"ym": "2025-07", "tot": 35577, "jeonse_pct": 53.5, "wolse_pct": 46.5, "jeonse": 19017, "wolse": 16560, "renew_pct": 38.2}, {"ym": "2025-08", "tot": 32632, "jeonse_pct": 51.8, "wolse_pct": 48.2, "jeonse": 16894, "wolse": 15738, "renew_pct": 35.8}, {"ym": "2025-09", "tot": 36140, "jeonse_pct": 48.2, "wolse_pct": 51.8, "jeonse": 17408, "wolse": 18732, "renew_pct": 37.8}, {"ym": "2025-10", "tot": 31299, "jeonse_pct": 50.3, "wolse_pct": 49.7, "jeonse": 15748, "wolse": 15551, "renew_pct": 36.2}, {"ym": "2025-11", "tot": 36657, "jeonse_pct": 49.0, "wolse_pct": 51.0, "jeonse": 17965, "wolse": 18692, "renew_pct": 33.8}, {"ym": "2025-12", "tot": 36317, "jeonse_pct": 47.7, "wolse_pct": 52.3, "jeonse": 17310, "wolse": 19007, "renew_pct": 36.5}, {"ym": "2026-01", "tot": 36410, "jeonse_pct": 52.5, "wolse_pct": 47.5, "jeonse": 19132, "wolse": 17278, "renew_pct": 37.4}, {"ym": "2026-02", "tot": 30980, "jeonse_pct": 51.3, "wolse_pct": 48.7, "jeonse": 15887, "wolse": 15093, "renew_pct": 37.9}, {"ym": "2026-03", "tot": 36534, "jeonse_pct": 51.6, "wolse_pct": 48.4, "jeonse": 18869, "wolse": 17665, "renew_pct": 37.0}, {"ym": "2026-04", "tot": 34702, "jeonse_pct": 48.8, "wolse_pct": 51.2, "jeonse": 16933, "wolse": 17769, "renew_pct": 37.6}, {"ym": "2026-05", "tot": 33224, "jeonse_pct": 48.3, "wolse_pct": 51.7, "jeonse": 16033, "wolse": 17191, "renew_pct": 41.5}, {"ym": "2026-06", "tot": 30878, "jeonse_pct": 50.9, "wolse_pct": 49.1, "jeonse": 15711, "wolse": 15167, "renew_pct": 39.3}, {"ym": "2026-07", "tot": 30595, "jeonse_pct": 51.1, "wolse_pct": 48.9, "jeonse": 15633, "wolse": 14962, "renew_pct": 38.7}, {"ym": "2026-08", "tot": 25722, "jeonse_pct": 50.6, "wolse_pct": 49.4, "jeonse": 13015, "wolse": 12707, "renew_pct": 39.7}, {"ym": "2026-09", "tot": 14623, "jeonse_pct": 48.6, "wolse_pct": 51.4, "jeonse": 7108, "wolse": 7515, "renew_pct": 46.7}], "지방": [{"ym": "2023-06", "tot": 34907, "jeonse_pct": 55.3, "wolse_pct": 44.7, "jeonse": 19298, "wolse": 15609, "renew_pct": 14.3}, {"ym": "2023-07", "tot": 34097, "jeonse_pct": 56.9, "wolse_pct": 43.1, "jeonse": 19396, "wolse": 14701, "renew_pct": 12.9}, {"ym": "2023-08", "tot": 35165, "jeonse_pct": 55.4, "wolse_pct": 44.6, "jeonse": 19474, "wolse": 15691, "renew_pct": 12.2}, {"ym": "2023-09", "tot": 33564, "jeonse_pct": 56.7, "wolse_pct": 43.3, "jeonse": 19019, "wolse": 14545, "renew_pct": 13.1}, {"ym": "2023-10", "tot": 37936, "jeonse_pct": 56.3, "wolse_pct": 43.7, "jeonse": 21357, "wolse": 16579, "renew_pct": 14.9}, {"ym": "2023-11", "tot": 36939, "jeonse_pct": 53.9, "wolse_pct": 46.1, "jeonse": 19910, "wolse": 17029, "renew_pct": 13.4}, {"ym": "2023-12", "tot": 37464, "jeonse_pct": 55.3, "wolse_pct": 44.7, "jeonse": 20722, "wolse": 16742, "renew_pct": 15.7}, {"ym": "2024-01", "tot": 40823, "jeonse_pct": 57.0, "wolse_pct": 43.0, "jeonse": 23259, "wolse": 17564, "renew_pct": 16.1}, {"ym": "2024-02", "tot": 35437, "jeonse_pct": 55.8, "wolse_pct": 44.2, "jeonse": 19790, "wolse": 15647, "renew_pct": 22.6}, {"ym": "2024-03", "tot": 34664, "jeonse_pct": 55.5, "wolse_pct": 44.5, "jeonse": 19249, "wolse": 15415, "renew_pct": 20.1}, {"ym": "2024-04", "tot": 31922, "jeonse_pct": 54.2, "wolse_pct": 45.8, "jeonse": 17311, "wolse": 14611, "renew_pct": 20.6}, {"ym": "2024-05", "tot": 31680, "jeonse_pct": 54.4, "wolse_pct": 45.6, "jeonse": 17238, "wolse": 14442, "renew_pct": 20.4}, {"ym": "2024-06", "tot": 31862, "jeonse_pct": 53.5, "wolse_pct": 46.5, "jeonse": 17058, "wolse": 14804, "renew_pct": 23.4}, {"ym": "2024-07", "tot": 31747, "jeonse_pct": 54.2, "wolse_pct": 45.8, "jeonse": 17195, "wolse": 14552, "renew_pct": 20.8}, {"ym": "2024-08", "tot": 31765, "jeonse_pct": 52.4, "wolse_pct": 47.6, "jeonse": 16646, "wolse": 15119, "renew_pct": 21.2}, {"ym": "2024-09", "tot": 28012, "jeonse_pct": 52.1, "wolse_pct": 47.9, "jeonse": 14589, "wolse": 13423, "renew_pct": 22.8}, {"ym": "2024-10", "tot": 34354, "jeonse_pct": 53.5, "wolse_pct": 46.5, "jeonse": 18380, "wolse": 15974, "renew_pct": 21.2}, {"ym": "2024-11", "tot": 31952, "jeonse_pct": 51.9, "wolse_pct": 48.1, "jeonse": 16587, "wolse": 15365, "renew_pct": 21.0}, {"ym": "2024-12", "tot": 34793, "jeonse_pct": 48.9, "wolse_pct": 51.1, "jeonse": 17025, "wolse": 17768, "renew_pct": 22.4}, {"ym": "2025-01", "tot": 32362, "jeonse_pct": 53.4, "wolse_pct": 46.6, "jeonse": 17272, "wolse": 15090, "renew_pct": 22.8}, {"ym": "2025-02", "tot": 39144, "jeonse_pct": 53.2, "wolse_pct": 46.8, "jeonse": 20831, "wolse": 18313, "renew_pct": 22.6}, {"ym": "2025-03", "tot": 34991, "jeonse_pct": 53.6, "wolse_pct": 46.4, "jeonse": 18755, "wolse": 16236, "renew_pct": 22.3}, {"ym": "2025-04", "tot": 30959, "jeonse_pct": 51.4, "wolse_pct": 48.6, "jeonse": 15924, "wolse": 15035, "renew_pct": 22.7}, {"ym": "2025-05", "tot": 31011, "jeonse_pct": 50.3, "wolse_pct": 49.7, "jeonse": 15610, "wolse": 15401, "renew_pct": 23.9}, {"ym": "2025-06", "tot": 32067, "jeonse_pct": 47.8, "wolse_pct": 52.2, "jeonse": 15342, "wolse": 16725, "renew_pct": 25.4}, {"ym": "2025-07", "tot": 33089, "jeonse_pct": 47.6, "wolse_pct": 52.4, "jeonse": 15745, "wolse": 17344, "renew_pct": 23.0}, {"ym": "2025-08", "tot": 30083, "jeonse_pct": 46.7, "wolse_pct": 53.3, "jeonse": 14056, "wolse": 16027, "renew_pct": 22.8}, {"ym": "2025-09", "tot": 32106, "jeonse_pct": 47.0, "wolse_pct": 53.0, "jeonse": 15076, "wolse": 17030, "renew_pct": 22.6}, {"ym": "2025-10", "tot": 29273, "jeonse_pct": 47.0, "wolse_pct": 53.0, "jeonse": 13762, "wolse": 15511, "renew_pct": 23.5}, {"ym": "2025-11", "tot": 33971, "jeonse_pct": 49.8, "wolse_pct": 50.2, "jeonse": 16915, "wolse": 17056, "renew_pct": 22.9}, {"ym": "2025-12", "tot": 37769, "jeonse_pct": 48.0, "wolse_pct": 52.0, "jeonse": 18117, "wolse": 19652, "renew_pct": 24.2}, {"ym": "2026-01", "tot": 38841, "jeonse_pct": 49.1, "wolse_pct": 50.9, "jeonse": 19082, "wolse": 19759, "renew_pct": 23.6}, {"ym": "2026-02", "tot": 31663, "jeonse_pct": 48.2, "wolse_pct": 51.8, "jeonse": 15247, "wolse": 16416, "renew_pct": 24.0}, {"ym": "2026-03", "tot": 33671, "jeonse_pct": 48.2, "wolse_pct": 51.8, "jeonse": 16220, "wolse": 17451, "renew_pct": 22.2}, {"ym": "2026-04", "tot": 32084, "jeonse_pct": 43.0, "wolse_pct": 57.0, "jeonse": 13782, "wolse": 18302, "renew_pct": 25.3}, {"ym": "2026-05", "tot": 28321, "jeonse_pct": 47.5, "wolse_pct": 52.5, "jeonse": 13456, "wolse": 14865, "renew_pct": 26.9}, {"ym": "2026-06", "tot": 28504, "jeonse_pct": 45.6, "wolse_pct": 54.4, "jeonse": 13004, "wolse": 15500, "renew_pct": 26.3}, {"ym": "2026-07", "tot": 26922, "jeonse_pct": 44.7, "wolse_pct": 55.3, "jeonse": 12034, "wolse": 14888, "renew_pct": 25.9}, {"ym": "2026-08", "tot": 23439, "jeonse_pct": 45.2, "wolse_pct": 54.8, "jeonse": 10601, "wolse": 12838, "renew_pct": 27.7}, {"ym": "2026-09", "tot": 8765, "jeonse_pct": 49.4, "wolse_pct": 50.6, "jeonse": 4332, "wolse": 4433, "renew_pct": 31.4}]}, "gurank": [{"gu": "중랑", "j24": 2128, "j26": 1492, "chg": -30, "w24": 45, "w26": 63}, {"gu": "금천", "j24": 940, "j26": 683, "chg": -27, "w24": 38, "w26": 52}, {"gu": "강동", "j24": 4742, "j26": 3503, "chg": -26, "w24": 41, "w26": 49}, {"gu": "강북", "j24": 882, "j26": 664, "chg": -25, "w24": 45, "w26": 54}, {"gu": "도봉", "j24": 1971, "j26": 1474, "chg": -25, "w24": 37, "w26": 45}, {"gu": "관악", "j24": 1697, "j26": 1295, "chg": -24, "w24": 46, "w26": 55}, {"gu": "강남", "j24": 6333, "j26": 4888, "chg": -23, "w24": 47, "w26": 54}, {"gu": "성북", "j24": 2781, "j26": 2148, "chg": -23, "w24": 40, "w26": 45}, {"gu": "구로", "j24": 2752, "j26": 2151, "chg": -22, "w24": 47, "w26": 58}, {"gu": "중구", "j24": 933, "j26": 731, "chg": -22, "w24": 51, "w26": 60}, {"gu": "용산", "j24": 1708, "j26": 1348, "chg": -21, "w24": 49, "w26": 58}, {"gu": "강서", "j24": 4263, "j26": 3349, "chg": -21, "w24": 38, "w26": 47}, {"gu": "영등포", "j24": 3463, "j26": 2736, "chg": -21, "w24": 43, "w26": 49}, {"gu": "종로", "j24": 462, "j26": 371, "chg": -20, "w24": 54, "w26": 64}, {"gu": "송파", "j24": 5980, "j26": 4860, "chg": -19, "w24": 42, "w26": 49}, {"gu": "양천", "j24": 3626, "j26": 2954, "chg": -19, "w24": 34, "w26": 42}, {"gu": "은평", "j24": 2937, "j26": 2377, "chg": -19, "w24": 41, "w26": 48}, {"gu": "노원", "j24": 5924, "j26": 4872, "chg": -18, "w24": 38, "w26": 46}, {"gu": "광진", "j24": 1314, "j26": 1094, "chg": -17, "w24": 37, "w26": 53}, {"gu": "서초", "j24": 3938, "j26": 3306, "chg": -16, "w24": 41, "w26": 49}, {"gu": "서대문", "j24": 2035, "j26": 1705, "chg": -16, "w24": 44, "w26": 49}, {"gu": "마포", "j24": 2980, "j26": 2522, "chg": -15, "w24": 49, "w26": 56}, {"gu": "동대문", "j24": 2153, "j26": 1875, "chg": -13, "w24": 45, "w26": 56}, {"gu": "성동", "j24": 2905, "j26": 2641, "chg": -9, "w24": 40, "w26": 46}, {"gu": "동작", "j24": 2636, "j26": 2535, "chg": -4, "w24": 41, "w26": 44}], "diag": [["2026-04", 84994], ["2026-05", 79143], ["2026-06", 78003], ["2026-07", 75245], ["2026-08", 63846], ["2026-09", 30730]], "yearly": [{"y": 2023, "j": 220017, "t": 387931}, {"y": 2024, "j": 386828, "t": 718636}, {"y": 2025, "j": 334123, "t": 683899}, {"y": 2026, "j": 188868, "t": 423928}]};
+
+const isDark = () => {
+  const t = document.documentElement.getAttribute('data-theme');
+  if (t === 'dark') return true; if (t === 'light') return false;
+  return matchMedia('(prefers-color-scheme: dark)').matches;
+};
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// ---- hero seoul number ----
+(function(){
+  let a=0,b=0;
+  DATA.gurank.forEach(g=>{a+=g.j24;b+=g.j26;});
+  const pct = Math.round((1-b/a)*100);
+  document.getElementById('s-seoul').innerHTML = '−'+pct+'<small>%</small>';
+})();
+
+// ---- line chart: 전세 비중 ----
+function lineChart(){
+  const el = document.getElementById('chart-line'); el.innerHTML='';
+  const W=1000,H=420, m={t:24,r:64,b:44,l:44};
+  const months = DATA.months.filter(x=>x<='2026-08');
+  const iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const y0=38,y1=64;
+  const X=i=>m.l+iw*i/(months.length-1);
+  const Y=v=>m.t+ih*(1-(v-y0)/(y1-y0));
+  const svg=['<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" role="img" aria-label="전세 비중 시계열">'];
+  // gridlines
+  for(let v=40;v<=60;v+=5){
+    const y=Y(v);
+    svg.push('<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+y+'" y2="'+y+'" stroke="'+cssv('--line')+'" stroke-width="1"/>');
+    svg.push('<text class="axis" x="'+(W-m.r+8)+'" y="'+(y+4)+'">'+v+'</text>');
+  }
+  // 50% line emphasized
+  const y50=Y(50);
+  svg.push('<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+y50+'" y2="'+y50+'" stroke="'+cssv('--mark')+'" stroke-width="1.3" stroke-dasharray="5 4"/>');
+  svg.push('<text class="axis" x="'+m.l+'" y="'+(y50-7)+'" fill="'+cssv('--mark')+'" font-weight="700">절반선 50%</text>');
+  // x labels (Jan of each year)
+  months.forEach((mo,i)=>{ if(mo.slice(5)==='01'||i===0){ svg.push('<text class="axis-k" x="'+X(i)+'" y="'+(H-16)+'" text-anchor="middle">'+mo.slice(0,4)+'</text>'); }});
+  const regs=[['지방','--local'],['수도권','--gyeong'],['서울','--seoul'],['전국','--nation']];
+  regs.forEach(([name,col])=>{
+    const s=DATA.monthly[name].filter(d=>d&&d.ym<='2026-08');
+    const c=cssv(col);
+    let d='';
+    s.forEach((pt,i)=>{ d+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(pt.jeonse_pct).toFixed(1)+' '; });
+    const wide = name==='전국';
+    svg.push('<path d="'+d+'" fill="none" stroke="'+c+'" stroke-width="'+(wide?3.2:2)+'" stroke-linejoin="round" stroke-linecap="round" opacity="'+(wide?1:.92)+'"/>');
+    // end label
+    const last=s[s.length-1];
+    svg.push('<circle cx="'+X(s.length-1)+'" cy="'+Y(last.jeonse_pct)+'" r="'+(wide?4:3)+'" fill="'+c+'"/>');
+  });
+  svg.push('</svg>');
+  el.innerHTML=svg.join('');
+}
+
+// ---- stacked area: 서울 전세 vs 월세 ----
+function stackChart(){
+  const el=document.getElementById('chart-stack'); el.innerHTML='';
+  const W=1000,H=300,m={t:16,r:16,b:40,l:40};
+  const s=DATA.monthly['서울'].filter(d=>d&&d.ym<='2026-08');
+  const iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const X=i=>m.l+iw*i/(s.length-1);
+  const Y=v=>m.t+ih*(1-v/100);
+  const svg=['<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="서울 전세 월세 구성">'];
+  // 전세 area (bottom)
+  let top='M'+m.l+' '+Y(0);
+  s.forEach((pt,i)=> top+=' L'+X(i).toFixed(1)+' '+Y(pt.jeonse_pct).toFixed(1));
+  top+=' L'+X(s.length-1)+' '+Y(0)+' Z';
+  svg.push('<path d="'+top+'" fill="'+cssv('--jeonse')+'" opacity="'+(isDark()?.35:.16)+'"/>');
+  // 월세 area (top)
+  let bot='M'+m.l+' '+Y(100);
+  s.forEach((pt,i)=> bot+=' L'+X(i).toFixed(1)+' '+Y(pt.jeonse_pct).toFixed(1));
+  bot+=' L'+X(s.length-1)+' '+Y(100)+' Z';
+  svg.push('<path d="'+bot+'" fill="'+cssv('--wolse')+'" opacity="'+(isDark()?.30:.12)+'"/>');
+  // boundary line
+  let d='';
+  s.forEach((pt,i)=> d+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(pt.jeonse_pct).toFixed(1)+' ');
+  svg.push('<path d="'+d+'" fill="none" stroke="'+cssv('--jeonse')+'" stroke-width="2.4" stroke-linejoin="round"/>');
+  // 50 ref
+  svg.push('<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+Y(50)+'" y2="'+Y(50)+'" stroke="'+cssv('--mark')+'" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>');
+  svg.push('</svg>');
+  // labels overlay via foreignless: axis in separate svg group with non-stretch — use simple HTML labels
+  el.innerHTML=svg.join('')+'<div style="display:flex;justify-content:space-between;font-family:var(--sans);font-size:11.5px;color:var(--muted);margin-top:6px"><span>2023</span><span>2024</span><span>2025</span><span>2026</span></div>';
+}
+
+// ---- gu bars ----
+function guBars(){
+  const el=document.getElementById('gu-bars'); el.innerHTML='';
+  const rows=DATA.gurank.slice(); // already sorted worst-first
+  const max=Math.max(...rows.map(r=>Math.abs(r.chg)));
+  el.innerHTML = rows.map(r=>{
+    const w=Math.abs(r.chg)/max*100;
+    return '<div class="gurow"><div class="guname">'+r.gu+'</div>'+
+      '<div class="gubar-track"><div class="gubar" style="width:'+w.toFixed(0)+'%"></div></div>'+
+      '<div class="guval"><b>'+r.chg+'%</b> &nbsp;<span class="a">'+r.j24.toLocaleString()+'→'+r.j26.toLocaleString()+'</span></div></div>';
+  }).join('');
+}
+
+function drawAll(){ lineChart(); stackChart(); guBars(); }
+drawAll();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawAll);
+let rt; addEventListener('resize', ()=>{clearTimeout(rt);rt=setTimeout(drawAll,150);});
+</script>
+</body>
+</html>

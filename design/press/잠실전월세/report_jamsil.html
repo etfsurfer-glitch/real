@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>잠실 주요단지 전월세 통계</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@700;800&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#191C22; --ink2:#3A3F49; --muted:#6B7078; --faint:#9AA0A8;
+  --line:#DCDEE3; --line2:#EBECEF; --paper:#FFFFFF; --band:#F5F6F8;
+  --jeonse:#234E7D; --real:#234E7D; --ad:#B4802F; --wolse:#B4802F; --grid:#E7E9ED;
+  --serif:"Nanum Myeongjo",serif; --sans:"Noto Sans KR",system-ui,sans-serif;
+}
+@page{ size:A4; margin:15mm 14mm; }
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:var(--band);color:var(--ink);font-family:var(--sans);
+  line-height:1.55;font-size:10pt}
+.page{width:210mm;min-height:297mm;background:var(--paper);margin:0 auto 8mm;padding:16mm 15mm;
+  display:flex;flex-direction:column}
+.page + .page{page-break-before:always}
+@media print{ body{background:#fff} .page{margin:0;width:auto;min-height:0;height:267mm;padding:0} }
+h1,h2,h3{font-family:var(--serif);color:var(--ink);margin:0;line-height:1.25;font-weight:800}
+.tnum,table{font-variant-numeric:tabular-nums}
+.rh{display:flex;justify-content:space-between;align-items:center;border-bottom:1.5px solid var(--ink);
+  padding-bottom:6px;margin-bottom:18px;font-size:8.5pt;color:var(--muted)}
+.rh b{font-family:var(--sans);font-weight:900;color:var(--ink)}.rh b span{color:var(--jeonse)}
+.rf{margin-top:auto;display:flex;justify-content:space-between;
+  font-size:8pt;color:var(--faint);border-top:1px solid var(--line2);padding-top:6px}
+
+.cover{padding-top:24mm}
+.cover .eyebrow{font-weight:700;font-size:10pt;letter-spacing:.16em;color:var(--jeonse);text-transform:uppercase;margin-bottom:20px}
+.cover h1{font-size:36pt;line-height:1.12;letter-spacing:-.02em}
+.cover .sub{font-family:var(--serif);font-weight:700;font-size:14pt;color:var(--ink2);margin-top:16px}
+.cover .rule{height:2px;background:var(--ink);margin:26px 0}
+.cover .prov{font-size:10pt;color:var(--muted);line-height:1.95}.cover .prov b{color:var(--ink2);font-weight:700}
+
+.sec{margin-top:22px}
+.sec-lab{font-family:var(--sans);font-weight:900;font-size:9pt;letter-spacing:.09em;color:var(--jeonse);margin-bottom:5px}
+h2{font-size:16pt;margin-bottom:3px}
+.note{font-size:9pt;color:var(--muted);margin:8px 0 0;line-height:1.55}
+
+table{width:100%;border-collapse:collapse;margin:12px 0 4px;font-size:8.7pt}
+caption{caption-side:top;text-align:left;font-family:var(--sans);font-weight:700;font-size:9.3pt;color:var(--ink);margin-bottom:6px}
+th,td{padding:5px 7px;text-align:right;border-bottom:1px solid var(--line2);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{border-bottom:1.5px solid var(--ink);color:var(--ink);font-weight:700;background:var(--band);font-size:8.2pt}
+tbody tr:last-child td{border-bottom:1px solid var(--line)}
+tbody tr.grp td{border-top:1px solid var(--line)}
+.tight td,.tight th{padding-top:2.6px;padding-bottom:2.6px}
+.hi{color:var(--jeonse);font-weight:700} .amber{color:var(--ad);font-weight:700}
+.src{font-size:8pt;color:var(--faint);margin-top:6px;line-height:1.5}
+
+.defbox{background:var(--band);border:1px solid var(--line);border-radius:4px;padding:12px 14px;margin:10px 0;font-size:9pt;line-height:1.7}
+.defbox .term{display:inline-block;min-width:88px;font-weight:800;color:var(--jeonse)}
+.defbox b{color:var(--ink)}
+
+figure{margin:12px 0 4px;break-inside:avoid}
+.figtitle{font-family:var(--sans);font-weight:700;font-size:9.3pt;color:var(--ink);margin-bottom:3px}
+.legend{display:flex;gap:14px;font-size:8.5pt;color:var(--muted);margin-bottom:6px}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;vertical-align:2px;margin-right:5px}
+svg{display:block;width:100%;height:auto}
+.axis{font-family:var(--sans);font-size:7.5pt;fill:var(--faint)}
+
+.method{font-size:8.6pt;color:var(--muted);line-height:1.7}
+.method dt{font-weight:800;color:var(--ink2);margin-top:7px}.method b{color:var(--ink2)}
+
+.summ{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin:18px 0}
+.sc{background:var(--paper);padding:13px 12px}
+.sc .l{font-size:8.5pt;color:var(--muted);font-weight:700;margin-bottom:7px}
+.sc .n{font-family:var(--serif);font-weight:800;font-size:17pt;line-height:1;color:var(--jeonse)}
+.sc .n b{color:var(--ad)}
+.sc .k{font-size:8.3pt;color:var(--muted);margin-top:6px;line-height:1.4}
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<section class="page cover">
+  <div class="eyebrow">부동산 통계 리포트</div>
+  <h1>잠실 주요단지<br>전월세 통계</h1>
+  <div class="sub">전세 매물수·실매물수·광고배율과 전월세 실거래</div>
+  <div class="rule"></div>
+  <div class="prov">
+    <b>대상 단지</b> &nbsp; 잠실르엘·잠실래미안아이파크·잠실엘스·리센츠·트리지움·파크리오(요청) + 레이크팰리스·잠실주공5단지(확대)<br>
+    <b>자료</b> &nbsp; 네이버 매물(콕집 중복제거, 2026.09.19 활성) + 국토교통부 전월세 실거래(2023.6~2026.9)<br>
+    <b>발행</b> &nbsp; <b>조용호</b> · 콕집<br>
+    <b>작성일</b> &nbsp; 2026년 9월 21일
+  </div>
+  <div class="summ" id="cover-cards" style="margin-top:28px"></div>
+  <div class="src">신축(잠실래미안아이파크 준공 2025.12, 잠실르엘 2026.01)은 전월세 실거래가 아직 신고되지 않았다.</div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>1</span></div>
+</section>
+
+<!-- P2: 정의 + 6단지 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>집계 기준 · 요청 6단지</span></div>
+  <div class="sec">
+    <div class="sec-lab">01 — 집계 기준</div>
+    <h2>세 가지 집계 기준</h2>
+    <div class="defbox">
+      <div><span class="term">국토부 실거래</span> 체결·신고된 전월세 계약(가격 포함). 신고 30일 지연으로 최근 분은 미완성.</div>
+      <div><span class="term">매물수(광고)</span> 네이버 등록 광고 건수. 한 물건이 중복 등록되면 여러 건으로 집계.</div>
+      <div><span class="term">실매물수</span> 동일주소 중복 광고를 제거한 실제 물건 수 (Σ 1÷동일주소 광고수).</div>
+      <div><span class="term">광고배율</span> 매물수 ÷ 실매물수. 한 물건당 평균 광고 수.</div>
+    </div>
+  </div>
+  <div class="sec">
+    <div class="sec-lab">02 — 요청 6단지</div>
+    <h2>전세·월세 매물 및 실거래</h2>
+    <table>
+      <caption>표 1. 요청 6개 단지 전월세 현황 (2026.09.19 매물 · 최근 3개월 실거래)</caption>
+      <thead><tr><th>단지 (세대·준공)</th><th>전세 광고</th><th>전세 실매물</th><th>전세 배율</th><th>전세 실거래3M</th><th>보증금 중위</th><th>월세 실매물</th><th>월세 배율</th></tr></thead>
+      <tbody id="req-tab"></tbody>
+    </table>
+    <div class="src">보증금 중위=최근 3개월 전세 실거래 중앙값. 배율=광고÷실매물. 신축은 실거래 미신고로 ‘–’.</div>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>2</span></div>
+</section>
+
+<!-- P3: 8단지 + 평형 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>종합 · 평형별</span></div>
+  <div class="sec">
+    <div class="sec-lab">03 — 잠실 8개 대단지</div>
+    <h2>종합</h2>
+    <table>
+      <caption>표 2. 잠실 주요 8개 단지 전세 매물·실거래</caption>
+      <thead><tr><th>단지</th><th>세대</th><th>전세 광고</th><th>전세 실매물</th><th>배율</th><th>전세 실거래3M</th><th>1,000세대당 실매물</th></tr></thead>
+      <tbody id="all-tab"></tbody>
+    </table>
+    <div class="src">1,000세대당 실매물 = 전세 실매물 ÷ 세대수 ×1000.</div>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>3</span></div>
+</section>
+
+<!-- P4: 평형별 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>평형별</span></div>
+  <div class="sec">
+    <div class="sec-lab">04 — 평형(전용면적)별</div>
+    <h2>평형별 전세</h2>
+    <table class="tight" style="font-size:8.2pt">
+      <caption>표 3. 단지·평형별 전세 매물·실거래 (59㎡대 ≤66 · 84㎡대 67~99 · 대형 100㎡+)</caption>
+      <thead><tr><th>단지</th><th>평형</th><th>광고</th><th>실매물</th><th>배율</th><th>실거래3M</th><th>보증금 중위</th></tr></thead>
+      <tbody id="band-tab"></tbody>
+    </table>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>4</span></div>
+</section>
+
+<!-- P5: 매물 흐름 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>매물 흐름</span></div>
+  <div class="sec">
+    <div class="sec-lab">05 — 전세 매물수 vs 실매물수 흐름</div>
+    <h2>주별 매물 변화 (2026.05.18 → 09.14)</h2>
+    <table>
+      <caption>표 4. 전세 매물 광고수·실매물수 주별 변화</caption>
+      <thead><tr><th>단지</th><th>광고 5/18</th><th>광고 9/14</th><th>광고 Δ</th><th>실매물 5/18</th><th>실매물 9/14</th><th>실매물 Δ</th></tr></thead>
+      <tbody id="flow-tab"></tbody>
+    </table>
+    <div class="src">실매물=Σ(1÷동일주소 광고수). 수집 시작(5/18) 스냅샷 복원으로 초기 수준은 수집 커버리지 안정화 영향을 받을 수 있다.</div>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>5</span></div>
+</section>
+
+<!-- P6: 전세 vs 월세 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>전세와 월세</span></div>
+  <div class="sec">
+    <div class="sec-lab">06 — 전세와 월세</div>
+    <h2>전월세 실거래 추이</h2>
+    <figure>
+      <div class="figtitle">잠실 기축 6단지 월별 전세·월세 실거래 (건)</div>
+      <div class="legend"><span><i style="background:var(--jeonse)"></i>전세</span><span><i style="background:var(--ad)"></i>월세</span></div>
+      <div id="chart-jw"></div>
+    </figure>
+    <table>
+      <caption>표 5. 기축 6단지 분기별 전세·월세 실거래 및 월세 비중</caption>
+      <thead><tr><th>기간</th><th>전세</th><th>월세</th><th>합계</th><th>월세 비중</th></tr></thead>
+      <tbody id="q-tab"></tbody>
+    </table>
+    <table style="margin-top:12px">
+      <caption>표 6. 매물 실매물 전세·월세 주별 변화 (2026.05→09)</caption>
+      <thead><tr><th>단지</th><th>전세 실매물 5/18→9/14</th><th>전세 Δ</th><th>월세 실매물 5/18→9/14</th><th>월세 Δ</th></tr></thead>
+      <tbody id="jw-tab"></tbody>
+    </table>
+    <div class="src">기축 6단지 = 엘스·리센츠·트리지움·파크리오·레이크팰리스·주공5. 차트·분기표는 2025.09~2026.08(9월 신고 진행 중 제외).</div>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>6</span></div>
+</section>
+
+<!-- P5: 방법 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>데이터 및 방법</span></div>
+  <div class="sec"><div class="sec-lab">부록</div><h2>데이터 및 방법</h2></div>
+  <div class="method">
+    <dt>대상</dt>
+    잠실르엘(184857)·잠실래미안아이파크(180737)·잠실엘스(22627)·리센츠(22746)·트리지움(19127)·파크리오(22675)·레이크팰리스(15011)·잠실주공5단지(639).
+    <dt>매물</dt>
+    콕집이 수집한 네이버 등록 매물(전세=B1, 월세=B2). <b>매물수</b>=광고 건수, <b>실매물수</b>=동일주소 중복 광고를 제거한 실제 물건 수(Σ 1÷동일주소 광고수), <b>광고배율</b>=매물수÷실매물수. 표 1~3은 2026.09.19 활성 매물 단면.
+    <dt>주별 복원</dt>
+    각 매물의 최초·최종 관측일 사이를 활성으로 보아, 그 주에 걸려 있던 매물을 집계(표 4·6). 수집 시작일은 2026.05.18.
+    <dt>실거래</dt>
+    국토교통부 전월세 실거래 신고(전세=월세 0원). 최근 3개월=2026.7~9(9월 신고 진행 중), 보증금 중위=중앙값.
+    <dt>신축</dt>
+    준공 직후(래미안아이파크 2025.12, 르엘 2026.01)로 전월세 실거래 미신고 → 실거래 0.
+    <dt>한계</dt>
+    실거래는 신고 기준으로 미신고·직거래 제외. 매물은 특정 시점 단면. 보증금·월세는 신고액 기준.
+    <dt>발행</dt>
+    조용호 · 콕집. 재인용 시 출처(콕집·국토교통부) 표기.
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>7</span></div>
+</section>
+
+<script>
+const D=__J1__, D2=__J2__, D3=__J3__, D4=__J4__;
+const by={}; D.forEach(d=>by[d.name]=d);
+const AP={"잠실르엘":"2026.01·신축","잠실래미안아이파크":"2025.12·신축","잠실엘스":"2008","리센츠":"2008","트리지움":"2007","파크리오":"2008","레이크팰리스":"2006","잠실주공5단지":"1978"};
+const isNew=n=>AP[n]&&AP[n].includes('신축');
+const fmt=n=>(n==null?'–':Number(n).toLocaleString());
+const eok=m=>{if(m==null)return '–';const e=Math.floor(m/10000);return e?`${e}.${Math.round((m%10000)/1000)}억`:`${m}만`;};
+const cv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const pct=x=>`${x>=0?'+':''}${x}%`;
+
+// cover cards
+const ruel=by['잠실르엘'], tri=by['트리지움'];
+document.getElementById('cover-cards').innerHTML=`
+ <div class="sc"><div class="l">잠실르엘 전세 (신축)</div><div class="n"><b>${ruel.j_ads}</b> → ${Math.round(ruel.j_real)}</div><div class="k">광고 ${ruel.j_ads}건 · 실매물 ${Math.round(ruel.j_real)}채 · 배율 ${ruel.j_mult}</div></div>
+ <div class="sc"><div class="l">트리지움 전세 매물</div><div class="n">${tri.j_ads}</div><div class="k">${fmt(tri.hh)}세대 · 실거래 3개월 ${tri.rt_n3}건</div></div>
+ <div class="sc"><div class="l">신축 2단지 전세 실거래</div><div class="n">0</div><div class="k">중복제거 실매물 ${Math.round(ruel.j_real+by['잠실래미안아이파크'].j_real)}채는 현재 매물</div></div>`;
+
+// req 6
+const REQ=['잠실르엘','잠실래미안아이파크','잠실엘스','리센츠','트리지움','파크리오'];
+document.getElementById('req-tab').innerHTML=REQ.map(n=>{const d=by[n];const N=isNew(n);
+ return `<tr><td>${n} <span style="color:var(--faint);font-size:7.5pt">${fmt(d.hh)}·${AP[n]}</span></td>
+ <td class="amber">${fmt(d.j_ads)}</td><td class="hi">${fmt(Math.round(d.j_real))}</td><td>${d.j_mult}</td>
+ <td>${N?'–':d.rt_n3}</td><td>${N?'–':eok(d.rt_med3)}</td>
+ <td>${fmt(Math.round(d.w_real))}</td><td>${(D4.snap[n].w_mult||0)}</td></tr>`;}).join('');
+
+// all 8 by 1000세대당 실매물 asc
+const per=d=>d.j_real/d.hh*1000;
+[...D].sort((a,b)=>per(a)-per(b)).forEach(d=>{
+ document.getElementById('all-tab').insertAdjacentHTML('beforeend',
+ `<tr><td>${d.name}</td><td>${fmt(d.hh)}</td><td class="amber">${fmt(d.j_ads)}</td><td class="hi">${fmt(Math.round(d.j_real))}</td><td>${d.j_mult}</td><td>${isNew(d.name)?'–':d.rt_n3}</td><td>${per(d).toFixed(1)}</td></tr>`);});
+
+// bands
+let last=null;
+document.getElementById('band-tab').innerHTML=D2.bands.map(b=>{const first=b.name!==last;last=b.name;const N=isNew(b.name);
+ return `<tr class="${first?'grp':''}"><td>${first?b.name:'〃'}</td><td>${b.band}</td><td class="amber">${fmt(b.j_ads)}</td><td class="hi">${fmt(Math.round(b.j_real))}</td><td>${b.j_mult}</td><td>${N?'–':b.rt_n3}</td><td>${N?'–':eok(b.rt_med3)}</td></tr>`;}).join('');
+
+// flow tab (전세 광고 vs 실매물 주별 첫끝)
+const chg=s=>s[0]?Math.round((s[s.length-1]/s[0]-1)*100):0;
+const ORDER=['잠실르엘','잠실래미안아이파크','잠실엘스','리센츠','트리지움','파크리오','레이크팰리스','잠실주공5단지'];
+document.getElementById('flow-tab').innerHTML=ORDER.map(n=>{const a=D3.ads[n],r=D3.real[n];
+ return `<tr><td>${n.replace('잠실','')}</td><td class="amber">${a[0]}</td><td class="amber">${a[a.length-1]}</td><td>${pct(chg(a))}</td>
+ <td class="hi">${Math.round(r[0])}</td><td class="hi">${Math.round(r[r.length-1])}</td><td>${pct(chg(r))}</td></tr>`;}).join('');
+
+// jw table
+document.getElementById('jw-tab').innerHTML=ORDER.map(n=>{const j=D4.listing_weekly[n].j,w=D4.listing_weekly[n].w;
+ return `<tr><td>${n.replace('잠실','')}</td><td class="hi">${Math.round(j[0])} → ${Math.round(j[j.length-1])}</td><td>${pct(chg(j))}</td>
+ <td class="amber">${Math.round(w[0])} → ${Math.round(w[w.length-1])}</td><td>${pct(chg(w))}</td></tr>`;}).join('');
+
+// quarter table
+const MAT=['잠실엘스','리센츠','트리지움','파크리오','레이크팰리스','잠실주공5단지'];
+function aggQ(a,b){let j=0,w=0;MAT.forEach(n=>{Object.entries(D4.deal_monthly[n]||{}).forEach(([k,v])=>{if(k>=a&&k<=b){j+=v[0];w+=v[1];}});});return[j,w];}
+const QS=[['2025 4Q','2025-10','2025-12'],['2026 1Q','2026-01','2026-03'],['2026 2Q','2026-04','2026-06'],['2026 3Q(7~8월)','2026-07','2026-08']];
+document.getElementById('q-tab').innerHTML=QS.map(([lab,a,b])=>{const[j,w]=aggQ(a,b);const t=j+w;
+ return `<tr><td>${lab}</td><td class="hi">${fmt(j)}</td><td class="amber">${fmt(w)}</td><td>${fmt(t)}</td><td>${t?Math.round(w/t*100):0}%</td></tr>`;}).join('');
+
+// jw chart (mature6 monthly)
+(function(){const el=document.getElementById('chart-jw');
+ const mset=new Set();MAT.forEach(n=>Object.keys(D4.deal_monthly[n]||{}).forEach(k=>mset.add(k)));
+ const months=[...mset].sort().filter(m=>m>='2025-09'&&m<='2026-08');
+ const jr=[],wr=[];months.forEach(m=>{let j=0,w=0;MAT.forEach(n=>{const v=(D4.deal_monthly[n]||{})[m];if(v){j+=v[0];w+=v[1];}});jr.push(j);wr.push(w);});
+ const W=1000,H=300,mg={t:14,r:36,b:30,l:32},iw=W-mg.l-mg.r,ih=H-mg.t-mg.b;
+ const maxV=Math.ceil(Math.max(...jr,...wr)/50)*50;
+ const X=i=>mg.l+iw*i/(months.length-1),Y=v=>mg.t+ih*(1-v/maxV);
+ let g=`<svg viewBox="0 0 ${W} ${H}">`;
+ for(let v=0;v<=maxV;v+=100){g+=`<line x1="${mg.l}" x2="${W-mg.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${cv('--grid')}"/><text class="axis" x="${mg.l-5}" y="${Y(v)+4}" text-anchor="end">${v}</text>`;}
+ months.forEach((m,i)=>{if(m.slice(5)==='01'||m.slice(5)==='07'||i===0||i===months.length-1)g+=`<text class="axis" x="${X(i)}" y="${H-12}" text-anchor="middle">${m.slice(2).replace('-','.')}</text>`;});
+ const dr=(arr,c,w)=>{let p='';arr.forEach((v,i)=>p+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)+' ');g+=`<path d="${p}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linejoin="round"/><circle cx="${X(arr.length-1)}" cy="${Y(arr[arr.length-1])}" r="3" fill="${c}"/>`;};
+ dr(wr,cv('--ad'),2);dr(jr,cv('--jeonse'),2.4);g+='</svg>';el.innerHTML=g;
+})();
+window.__ready=true;
+</script>
+</body>
+</html>

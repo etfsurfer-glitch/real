@@ -1,0 +1,426 @@
+<title>서울 급매물 추이</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  :root{
+    --ground:#F4F5F7; --card:#FFFFFF; --ink:#171B22; --muted:#5C6673; --faint:#8A93A1;
+    --hair:#E3E6EB; --hair2:#EDEFF3; --grid:#EAECF0;
+    --slate:#7E8CA0;      /* 5%↓ */
+    --amber:#DB6B2C;      /* 10%↓  (헤드라인) */
+    --deep:#B23A3A;       /* 15%↓ */
+    --supply:#B7C0CE;     /* 매물 총량 */
+    --up:#C85A2A;         /* 급매 증가 */
+    --down:#3D77A8;       /* 급매 감소 */
+    --chip:#F0F2F5; --shadow:0 1px 2px rgba(16,22,32,.04),0 6px 20px rgba(16,22,32,.05);
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --ground:#0E1217; --card:#171C23; --ink:#E9ECF1; --muted:#99A3B1; --faint:#6B7583;
+    --hair:#262D37; --hair2:#20262E; --grid:#242B34;
+    --slate:#8E9CB0; --amber:#EA8047; --deep:#D65C5C; --supply:#3A4351;
+    --up:#E27A44; --down:#5C97C9; --chip:#20262E;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.34);
+  }}
+  :root[data-theme="dark"]{
+    --ground:#0E1217; --card:#171C23; --ink:#E9ECF1; --muted:#99A3B1; --faint:#6B7583;
+    --hair:#262D37; --hair2:#20262E; --grid:#242B34;
+    --slate:#8E9CB0; --amber:#EA8047; --deep:#D65C5C; --supply:#3A4351;
+    --up:#E27A44; --down:#5C97C9; --chip:#20262E;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.34);
+  }
+  *{box-sizing:border-box}
+  body{background:var(--ground);color:var(--ink);
+    font-family:"Noto Sans KR",-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:920px;margin:0 auto;padding:34px 22px 80px;}
+  .num{font-family:"IBM Plex Mono","Noto Sans KR",monospace;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
+
+  /* masthead */
+  .kicker{font-size:12.5px;font-weight:700;letter-spacing:.14em;color:var(--amber);text-transform:uppercase;}
+  h1{font-weight:900;font-size:clamp(28px,5.4vw,44px);line-height:1.12;letter-spacing:-.02em;margin:12px 0 0;text-wrap:balance;}
+  .dek{font-size:clamp(15px,2.3vw,17px);color:var(--muted);margin:14px 0 0;max-width:60ch;line-height:1.65;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:20px;padding-top:16px;border-top:1px solid var(--hair);
+    font-size:12.5px;color:var(--faint);}
+  .meta b{color:var(--muted);font-weight:600;}
+  .meta .num{font-weight:600;}
+
+  /* findings */
+  .finds{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:30px;}
+  @media (max-width:680px){.finds{grid-template-columns:1fr;}}
+  .find{background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:18px 18px 16px;box-shadow:var(--shadow);}
+  .find .lab{font-size:12.5px;color:var(--muted);font-weight:600;}
+  .find .big{font-size:33px;font-weight:600;letter-spacing:-.02em;margin-top:10px;line-height:1;}
+  .find .big small{font-size:15px;color:var(--faint);font-weight:500;}
+  .find .delta{font-weight:700;font-size:14px;margin-top:9px;}
+  .find .delta.pos{color:var(--up);} .find .delta.pos::before{content:"▲ ";font-size:10px;}
+  .find .note{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.5;}
+
+  section{margin-top:44px;}
+  .eyebrow{font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--faint);text-transform:uppercase;}
+  h2{font-weight:800;font-size:clamp(19px,3vw,23px);letter-spacing:-.01em;margin:8px 0 4px;text-wrap:balance;}
+  .lead{color:var(--muted);font-size:14.5px;margin:0 0 18px;max-width:62ch;}
+
+  .panel{background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:20px 20px 14px;box-shadow:var(--shadow);}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:2px 2px 12px;font-size:13px;color:var(--muted);}
+  .legend span{display:inline-flex;align-items:center;gap:7px;}
+  .legend i{width:22px;height:3px;border-radius:2px;display:inline-block;}
+  .legend i.dot{width:9px;height:9px;border-radius:50%;}
+  .chartbox{width:100%;overflow-x:auto;}
+  svg{display:block;width:100%;height:auto;}
+  .cap{font-size:12px;color:var(--faint);margin-top:8px;line-height:1.5;}
+  .take{display:flex;gap:10px;margin-top:14px;padding:13px 15px;background:var(--chip);border-radius:10px;font-size:13.5px;color:var(--ink);line-height:1.55;}
+  .take b{color:var(--amber);}
+  .take.cool b{color:var(--down);}
+
+  /* 기준 존 */
+  .zones{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:16px;}
+  @media (max-width:680px){.zones{grid-template-columns:1fr;}}
+  .zone{border:1px solid var(--hair);border-radius:11px;padding:14px 15px;background:var(--card);box-shadow:var(--shadow);
+    border-top:3px solid var(--hair);}
+  .zone.loose{border-top-color:var(--slate);}
+  .zone.good{border-top-color:var(--amber);background:color-mix(in srgb,var(--amber) 6%,var(--card));}
+  .zone.thin{border-top-color:var(--faint);}
+  .zone .zt{font-weight:700;font-size:14px;color:var(--ink);margin-bottom:6px;}
+  .zone .zt .num{font-size:15px;}
+  .zone .pick{display:inline-block;font-size:11px;font-weight:800;color:#fff;background:var(--amber);
+    padding:1px 7px;border-radius:20px;margin-left:5px;vertical-align:1px;letter-spacing:.02em;}
+  .zone .zd{font-size:12.5px;color:var(--muted);line-height:1.55;}
+  .zone .zd b{color:var(--ink);}
+
+  /* diverging bars */
+  .divg{display:flex;flex-direction:column;gap:5px;margin-top:4px;}
+  .drow{display:grid;grid-template-columns:64px 1fr 62px;align-items:center;gap:10px;font-size:13px;}
+  .drow .nm{text-align:right;color:var(--ink);font-weight:500;}
+  .dbar{position:relative;height:22px;}
+  .dbar .mid{position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--hair);}
+  .dbar b{position:absolute;top:3px;height:16px;border-radius:3px;display:block;}
+  .drow .val{font-weight:700;}
+  .drow .val.pos{color:var(--up);} .drow .val.neg{color:var(--down);}
+  .drow .num{font-size:12px;}
+
+  /* table */
+  details{margin-top:16px;background:var(--card);border:1px solid var(--hair);border-radius:12px;overflow:hidden;box-shadow:var(--shadow);}
+  summary{cursor:pointer;list-style:none;padding:15px 18px;font-weight:700;font-size:14.5px;display:flex;justify-content:space-between;align-items:center;}
+  summary::-webkit-details-marker{display:none;}
+  summary .hint{font-size:12.5px;color:var(--faint);font-weight:500;}
+  .tbl{overflow-x:auto;border-top:1px solid var(--hair);}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;min-width:520px;}
+  th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--hair2);white-space:nowrap;}
+  th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--card);}
+  thead th{color:var(--muted);font-weight:600;border-bottom:1px solid var(--hair);position:sticky;top:0;background:var(--card);}
+  tbody tr:hover td{background:var(--hair2);}
+  td.hl{color:var(--amber);font-weight:700;}
+
+  footer{margin-top:46px;padding-top:20px;border-top:1px solid var(--hair);font-size:12.5px;color:var(--muted);line-height:1.7;}
+  footer b{color:var(--ink);font-weight:600;}
+  .tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--ground);font-size:12px;padding:6px 9px;border-radius:7px;
+    opacity:0;transition:opacity .1s;z-index:20;white-space:nowrap;font-weight:500;box-shadow:0 4px 14px rgba(0,0,0,.25);}
+  .tip .num{font-weight:700;}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+  @media print{
+    body{background:#fff;}
+    .wrap{max-width:none;padding:0;}
+    .panel,.zone,.find,details,.take,.divg{break-inside:avoid;}
+    section{margin-top:26px;}
+    h2{break-after:avoid;}
+    .tip{display:none!important;}
+    details{border-color:var(--hair);} details>summary{display:none;}
+    .tbl{overflow:visible;} table{min-width:0;}
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="kicker">콕집 부동산 데이터랩 · 데이터 분석</div>
+    <h1>서울 급매물, 집주인들은 거둬들이고 있나</h1>
+    <p class="dek">세제개편안 발표(8월 3일) 이후 36일간 서울 아파트 매매 매물을 매일 스냅샷으로 추적했다. 모든 수치는 중복 광고를 걷어낸 <b style="color:var(--ink)">실매물(중복제거) 기준</b>이다. 시장에서 도는 ‘급매 회수설’과 달리, 서울 전체 급매물은 오히려 늘었다. 다만 그 증가는 특정 지역에 쏠려 있었다.</p>
+    <div class="meta">
+      <span><b>대상</b> 서울 아파트 매매 호가 매물</span>
+      <span><b>기간</b> <span class="num">2026.08.03 → 09.07</span> (36일)</span>
+      <span><b>급매선</b> 같은 단지·평형 실거래 평균 <b style="color:var(--amber)">−10%↓</b> (근거 아래)</span>
+      <span><b>표본</b> 일 <span class="num">14.5만~16.9만</span>건</span>
+    </div>
+  </header>
+
+  <div class="finds">
+    <div class="find">
+      <div class="lab">서울 아파트 매매 <b style="color:var(--ink)">실매물</b>(중복제거)</div>
+      <div class="big num">38,116<small> 물건</small></div>
+      <div class="delta pos">+10.5% <span style="color:var(--faint);font-weight:500">(34,484→)</span></div>
+      <div class="note">급매 회수는커녕 실매물 공급이 늘었다. 광고는 166,234건(물건당 <b>4.36배</b>).</div>
+    </div>
+    <div class="find">
+      <div class="lab">급매물 <b style="color:var(--amber)">실거래평균 −10%↓</b> · 물건</div>
+      <div class="big num">41<small> 물건</small></div>
+      <div class="delta pos">+51.9% <span style="color:var(--faint);font-weight:500">(27→)</span></div>
+      <div class="note">심층 급매도 줄지 않고 8월 하순부터 가속.</div>
+    </div>
+    <div class="find">
+      <div class="lab">−10%↓ 증가분의 서초구 비중</div>
+      <div class="big num">93<small> %</small></div>
+      <div class="delta pos">서초 +13 / 서울 전체 +14</div>
+      <div class="note">서울 급매 증가는 사실상 서초구 단일 현상.</div>
+    </div>
+  </div>
+
+  <section>
+    <div class="eyebrow">기준 정의</div>
+    <h2>왜 ‘−10%’를 급매선으로 잡았나</h2>
+    <p class="lead">서울 아파트 호가는 원래 실거래보다 높다. 9월 7일 실매물의 <b>호가 중앙값은 같은 단지·평형 실거래 평균 대비 +9.7%</b>. 하위 25%도 여전히 +4.8%로 실거래보다 비싸다. 그래서 ‘실거래보다 싸다’는 것 자체가 이미 드문 일이고, 어디서부터를 ‘급매’로 부를지가 관건이 된다.</p>
+    <div class="panel">
+      <div class="legend">
+        <span><i style="background:var(--amber)"></i>급매 구간 (−10% 이하)</span>
+        <span><i style="width:2px;height:12px;background:var(--muted)"></i>실거래 평균(0%)</span>
+        <span><i style="width:2px;height:12px;background:var(--slate)"></i>호가 중앙값 +9.7%</span>
+      </div>
+      <div class="chartbox"><svg id="histoChart" viewBox="0 0 720 300" role="img" aria-label="호가 할인율 분포"></svg></div>
+      <div class="cap">가로축: (호가 − 실거래 평균) ÷ 실거래 평균. 세로축: 실매물 수(2.5%p 구간). 2026-09-07, 벤치마크 매칭 11,120물건.</div>
+    </div>
+
+    <div class="zones">
+      <div class="zone loose">
+        <div class="zt">−5%↓ · <span class="num">169</span>물건</div>
+        <div class="zd"><b>너무 느슨.</b> 실거래 시차와 통상적 호가 협상 여지(하위 25%가 +4.8%)와 겹쳐, 정상 매물과 급매를 구분하지 못한다.</div>
+      </div>
+      <div class="zone good">
+        <div class="zt">−10%↓ · <span class="num">41</span>물건 <span class="pick">채택</span></div>
+        <div class="zd"><b>유효 구간.</b> 호가 분포의 꼬리를 확실히 벗어나 ‘눈에 띄게 싼’ 매물이면서, 일별 추세와 자치구별 비교가 가능한 표본(광고 87건, 서초·강남 두 자릿수)이 남는다.</div>
+      </div>
+      <div class="zone thin">
+        <div class="zt">−15%↓ <span class="num">7</span> · −20%↓ <span class="num">3</span> · −25%↓ <span class="num">1</span> · −30%↓ <span class="num">0</span></div>
+        <div class="zd"><b>표본 소멸.</b> 자치구별로는 대부분 0건이라 지역 분석이 불가능하고, 매물 1건의 등락에 추세가 요동친다. −20%를 넘는 극단 할인은 급매보다 면적 오기·지분/특수물건 등 잡음일 확률이 높다.</div>
+      </div>
+    </div>
+    <div class="take"><span>🎯</span><div>‘급매’를 재려면 <b>정상 호가와 구분될 만큼 깊되(−5% 탈락), 추세와 지역을 볼 만큼 표본이 남는(−15%+ 탈락)</b> 지점이어야 한다. 그 교차점이 −10%다. 본 리포트의 모든 추세는 −10%↓를 기준선으로, −5%↓를 보조선으로 함께 제시한다.</div></div>
+  </section>
+
+  <section>
+    <div class="eyebrow">증가 궤적</div>
+    <h2>급매물은 전체 매물보다 빠르게 늘었다</h2>
+    <p class="lead">8월 3일을 100으로 놓고 지수화했다(모두 실매물 기준). 전체 실매물이 10.5% 늘어나는 동안 실거래평균 −10%↓ 급매물은 52% 늘어, 급매가 시장 평균보다 뚜렷하게 빠르게 증가했음을 보여준다.</p>
+    <div class="panel">
+      <div class="legend">
+        <span><i style="background:var(--supply)"></i>실매물 총량</span>
+        <span><i style="background:var(--slate)"></i>급매 −5%↓</span>
+        <span><i style="background:var(--amber)"></i>급매 −10%↓</span>
+      </div>
+      <div class="chartbox"><svg id="idxChart" viewBox="0 0 720 320" role="img" aria-label="지수화 급매물 추이"></svg></div>
+      <div class="cap">지수: 2026-08-03 = 100. 값이 100보다 크면 8/3 대비 증가. 총량은 중복제거 실매물.</div>
+      <div class="take"><span>📈</span><div>8월 26~28일 급매가 한 차례 뛰고, <b>9월 3일 −10%↓ 급매가 지수 163</b>으로 정점을 찍었다. ‘급매를 거둬들인다’는 신호는 서울 집계에서 나타나지 않는다.</div></div>
+      <div class="take"><span>📣</span><div>같은 기간 광고 건수는 +14.4%로 실매물(+10.5%)보다 빨리 늘어, 물건당 광고 수가 <b>4.21 → 4.36배</b>로 증가했다. 한 물건을 여러 중개사가 더 많이 내거는 <b>매도 경쟁</b>이 강해졌다는 뜻이다.</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">쏠림</div>
+    <h2>서울 급매 증가는 서초구가 다 했다</h2>
+    <p class="lead">−10%↓ 급매물을 서초구와 나머지 24개 구로 나눠 보면, 서울 전체 증가(+14물건)의 거의 전부를 서초구(+13)가 만들었다. 나머지 서울은 사실상 제자리다.</p>
+    <div class="panel">
+      <div class="legend">
+        <span><i style="background:var(--amber)"></i>서초구</span>
+        <span><i style="background:var(--slate)"></i>서울 나머지 24개 구</span>
+      </div>
+      <div class="chartbox"><svg id="seochoChart" viewBox="0 0 720 300" role="img" aria-label="서초 대 나머지 급매물"></svg></div>
+      <div class="cap">실거래평균 −10%↓ 급매물(중복 제거 물건 수), 일별.</div>
+      <div class="take"><span>📍</span><div>서초구 −10%↓ 급매물은 <b>11물건(8/3) → 24물건(9/7)</b>으로 두 배 이상. 같은 기간 나머지 서울은 16→17로 변동이 없다.</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">양극화</div>
+    <h2>강남권은 늘고, 외곽은 줄었다</h2>
+    <p class="lead">기준을 −5%↓로 넓히면 방향이 갈린다. 강남3구·은평·관악에서 급매가 늘어난 반면, 도봉·금천·서대문 등 외곽에서는 급매가 줄었다. ‘급매 회수’는 외곽 일부에서만 관측된다.</p>
+    <div class="panel">
+      <div class="legend">
+        <span><i class="dot" style="background:var(--up)"></i>급매 증가</span>
+        <span><i class="dot" style="background:var(--down)"></i>급매 감소</span>
+        <span style="color:var(--faint)">막대 = 8/3 → 9/7 물건 수 증감</span>
+      </div>
+      <div id="divg" class="divg"></div>
+      <div class="cap">실거래평균 −5%↓ 급매물(물건 수) 증감. 변동 0인 자치구는 생략.</div>
+      <div class="take cool"><span>⚖️</span><div>서초 <b style="color:var(--up)">+29</b>·송파 <b style="color:var(--up)">+11</b>이 상승을 이끌고, 도봉 <b class="num" style="color:var(--down)">−12</b>·금천 <b class="num" style="color:var(--down)">−5</b>이 하락을 이끈다. 정책 재수정의 지역별 체감 차이로 읽을 여지가 있다.</div></div>
+    </div>
+  </section>
+
+  <details>
+    <summary>일별 원자료 (36일 전체) <span class="hint">서울 전체 · 급매는 실매물(중복제거) 물건 수 ▾</span></summary>
+    <div class="tbl"><table id="dataTable"><thead><tr>
+      <th>날짜</th><th>실매물</th><th>광고</th><th>−5%↓</th><th class="hl">−10%↓</th><th>−15%↓</th><th>−20%↓</th>
+    </tr></thead><tbody></tbody></table></div>
+  </details>
+
+  <footer>
+    <b>집계 방법.</b> 매물은 매일 새벽 수집 스냅샷(policy 기준선 백업)에서 서울 소재 아파트(APT) 매매 호가 매물을 대상으로 했다.
+    급매 판정은 각 매물의 ₩/㎡ 호가를 <b>같은 단지·평형의 최근 180일 실거래 평균</b>(최소 3거래)과 비교해, 평균보다 N% 이상 낮은 매물을 ‘−N%↓ 급매’로 분류했다.
+    세 시점을 <b>동일한 현재 실거래 벤치마크</b>로 재어 시장 가격 변동이 아닌 매물 측 변화(회수·재호가)만 포착했다.
+    호가 중위가 실거래 평균보다 +8.6% 높아 심층(−10%↓) 급매는 원래 수십 건대로 희소하며, 규모보다 <b>증감 방향</b> 해석이 안전하다.
+    <b>실매물(중복제거)</b>은 같은 단지·평형·호가를 1물건으로 합쳐, 한 물건을 여러 중개사가 올린 중복 광고를 제거한 수다. 급매물·전체 총량 모두 이 기준으로 집계했고, 광고 건수는 참고로 병기했다.
+    광고÷실매물 배율(물건당 광고 수)은 매도자 간 광고 경쟁 강도를 나타낸다.
+    <br><br><span style="color:var(--faint)">데이터 기준 2026-09-07 · 콕집(koczip.com) 부동산 데이터랩 · 내부 분석용 초안</span>
+  </footer>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+const DATES = ["08-03","08-04","08-05","08-06","08-07","08-08","08-09","08-10","08-11","08-12","08-13","08-14","08-15","08-16","08-17","08-18","08-19","08-20","08-21","08-22","08-23","08-24","08-25","08-26","08-27","08-28","08-29","08-30","08-31","09-01","09-02","09-03","09-04","09-05","09-06","09-07"];
+const TOTAL=[145266,146372,148289,146971,148553,150035,149400,146493,149640,152969,152710,153841,155511,150997,150206,147274,156315,156205,157527,158856,158879,156337,158372,161919,161344,162516,163755,163440,160733,162582,165995,166398,168154,169394,169004,166234];
+const TOTITEMS=[34484,34829,35226,35138,35442,35775,35685,35314,35935,36430,36290,36450,36689,36205,36120,35786,36843,36727,36966,37114,37147,36807,37136,37638,37467,37627,37743,37634,37237,37659,38129,38114,38425,38565,38501,38116];
+const D5=[146,147,150,153,157,152,149,147,154,154,151,148,150,145,145,141,150,154,158,156,158,156,156,157,160,164,165,166,166,164,167,175,174,169,170,169];
+const D10=[27,27,27,29,29,28,27,27,29,29,29,24,26,26,26,26,26,29,28,29,29,29,29,30,31,34,34,35,35,35,37,44,41,41,41,41];
+const D15=[3,3,4,4,3,3,3,3,3,3,4,2,2,2,2,2,2,2,2,3,3,3,4,4,4,6,6,7,6,7,6,7,7,7,7,7];
+const D20=[2,2,3,2,2,2,2,2,2,2,2,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3];
+const SEOCHO=[11,10,11,11,11,11,11,11,11,11,12,12,12,12,12,12,12,14,14,14,15,15,15,16,17,19,19,20,20,19,20,25,24,24,24,24];
+const REST=D10.map((v,i)=>v-SEOCHO[i]);
+const SGG=[["서초",37,66],["송파",12,23],["강남",9,13],["은평",4,7],["관악",2,4],["성동",2,3],["성북",0,1],["영등포",0,1],["노원",8,7],["구로",7,6],["강동",7,6],["강북",2,1],["종로",2,1],["강서",2,1],["동대문",3,1],["양천",1,0],["서대문",5,2],["금천",8,3],["도봉",21,9]];
+// 호가 할인율 분포(실매물, 2026-09-07): [구간하한%, 물건수]. 마지막 30은 +30% 이상.
+const HISTO=[[-27.5,1],[-25,1],[-22.5,1],[-20,0],[-17.5,4],[-15,12],[-12.5,21],[-10,38],[-7.5,91],[-5,219],[-2.5,455],[0,793],[2.5,1232],[5,1428],[7.5,1433],[10,1166],[12.5,981],[15,844],[17.5,633],[20,466],[22.5,335],[25,256],[27.5,200],[30,510]];
+const HMED=9.7;
+
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const tip = document.getElementById('tip');
+function showTip(x,y,html){tip.innerHTML=html;tip.style.opacity=1;
+  const r=tip.getBoundingClientRect();let tx=x+12,ty=y-r.height-10;
+  if(tx+r.width>innerWidth-8)tx=x-r.width-12; if(ty<6)ty=y+16;
+  tip.style.left=tx+'px';tip.style.top=ty+'px';}
+function hideTip(){tip.style.opacity=0;}
+
+const SVGNS="http://www.w3.org/2000/svg";
+function el(n,a){const e=document.createElementNS(SVGNS,n);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function niceTicks(min,max,n){const span=max-min||1,step0=span/n,mag=Math.pow(10,Math.floor(Math.log10(step0)));
+  const norm=step0/mag,step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const lo=Math.floor(min/step)*step,hi=Math.ceil(max/step)*step,t=[];for(let v=lo;v<=hi+1e-9;v+=step)t.push(+v.toFixed(6));return t;}
+
+// ---- 라인 차트 ----
+function lineChart(id,series,opts){
+  const svg=document.getElementById(id);svg.innerHTML='';
+  const vb=svg.viewBox.baseVal,W=vb.width,H=vb.height;
+  const m={t:16,r:16,b:34,l:opts.lw||42};
+  const iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const ink=cssv('--ink'),muted=cssv('--muted'),grid=cssv('--grid'),card=cssv('--card');
+  let vmin=opts.min!=null?opts.min:Infinity,vmax=opts.max!=null?opts.max:-Infinity;
+  if(opts.min==null||opts.max==null)series.forEach(s=>s.data.forEach(v=>{if(v<vmin)vmin=v;if(v>vmax)vmax=v;}));
+  const ticks=niceTicks(vmin,vmax,opts.ticks||4);vmin=Math.min(vmin,ticks[0]);vmax=Math.max(vmax,ticks[ticks.length-1]);
+  const N=DATES.length;
+  const X=i=>m.l+(N<=1?0:iw*i/(N-1));
+  const Y=v=>m.t+ih-ih*(v-vmin)/(vmax-vmin||1);
+  // gridlines + y labels
+  ticks.forEach(tk=>{const y=Y(tk);
+    svg.appendChild(el('line',{x1:m.l,y1:y,x2:m.l+iw,y2:y,stroke:grid,'stroke-width':1}));
+    const t=el('text',{x:m.l-8,y:y+3.5,fill:muted,'font-size':11,'text-anchor':'end','font-family':'IBM Plex Mono, monospace'});
+    t.textContent=opts.fmt?opts.fmt(tk):tk;svg.appendChild(t);});
+  // baseline 100 emphasis
+  if(opts.base!=null){const y=Y(opts.base);
+    svg.appendChild(el('line',{x1:m.l,y1:y,x2:m.l+iw,y2:y,stroke:muted,'stroke-width':1,'stroke-dasharray':'3 3',opacity:.55}));}
+  // x labels
+  const xi=[0,7,14,21,28,35];
+  xi.forEach(i=>{const t=el('text',{x:X(i),y:H-12,fill:muted,'font-size':11,'text-anchor':'middle','font-family':'IBM Plex Mono, monospace'});
+    t.textContent=DATES[i];svg.appendChild(t);});
+  // lines
+  series.forEach(s=>{
+    let d='';s.data.forEach((v,i)=>{d+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)+' ';});
+    if(s.fill){let a=d+'L'+X(N-1)+' '+Y(vmin)+' L'+X(0)+' '+Y(vmin)+' Z';
+      svg.appendChild(el('path',{d:a,fill:s.color,opacity:.14}));}
+    svg.appendChild(el('path',{d,fill:'none',stroke:s.color,'stroke-width':s.w||2.4,'stroke-linejoin':'round','stroke-linecap':'round'}));
+    // endpoint dot + label
+    const lx=X(N-1),ly=Y(s.data[N-1]);
+    svg.appendChild(el('circle',{cx:lx,cy:ly,r:3.6,fill:s.color,stroke:card,'stroke-width':1.5}));
+  });
+  // hover layer
+  const hoverLine=el('line',{x1:0,y1:m.t,x2:0,y2:m.t+ih,stroke:muted,'stroke-width':1,opacity:0});
+  svg.appendChild(hoverLine);
+  const dots=series.map(s=>{const c=el('circle',{r:4,fill:s.color,stroke:card,'stroke-width':1.5,opacity:0});svg.appendChild(c);return c;});
+  const rect=el('rect',{x:m.l,y:m.t,width:iw,height:ih,fill:'transparent'});svg.appendChild(rect);
+  function move(ev){const pt=svg.getBoundingClientRect();const px=(ev.touches?ev.touches[0].clientX:ev.clientX)-pt.left;
+    const sx=px*W/pt.width;let i=Math.round((sx-m.l)/(iw/(N-1)));i=Math.max(0,Math.min(N-1,i));
+    const gx=X(i);hoverLine.setAttribute('x1',gx);hoverLine.setAttribute('x2',gx);hoverLine.setAttribute('opacity',.5);
+    let rows='';series.forEach((s,k)=>{dots[k].setAttribute('cx',gx);dots[k].setAttribute('cy',Y(s.data[i]));dots[k].setAttribute('opacity',1);
+      rows+=`<div style="display:flex;gap:8px;align-items:center"><i style="width:8px;height:8px;border-radius:2px;background:${s.color};display:inline-block"></i>${s.name} <span class="num">${opts.tip?opts.tip(s.data[i],s):s.data[i]}</span></div>`;});
+    const cx=ev.touches?ev.touches[0].clientX:ev.clientX, cy=ev.touches?ev.touches[0].clientY:ev.clientY;
+    showTip(cx,cy,`<div style="font-weight:700;margin-bottom:3px" class="num">2026-${DATES[i]}</div>${rows}`);}
+  function leave(){hoverLine.setAttribute('opacity',0);dots.forEach(d=>d.setAttribute('opacity',0));hideTip();}
+  rect.addEventListener('mousemove',move);rect.addEventListener('mouseleave',leave);
+  rect.addEventListener('touchmove',move,{passive:true});rect.addEventListener('touchend',leave);
+}
+
+function drawIndex(){
+  const idx=a=>a.map(v=>+(v/a[0]*100).toFixed(1));
+  lineChart('idxChart',[
+    {name:'실매물 총량',color:cssv('--supply'),data:idx(TOTITEMS),w:2.2,fill:true},
+    {name:'급매 −5%↓',color:cssv('--slate'),data:idx(D5),w:2.4},
+    {name:'급매 −10%↓',color:cssv('--amber'),data:idx(D10),w:3},
+  ],{base:100,ticks:4,lw:40,fmt:v=>v,tip:(v)=>v.toFixed(0)});
+}
+function drawHisto(){
+  const svg=document.getElementById('histoChart');svg.innerHTML='';
+  const vb=svg.viewBox.baseVal,W=vb.width,H=vb.height,m={t:16,r:14,b:38,l:44};
+  const iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const muted=cssv('--muted'),grid=cssv('--grid'),ink=cssv('--ink'),card=cssv('--card'),amber=cssv('--amber'),slate=cssv('--slate');
+  const xmin=-30,xmax=32.5, vmax=Math.max(...HISTO.map(d=>d[1]));
+  const ticks=niceTicks(0,vmax,4);
+  const X=v=>m.l+iw*(v-xmin)/(xmax-xmin);
+  const Y=v=>m.t+ih-ih*v/(ticks[ticks.length-1]);
+  // 급매 구간 음영 (x<=-10)
+  svg.appendChild(el('rect',{x:X(xmin),y:m.t,width:X(-10)-X(xmin),height:ih,fill:amber,opacity:.10}));
+  // y grid
+  ticks.forEach(tk=>{const y=Y(tk);
+    svg.appendChild(el('line',{x1:m.l,y1:y,x2:m.l+iw,y2:y,stroke:grid,'stroke-width':1}));
+    const t=el('text',{x:m.l-8,y:y+3.5,fill:muted,'font-size':11,'text-anchor':'end','font-family':'IBM Plex Mono,monospace'});
+    t.textContent=tk.toLocaleString();svg.appendChild(t);});
+  // bars
+  const bw=(X(-7.5)-X(-10))*0.86;
+  HISTO.forEach(([x,n])=>{if(n<=0)return;const bx=X(x)+ (X(-7.5)-X(-10))*0.07, by=Y(n);
+    svg.appendChild(el('rect',{x:bx,y:by,width:bw,height:m.t+ih-by,rx:1,
+      fill: x<=-10?amber:(x<0?slate:cssv('--supply')), opacity:x<=-10?.95:(x<0?.9:.7)}));});
+  // x ticks
+  [-30,-20,-10,0,10,20,30].forEach(xx=>{const t=el('text',{x:X(xx),y:H-14,fill:muted,'font-size':11,'text-anchor':'middle','font-family':'IBM Plex Mono,monospace'});
+    t.textContent=(xx>0?'+':'')+xx+'%';svg.appendChild(t);});
+  // vertical markers
+  function vline(xx,color,dash,label){const x=X(xx);
+    svg.appendChild(el('line',{x1:x,y1:m.t,x2:x,y2:m.t+ih,stroke:color,'stroke-width':1.5,'stroke-dasharray':dash||''}));
+    const t=el('text',{x:x,y:m.t-4,fill:color,'font-size':10.5,'text-anchor':'middle','font-weight':700});t.textContent=label;svg.appendChild(t);}
+  vline(0,muted,'3 3','실거래');
+  vline(HMED,slate,'3 3','중앙값 +9.7%');
+  vline(-10,amber,'','급매선 −10%');
+  // 라벨: 급매 41
+  const gl=el('text',{x:X(-18),y:Y(vmax*0.62),fill:amber,'font-size':12,'font-weight':800,'text-anchor':'middle'});
+  gl.textContent='−10%↓ 41물건';svg.appendChild(gl);
+  const gl2=el('text',{x:X(-18),y:Y(vmax*0.62)+15,fill:muted,'font-size':10.5,'text-anchor':'middle'});
+  gl2.textContent='(전체의 0.37%)';svg.appendChild(gl2);
+}
+function drawSeocho(){
+  lineChart('seochoChart',[
+    {name:'서초구',color:cssv('--amber'),data:SEOCHO,w:3},
+    {name:'나머지 24구',color:cssv('--slate'),data:REST,w:2.4},
+  ],{min:0,ticks:4,lw:34,tip:v=>v+' 물건'});
+}
+function drawDivg(){
+  const box=document.getElementById('divg');box.innerHTML='';
+  const maxAbs=Math.max(...SGG.map(([n,a,b])=>Math.abs(b-a)));
+  SGG.forEach(([nm,a,b])=>{
+    const chg=b-a,pos=chg>=0;
+    const row=document.createElement('div');row.className='drow';
+    const w=Math.abs(chg)/maxAbs*48; // 최대 48% of half-width
+    row.innerHTML=`<div class="nm">${nm}구</div>
+      <div class="dbar"><span class="mid"></span>
+        <b style="${pos?`left:50%;width:${w}%;background:var(--up)`:`right:50%;width:${w}%;background:var(--down)`}"></b></div>
+      <div class="val ${pos?'pos':'neg'}"><span class="num">${pos?'+':'−'}${Math.abs(chg)}</span>
+        <span class="num" style="color:var(--faint);font-weight:500;font-size:11px"> ${a}→${b}</span></div>`;
+    box.appendChild(row);
+  });
+}
+function fillTable(){
+  const tb=document.querySelector('#dataTable tbody');tb.innerHTML='';
+  for(let i=0;i<DATES.length;i++){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td class="num">2026-${DATES[i]}</td><td class="num">${TOTITEMS[i].toLocaleString()}</td><td class="num" style="color:var(--faint)">${TOTAL[i].toLocaleString()}</td>
+      <td class="num">${D5[i]}</td><td class="num hl">${D10[i]}</td><td class="num">${D15[i]}</td><td class="num">${D20[i]}</td>`;
+    tb.appendChild(tr);
+  }
+}
+function renderAll(){drawHisto();drawIndex();drawSeocho();drawDivg();}
+fillTable();renderAll();
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',renderAll);
+new MutationObserver(renderAll).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+addEventListener('resize',()=>{clearTimeout(window._rt);window._rt=setTimeout(renderAll,150);});
+</script>

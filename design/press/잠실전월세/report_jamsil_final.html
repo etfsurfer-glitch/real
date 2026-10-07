@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>잠실 주요단지 전월세 통계</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@700;800&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#191C22; --ink2:#3A3F49; --muted:#6B7078; --faint:#9AA0A8;
+  --line:#DCDEE3; --line2:#EBECEF; --paper:#FFFFFF; --band:#F5F6F8;
+  --jeonse:#234E7D; --real:#234E7D; --ad:#B4802F; --wolse:#B4802F; --grid:#E7E9ED;
+  --serif:"Nanum Myeongjo",serif; --sans:"Noto Sans KR",system-ui,sans-serif;
+}
+@page{ size:A4; margin:15mm 14mm; }
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:var(--band);color:var(--ink);font-family:var(--sans);
+  line-height:1.55;font-size:10pt}
+.page{width:210mm;min-height:297mm;background:var(--paper);margin:0 auto 8mm;padding:16mm 15mm;
+  display:flex;flex-direction:column}
+.page + .page{page-break-before:always}
+@media print{ body{background:#fff} .page{margin:0;width:auto;min-height:0;height:267mm;padding:0} }
+h1,h2,h3{font-family:var(--serif);color:var(--ink);margin:0;line-height:1.25;font-weight:800}
+.tnum,table{font-variant-numeric:tabular-nums}
+.rh{display:flex;justify-content:space-between;align-items:center;border-bottom:1.5px solid var(--ink);
+  padding-bottom:6px;margin-bottom:18px;font-size:8.5pt;color:var(--muted)}
+.rh b{font-family:var(--sans);font-weight:900;color:var(--ink)}.rh b span{color:var(--jeonse)}
+.rf{margin-top:auto;display:flex;justify-content:space-between;
+  font-size:8pt;color:var(--faint);border-top:1px solid var(--line2);padding-top:6px}
+
+.cover{padding-top:24mm}
+.cover .eyebrow{font-weight:700;font-size:10pt;letter-spacing:.16em;color:var(--jeonse);text-transform:uppercase;margin-bottom:20px}
+.cover h1{font-size:36pt;line-height:1.12;letter-spacing:-.02em}
+.cover .sub{font-family:var(--serif);font-weight:700;font-size:14pt;color:var(--ink2);margin-top:16px}
+.cover .rule{height:2px;background:var(--ink);margin:26px 0}
+.cover .prov{font-size:10pt;color:var(--muted);line-height:1.95}.cover .prov b{color:var(--ink2);font-weight:700}
+
+.sec{margin-top:22px}
+.sec-lab{font-family:var(--sans);font-weight:900;font-size:9pt;letter-spacing:.09em;color:var(--jeonse);margin-bottom:5px}
+h2{font-size:16pt;margin-bottom:3px}
+.note{font-size:9pt;color:var(--muted);margin:8px 0 0;line-height:1.55}
+
+table{width:100%;border-collapse:collapse;margin:12px 0 4px;font-size:8.7pt}
+caption{caption-side:top;text-align:left;font-family:var(--sans);font-weight:700;font-size:9.3pt;color:var(--ink);margin-bottom:6px}
+th,td{padding:5px 7px;text-align:right;border-bottom:1px solid var(--line2);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{border-bottom:1.5px solid var(--ink);color:var(--ink);font-weight:700;background:var(--band);font-size:8.2pt}
+tbody tr:last-child td{border-bottom:1px solid var(--line)}
+tbody tr.grp td{border-top:1px solid var(--line)}
+.tight td,.tight th{padding-top:2.6px;padding-bottom:2.6px}
+.hi{color:var(--jeonse);font-weight:700} .amber{color:var(--ad);font-weight:700}
+.src{font-size:8pt;color:var(--faint);margin-top:6px;line-height:1.5}
+
+.defbox{background:var(--band);border:1px solid var(--line);border-radius:4px;padding:12px 14px;margin:10px 0;font-size:9pt;line-height:1.7}
+.defbox .term{display:inline-block;min-width:88px;font-weight:800;color:var(--jeonse)}
+.defbox b{color:var(--ink)}
+
+figure{margin:12px 0 4px;break-inside:avoid}
+.figtitle{font-family:var(--sans);font-weight:700;font-size:9.3pt;color:var(--ink);margin-bottom:3px}
+.legend{display:flex;gap:14px;font-size:8.5pt;color:var(--muted);margin-bottom:6px}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;vertical-align:2px;margin-right:5px}
+svg{display:block;width:100%;height:auto}
+.axis{font-family:var(--sans);font-size:7.5pt;fill:var(--faint)}
+
+.method{font-size:8.6pt;color:var(--muted);line-height:1.7}
+.method dt{font-weight:800;color:var(--ink2);margin-top:7px}.method b{color:var(--ink2)}
+
+.summ{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin:18px 0}
+.sc{background:var(--paper);padding:13px 12px}
+.sc .l{font-size:8.5pt;color:var(--muted);font-weight:700;margin-bottom:7px}
+.sc .n{font-family:var(--serif);font-weight:800;font-size:17pt;line-height:1;color:var(--jeonse)}
+.sc .n b{color:var(--ad)}
+.sc .k{font-size:8.3pt;color:var(--muted);margin-top:6px;line-height:1.4}
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<section class="page cover">
+  <div class="eyebrow">부동산 통계 리포트</div>
+  <h1>잠실 주요단지<br>전월세 통계</h1>
+  <div class="sub">전세 매물수·실매물수·광고배율과 전월세 실거래</div>
+  <div class="rule"></div>
+  <div class="prov">
+    <b>대상 단지</b> &nbsp; 잠실르엘·잠실래미안아이파크·잠실엘스·리센츠·트리지움·파크리오(요청) + 레이크팰리스·잠실주공5단지(확대)<br>
+    <b>자료</b> &nbsp; 네이버 매물(콕집 중복제거, 2026.09.19 활성) + 국토교통부 전월세 실거래(2023.6~2026.9)<br>
+    <b>발행</b> &nbsp; <b>조용호</b> · 콕집<br>
+    <b>작성일</b> &nbsp; 2026년 9월 21일
+  </div>
+  <div class="summ" id="cover-cards" style="margin-top:28px"></div>
+  <div class="src">신축(잠실래미안아이파크 준공 2025.12, 잠실르엘 2026.01)은 전월세 실거래가 아직 신고되지 않았다.</div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>1</span></div>
+</section>
+
+<!-- P2: 정의 + 6단지 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>집계 기준 · 요청 6단지</span></div>
+  <div class="sec">
+    <div class="sec-lab">01 — 집계 기준</div>
+    <h2>세 가지 집계 기준</h2>
+    <div class="defbox">
+      <div><span class="term">국토부 실거래</span> 체결·신고된 전월세 계약(가격 포함). 신고 30일 지연으로 최근 분은 미완성.</div>
+      <div><span class="term">매물수(광고)</span> 네이버 등록 광고 건수. 한 물건이 중복 등록되면 여러 건으로 집계.</div>
+      <div><span class="term">실매물수</span> 동일주소 중복 광고를 제거한 실제 물건 수 (Σ 1÷동일주소 광고수).</div>
+      <div><span class="term">광고배율</span> 매물수 ÷ 실매물수. 한 물건당 평균 광고 수.</div>
+    </div>
+  </div>
+  <div class="sec">
+    <div class="sec-lab">02 — 요청 6단지</div>
+    <h2>전세·월세 매물 및 실거래</h2>
+    <table>
+      <caption>표 1. 요청 6개 단지 전월세 현황 (2026.09.19 매물 · 최근 3개월 실거래)</caption>
+      <thead><tr><th>단지 (세대·준공)</th><th>전세 광고</th><th>전세 실매물</th><th>전세 배율</th><th>전세 실거래3M</th><th>보증금 중위</th><th>월세 실매물</th><th>월세 배율</th></tr></thead>
+      <tbody id="req-tab"></tbody>
+    </table>
+    <div class="src">보증금 중위=최근 3개월 전세 실거래 중앙값. 배율=광고÷실매물. 신축은 실거래 미신고로 ‘–’.</div>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>2</span></div>
+</section>
+
+<!-- P3: 8단지 + 평형 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>종합 · 평형별</span></div>
+  <div class="sec">
+    <div class="sec-lab">03 — 잠실 8개 대단지</div>
+    <h2>종합</h2>
+    <table>
+      <caption>표 2. 잠실 주요 8개 단지 전세 매물·실거래</caption>
+      <thead><tr><th>단지</th><th>세대</th><th>전세 광고</th><th>전세 실매물</th><th>배율</th><th>전세 실거래3M</th><th>1,000세대당 실매물</th></tr></thead>
+      <tbody id="all-tab"></tbody>
+    </table>
+    <div class="src">1,000세대당 실매물 = 전세 실매물 ÷ 세대수 ×1000.</div>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>3</span></div>
+</section>
+
+<!-- P4: 평형별 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>평형별</span></div>
+  <div class="sec">
+    <div class="sec-lab">04 — 평형(전용면적)별</div>
+    <h2>평형별 전세</h2>
+    <table class="tight" style="font-size:8.2pt">
+      <caption>표 3. 단지·평형별 전세 매물·실거래 (59㎡대 ≤66 · 84㎡대 67~99 · 대형 100㎡+)</caption>
+      <thead><tr><th>단지</th><th>평형</th><th>광고</th><th>실매물</th><th>배율</th><th>실거래3M</th><th>보증금 중위</th></tr></thead>
+      <tbody id="band-tab"></tbody>
+    </table>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>4</span></div>
+</section>
+
+<!-- P5: 매물 흐름 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>매물 흐름</span></div>
+  <div class="sec">
+    <div class="sec-lab">05 — 전세 매물수 vs 실매물수 흐름</div>
+    <h2>주별 매물 변화 (2026.05.18 → 09.14)</h2>
+    <table>
+      <caption>표 4. 전세 매물 광고수·실매물수 주별 변화</caption>
+      <thead><tr><th>단지</th><th>광고 5/18</th><th>광고 9/14</th><th>광고 Δ</th><th>실매물 5/18</th><th>실매물 9/14</th><th>실매물 Δ</th></tr></thead>
+      <tbody id="flow-tab"></tbody>
+    </table>
+    <div class="src">실매물=Σ(1÷동일주소 광고수). 수집 시작(5/18) 스냅샷 복원으로 초기 수준은 수집 커버리지 안정화 영향을 받을 수 있다.</div>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>5</span></div>
+</section>
+
+<!-- P6: 전세 vs 월세 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>전세와 월세</span></div>
+  <div class="sec">
+    <div class="sec-lab">06 — 전세와 월세</div>
+    <h2>전월세 실거래 추이</h2>
+    <figure>
+      <div class="figtitle">잠실 기축 6단지 월별 전세·월세 실거래 (건)</div>
+      <div class="legend"><span><i style="background:var(--jeonse)"></i>전세</span><span><i style="background:var(--ad)"></i>월세</span></div>
+      <div id="chart-jw"></div>
+    </figure>
+    <table>
+      <caption>표 5. 기축 6단지 분기별 전세·월세 실거래 및 월세 비중</caption>
+      <thead><tr><th>기간</th><th>전세</th><th>월세</th><th>합계</th><th>월세 비중</th></tr></thead>
+      <tbody id="q-tab"></tbody>
+    </table>
+    <table style="margin-top:12px">
+      <caption>표 6. 매물 실매물 전세·월세 주별 변화 (2026.05→09)</caption>
+      <thead><tr><th>단지</th><th>전세 실매물 5/18→9/14</th><th>전세 Δ</th><th>월세 실매물 5/18→9/14</th><th>월세 Δ</th></tr></thead>
+      <tbody id="jw-tab"></tbody>
+    </table>
+    <div class="src">기축 6단지 = 엘스·리센츠·트리지움·파크리오·레이크팰리스·주공5. 차트·분기표는 2025.09~2026.08(9월 신고 진행 중 제외).</div>
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>6</span></div>
+</section>
+
+<!-- P5: 방법 -->
+<section class="page">
+  <div class="rh"><b><span>콕집</span> · 잠실 전월세 통계</b><span>데이터 및 방법</span></div>
+  <div class="sec"><div class="sec-lab">부록</div><h2>데이터 및 방법</h2></div>
+  <div class="method">
+    <dt>대상</dt>
+    잠실르엘(184857)·잠실래미안아이파크(180737)·잠실엘스(22627)·리센츠(22746)·트리지움(19127)·파크리오(22675)·레이크팰리스(15011)·잠실주공5단지(639).
+    <dt>매물</dt>
+    콕집이 수집한 네이버 등록 매물(전세=B1, 월세=B2). <b>매물수</b>=광고 건수, <b>실매물수</b>=동일주소 중복 광고를 제거한 실제 물건 수(Σ 1÷동일주소 광고수), <b>광고배율</b>=매물수÷실매물수. 표 1~3은 2026.09.19 활성 매물 단면.
+    <dt>주별 복원</dt>
+    각 매물의 최초·최종 관측일 사이를 활성으로 보아, 그 주에 걸려 있던 매물을 집계(표 4·6). 수집 시작일은 2026.05.18.
+    <dt>실거래</dt>
+    국토교통부 전월세 실거래 신고(전세=월세 0원). 최근 3개월=2026.7~9(9월 신고 진행 중), 보증금 중위=중앙값.
+    <dt>신축</dt>
+    준공 직후(래미안아이파크 2025.12, 르엘 2026.01)로 전월세 실거래 미신고 → 실거래 0.
+    <dt>한계</dt>
+    실거래는 신고 기준으로 미신고·직거래 제외. 매물은 특정 시점 단면. 보증금·월세는 신고액 기준.
+    <dt>발행</dt>
+    조용호 · 콕집. 재인용 시 출처(콕집·국토교통부) 표기.
+  </div>
+  <div class="rf"><span>콕집 · 발행 조용호 · 잠실 주요단지 전월세 통계</span><span>7</span></div>
+</section>
+
+<script>
+const D=[{"cx": "184857", "name": "잠실르엘", "tag": "요청", "hh": 1865, "j_ads": 223, "j_real": 32.5, "j_mult": 6.86, "w_ads": 233, "w_real": 52.4, "sale_real": 47.0, "rt_n3": 0, "rt_n6": 0, "rt_med3": null, "rt_med6": null, "rt_last": null, "rt_monthly": {}}, {"cx": "180737", "name": "잠실래미안아이파크", "tag": "요청", "hh": 2678, "j_ads": 165, "j_real": 56.1, "j_mult": 2.94, "w_ads": 80, "w_real": 39.1, "sale_real": 55.2, "rt_n3": 0, "rt_n6": 0, "rt_med3": null, "rt_med6": null, "rt_last": null, "rt_monthly": {}}, {"cx": "22627", "name": "잠실엘스", "tag": "요청", "hh": 5678, "j_ads": 301, "j_real": 173.9, "j_mult": 1.73, "w_ads": 287, "w_real": 166.3, "sale_real": 455.7, "rt_n3": 69, "rt_n6": 184, "rt_med3": 126000, "rt_med6": 120700, "rt_last": "2026-09-16", "rt_monthly": {"2025-09": 48, "2025-10": 49, "2025-11": 58, "2025-12": 53, "2026-01": 35, "2026-02": 30, "2026-03": 35, "2026-04": 36, "2026-05": 42, "2026-06": 37, "2026-07": 31, "2026-08": 24, "2026-09": 14}}, {"cx": "22746", "name": "리센츠", "tag": "요청", "hh": 5563, "j_ads": 151, "j_real": 40.9, "j_mult": 3.69, "w_ads": 311, "w_real": 85.5, "sale_real": 318.1, "rt_n3": 60, "rt_n6": 152, "rt_med3": 132300, "rt_med6": 130000, "rt_last": "2026-09-16", "rt_monthly": {"2025-09": 34, "2025-10": 37, "2025-11": 47, "2025-12": 54, "2026-01": 49, "2026-02": 38, "2026-03": 32, "2026-04": 32, "2026-05": 40, "2026-06": 20, "2026-07": 33, "2026-08": 19, "2026-09": 8}}, {"cx": "19127", "name": "트리지움", "tag": "요청", "hh": 3696, "j_ads": 5, "j_real": 5.0, "j_mult": 1.0, "w_ads": 73, "w_real": 54.5, "sale_real": 475.8, "rt_n3": 44, "rt_n6": 101, "rt_med3": 128000, "rt_med6": 121000, "rt_last": "2026-09-16", "rt_monthly": {"2025-09": 21, "2025-10": 22, "2025-11": 40, "2025-12": 33, "2026-01": 21, "2026-02": 15, "2026-03": 20, "2026-04": 14, "2026-05": 30, "2026-06": 13, "2026-07": 24, "2026-08": 16, "2026-09": 4}}, {"cx": "22675", "name": "파크리오", "tag": "요청", "hh": 6864, "j_ads": 355, "j_real": 156.9, "j_mult": 2.26, "w_ads": 402, "w_real": 166.1, "sale_real": 357.8, "rt_n3": 95, "rt_n6": 214, "rt_med3": 110000, "rt_med6": 110000, "rt_last": "2026-09-18", "rt_monthly": {"2025-09": 47, "2025-10": 61, "2025-11": 76, "2025-12": 73, "2026-01": 65, "2026-02": 43, "2026-03": 59, "2026-04": 37, "2026-05": 48, "2026-06": 34, "2026-07": 48, "2026-08": 27, "2026-09": 20}}, {"cx": "15011", "name": "레이크팰리스", "tag": "확대", "hh": 2678, "j_ads": 91, "j_real": 62.0, "j_mult": 1.47, "w_ads": 54, "w_real": 42.6, "sale_real": 228.8, "rt_n3": 32, "rt_n6": 72, "rt_med3": 125000, "rt_med6": 125000, "rt_last": "2026-09-16", "rt_monthly": {"2025-09": 21, "2025-10": 13, "2025-11": 21, "2025-12": 17, "2026-01": 12, "2026-02": 10, "2026-03": 10, "2026-04": 14, "2026-05": 13, "2026-06": 13, "2026-07": 15, "2026-08": 13, "2026-09": 4}}, {"cx": "639", "name": "잠실주공5단지", "tag": "확대", "hh": 3930, "j_ads": 22, "j_real": 21.3, "j_mult": 1.03, "w_ads": 3, "w_real": 2.5, "sale_real": 401.6, "rt_n3": 53, "rt_n6": 124, "rt_med3": 55000, "rt_med6": 55000, "rt_last": "2026-09-11", "rt_monthly": {"2025-09": 34, "2025-10": 26, "2025-11": 53, "2025-12": 34, "2026-01": 42, "2026-02": 31, "2026-03": 32, "2026-04": 27, "2026-05": 24, "2026-06": 20, "2026-07": 28, "2026-08": 18, "2026-09": 7}}], D2={"bands": [{"cx": "184857", "name": "잠실르엘", "band": "59㎡대", "j_ads": 1, "j_real": 1.0, "j_mult": 1.0, "rt_n3": 0, "rt_med3": null}, {"cx": "184857", "name": "잠실르엘", "band": "84㎡대", "j_ads": 128, "j_real": 22.5, "j_mult": 5.68, "rt_n3": 0, "rt_med3": null}, {"cx": "184857", "name": "잠실르엘", "band": "대형(100㎡+)", "j_ads": 94, "j_real": 9.0, "j_mult": 10.46, "rt_n3": 0, "rt_med3": null}, {"cx": "180737", "name": "잠실래미안아이파크", "band": "59㎡대", "j_ads": 92, "j_real": 29.1, "j_mult": 3.16, "rt_n3": 0, "rt_med3": null}, {"cx": "180737", "name": "잠실래미안아이파크", "band": "84㎡대", "j_ads": 5, "j_real": 3.5, "j_mult": 1.43, "rt_n3": 0, "rt_med3": null}, {"cx": "180737", "name": "잠실래미안아이파크", "band": "대형(100㎡+)", "j_ads": 68, "j_real": 23.5, "j_mult": 2.9, "rt_n3": 0, "rt_med3": null}, {"cx": "22627", "name": "잠실엘스", "band": "59㎡대", "j_ads": 48, "j_real": 29.5, "j_mult": 1.63, "rt_n3": 16, "rt_med3": 100000}, {"cx": "22627", "name": "잠실엘스", "band": "84㎡대", "j_ads": 229, "j_real": 126.8, "j_mult": 1.81, "rt_n3": 47, "rt_med3": 130000}, {"cx": "22627", "name": "잠실엘스", "band": "대형(100㎡+)", "j_ads": 24, "j_real": 17.7, "j_mult": 1.36, "rt_n3": 6, "rt_med3": 171000}, {"cx": "22746", "name": "리센츠", "band": "59㎡대", "j_ads": 38, "j_real": 14.2, "j_mult": 2.68, "rt_n3": 16, "rt_med3": 63000}, {"cx": "22746", "name": "리센츠", "band": "84㎡대", "j_ads": 102, "j_real": 21.2, "j_mult": 4.81, "rt_n3": 40, "rt_med3": 136500}, {"cx": "22746", "name": "리센츠", "band": "대형(100㎡+)", "j_ads": 11, "j_real": 5.5, "j_mult": 2.0, "rt_n3": 4, "rt_med3": 178500}, {"cx": "19127", "name": "트리지움", "band": "59㎡대", "j_ads": 0, "j_real": 0.0, "j_mult": 0, "rt_n3": 15, "rt_med3": 110000}, {"cx": "19127", "name": "트리지움", "band": "84㎡대", "j_ads": 4, "j_real": 4.0, "j_mult": 1.0, "rt_n3": 24, "rt_med3": 130000}, {"cx": "19127", "name": "트리지움", "band": "대형(100㎡+)", "j_ads": 1, "j_real": 1.0, "j_mult": 1.0, "rt_n3": 5, "rt_med3": 180000}, {"cx": "22675", "name": "파크리오", "band": "59㎡대", "j_ads": 76, "j_real": 31.8, "j_mult": 2.39, "rt_n3": 29, "rt_med3": 92400}, {"cx": "22675", "name": "파크리오", "band": "84㎡대", "j_ads": 250, "j_real": 110.6, "j_mult": 2.26, "rt_n3": 52, "rt_med3": 110000}, {"cx": "22675", "name": "파크리오", "band": "대형(100㎡+)", "j_ads": 29, "j_real": 14.5, "j_mult": 1.99, "rt_n3": 14, "rt_med3": 150000}, {"cx": "15011", "name": "레이크팰리스", "band": "59㎡대", "j_ads": 2, "j_real": 2.0, "j_mult": 1.0, "rt_n3": 11, "rt_med3": 100000}, {"cx": "15011", "name": "레이크팰리스", "band": "84㎡대", "j_ads": 21, "j_real": 19.5, "j_mult": 1.08, "rt_n3": 10, "rt_med3": 125000}, {"cx": "15011", "name": "레이크팰리스", "band": "대형(100㎡+)", "j_ads": 68, "j_real": 40.5, "j_mult": 1.68, "rt_n3": 11, "rt_med3": 155000}, {"cx": "639", "name": "잠실주공5단지", "band": "84㎡대", "j_ads": 22, "j_real": 21.3, "j_mult": 1.03, "rt_n3": 53, "rt_med3": 55000}], "weeks": ["2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14"], "weekly": {"잠실르엘": [716, 549, 499, 420, 406, 441, 339, 330, 305, 270, 270, 207, 223, 170, 210, 258, 223, 232], "잠실래미안아이파크": [424, 293, 261, 237, 253, 319, 288, 276, 251, 224, 261, 205, 234, 208, 239, 183, 181, 206], "잠실엘스": [314, 342, 340, 301, 279, 299, 341, 396, 388, 366, 355, 279, 287, 219, 289, 364, 402, 356], "리센츠": [254, 260, 223, 157, 203, 292, 386, 294, 297, 311, 281, 270, 315, 256, 313, 292, 235, 223], "트리지움": [29, 45, 53, 70, 75, 76, 115, 104, 88, 73, 64, 54, 57, 40, 26, 12, 11, 3], "파크리오": [96, 117, 159, 177, 249, 303, 303, 303, 291, 278, 333, 316, 308, 278, 318, 301, 355, 354], "레이크팰리스": [82, 53, 52, 49, 73, 121, 126, 147, 120, 128, 110, 82, 87, 58, 80, 100, 97, 97], "잠실주공5단지": [49, 46, 26, 34, 46, 58, 62, 52, 64, 61, 62, 53, 64, 44, 62, 74, 68, 53]}}, D3={"weeks": ["2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14"], "ads": {"잠실르엘": [716, 549, 499, 420, 406, 441, 339, 330, 305, 270, 270, 207, 223, 170, 210, 258, 223, 232], "잠실래미안아이파크": [424, 293, 261, 237, 253, 319, 288, 276, 251, 224, 261, 205, 234, 208, 239, 183, 181, 206], "잠실엘스": [314, 342, 340, 301, 279, 299, 341, 396, 388, 366, 355, 279, 287, 219, 289, 364, 402, 356], "리센츠": [254, 260, 223, 157, 203, 292, 386, 294, 297, 311, 281, 270, 315, 256, 313, 292, 235, 223], "트리지움": [29, 45, 53, 70, 75, 76, 115, 104, 88, 73, 64, 54, 57, 40, 26, 12, 11, 3], "파크리오": [96, 117, 159, 177, 249, 303, 303, 303, 291, 278, 333, 316, 308, 278, 318, 301, 355, 354], "레이크팰리스": [82, 53, 52, 49, 73, 121, 126, 147, 120, 128, 110, 82, 87, 58, 80, 100, 97, 97], "잠실주공5단지": [49, 46, 26, 34, 46, 58, 62, 52, 64, 61, 62, 53, 64, 44, 62, 74, 68, 53]}, "real": {"잠실르엘": [233.7, 152.9, 106.5, 110.6, 95.6, 104.7, 84.0, 82.9, 61.7, 54.6, 59.5, 45.2, 39.1, 22.1, 23.2, 29.0, 29.5, 29.3], "잠실래미안아이파크": [191.9, 125.1, 91.9, 77.8, 68.7, 80.9, 82.9, 75.8, 67.7, 67.3, 71.8, 62.6, 73.8, 68.0, 67.9, 54.7, 64.4, 63.7], "잠실엘스": [148.9, 143.4, 144.6, 125.3, 117.2, 136.3, 156.5, 168.6, 175.2, 162.4, 154.6, 130.3, 130.6, 104.0, 134.0, 152.8, 166.8, 185.2], "리센츠": [83.0, 91.9, 83.9, 62.8, 66.7, 83.3, 94.3, 80.5, 74.8, 76.7, 76.5, 81.8, 98.6, 78.5, 87.6, 83.6, 69.7, 55.3], "트리지움": [25.7, 26.6, 30.1, 37.1, 47.7, 45.0, 66.5, 62.1, 48.0, 45.5, 36.2, 29.3, 33.8, 28.9, 21.1, 10.1, 10.0, 3.0], "파크리오": [52.0, 59.8, 77.4, 81.6, 107.3, 126.0, 122.0, 124.7, 111.9, 108.6, 124.1, 115.7, 119.0, 113.0, 123.8, 127.5, 133.8, 143.6], "레이크팰리스": [51.0, 41.5, 41.4, 39.2, 53.2, 85.8, 92.8, 106.3, 94.3, 99.9, 86.3, 61.9, 66.8, 44.9, 61.9, 76.1, 67.5, 63.9], "잠실주공5단지": [47.0, 44.8, 23.0, 31.0, 42.0, 56.5, 57.7, 48.7, 56.0, 50.8, 52.2, 45.3, 54.8, 37.7, 54.0, 67.6, 61.6, 49.4]}}, D4={"weeks": ["2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14"], "deal_monthly": {"잠실르엘": {}, "잠실래미안아이파크": {}, "잠실엘스": {"2025-09": [48, 42], "2025-10": [49, 49], "2025-11": [58, 76], "2025-12": [53, 50], "2026-01": [35, 48], "2026-02": [30, 17], "2026-03": [35, 27], "2026-04": [36, 42], "2026-05": [42, 47], "2026-06": [37, 53], "2026-07": [31, 31], "2026-08": [24, 33], "2026-09": [14, 8]}, "리센츠": {"2025-09": [34, 45], "2025-10": [37, 43], "2025-11": [47, 60], "2025-12": [54, 62], "2026-01": [49, 55], "2026-02": [38, 41], "2026-03": [32, 45], "2026-04": [32, 38], "2026-05": [40, 47], "2026-06": [20, 46], "2026-07": [33, 43], "2026-08": [19, 25], "2026-09": [8, 21]}, "트리지움": {"2025-09": [21, 25], "2025-10": [22, 34], "2025-11": [40, 37], "2025-12": [33, 30], "2026-01": [21, 23], "2026-02": [15, 20], "2026-03": [20, 20], "2026-04": [14, 25], "2026-05": [30, 15], "2026-06": [13, 18], "2026-07": [24, 23], "2026-08": [16, 14], "2026-09": [4, 8]}, "파크리오": {"2025-09": [47, 37], "2025-10": [61, 35], "2025-11": [76, 54], "2025-12": [73, 65], "2026-01": [65, 58], "2026-02": [43, 46], "2026-03": [59, 43], "2026-04": [37, 50], "2026-05": [48, 57], "2026-06": [34, 44], "2026-07": [48, 39], "2026-08": [27, 26], "2026-09": [20, 22]}, "레이크팰리스": {"2025-09": [21, 25], "2025-10": [13, 14], "2025-11": [21, 22], "2025-12": [17, 25], "2026-01": [12, 20], "2026-02": [10, 6], "2026-03": [10, 18], "2026-04": [14, 14], "2026-05": [13, 6], "2026-06": [13, 15], "2026-07": [15, 19], "2026-08": [13, 4], "2026-09": [4, 3]}, "잠실주공5단지": {"2025-09": [34, 13], "2025-10": [26, 27], "2025-11": [53, 19], "2025-12": [34, 20], "2026-01": [42, 18], "2026-02": [31, 18], "2026-03": [32, 23], "2026-04": [27, 16], "2026-05": [24, 19], "2026-06": [20, 9], "2026-07": [28, 13], "2026-08": [18, 16], "2026-09": [7, 3]}}, "listing_weekly": {"잠실르엘": {"j": [233.7, 152.9, 106.5, 110.6, 95.6, 104.7, 84.0, 82.9, 61.7, 54.6, 59.5, 45.2, 39.1, 22.1, 23.2, 29.0, 29.5, 29.3], "w": [196.2, 120.6, 68.2, 50.7, 34.7, 37.5, 29.0, 46.7, 39.6, 33.7, 40.9, 40.1, 52.9, 39.9, 47.8, 40.2, 41.0, 39.6]}, "잠실래미안아이파크": {"j": [191.9, 125.1, 91.9, 77.8, 68.7, 80.9, 82.9, 75.8, 67.7, 67.3, 71.8, 62.6, 73.8, 68.0, 67.9, 54.7, 64.4, 63.7], "w": [190.6, 127.9, 107.5, 101.8, 74.8, 67.4, 40.3, 28.3, 22.0, 16.9, 14.7, 12.2, 40.3, 39.9, 48.2, 39.3, 25.5, 26.2]}, "잠실엘스": {"j": [148.9, 143.4, 144.6, 125.3, 117.2, 136.3, 156.5, 168.6, 175.2, 162.4, 154.6, 130.3, 130.6, 104.0, 134.0, 152.8, 166.8, 185.2], "w": [106.1, 112.9, 109.9, 104.7, 95.9, 100.7, 83.2, 97.4, 112.2, 128.6, 175.0, 152.4, 155.7, 129.6, 128.2, 162.0, 159.9, 173.0]}, "리센츠": {"j": [83.0, 91.9, 83.9, 62.8, 66.7, 83.3, 94.3, 80.5, 74.8, 76.7, 76.5, 81.8, 98.6, 78.5, 87.6, 83.6, 69.7, 55.3], "w": [78.0, 74.5, 69.7, 74.0, 78.7, 73.2, 62.9, 58.9, 63.9, 57.3, 63.9, 69.9, 75.9, 69.1, 65.4, 58.9, 71.1, 85.8]}, "트리지움": {"j": [25.7, 26.6, 30.1, 37.1, 47.7, 45.0, 66.5, 62.1, 48.0, 45.5, 36.2, 29.3, 33.8, 28.9, 21.1, 10.1, 10.0, 3.0], "w": [51.9, 48.3, 47.7, 40.5, 37.9, 39.3, 26.6, 20.8, 38.1, 34.4, 46.9, 36.2, 55.1, 56.9, 78.5, 43.5, 44.7, 46.3]}, "파크리오": {"j": [52.0, 59.8, 77.4, 81.6, 107.3, 126.0, 122.0, 124.7, 111.9, 108.6, 124.1, 115.7, 119.0, 113.0, 123.8, 127.5, 133.8, 143.6], "w": [61.3, 61.2, 68.1, 74.9, 80.1, 106.9, 114.6, 119.1, 124.2, 127.6, 139.7, 134.6, 132.9, 128.9, 147.6, 153.9, 186.7, 164.3]}, "레이크팰리스": {"j": [51.0, 41.5, 41.4, 39.2, 53.2, 85.8, 92.8, 106.3, 94.3, 99.9, 86.3, 61.9, 66.8, 44.9, 61.9, 76.1, 67.5, 63.9], "w": [63.0, 62.7, 68.8, 64.6, 74.5, 101.2, 93.5, 93.1, 65.9, 70.8, 84.5, 50.3, 63.8, 42.4, 65.6, 68.7, 62.2, 55.0]}, "잠실주공5단지": {"j": [47.0, 44.8, 23.0, 31.0, 42.0, 56.5, 57.7, 48.7, 56.0, 50.8, 52.2, 45.3, 54.8, 37.7, 54.0, 67.6, 61.6, 49.4], "w": [2.0, 2.0, 2.0, 2.0, 8.0, 13.0, 17.0, 24.0, 26.0, 19.5, 25.5, 19.5, 20.5, 13.0, 22.5, 15.0, 2.5, 3.5]}}, "snap": {"잠실르엘": {"w_ads": 233, "w_real": 52.4, "w_mult": 4.45}, "잠실래미안아이파크": {"w_ads": 80, "w_real": 39.1, "w_mult": 2.05}, "잠실엘스": {"w_ads": 287, "w_real": 166.3, "w_mult": 1.73}, "리센츠": {"w_ads": 311, "w_real": 85.5, "w_mult": 3.64}, "트리지움": {"w_ads": 73, "w_real": 54.5, "w_mult": 1.34}, "파크리오": {"w_ads": 402, "w_real": 166.1, "w_mult": 2.42}, "레이크팰리스": {"w_ads": 54, "w_real": 42.6, "w_mult": 1.27}, "잠실주공5단지": {"w_ads": 3, "w_real": 2.5, "w_mult": 1.2}}};
+const by={}; D.forEach(d=>by[d.name]=d);
+const AP={"잠실르엘":"2026.01·신축","잠실래미안아이파크":"2025.12·신축","잠실엘스":"2008","리센츠":"2008","트리지움":"2007","파크리오":"2008","레이크팰리스":"2006","잠실주공5단지":"1978"};
+const isNew=n=>AP[n]&&AP[n].includes('신축');
+const fmt=n=>(n==null?'–':Number(n).toLocaleString());
+const eok=m=>{if(m==null)return '–';const e=Math.floor(m/10000);return e?`${e}.${Math.round((m%10000)/1000)}억`:`${m}만`;};
+const cv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const pct=x=>`${x>=0?'+':''}${x}%`;
+
+// cover cards
+const ruel=by['잠실르엘'], tri=by['트리지움'];
+document.getElementById('cover-cards').innerHTML=`
+ <div class="sc"><div class="l">잠실르엘 전세 (신축)</div><div class="n"><b>${ruel.j_ads}</b> → ${Math.round(ruel.j_real)}</div><div class="k">광고 ${ruel.j_ads}건 · 실매물 ${Math.round(ruel.j_real)}채 · 배율 ${ruel.j_mult}</div></div>
+ <div class="sc"><div class="l">트리지움 전세 매물</div><div class="n">${tri.j_ads}</div><div class="k">${fmt(tri.hh)}세대 · 실거래 3개월 ${tri.rt_n3}건</div></div>
+ <div class="sc"><div class="l">신축 2단지 전세 실거래</div><div class="n">0</div><div class="k">중복제거 실매물 ${Math.round(ruel.j_real+by['잠실래미안아이파크'].j_real)}채는 현재 매물</div></div>`;
+
+// req 6
+const REQ=['잠실르엘','잠실래미안아이파크','잠실엘스','리센츠','트리지움','파크리오'];
+document.getElementById('req-tab').innerHTML=REQ.map(n=>{const d=by[n];const N=isNew(n);
+ return `<tr><td>${n} <span style="color:var(--faint);font-size:7.5pt">${fmt(d.hh)}·${AP[n]}</span></td>
+ <td class="amber">${fmt(d.j_ads)}</td><td class="hi">${fmt(Math.round(d.j_real))}</td><td>${d.j_mult}</td>
+ <td>${N?'–':d.rt_n3}</td><td>${N?'–':eok(d.rt_med3)}</td>
+ <td>${fmt(Math.round(d.w_real))}</td><td>${(D4.snap[n].w_mult||0)}</td></tr>`;}).join('');
+
+// all 8 by 1000세대당 실매물 asc
+const per=d=>d.j_real/d.hh*1000;
+[...D].sort((a,b)=>per(a)-per(b)).forEach(d=>{
+ document.getElementById('all-tab').insertAdjacentHTML('beforeend',
+ `<tr><td>${d.name}</td><td>${fmt(d.hh)}</td><td class="amber">${fmt(d.j_ads)}</td><td class="hi">${fmt(Math.round(d.j_real))}</td><td>${d.j_mult}</td><td>${isNew(d.name)?'–':d.rt_n3}</td><td>${per(d).toFixed(1)}</td></tr>`);});
+
+// bands
+let last=null;
+document.getElementById('band-tab').innerHTML=D2.bands.map(b=>{const first=b.name!==last;last=b.name;const N=isNew(b.name);
+ return `<tr class="${first?'grp':''}"><td>${first?b.name:'〃'}</td><td>${b.band}</td><td class="amber">${fmt(b.j_ads)}</td><td class="hi">${fmt(Math.round(b.j_real))}</td><td>${b.j_mult}</td><td>${N?'–':b.rt_n3}</td><td>${N?'–':eok(b.rt_med3)}</td></tr>`;}).join('');
+
+// flow tab (전세 광고 vs 실매물 주별 첫끝)
+const chg=s=>s[0]?Math.round((s[s.length-1]/s[0]-1)*100):0;
+const ORDER=['잠실르엘','잠실래미안아이파크','잠실엘스','리센츠','트리지움','파크리오','레이크팰리스','잠실주공5단지'];
+document.getElementById('flow-tab').innerHTML=ORDER.map(n=>{const a=D3.ads[n],r=D3.real[n];
+ return `<tr><td>${n.replace('잠실','')}</td><td class="amber">${a[0]}</td><td class="amber">${a[a.length-1]}</td><td>${pct(chg(a))}</td>
+ <td class="hi">${Math.round(r[0])}</td><td class="hi">${Math.round(r[r.length-1])}</td><td>${pct(chg(r))}</td></tr>`;}).join('');
+
+// jw table
+document.getElementById('jw-tab').innerHTML=ORDER.map(n=>{const j=D4.listing_weekly[n].j,w=D4.listing_weekly[n].w;
+ return `<tr><td>${n.replace('잠실','')}</td><td class="hi">${Math.round(j[0])} → ${Math.round(j[j.length-1])}</td><td>${pct(chg(j))}</td>
+ <td class="amber">${Math.round(w[0])} → ${Math.round(w[w.length-1])}</td><td>${pct(chg(w))}</td></tr>`;}).join('');
+
+// quarter table
+const MAT=['잠실엘스','리센츠','트리지움','파크리오','레이크팰리스','잠실주공5단지'];
+function aggQ(a,b){let j=0,w=0;MAT.forEach(n=>{Object.entries(D4.deal_monthly[n]||{}).forEach(([k,v])=>{if(k>=a&&k<=b){j+=v[0];w+=v[1];}});});return[j,w];}
+const QS=[['2025 4Q','2025-10','2025-12'],['2026 1Q','2026-01','2026-03'],['2026 2Q','2026-04','2026-06'],['2026 3Q(7~8월)','2026-07','2026-08']];
+document.getElementById('q-tab').innerHTML=QS.map(([lab,a,b])=>{const[j,w]=aggQ(a,b);const t=j+w;
+ return `<tr><td>${lab}</td><td class="hi">${fmt(j)}</td><td class="amber">${fmt(w)}</td><td>${fmt(t)}</td><td>${t?Math.round(w/t*100):0}%</td></tr>`;}).join('');
+
+// jw chart (mature6 monthly)
+(function(){const el=document.getElementById('chart-jw');
+ const mset=new Set();MAT.forEach(n=>Object.keys(D4.deal_monthly[n]||{}).forEach(k=>mset.add(k)));
+ const months=[...mset].sort().filter(m=>m>='2025-09'&&m<='2026-08');
+ const jr=[],wr=[];months.forEach(m=>{let j=0,w=0;MAT.forEach(n=>{const v=(D4.deal_monthly[n]||{})[m];if(v){j+=v[0];w+=v[1];}});jr.push(j);wr.push(w);});
+ const W=1000,H=300,mg={t:14,r:36,b:30,l:32},iw=W-mg.l-mg.r,ih=H-mg.t-mg.b;
+ const maxV=Math.ceil(Math.max(...jr,...wr)/50)*50;
+ const X=i=>mg.l+iw*i/(months.length-1),Y=v=>mg.t+ih*(1-v/maxV);
+ let g=`<svg viewBox="0 0 ${W} ${H}">`;
+ for(let v=0;v<=maxV;v+=100){g+=`<line x1="${mg.l}" x2="${W-mg.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${cv('--grid')}"/><text class="axis" x="${mg.l-5}" y="${Y(v)+4}" text-anchor="end">${v}</text>`;}
+ months.forEach((m,i)=>{if(m.slice(5)==='01'||m.slice(5)==='07'||i===0||i===months.length-1)g+=`<text class="axis" x="${X(i)}" y="${H-12}" text-anchor="middle">${m.slice(2).replace('-','.')}</text>`;});
+ const dr=(arr,c,w)=>{let p='';arr.forEach((v,i)=>p+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)+' ');g+=`<path d="${p}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linejoin="round"/><circle cx="${X(arr.length-1)}" cy="${Y(arr[arr.length-1])}" r="3" fill="${c}"/>`;};
+ dr(wr,cv('--ad'),2);dr(jr,cv('--jeonse'),2.4);g+='</svg>';el.innerHTML=g;
+})();
+window.__ready=true;
+</script>
+</body>
+</html>
