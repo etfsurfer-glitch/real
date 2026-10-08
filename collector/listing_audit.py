@@ -13,6 +13,19 @@ def is_saengsuk(complex_name: str | None) -> bool:
     return bool(complex_name) and "생활숙박" in complex_name
 
 
+def _has_parking(v) -> bool:
+    """주차대수 표시 여부. _has 와 달리 **0 을 유효한 표시로 본다**.
+
+    _has 는 0 을 미표시로 보는데(면적·층·방수에는 맞다) 주차대수는 다르다.
+    '0대'는 '주차 없음'을 밝힌 것이라 세부기준이 요구하는 표시를 충족한다.
+    실측: 을지로3가 빌딩 2648738735 — 네이버 parkingCount=0, 상세설명 '주차대수: 0대',
+    대장도 0대인데 '광고에 주차 정보 미표시' 위반으로 떴다(2026-10-08 민원).
+    """
+    if v is None:
+        return False
+    return str(v).strip() not in ("", "-", "None")
+
+
 def _has(v) -> bool:
     """표시값 존재 여부(빈값·'-'·0·None 은 미표시로 간주)."""
     return v is not None and str(v).strip() not in ("", "-", "0", "None")
@@ -238,10 +251,21 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
             tol = max(1.0, a * 0.03)             # ±1㎡ 또는 ±3%
             if any(abs(a - e) <= tol for e in expos):
                 add(2, "면적(전용㎡)", "통과", "건축물대장 전유면적 일치")
+            elif _listing_cat(rtype, f.get("real_estate_type")) in ("업무", "상업") \
+                    and a <= max(expos) * 1.03:
+                # 사무실·상가는 한 전유호를 여러 임차인에게 **쪼개 임대**하는 것이 보통이라
+                # 광고 전용면적이 전유면적과 같을 이유가 없다. 실측(2026-10-07): 트윈트리빌딩
+                # A동 301호 전유 850.56㎡ 중 473㎡만 임대, 전용률(51.8%)은 301호와 소수점
+                # 넷째 자리까지 일치 — 정상 광고인데 '불일치'로 잡혔다.
+                # 전유보다 **큰** 경우만 잡는다. 그건 쪼개서는 나올 수 없는 수치다.
+                add(2, "면적(전용㎡)", "통과", "분할 임대 가능 유형 — 대장 전유 범위 안")
             else:
-                near = "/".join(f"{e:g}" for e in expos[:6])
+                # 가장 '작은' 6개가 아니라 광고 면적에 **가까운** 6개를 보여 준다.
+                # 작은 순으로 보여 주면 473㎡ 사무실에 9.8㎡ 근생을 들이대는 꼴이 된다.
+                near = "/".join(f"{e:g}" for e in sorted(expos, key=lambda e: abs(e - a))[:6])
+                over = " (대장 전유 최대값보다 큼)" if a > max(expos) * 1.03 else ""
                 add(2, "면적(전용㎡)", "주의",
-                    f"광고 전용 {a:g}㎡ ≠ 건축물대장 전유({near}㎡) — 면적 확인")
+                    f"광고 전용 {a:g}㎡ ≠ 건축물대장 전유(가까운 값 {near}㎡){over} — 면적 확인")
         else:
             add(2, "면적(전용㎡)", "통과")        # 대장 전유 조회불가/대형지번 → 표시여부만
 
@@ -354,10 +378,14 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         add(10, "주차", "통과", "CP 자동입력(확인)")
     elif pk_possible == "N":
         add(10, "주차", "통과", "주차 불가로 표시됨")     # 주차불가 명시 = 유효한 표시
+    elif _to_float(f.get("parking_count")) == 0 and _has_parking(f.get("parking_count")):
+        # 0대 = '주차 없음'을 밝힌 유효한 표시. 공부상 0이면 오히려 일치다.
+        add(10, "주차", "통과",
+            "주차 0대로 표시됨" + ("(건축물대장도 0대)" if (led_comparable and led_pk == 0) else ""))
     elif led_comparable and led_pk == 0 and (pk_possible == "Y" or _has(f.get("parking_count"))):
         add(10, "주차", "위반",
             "건축물대장상 주차대수 0 — '주차 가능' 표시는 공부와 불일치(주차불가로 표시 필요)")
-    elif not _has(f.get("parking_count")):
+    elif not _has_parking(f.get("parking_count")):
         # 상가·사무실 등(led_comparable=False)은 대장 주차가 전체 동 값이라 참고표시 생략.
         if pk_possible == "Y":
             add(10, "주차", "위반",
