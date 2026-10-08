@@ -82,3 +82,36 @@ pcheck("대장0 + 광고 122대", pitem(parking_count=122, parking_possible="Y",
 pcheck("대장0 + '가능'만", pitem(parking_count=None, parking_possible="Y", led_parking=0), "위반", "가능")
 pcheck("대장 양수 + 광고 대수", pitem(parking_count=10, led_parking=30), "통과")
 print("보강 3종 포함 주차 %d/%d" % (sum(1 for x in p if x), len(p)))
+
+# ── ⑧ 방 수·욕실 수 (2026-10-08)
+#    핵심: 미입력(None)과 실제 0 을 섞지 않는다. 네이버는 '-'(미입력)과 '0'을 따로 준다.
+def rule8(f):
+    for r in audit_listing(f).get("findings", []):
+        if r.get("no") == 8:
+            return r
+    return None
+
+def bitem(**kw):
+    f = {"article_no": "B", "realestate_type_name": "사무실", "real_estate_type": "D01", "price": 1}
+    f.update(kw); return f
+
+print()
+b = []
+def bcheck(name, f, want, want_in=None):
+    r = rule8(f); why = (r or {}).get("reason", "")
+    ok = bool(r) and r["status"] == want and (want_in is None or want_in in why)
+    print(("  PASS " if ok else "  FAIL ") + "%s: %s — %s" % (name, r["status"] if r else None, why[:52]))
+    b.append(ok)
+
+# 비주거 — 하나라도 있으면 통과
+bcheck("비주거 욕실 2개", bitem(bathroom_count=2), "통과", "욕실")
+bcheck("비주거 욕실 0개(실제 0)", bitem(bathroom_count=0), "통과", "욕실")
+bcheck("비주거 방만 있음", bitem(room_count=3), "통과", "방 수")
+bcheck("비주거 둘 다 미입력", bitem(), "주의", "해석이 갈립니다")
+bcheck("비주거 미입력 문자 '-'", bitem(bathroom_count="-", room_count="-"), "주의")
+# 주거 — 둘 다 요구(종전과 같음)
+bcheck("주거 방3 욕실2", bitem(realestate_type_name="빌라", room_count=3, bathroom_count=2), "통과")
+bcheck("주거 욕실만", bitem(realestate_type_name="빌라", bathroom_count=2), "위반", "방 수 미표시")
+bcheck("주거 둘 다 없음", bitem(realestate_type_name="아파트", real_estate_type="APT"), "위반", "방 수·욕실 수")
+bcheck("주거 욕실 0(실제 0)", bitem(realestate_type_name="빌라", room_count=1, bathroom_count=0), "통과")
+print("\n방·욕실 %d/%d 통과" % (sum(1 for x in b if x), len(b)))

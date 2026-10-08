@@ -326,19 +326,32 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     else:
         add(7, "입주가능일", "통과")
 
-    # ⑧ 방수/욕실수 — 세부기준: '방 수'만 비주거 면제("주택(준주택) 아닌 건축물은 방 수를
-    #    표시하지 않을 수 있다"), '욕실 수(화장실)'는 건축물 공통 명시사항.
-    #    건축물대장엔 화장실 개수 항목이 없어 대조 불가 → 표시 여부만 점검(기준 자체가 표시 의무).
+    # ⑧ 방 수 및 욕실 수 — 고시 제6조제8호 "건축물 현황도 등을 통해 확인한 방 수 및
+    #    욕실 수를 표시하여야 한다". 조문에 비주거 면제 문구는 없다(면제가 명시된 것은
+    #    제11호 관리비뿐). 건축물대장엔 화장실 개수 항목이 없어 대조는 불가 → 표시 여부만 본다.
+    #
+    #    주거는 둘 다 요구한다. 비주거는 **둘 중 하나라도 입력돼 있으면 통과**, 둘 다
+    #    비면 '주의'로 둔다(위반 단정 아님). 실측(2026-10-08): 비주거 매물의 방 수는
+    #    20/20 전부 네이버가 '-'(미입력)로 보낸다 — 입력란 자체가 없는 것으로 보여,
+    #    방 수를 요구하면 비주거 전부가 위반이 된다. 해석이 갈리는 구간이라 단정하지 않는다.
+    #
+    #    ⚠ 미입력과 0 은 반드시 구분한다. 네이버는 미입력을 '-'(→ None), 실제 0 을
+    #    '0'(→ 0)으로 따로 보낸다(실측: 사무실 20건 중 욕실 0건이 1건, 상가 20건 중 2건).
+    #    _has 는 0 을 미표시로 보므로 여기서는 쓰지 않는다.
     residential = (not saengsuk) and (
         _is_residential(rtype) or f.get("real_estate_type") in ("APT", "OPST"))
-    has_room, has_bath = _has(f.get("room_count")), _has(f.get("bathroom_count"))
+    _entered = lambda v: v is not None and str(v).strip() not in ("", "-", "None")
+    has_room, has_bath = _entered(f.get("room_count")), _entered(f.get("bathroom_count"))
     if residential:
         ok = has_room and has_bath
         add(8, "방수/욕실수", "통과" if ok else "위반",
             "" if ok else ("방 수 미표시" if has_bath else "방 수·욕실 수 미표시"))
+    elif has_room or has_bath:
+        add(8, "방수/욕실수", "통과",
+            "욕실 수 표시됨" if has_bath else "방 수 표시됨")
     else:
-        add(8, "욕실수", "통과" if has_bath else "위반",
-            "" if has_bath else "욕실 수(화장실) 미표시 — 건축물 공통 명시사항(방 수만 비주거 면제)")
+        add(8, "방수/욕실수", "주의",
+            "방 수·욕실 수 미표시 — 고시상 표시사항이나 비주거 적용은 해석이 갈립니다")
 
     # ⑨ 사용승인일 (대장 대조 — 오입력 적발. 단지형은 동별 집합 매칭)
     ua = f.get("use_approve_ymd")

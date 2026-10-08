@@ -20013,10 +20013,16 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
         _ts = title_sets_for_pnu(led["pnu"], dks)
         if _ts:
             led = dict(led)
+            # **합집합**이어야 한다. 전에는 표제부 집합으로 덮어써 inline 값을 버렸는데,
+            # inline 은 네이버가 그 매물 건물로 매칭한 대장이고 광고가 쓴 바로 그 값이다.
+            # 실측(2026-10-08) 2651420136: 광고·inline 모두 2016.10.12 인데 표제부 API 는
+            # 2016.10.04 를 줬다. 덮어쓰니 '공부와 불일치' 오탐이 났다.
             if _ts.get("grnd_flr_all"):
-                led["grnd_flr_all"] = _ts["grnd_flr_all"]
+                led["grnd_flr_all"] = sorted(
+                    set(_ts["grnd_flr_all"]) | ({led["grnd_flr"]} if led.get("grnd_flr") else set()))
             if _ts.get("use_apr_all"):
-                led["use_apr_all"] = _ts["use_apr_all"]
+                led["use_apr_all"] = sorted(
+                    set(_ts["use_apr_all"]) | ({led["use_apr_day"]} if led.get("use_apr_day") else set()))
     # ⑬ 층별 용도(층별개요) — inline 대장의 pnu로 온디맨드(혼합건물 정밀 점검).
     floors = flr_ouln_for_pnu(led["pnu"], dks) if (dks and led and led.get("pnu")) else None
     # ⑩ 주차 보정 — 다동 건물은 주차가 **총괄표제부**에만 잡히고 동별 표제부는 전부 0 이다.
