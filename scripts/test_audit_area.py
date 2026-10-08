@@ -75,3 +75,10 @@ pcheck("'가능'만 표시", pitem(parking_count=None, parking_possible="Y"), "�
 pcheck("'불가' 표시", pitem(parking_count=None, parking_possible="N"), "통과", "불가")
 pcheck("대수 표시(5대)", pitem(parking_count=5), "통과")
 print("\n주차 %d/%d 통과" % (sum(1 for x in p if x), len(p)))
+
+# 대장 주차 0 은 '미기재' — 광고에 대수가 있어도 불일치로 잡지 않는다(2026-10-08)
+pcheck("대장0 + 광고 122대", pitem(parking_count=122, parking_possible="Y", led_parking=0,
+                               realestate_type_name="사무실", real_estate_type="D01"), "통과")
+pcheck("대장0 + '가능'만", pitem(parking_count=None, parking_possible="Y", led_parking=0), "위반", "가능")
+pcheck("대장 양수 + 광고 대수", pitem(parking_count=10, led_parking=30), "통과")
+print("보강 3종 포함 주차 %d/%d" % (sum(1 for x in p if x), len(p)))

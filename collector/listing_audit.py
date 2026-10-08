@@ -369,7 +369,14 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     # ⑩ 주차 — 세부기준상 '주차대수(공부 기준 숫자)' 명시가 원칙(전문가 확인: '가능'만은
     #    신고 시 적발 대상). ①공부상 0인데 가능/대수 표시 = 공부 불일치 위반 ②'가능'만
     #    표시(대수 없음) = 위반 ③'불가' 표시 = 통과 ④정보 전무 = 위반.
-    led_pk = f.get("led_parking")              # 대장 총주차(None=미확보, 0=공부상 없음)
+    # 대장 총주차. **0 은 '주차 없음'이 아니라 '미기재'로 본다.**
+    # 실측(2026-10-08): 비단지 표본의 15%가 대장 0이었고 그 전부가 광고엔 대수가 있었다.
+    #   · 2649138617 — 21층 업무시설, 광고 122대, 표제부 옥내·옥외 자주식·기계식 **네 칸 모두 0**
+    #   · 2652683110 — 4층 건물, 광고 8대, 역시 네 칸 모두 0
+    # 21층 업무시설에 주차 0대는 성립하지 않는다. 대장 주차란이 비어 있는 것이다.
+    # 총괄표제부 보정은 2동 이상일 때만 쓸 수 있어(단독 동은 총괄표제부 자체가 없다)
+    # 단독 동 건물에서는 보정이 영영 안 걸린다. 그래서 0 은 아예 근거로 쓰지 않는다.
+    led_pk = f.get("led_parking") or None       # 0 → None(미확보)
     pk_possible = f.get("parking_possible")    # 네이버 parkingPossibleYN
     # 총괄표제부에서 보정한 값이면 어디서 확인했는지 밝힌다(중개사가 근거를 되짚을 수 있게).
     _pk_src = f.get("led_parking_src") or "건축물대장"
@@ -382,9 +389,6 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         # 0대 = '주차 없음'을 밝힌 유효한 표시. 공부상 0이면 오히려 일치다.
         add(10, "주차", "통과",
             "주차 0대로 표시됨" + ("(건축물대장도 0대)" if (led_comparable and led_pk == 0) else ""))
-    elif led_comparable and led_pk == 0 and (pk_possible == "Y" or _has(f.get("parking_count"))):
-        add(10, "주차", "위반",
-            "건축물대장상 주차대수 0 — '주차 가능' 표시는 공부와 불일치(주차불가로 표시 필요)")
     elif not _has_parking(f.get("parking_count")):
         # 상가·사무실 등(led_comparable=False)은 대장 주차가 전체 동 값이라 참고표시 생략.
         if pk_possible == "Y":
