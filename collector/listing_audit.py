@@ -346,6 +346,11 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         ok = has_room and has_bath
         add(8, "방수/욕실수", "통과" if ok else "위반",
             "" if ok else ("방 수 미표시" if has_bath else "방 수·욕실 수 미표시"))
+    elif has_bath and _to_float(f.get("bathroom_count")) == 0:
+        # 욕실 0개는 대개 생각 없이 넣은 값이다. 건물 밖 공용화장실이라 0으로 적었다는
+        # 소명이 가능은 하지만 드물다 → 위반으로 단정하지 않고 확인을 요청한다(2026-10-12).
+        add(8, "방수/욕실수", "주의",
+            "욕실 수가 0개로 입력됨 — 실제 0개가 맞는지 확인")
     elif has_room or has_bath:
         add(8, "방수/욕실수", "통과",
             "욕실 수 표시됨" if has_bath else "방 수 표시됨")

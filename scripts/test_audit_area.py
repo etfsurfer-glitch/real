@@ -105,7 +105,10 @@ def bcheck(name, f, want, want_in=None):
 
 # 비주거 — 하나라도 있으면 통과
 bcheck("비주거 욕실 2개", bitem(bathroom_count=2), "통과", "욕실")
-bcheck("비주거 욕실 0개(실제 0)", bitem(bathroom_count=0), "통과", "욕실")
+# 2026-10-12: 욕실 0 은 통과 → 주의(아무 생각 없이 0 을 넣는 경우가 대부분)
+bcheck("비주거 욕실 0개", bitem(bathroom_count=0), "주의", "0개로 입력")
+bcheck("비주거 방3+욕실0", bitem(room_count=3, bathroom_count=0), "주의", "0개로 입력")
+bcheck("비주거 욕실 1개", bitem(bathroom_count=1), "통과", "욕실")
 bcheck("비주거 방만 있음", bitem(room_count=3), "통과", "방 수")
 bcheck("비주거 둘 다 미입력", bitem(), "주의", "해석이 갈립니다")
 bcheck("비주거 미입력 문자 '-'", bitem(bathroom_count="-", room_count="-"), "주의")
