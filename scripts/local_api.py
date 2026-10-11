@@ -19955,9 +19955,10 @@ def _audit_complex_one(r: dict, creds, dks) -> dict:
     led = None
     if dks and r.get("cortar_no") and r.get("detail_address"):
         led = ledger_for_jibun(r["cortar_no"], r["detail_address"], dks)
-    res = audit_listing(
-        _audit_merge(r, det, saengsuk=is_saengsuk(r.get("complex_name")), led=led, dong_set=True),
-        cp_autofilled=True)
+    _mf = _audit_merge(r, det, saengsuk=is_saengsuk(r.get("complex_name")), led=led, dong_set=True)
+    _mf["cp_autofilled"] = True
+    res = audit_listing(_mf, cp_autofilled=True)
+    res["_audit_input"] = _mf                            # 로그용 — 응답 직전에 뗀다
     res["kind"] = "단지형"
     res["building"] = r.get("complex_name")
     res["address"] = (det.get("exposure_address")
@@ -20054,7 +20055,9 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
                 det = dict(det, use_approve_ymd=_fl["use_approve_ymd"], _ua_source="건축물 정보")
         except Exception:                                   # noqa: BLE001
             pass                                            # 브리지 장애는 점검을 막지 않는다
-    res = audit_listing(_audit_merge(r, det, saengsuk=False, led=led, expos=expos, floors=floors, swapped=_swapped))
+    _mf = _audit_merge(r, det, saengsuk=False, led=led, expos=expos, floors=floors, swapped=_swapped)
+    res = audit_listing(_mf)
+    res["_audit_input"] = _mf                            # 로그용 — 응답 직전에 뗀다
     res["kind"] = _NONRESI_LABEL.get(cat, cat)
     res["building"] = r.get("building_name")
     res["address"] = det.get("exposure_address") or None
@@ -20222,6 +20225,70 @@ def _audit_record_history(realtor_id: str, results: list) -> None:
         pass
 
 
+# ── 점검 로그 ────────────────────────────────────────────────────────────────
+# 왜 그 판정이 나왔는지 나중에 되짚을 수 있어야 한다. 오탐을 쫓을 때마다 매번
+# 네이버·건축물대장을 다시 받아 재현했는데(주차 0, 전유면적, 사용승인일) 그 값이
+# 그 시점에 무엇이었는지는 알 길이 없었다. 판정에 쓴 입력값을 판정과 함께 남긴다.
+#
+# 루트 디스크는 88% 라(2026-10-12) 백업 디스크에 쓰고, 없으면 로컬로 떨어진다.
+# 한 줄 = 매물 한 건(JSONL). 전수 점검 1회가 대략 400KB 다.
+_AUDIT_LOG_DIRS = [Path("/mnt/backup/audit_logs"), DB_PATH.parent.parent / "logs" / "audit"]
+_AUDIT_LOG_KEEP = 14          # 일
+# 판정 근거가 되는 입력값만 남긴다(연락처 등 개인정보는 넣지 않는다)
+_AUDIT_LOG_FIELDS = (
+    "realestate_type_name", "real_estate_type", "room_count", "bathroom_count",
+    "parking_count", "parking_possible", "led_parking", "led_parking_src",
+    "area_exclusive", "led_expos_areas", "total_floor", "led_total_floor",
+    "use_approve_ymd", "led_use_apr_day", "corresponding_floor", "led_main_purps",
+    "floor_info", "price", "trade_type", "cp_autofilled", "is_danji_shop", "led_swapped",
+)
+
+
+def _audit_log_dir():
+    for d in _AUDIT_LOG_DIRS:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            return d
+        except OSError:
+            continue
+    return None
+
+
+def _audit_log(realtor_id: str, kind: str, results: list) -> None:
+    """점검 1배치를 JSONL 로 남긴다. 실패해도 점검 자체는 막지 않는다."""
+    import datetime as _dt
+    d = _audit_log_dir()
+    if not d:
+        return
+    today = _dt.datetime.now().strftime("%Y-%m-%d")
+    try:
+        with open(d / f"{today}.jsonl", "a", encoding="utf-8") as fp:
+            for r in results:
+                src = r.get("_audit_input") or {}
+                fp.write(_json.dumps({
+                    "at": _dt.datetime.now().isoformat(timespec="seconds"),
+                    "realtor_id": realtor_id, "kind": kind,
+                    "article_no": r.get("article_no"),
+                    "v": r.get("violation_count"), "w": r.get("warning_count"),
+                    "pass": r.get("pass"),
+                    # 통과한 항목까지 다 남기면 줄이 길어진다 — 걸린 것만
+                    "findings": [{"no": x["no"], "item": x["item"], "st": x["status"],
+                                  "why": (x.get("reason") or "")[:120]}
+                                 for x in (r.get("findings") or []) if x["status"] != "통과"],
+                    "input": {k: src[k] for k in _AUDIT_LOG_FIELDS if src.get(k) is not None},
+                }, ensure_ascii=False) + "\n")
+    except Exception:                                    # 로그는 부가기능
+        return
+    # 오래된 파일 정리 — 디스크가 차면 수집·API 가 먼저 죽는다
+    try:
+        cut = (_dt.datetime.now() - _dt.timedelta(days=_AUDIT_LOG_KEEP)).strftime("%Y-%m-%d")
+        for f in d.glob("*.jsonl"):
+            if f.stem < cut:
+                f.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) -> dict:
     """중개사 매물 표시·광고 점검 1배치. kind=유형(APT/OPST/ABYG/OBYG/JGC 또는 비단지 cat
     villa/sangga…), trade=A1/B1/B2(빈값=전체). offset/limit=배치. admin·lounge 공용.
@@ -20299,6 +20366,9 @@ def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) 
 
     _audit_peer_mgmt(results)
     _audit_record_history(realtor_id, results)          # 이력 저장 + prev(개선추적) 부착
+    _audit_log(realtor_id, kind, results)               # 판정 근거 로그(JSONL, 14일 보관)
+    for _r in results:                                  # 응답에는 내보내지 않는다
+        _r.pop("_audit_input", None)
     return {
         "realtor_id": realtor_id, "kind": kind, "trade": trade,
         "offset": offset, "total": total, "count": len(results),
