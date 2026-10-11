@@ -116,7 +116,7 @@ bc("사무실 욕실 미입력", it(), "위반", "욕실 수(화장실) 미표�
 bc("사무실 방만 입력", it(room_count=3), "위반", "욕실")
 # 주거 — 둘 다 본다
 bc("빌라 방3 욕실2", it("빌라","VL",room_count=3,bathroom_count=2), "통과")
-bc("빌라 방3 욕실0", it("빌라","VL",room_count=3,bathroom_count=0), "주의", "0개로 입력")
+bc("빌라 방3 욕실0", it("빌라","VL",room_count=3,bathroom_count=0), "위반", "0일 수 없습니다")
 bc("빌라 욕실만", it("빌라","VL",bathroom_count=2), "위반", "방 수 미표시")
 bc("빌라 방만", it("빌라","VL",room_count=3), "위반", "욕실 수 미표시")
 bc("빌라 둘 다 없음", it("아파트","APT"), "위반", "방 수·욕실 수")
@@ -125,6 +125,8 @@ bc("통건물 주택섞임 방16 욕실12", it("상가주택","GJCG",led_floors=
    corresponding_floor="-",room_count=16,bathroom_count=12), "통과")
 bc("통건물 주택섞임 욕실만", it("상가주택","GJCG",led_floors=F_MIX,
    corresponding_floor="-",bathroom_count=12), "위반", "방 수 미표시")
+bc("통건물 주택섞임 욕실0", it("상가주택","GJCG",led_floors=F_MIX,
+   corresponding_floor="-",room_count=16,bathroom_count=0), "위반", "0일 수 없습니다")
 bc("통건물 전부 근생 욕실1", it("상가주택","GJCG",led_floors=F_ALLCOM,
    corresponding_floor="-",bathroom_count=1), "통과", "욕실")
 bc("1층(근생) 임대 욕실1", it("상가주택","GJCG",led_floors=F_MIX,
