@@ -83,38 +83,55 @@ pcheck("대장0 + '가능'만", pitem(parking_count=None, parking_possible="Y", 
 pcheck("대장 양수 + 광고 대수", pitem(parking_count=10, led_parking=30), "통과")
 print("보강 3종 포함 주차 %d/%d" % (sum(1 for x in p if x), len(p)))
 
-# ── ⑧ 방 수·욕실 수 (2026-10-08)
-#    핵심: 미입력(None)과 실제 0 을 섞지 않는다. 네이버는 '-'(미입력)과 '0'을 따로 준다.
+# ── ⑧ 방 수·욕실 수 (2026-10-12 운영 기준: 포인트는 욕실)
+#    주거=둘 다 필요 / 비주거=욕실만 / 욕실 0=주의 / 심각도 위반>주의>통과
 def rule8(f):
     for r in audit_listing(f).get("findings", []):
         if r.get("no") == 8:
             return r
     return None
 
-def bitem(**kw):
-    f = {"article_no": "B", "realestate_type_name": "사무실", "real_estate_type": "D01", "price": 1}
+F_MIX = [{"flr_gb":"지상","flr_no":4,"purps":"다가구주택","etc":"단독주택-다가구주택(1가구)"},
+         {"flr_gb":"지상","flr_no":2,"purps":"다가구주택","etc":"단독주택-다가구주택(2가구)"},
+         {"flr_gb":"지상","flr_no":1,"purps":"일반음식점","etc":"제2종근린생활시설(일반음식점)"}]
+F_ALLCOM = [{"flr_gb":"지상","flr_no":1,"purps":"기타사무소","etc":"사무실,식당"},
+            {"flr_gb":"지상","flr_no":1,"purps":"일반음식점","etc":"식당,차고"}]
+
+def it(rt="사무실", ret="D01", **kw):
+    f = {"article_no":"B","realestate_type_name":rt,"real_estate_type":ret,"price":1}
     f.update(kw); return f
 
-print()
 b = []
-def bcheck(name, f, want, want_in=None):
+def bc(name, f, want, want_in=None):
     r = rule8(f); why = (r or {}).get("reason", "")
     ok = bool(r) and r["status"] == want and (want_in is None or want_in in why)
-    print(("  PASS " if ok else "  FAIL ") + "%s: %s — %s" % (name, r["status"] if r else None, why[:52]))
+    print(("  PASS " if ok else "  FAIL ") + "%-34s %s — %s" % (name, r["status"] if r else None, why[:40]))
     b.append(ok)
 
-# 비주거 — 하나라도 있으면 통과
-bcheck("비주거 욕실 2개", bitem(bathroom_count=2), "통과", "욕실")
-# 2026-10-12: 욕실 0 은 통과 → 주의(아무 생각 없이 0 을 넣는 경우가 대부분)
-bcheck("비주거 욕실 0개", bitem(bathroom_count=0), "주의", "0개로 입력")
-bcheck("비주거 방3+욕실0", bitem(room_count=3, bathroom_count=0), "주의", "0개로 입력")
-bcheck("비주거 욕실 1개", bitem(bathroom_count=1), "통과", "욕실")
-bcheck("비주거 방만 있음", bitem(room_count=3), "통과", "방 수")
-bcheck("비주거 둘 다 미입력", bitem(), "주의", "해석이 갈립니다")
-bcheck("비주거 미입력 문자 '-'", bitem(bathroom_count="-", room_count="-"), "주의")
-# 주거 — 둘 다 요구(종전과 같음)
-bcheck("주거 방3 욕실2", bitem(realestate_type_name="빌라", room_count=3, bathroom_count=2), "통과")
-bcheck("주거 욕실만", bitem(realestate_type_name="빌라", bathroom_count=2), "위반", "방 수 미표시")
-bcheck("주거 둘 다 없음", bitem(realestate_type_name="아파트", real_estate_type="APT"), "위반", "방 수·욕실 수")
-bcheck("주거 욕실 0(실제 0)", bitem(realestate_type_name="빌라", room_count=1, bathroom_count=0), "통과")
-print("\n방·욕실 %d/%d 통과" % (sum(1 for x in b if x), len(b)))
+print()
+# 비주거 — 욕실만 본다
+bc("사무실 욕실2", it(bathroom_count=2), "통과", "욕실 수 표시")
+bc("사무실 욕실0", it(bathroom_count=0), "주의", "0개로 입력")
+bc("사무실 욕실 미입력", it(), "위반", "욕실 수(화장실) 미표시")
+bc("사무실 방만 입력", it(room_count=3), "위반", "욕실")
+# 주거 — 둘 다 본다
+bc("빌라 방3 욕실2", it("빌라","VL",room_count=3,bathroom_count=2), "통과")
+bc("빌라 방3 욕실0", it("빌라","VL",room_count=3,bathroom_count=0), "주의", "0개로 입력")
+bc("빌라 욕실만", it("빌라","VL",bathroom_count=2), "위반", "방 수 미표시")
+bc("빌라 방만", it("빌라","VL",room_count=3), "위반", "욕실 수 미표시")
+bc("빌라 둘 다 없음", it("아파트","APT"), "위반", "방 수·욕실 수")
+# 상가주택·건물 — 층 용도로 주거/비주거를 가른다
+bc("통건물 주택섞임 방16 욕실12", it("상가주택","GJCG",led_floors=F_MIX,
+   corresponding_floor="-",room_count=16,bathroom_count=12), "통과")
+bc("통건물 주택섞임 욕실만", it("상가주택","GJCG",led_floors=F_MIX,
+   corresponding_floor="-",bathroom_count=12), "위반", "방 수 미표시")
+bc("통건물 전부 근생 욕실1", it("상가주택","GJCG",led_floors=F_ALLCOM,
+   corresponding_floor="-",bathroom_count=1), "통과", "욕실")
+bc("1층(근생) 임대 욕실1", it("상가주택","GJCG",led_floors=F_MIX,
+   corresponding_floor="1",bathroom_count=1), "통과", "욕실")
+bc("2층(주택) 임대 욕실1", it("상가주택","GJCG",led_floors=F_MIX,
+   corresponding_floor="2",bathroom_count=1), "위반", "방 수 미표시")
+bc("층별개요 없으면 비주거로", it("상가주택","GJCG",bathroom_count=1), "통과", "욕실")
+bc("사무실은 층별개요 있어도 비주거", it(led_floors=F_MIX,corresponding_floor="-",
+   bathroom_count=1), "통과", "욕실")
+print("\n⑧ %d/%d 통과" % (sum(1 for x in b if x), len(b)))

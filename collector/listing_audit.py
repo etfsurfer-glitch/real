@@ -149,6 +149,27 @@ def _purps_cat(purps) -> str:
     return "기타"
 
 
+def _mixed_home(f) -> bool:
+    """상가주택·건물처럼 한 동에 상가와 주거가 섞인 매물이 '주거'인가.
+
+    광고가 가리키는 층이 있으면(해당층 숫자) 그 층의 대장 용도로 가르고,
+    통건물(해당층 '-')이면 층별개요에 주택이 하나라도 있으면 주거로 본다(사용자 결정).
+    실측(2026-10-12) 2650379876: 1층 일반음식점 + 2~4층 다가구주택, 광고 방 16·욕실 12
+    — 통건물 매매라 주거가 섞여 있고 중개사도 방 수를 적었다.
+    """
+    floors = f.get("led_floors") or []
+    if not floors:
+        return False
+    home = lambda r: (_purps_cat(r.get("purps")) == "주거"
+                      or _purps_cat(r.get("etc")) == "주거")
+    cf = str(f.get("corresponding_floor") or "").strip()
+    if cf.isdigit():
+        same = [r for r in floors
+                if r.get("flr_gb") == "지상" and str(r.get("flr_no")) == str(int(cf))]
+        return any(home(r) for r in same)
+    return any(home(r) for r in floors)          # 통건물 — 주택이 하나라도 있으면 주거
+
+
 def _listing_cat(rtype, real_estate_type) -> str:
     """매물 유형 → 대분류(주거/업무/상업/기타). 층별 용도 대조용."""
     if _is_residential(rtype) or real_estate_type in ("APT", "OPST", "ABYG", "OBYG", "JGC"):
@@ -330,33 +351,35 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     #    욕실 수를 표시하여야 한다". 조문에 비주거 면제 문구는 없다(면제가 명시된 것은
     #    제11호 관리비뿐). 건축물대장엔 화장실 개수 항목이 없어 대조는 불가 → 표시 여부만 본다.
     #
-    #    주거는 둘 다 요구한다. 비주거는 **둘 중 하나라도 입력돼 있으면 통과**, 둘 다
-    #    비면 '주의'로 둔다(위반 단정 아님). 실측(2026-10-08): 비주거 매물의 방 수는
-    #    20/20 전부 네이버가 '-'(미입력)로 보낸다 — 입력란 자체가 없는 것으로 보여,
-    #    방 수를 요구하면 비주거 전부가 위반이 된다. 해석이 갈리는 구간이라 단정하지 않는다.
+    #    운영 기준(2026-10-12 결정) — **포인트는 욕실(화장실)이다.**
+    #      · 주거   : 방·욕실 둘 다 입력해야 통과
+    #      · 비주거 : 욕실만 보면 된다. 방 수는 사무실·상가에서 적을 내용이 없어
+    #                 아무도 쓰지 않는다(실측 120건 중 사무실·상가·지산 입력 0건).
+    #                 욕실 미입력은 위반 — 68%가 적는 항목을 빼먹은 것이다.
+    #      · 욕실 0 : 위반이 아니라 주의. 아무 생각 없이 0 을 넣는 경우가 대부분이고,
+    #                 건물 밖 공용화장실이라 0 이라는 소명도 드물지만 가능하다.
+    #    심각도는 위반 > 주의 > 통과 순으로 가린다.
     #
     #    ⚠ 미입력과 0 은 반드시 구분한다. 네이버는 미입력을 '-'(→ None), 실제 0 을
-    #    '0'(→ 0)으로 따로 보낸다(실측: 사무실 20건 중 욕실 0건이 1건, 상가 20건 중 2건).
-    #    _has 는 0 을 미표시로 보므로 여기서는 쓰지 않는다.
+    #    '0'(→ 0)으로 따로 보낸다. _has 는 0 을 미표시로 보므로 여기서는 쓰지 않는다.
     residential = (not saengsuk) and (
         _is_residential(rtype) or f.get("real_estate_type") in ("APT", "OPST"))
+    # 상가주택·건물은 한 동에 상가와 주거가 섞인다 — 해당층(통건물이면 전체) 용도로 가른다.
+    if not residential and not saengsuk and any(k in str(rtype) for k in ("상가주택", "건물")):
+        residential = _mixed_home(f)
     _entered = lambda v: v is not None and str(v).strip() not in ("", "-", "None")
     has_room, has_bath = _entered(f.get("room_count")), _entered(f.get("bathroom_count"))
-    if residential:
-        ok = has_room and has_bath
-        add(8, "방수/욕실수", "통과" if ok else "위반",
-            "" if ok else ("방 수 미표시" if has_bath else "방 수·욕실 수 미표시"))
-    elif has_bath and _to_float(f.get("bathroom_count")) == 0:
-        # 욕실 0개는 대개 생각 없이 넣은 값이다. 건물 밖 공용화장실이라 0으로 적었다는
-        # 소명이 가능은 하지만 드물다 → 위반으로 단정하지 않고 확인을 요청한다(2026-10-12).
-        add(8, "방수/욕실수", "주의",
-            "욕실 수가 0개로 입력됨 — 실제 0개가 맞는지 확인")
-    elif has_room or has_bath:
-        add(8, "방수/욕실수", "통과",
-            "욕실 수 표시됨" if has_bath else "방 수 표시됨")
+    bath0 = has_bath and _to_float(f.get("bathroom_count")) == 0
+    if residential and not (has_room and has_bath):
+        add(8, "방수/욕실수", "위반",
+            "방 수 미표시" if has_bath else
+            ("욕실 수 미표시" if has_room else "방 수·욕실 수 미표시"))
+    elif not residential and not has_bath:
+        add(8, "방수/욕실수", "위반", "욕실 수(화장실) 미표시")
+    elif bath0:
+        add(8, "방수/욕실수", "주의", "욕실 수가 0개로 입력됨 — 실제 0개가 맞는지 확인")
     else:
-        add(8, "방수/욕실수", "주의",
-            "방 수·욕실 수 미표시 — 고시상 표시사항이나 비주거 적용은 해석이 갈립니다")
+        add(8, "방수/욕실수", "통과", "" if residential else "욕실 수 표시됨")
 
     # ⑨ 사용승인일 (대장 대조 — 오입력 적발. 단지형은 동별 집합 매칭)
     ua = f.get("use_approve_ymd")
