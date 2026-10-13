@@ -1,5 +1,11 @@
 // ══════════════════════════════════════════════════════════════════════════
-// 카드뉴스 v2 — 원하는 카드 한 장을 골라 만든다
+// 카드뉴스 v2 — 카드 한 장, 또는 캐러셀 한 벌을 만든다
+//
+//   두 가지 모드가 있다.
+//     · 한 장만   : 카드 하나를 골라 지역·거래·건수까지 정한다(점검·재발행용).
+//     · 전체 묶음 : 그날 재료로 캐러셀 한 벌(최대 10장)을 통째로 만든다.
+//                   실제로 인스타에 올리는 물건이 이쪽이다.
+//   둘 다 같은 엔드포인트를 쓴다 — body 에 card 가 있으면 한 장, 없으면 묶음.
 //
 //   v1(/admin/cardnews)은 브라우저에서 html2canvas 로 그린다.
 //   v2 는 nfind 박스의 헤드리스 크롬이 콕집 API·청약홈·LH·뉴스에서 재료를 모아
@@ -14,8 +20,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle, Building2, CalendarDays, Check, Copy, Download, FileImage,
-  Flame, Gift, Home, Images, Loader2, Newspaper, Play, RefreshCw, Ruler,
-  ScrollText, TrendingUp,
+  Flame, Gift, Home, Images, Layers, Loader2, Newspaper, Play, RefreshCw,
+  Ruler, ScrollText, TrendingUp,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { useRegionFilter } from "../components/RegionSelect";
@@ -65,9 +71,18 @@ function folderLabel(f: string): string {
 export default function CardNewsV2() {
   const { token } = useAuth();
 
+  // 한 장만(one) / 전체 묶음(deck). 기본은 실제로 올리는 쪽인 묶음.
+  const [mode, setMode] = useState<"one" | "deck">("deck");
+
   const [catalog, setCatalog] = useState<CardSpec[] | null>(null);
   const [pick, setPick] = useState<string>("deal");
   const [vals, setVals] = useState<Record<string, string | number>>({});
+
+  // 묶음 설정 — 서버(CardNews2Body)의 허용 범위와 같은 값만 고를 수 있게 한다
+  const [deckCount, setDeckCount] = useState(9);
+  const [deckRows, setDeckRows] = useState(6);
+  const [skipNews, setSkipNews] = useState(false);
+  const [savingAll, setSavingAll] = useState(false);
 
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
@@ -205,26 +220,35 @@ export default function CardNewsV2() {
     return parts.join(" · ");
   }, [spec, vals, hasRegion, rf.sido, rf.sigungu, rf.sidos, rf.sigungus]);
 
+  // 묶음은 card 를 빼고 보낸다 — 생성기가 그걸 보고 runCycle 로 간다.
+  const deckBody = () => ({
+    cardCount: deckCount, itemLimit: deckRows, skipNews, style: "onepage",
+  });
+
+  const oneBody = () => {
+    const options: Record<string, string | number> = { ...vals };
+    if (hasRegion) {
+      // 좁은 것 하나만 보낸다 — 서버 쿼리도 같은 규칙이다
+      if (rf.sigungu) options.sigungu = rf.sigungu;
+      else if (rf.sido) options.sido = rf.sido;
+      // 청약·LH 공고에는 지역코드가 없어 이름으로 거른다
+      const nm =
+        rf.sigungus.find((x) => x.code === rf.sigungu)?.name ||
+        rf.sidos.find((x) => x.code === rf.sido)?.name;
+      if (nm) options._regionName = nm;
+    }
+    return { card: pick, options };
+  };
+
   const start = async () => {
     setErr("");
     setLines([]);
     setRunning(true);
     try {
-      const options: Record<string, string | number> = { ...vals };
-      if (hasRegion) {
-        // 좁은 것 하나만 보낸다 — 서버 쿼리도 같은 규칙이다
-        if (rf.sigungu) options.sigungu = rf.sigungu;
-        else if (rf.sido) options.sido = rf.sido;
-        // 청약·LH 공고에는 지역코드가 없어 이름으로 거른다
-        const nm =
-          rf.sigungus.find((x) => x.code === rf.sigungu)?.name ||
-          rf.sidos.find((x) => x.code === rf.sido)?.name;
-        if (nm) options._regionName = nm;
-      }
       const d = await api("/admin/cardnews2/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ card: pick, options }),
+        body: JSON.stringify(mode === "deck" ? deckBody() : oneBody()),
       });
       setJobId(String(d.jobId));
     } catch (e) {
@@ -250,6 +274,17 @@ export default function CardNewsV2() {
     }
   };
 
+  // 묶음은 9장이라 한 장씩 누르면 손이 아프다. 브라우저가 연속 내려받기를
+  // 막지 않도록 사이를 살짝 띄우고 순서대로 받는다.
+  const saveAll = async (folder: string, files: CardFile[]) => {
+    setSavingAll(true);
+    for (const f of files) {
+      await save(folder, f.file);
+      await new Promise((r) => setTimeout(r, 350));
+    }
+    setSavingAll(false);
+  };
+
   const copyCaption = () => {
     if (!manifest?.caption) return;
     navigator.clipboard.writeText(
@@ -266,12 +301,12 @@ export default function CardNewsV2() {
       <div className="section-title" style={{ marginTop: 4 }}>
         <Images size={16} strokeWidth={2.2} /> 카드뉴스 v2{" "}
         <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>
-          한 장씩 골라 만들기 · 관리자
+          인스타 카드 만들기 · 관리자
         </span>
       </div>
       <p className="cn2-lead">
-        만들 카드를 하나 고르고 조건을 정하면 인스타 카드(1080×1350) 한 장이 나온다.
-        숫자는 콕집 데이터에서 그대로 오고 문구만 AI 가 쓴다.
+        인스타 카드(1080×1350)를 만든다. 숫자는 콕집 데이터에서 그대로 오고 문구만 AI 가 쓴다.
+        올릴 물건은 <b>전체 묶음</b>으로 만들고, 한 장만 다시 뽑고 싶을 때 <b>한 장만</b>을 쓴다.
       </p>
 
       {err && (
@@ -281,7 +316,125 @@ export default function CardNewsV2() {
         </div>
       )}
 
-      {/* ── ① 무엇을 만들까 ─────────────────────────────────────────── */}
+      {/* ── 모드 ────────────────────────────────────────────────────── */}
+      <div className="cn2-mode">
+        <button
+          className={mode === "deck" ? "on" : ""}
+          disabled={running}
+          onClick={() => setMode("deck")}
+        >
+          <span className="cn2-mode-ic"><Layers size={16} strokeWidth={2.3} /></span>
+          <b>전체 묶음</b>
+          <span className="cn2-mode-desc">그날 재료로 캐러셀 한 벌을 통째로</span>
+        </button>
+        <button
+          className={mode === "one" ? "on" : ""}
+          disabled={running}
+          onClick={() => setMode("one")}
+        >
+          <span className="cn2-mode-ic"><FileImage size={16} strokeWidth={2.3} /></span>
+          <b>한 장만</b>
+          <span className="cn2-mode-desc">카드 하나를 골라 조건까지 지정</span>
+        </button>
+      </div>
+
+      {/* ── 전체 묶음 ───────────────────────────────────────────────── */}
+      {mode === "deck" && (
+        <>
+          <div className="cn2-step">
+            <span className="cn2-num">1</span> 묶음 설정
+            <span className="cn2-step-note">
+              어떤 카드가 들어갈지는 그날 재료를 보고 생성기가 고른다
+            </span>
+          </div>
+
+          <div className="cn2-panel">
+            <div className="cn2-opts">
+              <div className="cn2-opt">
+                <label>카드 수</label>
+                <div className="cn2-chips">
+                  {[5, 6, 7, 8, 9, 10].map((n) => (
+                    <button
+                      key={n}
+                      className={deckCount === n ? "on" : ""}
+                      disabled={running}
+                      onClick={() => setDeckCount(n)}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <small>인스타 캐러셀은 10장까지 올라간다</small>
+              </div>
+
+              <div className="cn2-opt">
+                <label>장당 건수</label>
+                <div className="cn2-chips">
+                  {[4, 5, 6, 7, 8].map((n) => (
+                    <button
+                      key={n}
+                      className={deckRows === n ? "on" : ""}
+                      disabled={running}
+                      onClick={() => setDeckRows(n)}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <small>적을수록 숫자가 크게 박힌다</small>
+              </div>
+
+              <div className="cn2-opt">
+                <label>뉴스 카드</label>
+                <div className="cn2-chips">
+                  <button
+                    className={!skipNews ? "on" : ""}
+                    disabled={running}
+                    onClick={() => setSkipNews(false)}
+                  >
+                    넣기
+                  </button>
+                  <button
+                    className={skipNews ? "on" : ""}
+                    disabled={running}
+                    onClick={() => setSkipNews(true)}
+                  >
+                    빼기
+                  </button>
+                </div>
+                <small>헤드라인·뉴스 목록 카드를 뺀다</small>
+              </div>
+            </div>
+
+            <div className="cn2-go">
+              <div className="cn2-go-sum">
+                <b>전체 묶음</b>
+                <span>
+                  {deckCount}장 · 장당 {deckRows}건{skipNews ? " · 뉴스 제외" : ""}
+                </span>
+              </div>
+              <button className="cn2-run" onClick={start} disabled={running}>
+                {running
+                  ? <><Loader2 size={16} className="cn2-spin" /> 만드는 중…</>
+                  : <><Play size={15} strokeWidth={2.6} /> 묶음 만들기</>}
+              </button>
+            </div>
+
+            <p className="cn2-note">
+              급매·신고가·청약·LH·뉴스를 한꺼번에 받아 오느라 1분 안팎 걸린다.
+              재료가 모자란 카드는 생성기가 알아서 빼므로 고른 수보다 적게 나올 수 있다.
+            </p>
+
+            {(running || lines.length > 0) && (
+              <pre className="cn2-log" ref={logRef}>{lines.join("\n")}</pre>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── ① 무엇을 만들까 (한 장만) ───────────────────────────────── */}
+      {mode === "one" && (
+      <>
       <div className="cn2-step">
         <span className="cn2-num">1</span> 무엇을 만들까
       </div>
@@ -412,10 +565,12 @@ export default function CardNewsV2() {
           </div>
         </>
       )}
+      </>
+      )}
 
-      {/* ── ③ 결과 ──────────────────────────────────────────────────── */}
+      {/* ── 결과 ───────────────────────────────────────────────────── */}
       <div className="cn2-step">
-        <span className="cn2-num">3</span> 만든 카드
+        <span className="cn2-num">{mode === "deck" ? 2 : 3}</span> 만든 카드
         <button className="cn2-refresh" onClick={loadRuns}>
           <RefreshCw size={12} strokeWidth={2.4} /> 새로고침
         </button>
@@ -441,6 +596,19 @@ export default function CardNewsV2() {
 
       {sel && (
         <div className="cn2-result">
+          {cardsOf(manifest).length > 1 && (
+            <div className="cn2-bulk">
+              <span>{cardsOf(manifest).length}장 묶음</span>
+              <button
+                onClick={() => saveAll(sel, cardsOf(manifest))}
+                disabled={savingAll}
+              >
+                {savingAll
+                  ? <><Loader2 size={13} className="cn2-spin" /> 받는 중…</>
+                  : <><Download size={13} strokeWidth={2.4} /> 전부 저장</>}
+              </button>
+            </div>
+          )}
           <div className="cn2-shot">
             {manifest === null ? (
               <div className="cn2-shot-skel" />
@@ -529,6 +697,35 @@ const css = `
   border:1px solid #f3c9c9;background:#fdf3f3;border-radius:var(--r-md);
   font-size:13px;line-height:1.5;color:#a52a2a}
 .cn2-err svg{flex:none;margin-top:1px}
+
+/* 모드 — 전체 묶음 / 한 장만 */
+.cn2-mode{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:4px 0 2px;max-width:560px}
+.cn2-mode button{position:relative;display:grid;grid-template-columns:auto 1fr;
+  grid-template-areas:"ic ttl" "ic desc";column-gap:10px;row-gap:1px;align-items:center;
+  padding:11px 13px;border:1px solid var(--c-border);background:var(--c-card);
+  border-radius:var(--r-md);text-align:left;cursor:pointer;box-shadow:var(--sh-xs);
+  transition:border-color .16s ease,box-shadow .16s ease}
+.cn2-mode button:hover:not(:disabled){border-color:#b9d0ee}
+.cn2-mode button:disabled{opacity:.55;cursor:default}
+.cn2-mode button.on{border-color:var(--c-primary);background:var(--c-primary-tint);
+  box-shadow:0 0 0 2px rgba(18,104,211,.16),var(--sh-sm)}
+.cn2-mode-ic{grid-area:ic;display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;border-radius:9px;background:var(--c-primary-soft);color:var(--c-primary)}
+.cn2-mode button.on .cn2-mode-ic{background:var(--c-primary);color:#fff}
+.cn2-mode b{grid-area:ttl;font-size:13.5px;font-weight:800;color:var(--c-text);letter-spacing:-.01em}
+.cn2-mode-desc{grid-area:desc;font-size:11.5px;line-height:1.4;color:var(--c-muted);word-break:keep-all}
+
+/* 묶음 안내 한 줄 */
+.cn2-note{margin:10px 0 0;font-size:12px;line-height:1.55;color:var(--c-faint);max-width:70ch}
+
+/* 묶음 결과 머리 — 전부 저장 */
+.cn2-bulk{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.cn2-bulk>span{font-size:12.5px;font-weight:800;color:var(--c-muted)}
+.cn2-bulk button{margin-left:auto;display:inline-flex;align-items:center;gap:5px;
+  border:1px solid var(--c-border);background:var(--c-card);border-radius:var(--r-pill);
+  padding:5px 13px;font-size:12px;font-weight:700;color:var(--c-muted);cursor:pointer}
+.cn2-bulk button:hover:not(:disabled){border-color:var(--c-primary);color:var(--c-primary)}
+.cn2-bulk button:disabled{opacity:.6;cursor:default}
 
 /* ① 카드 고르기 */
 .cn2-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:9px}
