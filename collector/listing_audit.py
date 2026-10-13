@@ -31,6 +31,18 @@ def _has(v) -> bool:
     return v is not None and str(v).strip() not in ("", "-", "0", "None")
 
 
+def _fmt_manwon(v) -> str:
+    """만원 단위 숫자 → '1억 2,000만원' 표기(융자금 사유 문구용)."""
+    try:
+        n = int(float(v))
+    except (ValueError, TypeError):
+        return str(v)
+    if n >= 10000:
+        eok, man = divmod(n, 10000)
+        return f"{eok}억" + (f" {man:,}만원" if man else "")
+    return f"{n:,}만원"
+
+
 def _to_float(v):
     try:
         return float(v)
@@ -211,7 +223,7 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     area_exclusive, price, total_floor, movein_type, room_count, bathroom_count,
     use_approve_ymd, parking_count, monthly_management_cost, admin_cost_info,
     direction, direction_base, violation_building, detail_address, building_name,
-    dong_name, is_saengsuk.
+    dong_name, is_saengsuk, movein_negotiable, finance_price.
     """
     findings: list[dict] = []
 
@@ -341,9 +353,20 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     else:
         add(6, "총 층수", "통과", f"건축물대장 기준 {_fmt_led(led_tf)}층 일치" if (led_tf and led_comparable) else "")
 
-    # ⑦ 입주가능일 — 미표시만 위반. '즉시입주'+'협의가능' 동시표기는 실무상 허용(주의 안 함).
-    if not _has(f.get("movein_type")):
+    # ⑦ 입주가능일 — 미표시는 위반.
+    #    허용되는 표시 방식은 **'즉시입주' 단독** 또는 **'날짜 입력 + 협의가능'** 둘뿐이고,
+    #    '즉시입주 + 협의가능' 동시표기는 과태료 사유다(2026-10-13 광고검수 확인).
+    #    지금 바로 들어갈 수 있다면서 동시에 입주일을 협의하자는 것은 서로 모순된 표시다.
+    #    ⚠ 네이버 moveInDiscussionPossibleYN 은 'Y'가 아니라 '협의가능' 문자열로도 온다
+    #      (실측 2627453230 — moveInTypeName='즉시입주', 같은 필드 값이 '협의가능').
+    _mv = str(f.get("movein_type") or "")
+    _mv_nego = str(f.get("movein_negotiable") or "").strip() in ("Y", "협의가능")
+    if not _has(_mv):
         add(7, "입주가능일", "위반", "입주가능일 미표시")
+    elif "즉시" in _mv and _mv_nego:
+        add(7, "입주가능일", "위반",
+            "‘즉시입주’ + ‘협의가능’ 동시표기 — 과태료 사유. "
+            "‘즉시입주’ 단독 또는 ‘날짜 입력 + 협의가능’ 중 하나로 고치세요")
     else:
         add(7, "입주가능일", "통과")
 
@@ -475,7 +498,14 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
 
     # ⑫ 방향 — 방향 자체는 표시 의무. '방향 기준(거실/안방 등) 함께표시'는 주거용건축물만
     #    (비주거는 주된 출입구 방향으로 표시하면 됨 → 기준 미표시 주의 안 함).
-    if not _has(f.get("direction")):
+    #
+    #    상업용(상가·사무실·지식산업센터)은 **방향 점검 자체를 하지 않는다**
+    #    (2026-10-13 광고검수 결정). 입력 폼에 방향 기준을 고르는 칸이 아예 없고
+    #    (기본 기준이 주출입구로 고정), 방향은 필수 입력이라 비우면 네이버가 업로드를
+    #    막는다 — 플랫폼이 이미 누락을 차단하므로 우리가 또 볼 이유가 없다.
+    if _listing_cat(rtype, f.get("real_estate_type")) in ("상업", "업무"):
+        add(12, "방향", "통과", "상업용 — 기준 선택란 없음(주출입구 기준) · 플랫폼 필수입력")
+    elif not _has(f.get("direction")):
         add(12, "방향", "위반", "방향 미표시")
     elif residential and not _has(f.get("direction_base")):
         add(12, "방향", "주의", "방향 기준(거실/안방 등) 미표시")
@@ -511,6 +541,17 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
                     f"광고는 {lcat}인데 건축물대장 {cflr}층은 ‘{mpur}’(주거) — 용도 확인 필요 · {summary}")
         else:
             add(13, "층별 용도", "통과", f"{cflr}층 용도 ‘{mpur}’ · {summary}")
+
+    # ⑭ 융자금 — **필수 입력 항목이 아니다.** 그런데 '시세 대비 30% 미만' 식으로 적어 두는
+    #    사례가 있고, 한 번 적은 값은 상환·추가대출로 현재 융자 상태와 쉽게 달라진다.
+    #    달라진 값을 그대로 두면 그때부터 허위·과장 표시가 된다.
+    #    필수가 아닌 항목이니 '위반'으로 몰지 않고 **'주의'로만** 알린다
+    #    (2026-10-13 광고검수 결정 — 가장 안전한 선택은 '표시 안함').
+    _fin = _to_float(f.get("finance_price"))
+    if _fin and _fin > 0:
+        add(14, "융자금", "주의",
+            f"융자금 {_fmt_manwon(_fin)} 표시됨 — 상환·추가대출로 현재 상태와 달라질 수 있습니다. "
+            "필수 항목이 아니므로 ‘표시 안함’이 가장 안전합니다")
 
     # 토지·임야는 건축물이 아님 — 명시사항은 소재지·면적·가격·종류·거래형태뿐.
     # 건축물 전용 항목(층·총층·입주·방욕·사용승인·주차·관리비·방향)은 해당 없음 처리(오탐 방지).

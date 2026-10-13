@@ -32,6 +32,7 @@ def extract_checklist_fields(detail: dict) -> dict[str, Any]:
     flr = detail.get("articleFloor", {}) or {}
     add = detail.get("articleAddition", {}) or {}
     cost = detail.get("administrationCostInfo", {}) or {}
+    prc = detail.get("articlePrice", {}) or {}
 
     def _num(v):
         try:
@@ -76,6 +77,9 @@ def extract_checklist_fields(detail: dict) -> dict[str, Any]:
         # ⑫ 방향 + 기준
         "direction": fac.get("directionTypeName") or add.get("direction"),
         "direction_base": fac.get("directionBaseTypeName"),  # "거실 기준" 등
+        # ⑭ 융자금(만원) — 필수 입력 항목이 아니다. 적어 두면 상환·추가대출로 현재 상태와
+        #    쉽게 달라져 허위표시가 되므로 '표시 안함'이 안전하다(2026-10-13 광고검수 결정).
+        "finance_price": _num(prc.get("financePrice")),
         # ★ 네이버가 매물상세에 포함하는 건축물대장(비단지 대장대조용 — 좌표 온디맨드 대체)
         "ledger_inline": _inline_ledger(detail),
     }
