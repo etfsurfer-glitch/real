@@ -19875,6 +19875,7 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
         "total_floor": det.get("total_floor"),
         "movein_type": det.get("movein_type"),
         "movein_negotiable": det.get("movein_negotiable"),
+        "movein_ymd": det.get("movein_ymd"),                     # ⑦ '즉시입주'인데 앞날짜면 허위
         "finance_price": det.get("finance_price"),               # ⑭ 융자금(만원, 주의 전용)
         "room_count": det.get("room_count"),
         "bathroom_count": det.get("bathroom_count"),

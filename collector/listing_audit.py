@@ -31,6 +31,18 @@ def _has(v) -> bool:
     return v is not None and str(v).strip() not in ("", "-", "0", "None")
 
 
+def _today() -> str:
+    """오늘 YYYYMMDD. 테스트는 f['today'] 로 덮어쓸 수 있다(_mv_today 참조)."""
+    import datetime as _dt
+    return _dt.date.today().strftime("%Y%m%d")
+
+
+def _fmt_ymd_dot(v) -> str:
+    """20261207 → 2026.12.07"""
+    t = str(v or "")
+    return f"{t[:4]}.{t[4:6]}.{t[6:8]}" if len(t) == 8 and t.isdigit() else t
+
+
 def _fmt_manwon(v) -> str:
     """만원 단위 숫자 → '1억 2,000만원' 표기(융자금 사유 문구용)."""
     try:
@@ -223,7 +235,7 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     area_exclusive, price, total_floor, movein_type, room_count, bathroom_count,
     use_approve_ymd, parking_count, monthly_management_cost, admin_cost_info,
     direction, direction_base, violation_building, detail_address, building_name,
-    dong_name, is_saengsuk, movein_negotiable, finance_price.
+    dong_name, is_saengsuk, movein_negotiable, movein_ymd, finance_price.
     """
     findings: list[dict] = []
 
@@ -359,11 +371,30 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     #    지금 바로 들어갈 수 있다면서 동시에 입주일을 협의하자는 것은 서로 모순된 표시다.
     #    ⚠ 네이버 moveInDiscussionPossibleYN 은 'Y'가 아니라 '협의가능' 문자열로도 온다
     #      (실측 2627453230 — moveInTypeName='즉시입주', 같은 필드 값이 '협의가능').
+    #
+    #    그리고 **‘즉시입주’인데 입주가능일에 앞으로 올 날짜가 적힌 것**은 더 무겁다.
+    #    형식 문제가 아니라 사실과 다른 표시(허위)다 — 아직 못 들어가는 집을
+    #    ‘지금 들어갈 수 있다’고 광고하는 것이다. 실측(2026-10-13, 399건 중 88건)에서
+    #    매물 본문이 스스로 반증한다:
+    #      · 2655126436 — 유형 ‘즉시입주’, 날짜 20261207, 본문 “26년12월07일 입주날짜 상호협의”
+    #      · 2654303377 — 유형 ‘즉시입주’, 날짜 20261107, 요약 “12월7일이후 협의입주가”
+    #      · 2654998803 — 유형 ‘즉시입주’, 날짜 20270115 (1년 3개월 뒤)
+    #    ⚠ **지난 날짜는 모순이 아니다** — 그날부터 입주가 가능해졌고 지금도 가능하다는
+    #      뜻이라 ‘즉시입주’와 맞는다(분양권 입주지정기간이 대표적). 앞날짜만 잡는다.
+    #    ⚠ 즉시입주는 moveInPossibleYmd 가 보통 'NOW' 로 온다 — 8자리 날짜일 때만 본다.
     _mv = str(f.get("movein_type") or "")
     _mv_nego = str(f.get("movein_negotiable") or "").strip() in ("Y", "협의가능")
+    _mv_imm = "즉시" in _mv
+    _mv_ymd = str(f.get("movein_ymd") or "").strip()
+    _mv_future = (len(_mv_ymd) == 8 and _mv_ymd.isdigit()
+                  and _mv_ymd > (f.get("today") or _today()))
     if not _has(_mv):
         add(7, "입주가능일", "위반", "입주가능일 미표시")
-    elif "즉시" in _mv and _mv_nego:
+    elif _mv_imm and _mv_future:
+        add(7, "입주가능일", "위반",
+            f"‘즉시입주’로 표시했으나 입주가능일이 {_fmt_ymd_dot(_mv_ymd)} — 아직 입주할 수 없는 집입니다. "
+            "실제 날짜로 고치세요(사실과 다른 표시)")
+    elif _mv_imm and _mv_nego:
         add(7, "입주가능일", "위반",
             "‘즉시입주’ + ‘협의가능’ 동시표기 — 과태료 사유. "
             "‘즉시입주’ 단독 또는 ‘날짜 입력 + 협의가능’ 중 하나로 고치세요")
