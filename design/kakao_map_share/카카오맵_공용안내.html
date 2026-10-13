@@ -1,0 +1,347 @@
+<title>카카오맵 공용 안내</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#f5f6f4; --surface:#ffffff; --fg:#17201c; --fg-2:#56625b; --fg-3:#8a948d;
+    --line:#dfe3df; --line-2:#eef0ed;
+    --brand:#1268d3; --brand-soft:#e8f0fc;
+    --warn:#a8551a; --warn-soft:#fdf3e7; --warn-line:#f0dcc0;
+    --stop:#a32a26; --stop-soft:#fdeeed; --stop-line:#f2cdcb;
+    --ok:#1b6b4a; --ok-soft:#e9f4ee;
+    --code-bg:#11180f; --code-fg:#e4eadf;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#12171a; --surface:#1a2124; --fg:#e8edea; --fg-2:#a4b0ab; --fg-3:#78837e;
+      --line:#2b3539; --line-2:#222b2e;
+      --brand:#6aa8f0; --brand-soft:#17293d;
+      --warn:#e0a564; --warn-soft:#2c2318; --warn-line:#45361f;
+      --stop:#ea8f8a; --stop-soft:#2e1d1c; --stop-line:#4a2c2a;
+      --ok:#74c79d; --ok-soft:#16281f;
+      --code-bg:#0b100d; --code-fg:#dbe3d6;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#12171a; --surface:#1a2124; --fg:#e8edea; --fg-2:#a4b0ab; --fg-3:#78837e;
+    --line:#2b3539; --line-2:#222b2e;
+    --brand:#6aa8f0; --brand-soft:#17293d;
+    --warn:#e0a564; --warn-soft:#2c2318; --warn-line:#45361f;
+    --stop:#ea8f8a; --stop-soft:#2e1d1c; --stop-line:#4a2c2a;
+    --ok:#74c79d; --ok-soft:#16281f;
+    --code-bg:#0b100d; --code-fg:#dbe3d6;
+    color-scheme:dark;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:'IBM Plex Sans KR',-apple-system,'Apple SD Gothic Neo',system-ui,sans-serif;
+    font-size:15px; line-height:1.72; word-break:keep-all;
+  }
+  .wrap{max-width:790px; margin:0 auto; padding-block:40px 72px; padding-left:16px; padding-right:16px}
+
+  /* ── 머리 ───────────────────────────────────────────── */
+  header{border-bottom:2px solid var(--fg); padding-bottom:18px; margin-bottom:34px}
+  h1{
+    margin:0 0 6px; font-size:clamp(26px,5.6vw,35px); font-weight:700;
+    letter-spacing:-.03em; line-height:1.22; text-wrap:balance;
+  }
+  .meta{
+    margin:0; font-family:'IBM Plex Mono',ui-monospace,monospace;
+    font-size:12.5px; color:var(--fg-3); letter-spacing:.01em;
+  }
+
+  /* ── 결론 ───────────────────────────────────────────── */
+  .verdict{
+    background:var(--surface); border:1px solid var(--line);
+    border-left:5px solid var(--brand); border-radius:3px;
+    padding:20px 22px; margin-bottom:38px;
+  }
+  .verdict p{margin:0 0 10px}
+  .verdict p:last-child{margin-bottom:0}
+  .verdict .lede{font-size:17px; font-weight:600; letter-spacing:-.015em; line-height:1.55}
+
+  /* ── 절 ─────────────────────────────────────────────── */
+  section{margin-bottom:42px}
+  h2{
+    margin:0 0 4px; font-size:20px; font-weight:700; letter-spacing:-.025em;
+    line-height:1.3; text-wrap:balance;
+  }
+  h2 .n{
+    font-family:'IBM Plex Mono',monospace; font-size:14px; font-weight:600;
+    color:var(--brand); margin-right:9px;
+  }
+  .sub{margin:0 0 18px; color:var(--fg-3); font-size:13.5px}
+  h3{margin:26px 0 8px; font-size:15.5px; font-weight:600; letter-spacing:-.02em}
+  p{margin:0 0 13px}
+  strong{font-weight:600}
+  a{color:var(--brand); text-decoration-thickness:1px; text-underline-offset:2px}
+
+  /* ── 키 박스 ────────────────────────────────────────── */
+  .keybox{
+    background:var(--code-bg); border-radius:4px; padding:18px 20px; margin:0 0 14px;
+    overflow-x:auto;
+  }
+  .keybox .lb{
+    font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:.09em;
+    color:#8fa585; margin-bottom:7px;
+  }
+  .keybox .val{
+    font-family:'IBM Plex Mono',monospace; font-size:clamp(14px,3.4vw,19px); font-weight:600;
+    color:var(--code-fg); letter-spacing:.02em; white-space:nowrap;
+  }
+
+  /* ── 표 ─────────────────────────────────────────────── */
+  .scroll{overflow-x:auto; margin:0 0 14px; -webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse; width:100%; min-width:430px; font-size:13.5px}
+  th,td{text-align:left; padding:9px 12px 9px 0; border-bottom:1px solid var(--line-2); vertical-align:top}
+  th{
+    font-weight:600; font-size:11.5px; letter-spacing:.055em; color:var(--fg-3);
+    border-bottom:1px solid var(--line); white-space:nowrap;
+  }
+  td.num{font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; white-space:nowrap}
+  tr.hi td{background:var(--brand-soft)}
+  tr.hi td:first-child{font-weight:600}
+
+  /* ── 목록 ───────────────────────────────────────────── */
+  ul,ol{margin:0 0 13px; padding-left:21px}
+  li{margin-bottom:7px}
+  li::marker{color:var(--fg-3)}
+  ul.plain{list-style:none; padding-left:0}
+  ul.plain li{
+    padding-left:22px; position:relative;
+  }
+  ul.plain li::before{
+    content:""; position:absolute; left:4px; top:11px;
+    width:6px; height:6px; border-radius:50%; background:var(--brand);
+  }
+
+  /* ── 코드 ───────────────────────────────────────────── */
+  pre{
+    background:var(--code-bg); color:var(--code-fg); border-radius:4px;
+    padding:16px 18px; margin:0 0 14px; overflow-x:auto;
+    font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:12.5px; line-height:1.75;
+  }
+  pre .c{color:#7e9173}
+  pre .s{color:#b6d6a0}
+  code{
+    font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:.9em;
+    background:var(--line-2); padding:1.5px 5px; border-radius:3px; word-break:break-all;
+  }
+
+  /* ── 경고/확인 ──────────────────────────────────────── */
+  .note{border-radius:3px; padding:15px 18px; margin:0 0 14px; font-size:14px; line-height:1.68}
+  .note p{margin:0 0 8px}
+  .note p:last-child{margin-bottom:0}
+  .note .tag{
+    display:block; font-family:'IBM Plex Mono',monospace; font-size:11px;
+    letter-spacing:.09em; margin-bottom:6px;
+  }
+  .warn{background:var(--warn-soft); border:1px solid var(--warn-line)}
+  .warn .tag{color:var(--warn)}
+  .stop{background:var(--stop-soft); border:1px solid var(--stop-line)}
+  .stop .tag{color:var(--stop)}
+  .ok{background:var(--ok-soft); border:1px solid transparent}
+  .ok .tag{color:var(--ok)}
+
+  /* ── 체크리스트 ─────────────────────────────────────── */
+  .check{list-style:none; padding-left:0; margin:0}
+  .check li{
+    display:flex; gap:12px; align-items:flex-start;
+    padding:11px 0; border-bottom:1px solid var(--line-2); margin:0;
+  }
+  .check li:last-child{border-bottom:0}
+  .check .who{
+    flex:0 0 68px; font-family:'IBM Plex Mono',monospace; font-size:11px;
+    letter-spacing:.05em; padding-top:4px;
+  }
+  .check .who.us{color:var(--brand)}
+  .check .who.them{color:var(--warn)}
+  .check .what{flex:1; min-width:0; font-size:14px; line-height:1.6}
+
+  footer{
+    margin-top:54px; padding-top:18px; border-top:1px solid var(--line);
+    font-size:12.5px; color:var(--fg-3);
+  }
+  footer p{margin:0 0 5px}
+</style>
+
+<div class="wrap">
+
+<header>
+  <h1>카카오맵 공용 안내</h1>
+  <p class="meta">콕집 → 자매 사이트 · 2026.10.13 · 기준: koczip.com 운영 앱</p>
+</header>
+
+<div class="verdict">
+  <p class="lede">앱을 새로 만들지 말고, 콕집 앱의 JavaScript 키를 그대로 쓰세요. 우리가 콘솔에 자매 사이트 도메인만 추가하면 끝입니다.</p>
+  <p>카카오는 2026년 7월 21일부터 <strong>무료 쿼터를 개발자 계정의 ‘첫 번째로 활성화한 앱’ 하나에만</strong> 줍니다. 자매 사이트용으로 앱을 새로 파면 무료 쿼터가 0이고, 비즈월렛을 연결해 <strong>첫 호출부터 과금</strong>됩니다. 키를 공유하는 쪽이 정상 경로이고, 카카오 측도 데브톡에서 그렇게 답했습니다.</p>
+</div>
+
+<!-- ───────────────────────────────────────────────────── -->
+<section>
+  <h2><span class="n">01</span>전달하는 값</h2>
+  <p class="sub">딱 하나입니다.</p>
+
+  <div class="keybox">
+    <div class="lb">KAKAO JAVASCRIPT KEY</div>
+    <div class="val">9a1273ee261418f745229285f7e86021</div>
+  </div>
+
+  <p>이 값은 <strong>공개값입니다.</strong> 지금도 koczip.com 의 JS 번들에 그대로 들어 있어 누구나 개발자도구로 볼 수 있습니다. 비밀이 아니라 <strong>도메인 화이트리스트로 보호되는</strong> 키라서, 등록되지 않은 도메인에서 호출하면 카카오가 거부합니다.</p>
+
+  <div class="note stop">
+    <span class="tag">주지 않는 것</span>
+    <p><strong>REST API 키 · Admin 키 · 네이티브 앱 키는 전달하지 않습니다.</strong> 이 셋은 도메인 잠금이 없어 유출되면 그대로 쓰입니다. 콕집도 쓰지 않아 서버 어디에도 저장돼 있지 않습니다 — 지도는 전부 브라우저에서 JS 키로만 호출합니다.</p>
+    <p>혹시 자매 사이트에서 서버사이드 지오코딩이 필요하면, 키를 넘기지 말고 <strong>콕집 API 에 엔드포인트를 하나 열어</strong> 주는 쪽으로 가시죠.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────────────────────────────────── -->
+<section>
+  <h2><span class="n">02</span>콕집이 콘솔에서 해줄 일</h2>
+  <p class="sub">자매 사이트 쪽에서는 할 수 없습니다. 앱 소유 계정이 콕집이라서요.</p>
+
+  <p>developers.kakao.com → 콕집 앱 → <strong>앱 키 → JavaScript 키 → JavaScript SDK 도메인</strong> (예전 메뉴 이름은 <em>앱 설정 → 플랫폼 → Web → 사이트 도메인</em>)에 자매 사이트 도메인을 추가합니다.</p>
+
+  <h3>등록 규칙</h3>
+  <ul class="plain">
+    <li><strong>스킴까지 정확히</strong> 넣습니다 — <code>https://example.com</code>. <code>http</code> 와 <code>https</code> 는 별개이고, 포트가 다르면 그것도 별개입니다.</li>
+    <li><strong>서브도메인은 자동으로 안 됩니다.</strong> <code>example.com</code> 을 넣어도 <code>www.example.com</code> 은 막힙니다. 쓸 호스트를 전부 나열해야 합니다.</li>
+    <li><strong>와일드카드(<code>*.example.com</code>)는 비즈앱만</strong> 됩니다. 서브도메인이 많이 생길 구조면 비즈앱 전환부터 검토해야 합니다.</li>
+    <li>개발·스테이징 도메인도 같이 넣습니다. <code>http://localhost:5173</code> 같은 로컬도 등록해야 로컬에서 지도가 뜹니다.</li>
+  </ul>
+
+  <h3>이미 등록돼 있는 것</h3>
+  <p>콕집은 <strong>한 키를 이미 두 도메인에서 쓰고 있습니다</strong> — <code>koczip.com</code>(본 서비스)과 <code>real.koczip.com</code>(중개사 홈페이지). 자매 사이트를 붙이는 것도 똑같은 방식이고, 이미 검증된 구성입니다.</p>
+
+  <div class="note warn">
+    <span class="tag">한도 주의</span>
+    <p>사이트 도메인은 <strong>앱당 기본 10개</strong>입니다. 콕집이 이미 운영·개발 도메인으로 몇 자리를 쓰고 있으니, 자매 사이트가 호스트를 여러 개 요구하면 한도에 걸릴 수 있습니다. 초과분은 앱 Owner 계정으로 카카오에 요청하면 <strong>최대 100개까지</strong> 풀어 줍니다(심사 있음, 즉시 아님). <strong>그래서 도메인 목록은 한 번에 확정해서 받아야 합니다.</strong></p>
+  </div>
+</section>
+
+<!-- ───────────────────────────────────────────────────── -->
+<section>
+  <h2><span class="n">03</span>자매 사이트가 붙일 코드</h2>
+  <p class="sub">콕집이 쓰는 로더와 동일합니다. 그대로 복사해 쓰면 됩니다.</p>
+
+<pre><span class="c">// autoload=false → kakao.maps.load 로 명시 초기화(이게 안정적이다)</span>
+<span class="c">// libraries=services → 주소·장소 검색을 쓸 때만. 안 쓰면 빼세요(쿼터 절약)</span>
+const KEY = <span class="s">"9a1273ee261418f745229285f7e86021"</span>;
+
+let sdk = null;
+export function loadKakao() {
+  if (sdk) return sdk;
+  sdk = new Promise((resolve, reject) =&gt; {
+    if (window.kakao?.maps) return resolve();
+    const s = document.createElement(<span class="s">"script"</span>);
+    s.src = <span class="s">`https://dapi.kakao.com/v2/maps/sdk.js`</span> +
+            <span class="s">`?appkey=${KEY}&amp;autoload=false&amp;libraries=services`</span>;
+    s.async = true;
+    s.onload  = () =&gt; window.kakao.maps.load(() =&gt; resolve());
+    s.onerror = () =&gt; reject(new Error(<span class="s">"카카오맵 SDK 로드 실패"</span>));
+    document.head.appendChild(s);
+  });
+  return sdk;
+}</pre>
+
+  <h3>콕집이 실제로 쓰는 범위</h3>
+  <p>참고용입니다 — 아래를 벗어나면 쿼터 계산이 달라집니다.</p>
+  <div class="scroll">
+    <table>
+      <tr><th>용도</th><th>API</th><th>쿼터 항목</th></tr>
+      <tr><td>지도·마커·오버레이</td><td class="num">Map, LatLng, CustomOverlay, Polygon</td><td>지도 Web SDK</td></tr>
+      <tr><td>스카이뷰</td><td class="num">MapTypeId.HYBRID</td><td>지도 Web SDK</td></tr>
+      <tr><td>지역명 → 좌표</td><td class="num">services.Geocoder.addressSearch</td><td>주소로 좌표 변환</td></tr>
+      <tr><td>좌표 → 법정동</td><td class="num">services.Geocoder.coord2RegionCode</td><td>좌표로 행정구역 변환</td></tr>
+      <tr><td>주소 검색 실패 시 폴백</td><td class="num">services.Places.keywordSearch</td><td>키워드로 장소 검색</td></tr>
+    </table>
+  </div>
+  <p>로드뷰·클러스터러·경로탐색·정적지도는 <strong>쓰지 않습니다.</strong> 자매 사이트가 쓸 거면 미리 알려 주세요 — 경로탐색과 정적지도는 무료 쿼터가 <strong>하루 1,000건</strong>뿐이라 성격이 완전히 다릅니다.</p>
+</section>
+
+<!-- ───────────────────────────────────────────────────── -->
+<section>
+  <h2><span class="n">04</span>쿼터 — ‘같이 쓴다’의 진짜 의미</h2>
+  <p class="sub">쿼터는 앱 단위입니다. 두 사이트 사용량이 한 통에 합산됩니다.</p>
+
+  <div class="scroll">
+    <table>
+      <tr><th>API</th><th>일 무료</th><th>초과 단가</th></tr>
+      <tr class="hi"><td>지도 Web(JavaScript) SDK</td><td class="num">300,000건</td><td class="num">0.1원/건</td></tr>
+      <tr><td>주소로 좌표 변환</td><td class="num">100,000건</td><td class="num">0.5원/건</td></tr>
+      <tr><td>좌표로 행정구역정보 변환</td><td class="num">100,000건</td><td class="num">0.5원/건</td></tr>
+      <tr><td>좌표로 주소 변환</td><td class="num">100,000건</td><td class="num">0.5원/건</td></tr>
+      <tr class="hi"><td>키워드로 장소 검색</td><td class="num">100,000건</td><td class="num">2원/건</td></tr>
+      <tr><td>경로 조회 · 정적 지도</td><td class="num">1,000건</td><td class="num">10원 · 2원/건</td></tr>
+    </table>
+  </div>
+  <p class="sub">여기에 더해 <strong>전체 API 합산 월 300만 건</strong> 한도가 따로 걸립니다.</p>
+
+  <h3>현재 여유</h3>
+  <p>콕집 전체 페이지뷰가 <strong>하루 1.8만~2.3만</strong>입니다(최근 14일 실측). 지도가 안 뜨는 페이지까지 전부 지도 호출로 쳐도 <strong>일 쿼터 30만의 8% 미만</strong>입니다. 자매 사이트가 들어올 자리는 넉넉합니다.</p>
+
+  <div class="note warn">
+    <span class="tag">단, 확인 필요</span>
+    <p>지도 SDK 호출이 <strong>무엇을 1건으로 세는지</strong>(스크립트 로드 1회 / 지도 인스턴스 / 타일)는 문서에 명시가 없습니다. 위 수치는 페이지뷰 기준 상한 추정입니다. <strong>콘솔 → 통계 → 쿼터</strong>에서 실제 소진량을 한 번 보고 확정하시죠 — 그게 유일한 정답입니다.</p>
+  </div>
+
+  <div class="note stop">
+    <span class="tag">가장 큰 리스크</span>
+    <p>쿼터를 넘기면 <strong>429</strong>가 떨어지고, 앱 단위라 <strong>자매 사이트 사고가 콕집 지도까지 같이 죽입니다.</strong> 반대도 마찬가지고요. 무한 스크롤에서 지도를 매번 새로 만들거나, 지오코딩을 캐시 없이 호출하는 코드 한 줄이면 하루치를 태울 수 있습니다.</p>
+    <p>그래서 두 가지를 조건으로 겁니다 — <strong>①</strong> 지오코딩 결과는 자매 사이트 쪽에서 반드시 캐시할 것(콕집도 좌표→주소를 <code>coord_addr.sqlite</code> 에 캐시해 씁니다). <strong>②</strong> 트래픽이 10배 뛸 이벤트는 사전에 공유할 것.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────────────────────────────────── -->
+<section>
+  <h2><span class="n">05</span>같이 쓰면 따라오는 결합</h2>
+  <p class="sub">키 하나를 공유한다는 건 앱 하나를 공유한다는 뜻입니다. 지도 말고도 묶입니다.</p>
+
+  <ul class="plain">
+    <li><strong>카카오톡 공유를 쓸 거면 먼저 말해 주세요.</strong> 같은 키로 <code>Kakao.init()</code> 을 하면 공유 메시지가 <strong>콕집 앱 명의로</strong> 나갑니다(앱 이름·아이콘). 자매 사이트 브랜드로 공유해야 한다면 이건 별도 앱이 맞습니다. <strong>지도만 쓸 거면 <code>Kakao.init()</code> 은 호출하지 마세요</strong> — 지도 SDK는 그게 필요 없습니다.</li>
+    <li><strong>카카오 로그인도 같은 앱 설정을 봅니다.</strong> 동의항목·Redirect URI·비즈앱 심사 상태가 공유됩니다. 자매 사이트가 카카오 로그인을 붙일 계획이면 동의항목이 서로 간섭할 수 있어 설계 단계에서 같이 봐야 합니다.</li>
+    <li><strong>도메인 10개 한도를 나눠 씁니다</strong>(02 참고).</li>
+    <li><strong>앱 소유권은 콕집에 남습니다.</strong> 자매 사이트는 콘솔에 들어올 수 없고, 도메인 추가·쿼터 확인·유료 전환이 전부 콕집을 거칩니다. 운영이 분리될 조직이면 이 점을 먼저 합의해야 합니다.</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────────────────────────────────── -->
+<section>
+  <h2><span class="n">06</span>체크리스트</h2>
+  <p class="sub">순서대로 하면 반나절이면 뜹니다.</p>
+
+  <ul class="check">
+    <li><span class="who them">자매</span><span class="what">쓸 도메인을 <strong>전부</strong> 확정해 전달 — 운영·www·스테이징·로컬 포함. 나중에 추가하면 10개 한도에 걸릴 수 있습니다.</span></li>
+    <li><span class="who them">자매</span><span class="what">쓸 기능 확정 — 지도만인지, 지오코딩·장소검색까지인지, 로드뷰/경로탐색이 있는지.</span></li>
+    <li><span class="who them">자매</span><span class="what">예상 일 페이지뷰 전달(쿼터 합산 계산용).</span></li>
+    <li><span class="who us">콕집</span><span class="what">콘솔 → 앱 키 → JavaScript SDK 도메인에 도메인 추가.</span></li>
+    <li><span class="who us">콕집</span><span class="what">콘솔 → 통계 → 쿼터에서 현재 소진량 확인 후 공유.</span></li>
+    <li><span class="who them">자매</span><span class="what">03 의 로더 붙이고 지도 1장 띄워 확인. 실패하면 콘솔에 <code>401 domain mismatched</code> 가 뜹니다 — 도메인 등록 문제입니다.</span></li>
+    <li><span class="who them">자매</span><span class="what">지오코딩 결과 캐시 적용.</span></li>
+    <li><span class="who us">콕집</span><span class="what">붙은 뒤 1주일간 쿼터 추이 관찰. 일 20만을 넘기 시작하면 유료 전환(비즈월렛)을 미리 준비합니다.</span></li>
+  </ul>
+</section>
+
+<!-- ───────────────────────────────────────────────────── -->
+<section>
+  <h2><span class="n">07</span>이럴 땐 앱을 따로 파세요</h2>
+  <p class="sub">공유가 항상 답은 아닙니다.</p>
+  <ul class="plain">
+    <li>자매 사이트가 <strong>카카오톡 공유나 카카오 로그인</strong>을 자기 브랜드로 써야 할 때</li>
+    <li>두 서비스의 <strong>운영 주체·정산이 완전히 분리</strong>되어야 할 때</li>
+    <li>자매 사이트 트래픽이 콕집보다 크거나, <strong>일 30만 건을 자체적으로 넘길</strong> 규모일 때</li>
+  </ul>
+  <p>이 경우 새 앱은 무료 쿼터가 없으니 <strong>비즈월렛 연결 + 첫 건부터 과금</strong>을 전제로 잡아야 합니다. 지도 SDK 기준 0.1원/건이라 일 10만 건이면 하루 1만 원 수준입니다.</p>
+</section>
+
+<footer>
+  <p>출처 — 카카오 공식 문서(<a href="https://developers.kakao.com/docs/ko/kakaomap/common" target="_blank" rel="noopener">카카오맵 공통</a>, <a href="https://developers.kakao.com/docs/ko/getting-started/quota" target="_blank" rel="noopener">무료 제공 쿼터</a>) 및 데브톡 답변(<a href="https://devtalk.kakao.com/t/javascript/151829" target="_blank" rel="noopener">키 공유 가부</a>, <a href="https://devtalk.kakao.com/t/topic/82307" target="_blank" rel="noopener">도메인 등록 수 제한</a>).</p>
+  <p>쿼터·요금은 카카오가 변경할 수 있습니다. 2026년 7월 21일에 한 차례 바뀌었습니다 — 적용 직전 콘솔에서 재확인하세요.</p>
+  <p>콕집 · koczip.com</p>
+</footer>
+
+</div>
