@@ -33,6 +33,12 @@ class Settings:
     aligo_alimtalk_senderkey: str   # 발신프로필 키(채널 인증 후 발급)
     aligo_alimtalk_tpl_code: str    # 중개사용 템플릿 코드(매물요청 안내)
     aligo_alimtalk_tpl_cust: str    # 고객용 템플릿 코드(제안 도착 안내)
+    # 중개사앱 Play 심사용 테스트 로그인 — 심사자는 SMS를 받을 수 없어서(기기에 묶인
+    # 자격증명 자체가 반려 사유) Play가 "기기 연결이 필요 없는 전용 테스트 우회 경로"를
+    # 요구한다. 둘 다 .env 에 있을 때만 그 한 번호가 문자 없이 통과한다. 비우면 기능 꺼짐.
+    # 심사가 끝나면 .env 에서 지우는 것이 안전하다.
+    biz_review_phone: str
+    biz_review_code: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -67,6 +73,8 @@ class Settings:
             aligo_alimtalk_senderkey=os.getenv("ALIGO_ALIMTALK_SENDERKEY", ""),
             aligo_alimtalk_tpl_code=os.getenv("ALIGO_ALIMTALK_TPL_CODE", ""),
             aligo_alimtalk_tpl_cust=os.getenv("ALIGO_ALIMTALK_TPL_CUST", ""),
+            biz_review_phone=os.getenv("BIZ_REVIEW_PHONE", ""),
+            biz_review_code=os.getenv("BIZ_REVIEW_CODE", ""),
         )
 
 

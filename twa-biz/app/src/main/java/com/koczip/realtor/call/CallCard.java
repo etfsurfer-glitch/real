@@ -18,7 +18,9 @@ public class CallCard {
         KoczipApi.callLookup(ctx, phone, (info, err) -> {
             if (err != null) {
                 CallDiag.log(ctx, "룩업실패", err.length() > 60 ? err.substring(0, 60) : err);
-                if ("no-token".equals(err)) return;   // 로그인 없으면 카드 없음
+                // 로그인(번호인증) 전이라도 카드는 띄운다 — 고객 '이름'만 못 채울 뿐, 걸려온
+                // 번호를 통화 화면 위에 보여주는 발신자 확인 자체는 서버 없이도 되는 일이다.
+                // (예전엔 여기서 return 해버려서, 번호인증 전에는 아무 카드도 안 떴다.)
             } else {
                 JSONObject cu = info != null ? info.optJSONObject("customer") : null;
                 CallDiag.log(ctx, "룩업성공", cu != null ? "고객:" + cu.optString("name", "?") : "미등록번호");

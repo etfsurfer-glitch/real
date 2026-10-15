@@ -1,7 +1,7 @@
 {
   "packageId": "com.koczip.realtor",
   "host": "koczip.com",
-  "name": "콕집 중개사 - 매물장·매물점검",
+  "name": "콕집 중개사 - 전화 고객알림·매물장",
   "launcherName": "콕집 중개사",
   "display": "standalone",
   "themeColor": "#0F2F5C",
@@ -21,8 +21,8 @@
     "path": "./android.keystore",
     "alias": "koczipbiz"
   },
-  "appVersionName": "1.0.0",
-  "appVersionCode": 1,
+  "appVersionName": "1.0.2",
+  "appVersionCode": 11,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://koczip.com/biz.webmanifest",
@@ -41,5 +41,5 @@
   "additionalTrustedOrigins": [],
   "retainedBundles": [],
   "displayOverride": [],
-  "appVersion": "1.0.0"
+  "appVersion": "1.0.2"
 }

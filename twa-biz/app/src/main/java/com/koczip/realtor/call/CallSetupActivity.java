@@ -18,6 +18,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
 /** 통화 고객알림 온보딩 — ① 전화번호 OTP 로그인 ② 발신자확인 역할 ③ 알림 권한.
  *  프로그램 UI(XML 없음) — 사이드카 최소 침습. 완료/건너뛰기 후 TWA(LauncherActivity)로. */
 public class CallSetupActivity extends Activity {
@@ -66,16 +68,17 @@ public class CallSetupActivity extends Activity {
                 return;
             }
         }
-        if (CallPrefs.token(this) != null) {
-            phase = "role"; render();
+        // 기본 진입은 'role' — 번호인증은 알림에 **고객 이름**을 채우기 위한 것이고, 발신자 확인
+        // 권한 자체와는 무관하다. 그래서 첫 실행 온보딩도 로그인을 요구하지 않고 바로 기능 설명 +
+        // 권한 안내로 들어간다(번호인증은 아래 '내 폰 설정 점검'의 '로그인' 줄에서 선택적으로).
+        phase = "role"; render();
+        if (CallPrefs.token(this) != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // 발신자확인 역할이 이미 있으면(배터리 예외만 다시 요청하는 재실행 등) 역할 화면을
             // 거치지 않고 곧바로 다음 단계(알림·오버레이·배터리)로 흘려보낸다.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                RoleManager rm = getSystemService(RoleManager.class);
-                if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)
-                        && rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
-                    afterRole();
-                }
+            RoleManager rm = getSystemService(RoleManager.class);
+            if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)
+                    && rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
+                afterRole();
             }
         }
     }
@@ -115,6 +118,21 @@ public class CallSetupActivity extends Activity {
         stylePrimary(primaryBtn);
         primaryBtn.setOnClickListener(v -> onPrimary());
         root.addView(primaryBtn);
+
+        // 핵심 기능이 어떻게 보이는지 전화를 기다리지 않고 바로 확인 — 예시 데이터로 실제와
+        // 똑같은 발신자 카드를 띄운다. 로그인·통화 없이 기능을 점검할 수 있는 유일한 경로여서
+        // Play 심사자의 확인 수단도 된다(2026-10 반려: '인앱 환경에서 핵심 기능 확인 불가').
+        Button preview = new Button(this);
+        preview.setText("발신자 카드 미리보기 (예시)");
+        preview.setBackgroundColor(Color.parseColor("#EEF3FB"));
+        preview.setTextColor(Color.parseColor("#1268D3"));
+        preview.setAllCaps(false);
+        LinearLayout.LayoutParams pvLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        pvLp.topMargin = dp(10);
+        preview.setLayoutParams(pvLp);
+        preview.setOnClickListener(v -> previewCard());
+        root.addView(preview);
 
         Button skip = new Button(this);
         skip.setText("나중에 할게요");
@@ -183,6 +201,40 @@ public class CallSetupActivity extends Activity {
             case "role": requestRole(); break;
             case "done": goTwa(); break;
         }
+    }
+
+    /** 예시 데이터로 실제와 동일한 발신자 카드를 띄운다 — 오버레이(권한 있으면) + 알림.
+     *  둘 다 막혀 있으면 화면 안 대화상자로라도 보여줘, 어떤 상태에서도 기능을 확인할 수 있다. */
+    private void previewCard() {
+        final String phone = "01012345678";
+        JSONObject info = new JSONObject();
+        try {
+            info.put("customer", new JSONObject()
+                    .put("name", "김민수")
+                    .put("memo", "래미안 32평 매수 문의"));
+            info.put("leads", new org.json.JSONArray().put(new JSONObject()
+                    .put("message", "래미안 32평 매수 문의 (3일 전)")));
+        } catch (Exception ignored) { }
+
+        boolean ov = CallOverlay.canShow(this);
+        if (ov) CallOverlay.show(this, phone, info);
+        CallNotifier.showCard(this, phone, info);
+
+        if (!ov && !notiGranted()) {
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("📞 김민수님 전화")
+                    .setMessage("010-1234-5678\n최근문의: 래미안 32평 매수 문의 (3일 전)\n\n"
+                            + "실제로는 전화가 올 때 통화 화면 위에 이 카드가 떠서, 받기 전에 "
+                            + "누구인지 알 수 있습니다.\n\n'전화 알림 켜기'로 권한을 허용하면 "
+                            + "통화 화면 위/알림창에 그대로 표시됩니다.")
+                    .setPositiveButton("확인", null)
+                    .show();
+            status.setText("예시 카드를 화면에 띄웠습니다. 권한을 허용하면 통화 화면 위에 떠요.");
+            return;
+        }
+        status.setText(ov
+                ? "예시 카드를 통화 화면 위에 띄웠습니다(25초 후 자동 사라짐). 알림창에도 남아 있어요."
+                : "예시 카드를 알림창에 띄웠습니다. '다른 앱 위에 표시'를 허용하면 통화 화면 위에도 떠요.");
     }
 
     private void requestRole() {
@@ -300,6 +352,10 @@ public class CallSetupActivity extends Activity {
     }
 
     private void goTwa() {
+        // 이 화면을 한 번 끝까지 본 사람에겐 다시 띄우지 않는다. '나중에 할게요'뿐 아니라
+        // 설정을 마치고 나가는 경로에서도 표시해야, 번호인증을 안 한 사용자가 매 실행마다
+        // 설정 화면을 다시 보는 일이 없다(온보딩 조건이 토큰 유무라서 생기던 문제).
+        CallPrefs.dismissOnboarding(this);
         // 설정 화면은 TWA 위에 얹혀 있으므로, 닫으면 뒤의 웹(라운지)이 그대로 드러난다.
         // (TWA가 뒤에 없는 예외 상황이면 홈으로 — 무해)
         if (isTaskRoot()) {

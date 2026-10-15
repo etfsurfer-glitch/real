@@ -1,1 +1,19 @@
-<shortcuts xmlns:android='http://schemas.android.com/apk/res/android' />
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 손으로 관리하는 파일. app/build.gradle의 generateShorcutsFile 태스크를 제거했다 —
+     그 태스크는 설정 단계마다 이 파일을 빈 내용으로 덮어썼고(2026-10 심사 반려 원인),
+     intent 대상을 LauncherActivity로만 쓸 수 있어 CallSetupActivity를 겨냥할 수 없었다. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 로그인 없이 발신자 확인(전화 고객알림) 설정·권한 화면을 바로 연다.
+         홈에서 앱 아이콘을 길게 누르면 나온다. -->
+    <shortcut
+        android:shortcutId="call_setup"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_call_setup_short"
+        android:shortcutLongLabel="@string/shortcut_call_setup_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.koczip.realtor"
+            android:targetClass="com.koczip.realtor.call.CallSetupActivity" />
+    </shortcut>
+</shortcuts>

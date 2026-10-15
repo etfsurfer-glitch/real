@@ -23090,6 +23090,23 @@ def _init_biz_call_db() -> None:
 _init_biz_call_db()
 
 
+_REVIEW_REALTOR = "TEST6771KOCZIP"   # 심사용 토큰이 붙는 데모 사무소(실매물 없음)
+_REVIEW_USER = "play-review-biz"
+
+
+def _is_review_phone(phone: str) -> bool:
+    """Play 심사용 테스트 번호인가 — .env 에 BIZ_REVIEW_PHONE/CODE 둘 다 있을 때만 성립.
+
+    심사자는 SMS를 받을 수 없어서, 기기 인증에 묶인 자격증명은 그 자체가 반려 사유다
+    (2026-10 "기기 인증으로 제한된 로그인 사용자 인증 정보"). Play는 "계정을 테스트 기기에
+    연결하지 않아도 되는 전용 테스트 우회 방법"을 요구한다. 이 번호 하나만 문자 없이
+    고정 코드로 통과하며, 데모 사무소에만 연결되므로 실제 회원 데이터에는 닿지 않는다.
+    .env 값을 지우면 경로가 통째로 사라진다 — 심사 후 지우는 것이 안전하다.
+    """
+    rp = _norm_phone(settings.biz_review_phone)
+    return bool(rp and settings.biz_review_code and phone == rp)
+
+
 def _norm_phone(p: str | None) -> str:
     """전화번호 정규화 — 숫자만, +82 → 0. 라운지 전화매칭과 동일 규칙."""
     import re as _re
@@ -23121,10 +23138,14 @@ def biz_native_otp(body: dict):
     phone = _norm_phone(body.get("phone"))
     if not phone.startswith("01") or len(phone) < 10:
         raise HTTPException(400, "올바른 휴대폰 번호가 아닙니다")
-    code = f"{_secrets.randbelow(900000) + 100000:06d}"
+    # 심사용 번호는 문자를 보내지 않고 고정 코드를 쓴다. 재발송 제한도 두지 않는다 —
+    # 심사자는 버튼을 여러 번 눌러 보는데 429가 뜨면 그대로 '로그인 불가'로 반려된다.
+    review = _is_review_phone(phone)
+    code = settings.biz_review_code if review else f"{_secrets.randbelow(900000) + 100000:06d}"
     with _reviews_db() as c:
-        prev = c.execute("SELECT sent_at>datetime('now','-60 seconds') FROM biz_native_otp WHERE phone=?",
-                         (phone,)).fetchone()
+        prev = None if review else c.execute(
+            "SELECT sent_at>datetime('now','-60 seconds') FROM biz_native_otp WHERE phone=?",
+            (phone,)).fetchone()
         if prev and prev[0]:
             raise HTTPException(429, "잠시 후 다시 요청해주세요 (1분에 한 번)")
         c.execute("INSERT INTO biz_native_otp(phone,code,expires_at,attempts,sent_at) "
@@ -23133,6 +23154,8 @@ def biz_native_otp(body: dict):
                   "expires_at=datetime('now','+5 minutes'), attempts=0, sent_at=datetime('now')",
                   (phone, code))
         c.commit()
+    if review:
+        return {"ok": True, "expires_in": 300, "review": True}
     res = _aligo_send_sms(phone, f"[콕집 중개사] 인증번호 [{code}] 를 입력해주세요. (5분 이내)")
     out = {"ok": True, "expires_in": 300}
     if res is None:
@@ -23163,6 +23186,15 @@ def biz_native_verify(body: dict):
             c.execute("UPDATE biz_native_otp SET attempts=attempts+1 WHERE phone=?", (phone,))
             c.commit()
             raise HTTPException(400, "인증번호가 일치하지 않습니다")
+        if _is_review_phone(phone):
+            # 심사용 번호는 가입 계정·사무소 연결 검사를 건너뛰고 데모 사무소에 붙인다.
+            # (심사자는 콕집 회원가입·사무소 인증을 할 수 없다)
+            tok = _secrets.token_urlsafe(32)
+            c.execute("INSERT INTO biz_native_tokens(token,user_id,realtor_id,phone) VALUES(?,?,?,?)",
+                      (tok, _REVIEW_USER, _REVIEW_REALTOR, phone))
+            c.execute("DELETE FROM biz_native_otp WHERE phone=?", (phone,))
+            c.commit()
+            return {"ok": True, "token": tok, "realtor_id": _REVIEW_REALTOR, "review": True}
         u = c.execute("SELECT user_id FROM user_profiles WHERE phone=? AND phone_verified=1",
                       (phone,)).fetchone()
         if not u:
@@ -23223,6 +23255,18 @@ def biz_call_lookup(request: Request, phone: str = ""):
             "SELECT direction, started_at, duration_s FROM biz_call_events "
             "WHERE realtor_id=? AND phone=? ORDER BY created_at DESC LIMIT 5", (rid, p)).fetchall()
     found = bool(cust or leads or hist)
+    if not found and who["user_id"] == _REVIEW_USER:
+        # Play 심사용 토큰 — 심사자가 테스트 전화를 걸면 어떤 번호든 예시 고객으로 응답해,
+        # '걸려온 번호가 누구인지 통화 화면에 뜬다'는 핵심 기능을 실제로 확인할 수 있게 한다.
+        # 예시임을 메모에 명시한다. 이 분기는 심사용 데모 토큰에서만 돈다.
+        return {
+            "found": True, "phone": p, "review_sample": True,
+            "customer": {"name": "김민수", "memo": "[심사용 예시] 래미안 32평 매수 문의",
+                         "since": None},
+            "leads": [{"source": "call", "message": "래미안 32평 매수 문의 (3일 전)",
+                       "status": "open", "at": None}],
+            "history": [],
+        }
     return {
         "found": found, "phone": p,
         "customer": ({"name": cust[0], "memo": cust[1], "since": cust[2]} if cust else None),

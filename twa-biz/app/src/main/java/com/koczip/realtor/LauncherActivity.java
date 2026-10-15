@@ -63,16 +63,28 @@ public class LauncherActivity
         }
     }
 
-    /** 통화 고객알림 설정 재유도가 필요한가 — **통화감지를 켠 적 있는(토큰 보유) 사용자만** 대상.
-     *  신규 설치자는 무조건 웹(/biz)으로 바로 진입한다(로그인만으로 시작 — 2026-09-04 수정:
-     *  이전엔 역할 미보유 전원을 설정화면으로 보내 첫 실행이 번호인증으로 막혔음).
-     *  재유도 사유: ①켰었는데 역할이 풀림 ②배터리 최적화 예외 풀림(삼성이 주기적으로 되돌림)
-     *  ③통화기록 권한 회수. */
+    /** 통화 고객알림 설정 화면을 먼저 띄울 것인가.
+     *
+     *  ① **첫 실행 1회** — 이 앱의 대표 기능이 '전화 고객알림(발신자 확인)'이므로, 설치 직후
+     *     한 번은 기능 설명과 권한 안내를 보여준다. 로그인·번호인증은 요구하지 않는다
+     *     (CallSetupActivity가 토큰 없으면 'role' 단계로 바로 들어간다). '나중에 할게요'를
+     *     누르면 다시 묻지 않는다.
+     *     2026-09-04엔 역할 미보유 전원을 설정화면으로 보내 첫 실행이 **번호인증으로 막혀서**
+     *     되돌렸는데, 그 뒤 2026-10 Play 심사에서 심사자가 권한 프롬프트와 핵심 기능에
+     *     도달할 길이 아예 없어 세 건이 반려됐다. 번호인증을 걷어낸 채로 되살린 것이 이 분기다.
+     *  ② **재유도** — 켰었는데(토큰 보유) 설정이 풀린 경우: 역할 해제 / 배터리 최적화 예외 해제
+     *     (삼성이 주기적으로 되돌림) / 통화기록 권한 회수. */
     private boolean needsCallSetup() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false;
         try {
-            if (com.koczip.realtor.call.CallPrefs.token(this) == null) return false;   // 켠 적 없음 → 방해 금지
             RoleManager rm = getSystemService(RoleManager.class);
+            if (com.koczip.realtor.call.CallPrefs.token(this) == null) {
+                // 켠 적 없음 — 첫 실행 1회만 안내(이후엔 홈 아이콘 길게 누르기 바로가기로 접근).
+                // 발신자 확인 역할을 이미 쥐고 있으면 스스로 켠 사람이므로 더 묻지 않는다.
+                if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)
+                        && rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) return false;
+                return com.koczip.realtor.call.CallPrefs.needsOnboarding(this);
+            }
             if (rm == null || !rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) return false;
             if (!rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) return true;   // 켰었는데 역할 풀림
             android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);

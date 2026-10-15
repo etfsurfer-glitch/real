@@ -1,0 +1,191 @@
+/*
+ * Copyright 2019 Google Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import groovy.xml.MarkupBuilder
+
+plugins {
+    id 'com.android.application'
+}
+
+def twaManifest = [
+    applicationId: 'com.koczip.realtor',
+    hostName: 'koczip.com', // The domain being opened in the TWA.
+    launchUrl: '/biz', // The start path for the TWA. Must be relative to the domain.
+    // 선언한 핵심 기능(발신자 확인/전화 고객알림)이 앱 이름에서 드러나야 한다 —
+    // 2026-10 Play 반려 '스토어 등록정보가 선언된 사용 사례의 핵심 기능과 불일치'.
+    name: '콕집 중개사 - 전화 고객알림·매물장', // The application name.
+    launcherName: '콕집 중개사', // The name shown on the Android Launcher.
+    themeColor: '#0F2F5C', // The color used for the status bar.
+    themeColorDark: '#000000', // The color used for the dark status bar.
+    navigationColor: '#0F2F5C', // The color used for the navigation bar.
+    navigationColorDark: '#000000', // The color used for the dark navbar.
+    navigationDividerColor: '#0F2F5C', // The navbar divider color.
+    navigationDividerColorDark: '#000000', // The dark navbar divider color.
+    backgroundColor: '#0F2F5C', // The color used for the splash screen background.
+    enableNotifications: true, // Set to true to enable notification delegation.
+    // Every shortcut must include the following fields:
+    // - name: String that will show up in the shortcut.
+    // - short_name: Shorter string used if |name| is too long.
+    // - url: Absolute path of the URL to launch the app with (e.g '/create').
+    // - icon: Name of the resource in the drawable folder to use as an icon.
+    shortcuts: [],
+    // The duration of fade out animation in milliseconds to be played when removing splash screen.
+    splashScreenFadeOutDuration: 300,
+    generatorApp: 'bubblewrap-cli', // Application that generated the Android Project
+    // The fallback strategy for when Trusted Web Activity is not available. Possible values are
+    // 'customtabs' and 'webview'.
+    fallbackType: 'customtabs',
+    enableSiteSettingsShortcut: 'true',
+    orientation: 'portrait',
+]
+
+android {
+    compileSdkVersion 36
+    namespace "com.koczip.realtor"
+    defaultConfig {
+        applicationId "com.koczip.realtor"
+        minSdkVersion 21
+        targetSdkVersion 36
+        versionCode 11
+        versionName "1.0.2"
+
+        // The name for the application
+        resValue "string", "appName", twaManifest.name
+
+        // The name for the application on the Android Launcher
+        resValue "string", "launcherName", twaManifest.launcherName
+
+        // The URL that will be used when launching the TWA from the Android Launcher
+        def launchUrl = "https://" + twaManifest.hostName + twaManifest.launchUrl
+        resValue "string", "launchUrl", launchUrl
+
+        
+
+        
+            // The URL the Web Manifest for the Progressive Web App that the TWA points to. This
+            // is used by Chrome OS and Meta Quest to open the Web version of the PWA instead of
+            // the TWA, as it will probably give a better user experience for non-mobile devices.
+            resValue "string", "webManifestUrl", 'https://koczip.com/biz.webmanifest'
+        
+
+        
+            // This is used by Meta Quest.
+            resValue "string", "fullScopeUrl", 'https://koczip.com/biz'
+        
+
+        
+
+        // The hostname is used when building the intent-filter, so the TWA is able to
+        // handle Intents to open host url of the application.
+        resValue "string", "hostName", twaManifest.hostName
+
+        // This attribute sets the status bar color for the TWA. It can be either set here or in
+        // `res/values/colors.xml`. Setting in both places is an error and the app will not
+        // compile. If not set, the status bar color defaults to #FFFFFF - white.
+        resValue "color", "colorPrimary", twaManifest.themeColor
+
+        // This attribute sets the dark status bar color for the TWA. It can be either set here or in
+        // `res/values/colors.xml`. Setting in both places is an error and the app will not
+        // compile. If not set, the status bar color defaults to #000000 - white.
+        resValue "color", "colorPrimaryDark", twaManifest.themeColorDark
+
+        // This attribute sets the navigation bar color for the TWA. It can be either set here or
+        // in `res/values/colors.xml`. Setting in both places is an error and the app will not
+        // compile. If not set, the navigation bar color defaults to #FFFFFF - white.
+        resValue "color", "navigationColor", twaManifest.navigationColor
+
+        // This attribute sets the dark navigation bar color for the TWA. It can be either set here
+        // or in `res/values/colors.xml`. Setting in both places is an error and the app will not
+        // compile. If not set, the navigation bar color defaults to #000000 - black.
+        resValue "color", "navigationColorDark", twaManifest.navigationColorDark
+
+        // This attribute sets the navbar divider color for the TWA. It can be either 
+        // set here or in `res/values/colors.xml`. Setting in both places is an error and the app 
+        // will not compile. If not set, the divider color defaults to #00000000 - transparent.
+        resValue "color", "navigationDividerColor", twaManifest.navigationDividerColor
+
+        // This attribute sets the dark navbar divider color for the TWA. It can be either 
+        // set here or in `res/values/colors.xml`. Setting in both places is an error and the 
+        //app will not compile. If not set, the divider color defaults to #000000 - black.
+        resValue "color", "navigationDividerColorDark", twaManifest.navigationDividerColorDark
+
+        // Sets the color for the background used for the splash screen when launching the
+        // Trusted Web Activity.
+        resValue "color", "backgroundColor", twaManifest.backgroundColor
+
+        // Defines a provider authority for the Splash Screen
+        resValue "string", "providerAuthority", twaManifest.applicationId + '.fileprovider'
+
+        // The enableNotification resource is used to enable or disable the
+        // TrustedWebActivityService, by changing the android:enabled and android:exported
+        // attributes
+        resValue "bool", "enableNotification", twaManifest.enableNotifications.toString()
+
+        twaManifest.shortcuts.eachWithIndex { shortcut, index ->
+            resValue "string", "shortcut_name_$index", "$shortcut.name"
+            resValue "string", "shortcut_short_name_$index", "$shortcut.short_name"
+        }
+
+        // The splashScreenFadeOutDuration resource is used to set the duration of fade out animation in milliseconds
+        // to be played when removing splash screen. The default is 0 (no animation).
+        resValue "integer", "splashScreenFadeOutDuration", twaManifest.splashScreenFadeOutDuration.toString()
+
+        resValue "string", "generatorApp", twaManifest.generatorApp
+
+        resValue "string", "fallbackType", twaManifest.fallbackType
+
+        resValue "bool", "enableSiteSettingsShortcut", twaManifest.enableSiteSettingsShortcut
+        resValue "string", "orientation", twaManifest.orientation
+
+        
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    lintOptions {
+        checkReleaseBuilds false
+    }
+}
+
+// ⚠ bubblewrap이 넣어 둔 generateShorcutsFile 태스크를 통째로 제거했다.
+//
+// 그 태스크는 본문이 '설정 단계'에서 실행되는 형태(task foo { ... })여서, 실행 여부·dependsOn과
+// 무관하게 매 gradle 호출마다 src/main/res/xml/shortcuts.xml을 twaManifest.shortcuts(=[]) 기준
+// 빈 파일로 덮어썼다. 게다가 생성기는 intent 대상을 LauncherActivity로만 쓸 수 있어
+// '전화 알림 설정'(CallSetupActivity) 바로가기를 애초에 표현할 수 없다.
+//
+// 그래서 2026-10-05에 바로가기 문자열만 추가하고 shortcuts.xml을 손으로 써 둔 수정이 빌드와
+// 동시에 지워졌고, Play 심사자가 발신자 확인 권한 화면에 닿을 길이 없어 반려됐다.
+// shortcuts.xml은 이제 손으로 관리한다.
+
+
+
+repositories {
+    
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    
+        implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.6.2'
+    
+}
