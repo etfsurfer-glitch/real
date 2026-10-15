@@ -47,3 +47,11 @@ Thumbs.db
 cookies*.json
 *_cookies.json
 sns_creds.json
+
+# 중개사앱 빌드 산출물(용량 큼) — AAB/APK는 Play Console로만 올린다
+twa-biz/*.aab
+twa-biz/*.apk
+twa-biz/*.idsig
+# 촬영 원본(큼). 제출용 자막본만 추적한다.
+twa-biz/screenshots/store/녹화_*.mp4
+twa-biz/screenshots/store/시연영상_원본.mp4

@@ -192,6 +192,10 @@ public class CallSetupActivity extends Activity {
                     if (r != null && r.optString("token", null) != null) {
                         CallPrefs.setToken(this, r.optString("token"));
                         phase = "role"; render();
+                        // 점검표를 즉시 다시 그린다 — 안 그리면 방금 로그인했는데도 '로그인' 줄이
+                        // '휴대폰 번호 인증이 필요해요'로 남아 있어, 실패한 줄 안다('다시 점검'을
+                        // 눌러야 바뀐다). 서버 연결 줄도 이때 비로소 확인된다.
+                        refreshDiagnostics();
                     } else {
                         status.setText(errMsg(r, e));
                     }

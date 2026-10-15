@@ -23255,17 +23255,21 @@ def biz_call_lookup(request: Request, phone: str = ""):
             "SELECT direction, started_at, duration_s FROM biz_call_events "
             "WHERE realtor_id=? AND phone=? ORDER BY created_at DESC LIMIT 5", (rid, p)).fetchall()
     found = bool(cust or leads or hist)
-    if not found and who["user_id"] == _REVIEW_USER:
+    if who["user_id"] == _REVIEW_USER and not cust:
         # Play 심사용 토큰 — 심사자가 테스트 전화를 걸면 어떤 번호든 예시 고객으로 응답해,
         # '걸려온 번호가 누구인지 통화 화면에 뜬다'는 핵심 기능을 실제로 확인할 수 있게 한다.
         # 예시임을 메모에 명시한다. 이 분기는 심사용 데모 토큰에서만 돈다.
+        #
+        # 조건은 '고객이 없을 때'지 '아무것도 없을 때'가 아니다 — 이름을 띄우는 건 customer이고,
+        # 통화 한 번만 해도 biz_call_events·consultation_leads가 쌓여 found가 True가 되기 때문이다.
+        # (실측: 심사용 계정으로 테스트 통화를 두 번 하니 그 다음부터 카드가 '미등록 번호'로 떴다.)
         return {
             "found": True, "phone": p, "review_sample": True,
             "customer": {"name": "김민수", "memo": "[심사용 예시] 래미안 32평 매수 문의",
                          "since": None},
             "leads": [{"source": "call", "message": "래미안 32평 매수 문의 (3일 전)",
                        "status": "open", "at": None}],
-            "history": [],
+            "history": [{"direction": d, "at": at, "duration_s": du} for d, at, du in hist],
         }
     return {
         "found": found, "phone": p,
