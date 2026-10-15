@@ -57,7 +57,10 @@ android {
     namespace "com.koczip.realtor"
     defaultConfig {
         applicationId "com.koczip.realtor"
-        minSdkVersion 21
+        // Play 자동 보호가 minSdk 24 이상을 요구한다(2026-10-15 업로드 거부).
+        // 올려도 잃는 게 없다 — 핵심 기능인 발신자 확인은 ROLE_CALL_SCREENING(API 29)이
+        // 필요해서 21~23 기기에서는 어차피 동작하지 않는다.
+        minSdkVersion 24
         targetSdkVersion 36
         versionCode 11
         versionName "1.0.2"
