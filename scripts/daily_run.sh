@@ -84,6 +84,12 @@ step "step 9: match_clean (realtor)"       $PY -u scripts/match_clean.py; match_
 #     대표 이중검증·오귀속0. 등록번호를 naver_realtors에 기록 → 이후 match_clean이 매일 자동 재도출(지속).
 #     신규 미매칭만 점증 커버(30일 캐시), API 예산 위해 --limit.
 step "step 9a: link_region_regno (미매칭 등록번호)" $PY -u scripts/link_region_realtors_regno.py --limit 200 --workers 6 --samples 5; linkregno_exit=$?
+# 9a-2: 상호 변경 감시. step 8 은 --only-missing 이라 이미 있는 프로필을 영원히 건너뛴다 →
+#   사무소가 개명해도 naver_realtors 가 안 바뀌어, 목록(옛 이름)과 상세(매물의 새 이름)가
+#   서로 다르게 보였다(2026-10-16 제보로 발견, 3,215곳). 오늘 매물의 상호와 저장된 상호를
+#   비교해 바뀐 곳만 모아 vworld 공부상 상호로 대조하고, 그 사무소 프로필만 다시 받는다.
+#   반드시 9b(build_realtor_dong) **앞**이어야 realtor_names 가 새 상호를 싣는다.
+step "step 9a-2: realtor_name_watch (상호 변경)" $PY -u scripts/realtor_name_watch.py --max-sgg 40; namewatch_exit=$?
 step "step 9b: build_realtor_dong (우리동네)" $PY -u scripts/build_realtor_dong.py; rdong_exit=$?
 step "step 10: rematch_all_realprice"      $PY -u scripts/rematch_all_realprice.py --tables apt rent offi offi_rent --concurrency 4; rematch_exit=$?
 
@@ -116,5 +122,5 @@ step "step 13: region_listings(비단지 전국)" $PY -u scripts/collect_region_
 step "step 13-pre: hidden_realtor_map(비단지 신규분 귀속)" $PY -u scripts/apply_hidden_realtor_map.py
 step "step 13b: build_realtor_dong (비단지 반영)" $PY -u scripts/build_realtor_dong.py; rdong2_exit=$?
 
-log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} villa=${villa_exit:-NA} house=${house_exit:-NA} comm=${comm_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} trendcache=${trendcache_exit:-NA} region=${region_exit:-NA}"
+log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} villa=${villa_exit:-NA} house=${house_exit:-NA} comm=${comm_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} namewatch=${namewatch_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} trendcache=${trendcache_exit:-NA} region=${region_exit:-NA}"
 bash "$ROOT/scripts/warm_api.sh" >>"$LOG" 2>&1 || true   # 캐시 워밍(재빌드 후 첫 사용자도 빠르게)

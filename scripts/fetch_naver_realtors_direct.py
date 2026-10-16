@@ -92,7 +92,13 @@ def upsert_realtor(conn, rid, r, now):
     )
 
 
-def pick_targets(conn, only_missing: bool):
+def pick_targets(conn, only_missing: bool, ids: str | None = None):
+    if ids:
+        # 특정 사무소만 다시 받는다 — 상호 변경 감지(realtor_name_watch)가 쓰는 경로.
+        # --only-missing 은 이미 행이 있으면 영원히 건너뛰므로, 개명한 사무소는
+        # 이 경로로만 갱신된다.
+        want = [x.strip() for x in ids.split(",") if x.strip()]
+        return want
     if only_missing:
         # naver_realtors에 row 없거나 representative_name이 NULL인 케이스
         sql = """
@@ -112,11 +118,12 @@ def main():
     p.add_argument("--only-missing", action="store_true",
                    help="naver_realtors에 없거나 rep_name이 NULL인 케이스만")
     p.add_argument("--limit", type=int)
+    p.add_argument("--ids", help="쉼표로 구분한 realtor_id 목록만 다시 받는다(개명 반영용)")
     args = p.parse_args()
 
     conn = open_db()
     creds = ensure_creds()
-    todo = pick_targets(conn, args.only_missing)
+    todo = pick_targets(conn, args.only_missing, args.ids)
     if args.limit:
         todo = todo[: args.limit]
     print(f"[*] realtors to fetch: {len(todo):,}  parallel={args.parallel}", flush=True)

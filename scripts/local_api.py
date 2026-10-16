@@ -4044,14 +4044,28 @@ def _build_ranks() -> dict:
                     reg_total[rid] = x or 0
         except sqlite3.Error:
             reg_total = {}     # 비단지 테이블 없으면 단지 매물수만으로 정렬
+        # 표시 상호는 realtor_names(사무소 프로필 기준)를 쓴다. 매물에 찍힌 상호는 같은
+        # 사무소도 광고마다 달라서(네이버가 프로필 상호와 매물 표기 상호를 따로 준다),
+        # MAX()로 뽑으면 목록·상세가 서로 다른 이름을 보여줬다(2026-10-16 제보).
+        # 프로필 쪽이 더 정식 표기다: '탕정호반스타공인중개사사무소'(프로필) vs
+        # '탕정호반스타중개사사무소'(매물), '로열파크단지내'(프로필) vs '(대표)로열파크단지내'(매물).
+        disp: dict[str, str] = {}
+        try:
+            for rid, nm in c.execute(
+                "SELECT realtor_id, realtor_name FROM realtor_names WHERE realtor_name IS NOT NULL"
+            ):
+                if rid and nm:
+                    disp[rid] = nm
+        except sqlite3.Error:
+            disp = {}          # 테이블 없으면 매물에 찍힌 이름을 그대로 쓴다
     # 1순위=단지 매물수(n), 동률 시 2순위=전체매물(n+비단지) DESC, 그 다음 id 안정정렬.
     nat_sorted = sorted(nat_rows, key=lambda r: (-r[2], -(r[2] + reg_total.get(r[0], 0)), r[0]))
     national: dict[str, tuple[int, int, str]] = {
-        rid: (i + 1, n, name) for i, (rid, name, n) in enumerate(nat_sorted)
+        rid: (i + 1, n, disp.get(rid, name)) for i, (rid, name, n) in enumerate(nat_sorted)
     }
     by_sido: dict[str, list[tuple[str, str, int]]] = {}
     for sido, rid, name, n in sido_rows:
-        by_sido.setdefault(sido, []).append((rid, name, n))
+        by_sido.setdefault(sido, []).append((rid, disp.get(rid, name), n))
     sido_rank: dict[tuple[str, str], tuple[int, int, str]] = {}
     sido_totals: dict[str, int] = {}
     for sido, items in by_sido.items():
