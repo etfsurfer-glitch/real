@@ -137,6 +137,9 @@ f.append(Paragraph("추가 지정 앞둔 1기 신도시, ‘묶일 수 있는 �
 f.append(Paragraph(
     "분당 선도지구, 발표 직후 6개월에 바로 옆 단지보다 +7.1%p<br/>"
     "지정 안 돼도 같은 동은 2년간 나란히 올랐다 … 기준선은 ‘통합 2,500세대’", SUB))
+f.append(Paragraph(
+    "배포일: 2026년 10월 · 즉시 보도 가능 &nbsp;&nbsp; 문의: 조용호 공동창업자 · "
+    "albooooza@gmail.com · 010-4692-4946", CAP))
 f.append(Spacer(1, 7))
 
 f.append(Paragraph(
@@ -257,6 +260,17 @@ f.append(Paragraph(
     "가르는 것은 <b>세대당 대지지분</b>이다. 같은 용적률이라도 고층·소형 위주 단지는 지분이 "
     "얇다.", BODY))
 
+QUOTE = st("q", 10.3, "P-M", lead=17.5, color=INK, space=7)
+f.append(Spacer(1, 2))
+f.append(Paragraph(
+    "조용호 콕집 공동창업자는 “선도지구에 뽑히면 오른다는 말만 돌지만, 숫자를 2년치로 "
+    "펴 보면 초과수익이 찍힌 구간은 발표 직후 여섯 달 하나였다”며 “더 중요한 것은 "
+    "같은 동의 비지정 단지가 사실상 같은 폭으로 올랐다는 점이다. 지정은 속도를 당길 뿐, "
+    "값을 끌어올린 것은 그 동네가 정비 대상이라는 사실 자체였다”고 말했다. 이어 "
+    "“그래서 특정 단지를 찍기보다 묶일 수 있는 동을 고르는 쪽이 위험이 적다. 다만 "
+    "용적률이 높은 곳은 지정 뒤 분담금으로 되돌아온다는 점은 따로 봐야 한다”고 덧붙였다.",
+    QUOTE))
+
 f.append(Spacer(1, 4))
 f.append(Paragraph("데이터와 기준", H))
 f.append(Paragraph(
@@ -270,10 +284,11 @@ f.append(Paragraph(
     "· 용적률·세대수는 단지 등록정보, 구역 통합 세대수는 구역 포함 단지의 합이다.<br/>"
     "· 발표 직후 6개월 초과분(+7.1%p)은 표본 48건·78건으로, 비교 구간을 바꿔도 유지된다.", NOTE))
 f.append(Spacer(1, 5))
-f.append(Paragraph("콕집(koczip.com) CTO 황인찬 · runtoonline@gmail.com", CAP))
+f.append(Spacer(1, 3))
+f.append(Paragraph("자료 제공·분석: 콕집(koczip.com)<br/>문의: 조용호 공동창업자 · albooooza@gmail.com · 010-4692-4946", CAP))
 
 SimpleDocTemplate(str(OUT), pagesize=A4,
                   leftMargin=20 * mm, rightMargin=20 * mm,
                   topMargin=22 * mm, bottomMargin=18 * mm,
-                  title="콕집 선도지구 보도자료", author="콕집").build(f, onFirstPage=page, onLaterPages=page)
+                  title="콕집 선도지구 보도자료", author="조용호 · 콕집").build(f, onFirstPage=page, onLaterPages=page)
 print(f"저장: {OUT}")
