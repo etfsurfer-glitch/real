@@ -39,11 +39,12 @@ def money(s) -> float | None:
     """'1,164,555,900원' → 1164555900 · '1,626만 원' → 16260000"""
     if not s:
         return None
+    s = re.sub(r"(?<=\d)[\s,](?=\d)", "", s.strip())      # '630,0 00' → '6300 00' 방지
     s = s.replace(" ", "")
-    m = re.search(r"([\d,]+(?:\.\d+)?)", s)
+    m = re.search(r"(\d+(?:\.\d+)?)", s)
     if not m:
         return None
-    v = float(m.group(1).replace(",", ""))
+    v = float(m.group(1))
     if "만" in s and v < 100000:
         v *= 10000
     return v
@@ -166,10 +167,15 @@ def spec_key(k: str) -> str | None:
     return None
 
 
-UNIT = {"평당보증금": "u_deposit", "평당임대료": "u_rent", "평당관리비": "u_cam",
-        "보증금평당": "u_deposit", "임대료평당": "u_rent", "관리비평당": "u_cam"}
-ABS = {"디포짓": "a_deposit", "보증금": "a_deposit", "월세": "a_rent",
-       "임대료": "a_rent", "관리비": "a_cam"}
+# 금액 칸의 키. 접두(임대·공급·전용)와 평당 표기가 앞뒤 어디든 붙는다 —
+# '평당 보증금' · '임대평당 보증금' · '임대료 / 평당' 이 다 같은 뜻이다.
+# 반대로 '전용 평당 비용 [(임대료+관리비)÷전용면적]' 은 파생지표이므로 받지 않는다
+# (키를 fullmatch 로 묶어 긴 수식 키를 걸러낸다).
+MONEY_KEY = re.compile(r"^(?:임대|공급|전용)?(?:평당|면적당|3\.3㎡당|py당)?"
+                       r"(보증금|디포짓|임대료|월세|관리비)(?:평당|면적당)?$")
+UNIT_MARK = re.compile(r"평당|면적당|3\.3\s*㎡\s*당|py당")
+FIELD = {"보증금": "deposit", "디포짓": "deposit", "임대료": "rent",
+         "월세": "rent", "관리비": "cam"}
 
 
 def _hdr_row(rows):
@@ -240,28 +246,36 @@ def parse(src: str) -> dict:
         # 가로형 평당표: 헤더행이 '평당 보증금|평당 임대료|평당 관리비', 다음 행이 값
         if sum("평당" in c for c in rows[0]) >= 2 and len(rows) > 1:
             for k, v in zip(rows[0], rows[1]):
-                nm = UNIT.get(re.sub(r"[\s/·]", "", k))
-                if nm and money(v):
-                    unit.setdefault(nm, (money(v), None))
+                mm = MONEY_KEY.match(re.sub(r"[\s/·]", "", k))
+                if mm and money(v):
+                    unit.setdefault("u_" + FIELD[mm.group(1)], (money(v), None))
 
-        per_py = any("평당" in c for r in rows for c in r)
+        # 이 표가 평당 기준인가. 캡션('단위 : 임대면적 3.3㎡당', '임대 면적당 임대료
+        # 조건')이나 키 하나라도 평당 표기를 달고 있으면 그 표는 평당이다. 아무
+        # 칸에나 '평당'이 있으면 평당으로 보던 예전 판정은 '전용 평당 비용' 행
+        # 하나 때문에 월세 26,555,741원을 평당 임대료로 적었다.
+        keys2 = [re.sub(r"[\s/·]", "", r[0]) for r in rows if len(r) == 2]
+        tbl_unit = any(UNIT_MARK.search(c) for r in rows if len(r) == 1 for c in r) or \
+            any(MONEY_KEY.match(k) and UNIT_MARK.search(k) for k in keys2)
         for r in rows:
             if len(r) != 2:
                 continue
             k, v = r
             kk = re.sub(r"[\s/·]", "", k)
-            nm = UNIT.get(kk) or (
-                {"보증금": "u_deposit", "임대료": "u_rent", "관리비": "u_cam"}.get(kk)
-                if per_py else None)
-            if nm:
-                # '1,070,000 ~ 1,180,000원' — 층마다 단가가 다르면 범위로 적는다.
-                got = [money(x) for x in re.findall(r"[\d,]{5,}", v)]
-                got = [g for g in got if g]
-                if got:
-                    unit.setdefault(nm, (got[0], got[-1] if len(got) > 1 else None))
-                continue
-            if kk in ABS and money(v) and money(v) >= 1_000_000:
-                absolute.setdefault(ABS[kk], money(v))
+            m = MONEY_KEY.match(kk)
+            if m:
+                fld = FIELD[m.group(1)]
+                if UNIT_MARK.search(kk) or tbl_unit:
+                    # '1,070,000 ~ 1,180,000원' — 층마다 단가가 다르면 범위로 적는다.
+                    # 범위를 끊기 전에 숫자 사이 공백을 먼저 없앤다 — '630,0 00' 을
+                    # 그대로 끊으면 '630,0' 이 떨어져 나와 6,300원이 된다.
+                    vv = re.sub(r"(?<=\d)[\s](?=\d)", "", v)
+                    got = [g for g in (money(x) for x in re.findall(r"[\d,]{5,}", vv)) if g]
+                    if got:
+                        unit.setdefault("u_" + fld,
+                                        (got[0], got[-1] if len(got) > 1 else None))
+                elif money(v) and money(v) >= 1_000_000:
+                    absolute.setdefault("a_" + fld, money(v))
                 continue
             sk = spec_key(kk)
             if sk and sk not in spec:
@@ -300,3 +314,36 @@ def kind(src: str, parsed: dict) -> str:
     if re.search(r"(신규\s*매장|오픈|입점|지점|점\s*오픈)", src):
         return "tenant"
     return "other"
+
+
+def name_variants(name: str) -> list[str]:
+    """빌딩명으로 검색이 빈손일 때 써 볼 변형들. 앞에 있는 것부터 가능성이 높다.
+
+    실측(316곳 중 159곳 실패)에서 실패 원인은 대부분 우리 쪽 표기였다.
+      · PDF 의 'NEW' 배지가 이름에 붙었다 — 시그니처타워NEW, LG트윈텔2차NEW
+      · 괄호 별칭 — KB라이프타워(푸르덴셜타워), 위워크타워(PCA타워)
+      · 동 접미 — 배재정동빌딩B동, 트윈트리타워A동
+    괄호 안이 옛 이름인 경우가 많아 **괄호 안도 하나의 후보**로 쓴다.
+    """
+    out, seen = [], set()
+
+    def add(s):
+        s = re.sub(r"\s{2,}", " ", (s or "").strip(" ·‧,")).strip()
+        if len(s) >= 2 and s not in seen:
+            seen.add(s)
+            out.append(s)
+
+    base = re.sub(r"\s*NEW\s*$", "", name.strip(), flags=re.I)
+    add(base)
+
+    inner = re.findall(r"[(（]([^)）]+)[)）]", base)
+    outer = re.sub(r"\s*[(（][^)）]*[)）]", "", base).strip()
+    add(outer)
+    for v in inner:
+        if not re.search(r"\d+\s*[-‧·]\s*\d+|지구|BL|블[록럭]", v):   # 재개발 블록코드는 이름이 아니다
+            add(v)
+
+    for v in (outer, base):
+        add(re.sub(r"\s*[A-Z]동$", "", v))                    # B동 · A동
+        add(re.sub(r"\s*\d+차$", "", v))                      # 2차
+    return out

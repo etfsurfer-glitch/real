@@ -20,6 +20,7 @@ import re
 import sqlite3
 import sys
 import time
+import zlib
 from datetime import date
 
 from curl_cffi import requests as creq
@@ -85,20 +86,17 @@ def db():
     return d
 
 
-def fetch_text(url, delay=2.0):
-    time.sleep(delay)
-    try:
-        r = creq.get(url, headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9",
-                                   "Referer": "https://m.blog.naver.com/"},
-                     impersonate="chrome120", timeout=30)
-    except Exception:                                        # noqa: BLE001
+def cached_text(d, url):
+    """저장된 본문(body)을 읽는다. 네이버를 다시 긁지 않는다.
+
+    blog_building.py 가 표 HTML + 평문을 zlib 으로 남긴다. 추출 프롬프트를 고쳐
+    다시 돌릴 때마다 수집하면 글당 2초 × 414건이 또 나간다 — 그럴 이유가 없다.
+    """
+    r = d.execute("SELECT tables, text FROM body WHERE url=?", (url,)).fetchone()
+    if not r:
         return ""
-    if r.status_code != 200:
-        return ""
-    b = re.sub(r"<script.*?</script>", " ", r.text, flags=re.S)
-    b = re.sub(r"<style.*?</style>", " ", b, flags=re.S)
-    t = re.sub(r"<[^>]+>", " ", b).replace("&nbsp;", " ").replace("\xa0", " ")
-    return re.sub(r"\s+", " ", t).strip()
+    tabs = re.sub(r"<[^>]+>", " ", zlib.decompress(r[0]).decode())
+    return re.sub(r"\s+", " ", tabs + " " + zlib.decompress(r[1]).decode()).strip()
 
 
 def extract(cl, bld, text):
@@ -124,7 +122,8 @@ def extract(cl, bld, text):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--delay", type=float, default=2.0)
+    ap.add_argument("--delay", type=float, default=0.0,
+                    help="모델 호출 간 지연(본문은 캐시라 수집 지연이 없다)")
     ap.add_argument("--show", action="store_true", help="뽑은 값을 화면에 출력")
     a = ap.parse_args()
 
@@ -133,17 +132,20 @@ def main():
     rows = d.execute("""
         SELECT p.url, p.seed_name, p.posted_on, p.title FROM post p
         LEFT JOIN narrative_done n ON n.url = p.url
-        WHERE n.url IS NULL ORDER BY p.seed_name, p.posted_on DESC""").fetchall()
+        WHERE n.url IS NULL AND p.kind = 'lease'
+        ORDER BY p.seed_name, p.posted_on DESC""").fetchall()
     if a.limit:
         rows = rows[:a.limit]
     print(f"대상 글 {len(rows)}건 · 모델 {MODEL}", flush=True)
 
     n_ok = n_field = 0
     for i, (url, bld, posted, title) in enumerate(rows, 1):
-        txt = fetch_text(url, a.delay)
+        txt = cached_text(d, url)
         if len(txt) < 400:
             print(f"[{i}/{len(rows)}] {bld}: 본문 못 받음")
             continue
+        if a.delay:
+            time.sleep(a.delay)
         got, err = extract(cl, bld, txt)
         if got is None:
             print(f"[{i}/{len(rows)}] {bld}: {err}")

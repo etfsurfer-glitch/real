@@ -143,6 +143,22 @@ def same_addr(a, b):
 
 
 def find_place(name, addr, delay):
+    """이름 변형을 순서대로 써 본다. 주소까지 맞는 후보가 나오면 즉시 확정한다.
+
+    '이름만일치'는 바로 받지 않고 끝까지 돌려 본다 — 주소 확인된 다른 변형이
+    있으면 그게 맞다.
+    """
+    weak = None
+    for v in T.name_variants(name):
+        pv, why = _search_one(v, addr, delay)
+        if why == "ok":
+            return pv, "ok"
+        if why == "이름만일치" and weak is None:
+            weak = pv
+    return (weak, "이름만일치") if weak is not None else (None, "빌딩후보없음")
+
+
+def _search_one(name, addr, delay):
     st = apollo("https://pcmap.place.naver.com/place/list?query="
                 + urllib.parse.quote(name), delay)
     if not st:
@@ -254,14 +270,20 @@ def main():
     ap.add_argument("--max-posts", type=int, default=4, help="빌딩당 원문 받을 글 수")
     ap.add_argument("--redo", action="store_true",
                     help="이미 ok 인 빌딩도 다시 — 파서를 고쳤을 때 쓴다")
+    ap.add_argument("--retry-failed", action="store_true",
+                    help="매칭 실패한 빌딩만 다시 — 이름 정규화를 고쳤을 때 쓴다")
     a = ap.parse_args()
 
     d = db_init()
     today = date.today().isoformat()
     seeds = json.load(open(a.seeds))
-    done = set() if a.redo else {
-        r[0] for r in d.execute("SELECT seed_name FROM place WHERE status='ok'")}
-    todo = [s for s in seeds if s["name"] not in done]
+    if a.retry_failed:
+        want = {r[0] for r in d.execute("SELECT seed_name FROM place WHERE status!='ok'")}
+        todo = [s for s in seeds if s["name"] in want]
+    else:
+        done = set() if a.redo else {
+            r[0] for r in d.execute("SELECT seed_name FROM place WHERE status='ok'")}
+        todo = [s for s in seeds if s["name"] not in done]
     if a.limit:
         todo = todo[:a.limit]
     print(f"시드 {len(seeds)} · 할 일 {len(todo)} · 지연 {a.delay}s "
