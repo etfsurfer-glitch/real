@@ -70,7 +70,7 @@ import CompareBar from "./components/CompareBar";
 import ShareFab from "./components/ShareFab";
 import IntroSplash from "./components/IntroSplash";
 import EventFab from "./components/EventFab";
-import EventPopup from "./components/EventPopup";
+import BizAppPopup from "./components/BizAppPopup";
 import LoginIcons from "./components/LoginIcons";
 import Onboarding from "./components/Onboarding";
 import RealtorEntryChoice from "./components/RealtorEntryChoice";
@@ -552,7 +552,9 @@ function AppShell() {
       <AiFab />
       <ShareFab />
       <EventFab />
-      <EventPopup />
+      {/* 팝업은 한 번에 하나만. 지금은 중개사 앱 출시가 우선이라
+          EventPopup(출시 기념 이벤트)은 마운트하지 않는다. */}
+      <BizAppPopup />
       <CompareBar />
     </div>
   );

@@ -5259,8 +5259,10 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .biz-shell .bzc-card, .biz-shell p, .biz-shell .muted{overflow-wrap:anywhere;word-break:break-word}
 .bzc-kv{table-layout:fixed}                    /* 표 셀이 폭을 넘겨 밀지 않게 */
 .bzc-kv td{overflow-wrap:anywhere;word-break:break-word}
-/* 비즈 내 표는 항상 자체 가로스크롤(페이지 밀림 방지) */
-.biz-shell table:not(.bzc-kv){display:block;max-width:100%;overflow-x:auto}
+/* 비즈 내 표는 항상 자체 가로스크롤(페이지 밀림 방지).
+   매물장 표(.mlt)는 뺀다 — 바깥 .mlt-wrap 이 이미 스크롤러라 여기서 display:block 을
+   씌우면 스크롤러가 둘이 되어 끌기·가림막·열 고정이 어긋난다(2026-10-06). */
+.biz-shell table:not(.bzc-kv):not(.mlt){display:block;max-width:100%;overflow-x:auto}
 
 /* 중개사앱 전화 고객알림 켜기 카드 (원터치·재인증 없음) */
 .cdc{display:flex;align-items:center;gap:11px;margin:0 0 14px;padding:13px 14px;
@@ -6118,6 +6120,9 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .biz-rail-i.on .biz-rail-ic{color:#1268D3;}
 .biz-rail-tx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .biz-rail-main{flex:1;min-width:0;max-width:1120px;margin:0 auto;padding:22px 26px;width:100%;}
+/* 표가 주인공인 화면은 더 넓게. 1120 에 가두면 큰 모니터에서 열이 잘리고 양옆만 비었다.
+   무제한으로 두면 열이 늘어져 보기 나쁘므로 9개 열이 넉넉히 들어가는 선에서 멈춘다. */
+.biz-rail-main.wide{max-width:1680px}
 .biz-rail-head{font-size:20px;font-weight:800;margin:0 0 14px;color:#171B22;}
 /* 태블릿 아이콘 레일 */
 .biz-rail.mini{width:62px;padding:14px 8px;}
@@ -6172,3 +6177,281 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .onb-mail button[type="submit"]:disabled { background: #b9c6d6; }
 .onb-mail-close { background: none; border: 0; cursor: pointer; font-size: 12.5px; color: #8a93a0; }
 .onb-mail-err { margin: 0; font-size: 12.5px; color: #c0392b; }
+
+/* 매물장 표 보기 — 2026-10-06 부터 매물장은 표 하나로 간다(카드·폴딩 제거, 요청).
+   행을 누르면 기존 상세 모달이 그대로 열린다. 삭제하기 모드에서는 행이 선택 토글이 된다. */
+.mlt-outer{position:relative;margin-top:10px}
+.mlt-wrap{overflow-x:auto;background:var(--surface,#fff);border:1px solid var(--bd,#e3e8ef);
+          border-radius:12px;cursor:grab;scroll-behavior:auto}
+.mlt-wrap:active{cursor:grabbing}
+/* 가로로 더 있다는 표시. 스크롤막대만으론 "오른쪽이 없다"고 읽혀서 붙였다(2026-10-06). */
+.mlt-fade{position:absolute;top:1px;bottom:1px;width:34px;pointer-events:none;z-index:4}
+.mlt-fade.r{right:1px;border-radius:0 12px 12px 0;
+  background:linear-gradient(to right,rgba(255,255,255,0),var(--surface,#fff) 78%)}
+.imp-fill{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 2px;
+  padding:8px 12px;border:1px solid var(--bd,#e3e8ef);background:#f7f9fc;border-radius:9px;font-size:12.5px;color:#5b6775}
+.imp-fill b{color:#1268d3}
+.imp-fill button{font:inherit;font-size:12px;padding:4px 11px;cursor:pointer;
+  border:1px solid #c3d4ea;border-radius:7px;background:#fff;color:#1268d3}
+
+/* 매물장 ↔ 네이버 광고 수동 연결 */
+.mld-lk{background:var(--surface,#fff);border-radius:14px;width:min(560px,94vw);max-height:84vh;
+  display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 56px rgba(16,32,64,.3)}
+.mld-lk-h{display:flex;align-items:center;gap:9px;padding:13px 15px;border-bottom:1px solid var(--bd,#e3e8ef)}
+.mld-lk-h b{font-size:14.5px}
+.mld-lk-h span{font-size:12px;color:#7a8595}
+.mld-lk-h button{margin-left:auto;border:0;background:transparent;cursor:pointer;color:#7a8595;padding:2px}
+.mld-lk-err{margin:10px 15px 0;padding:8px 11px;border-radius:8px;background:#fdecee;color:#b3261e;font-size:12.5px}
+.mld-lk-cur{display:flex;align-items:center;gap:10px;margin:10px 15px;padding:9px 12px;border-radius:9px;
+  background:#f2f7ff;border:1px solid #cfe0f8;font-size:12.5px;color:#1268d3}
+.mld-lk-cur button{margin-left:auto;font:inherit;font-size:11.5px;padding:4px 10px;cursor:pointer;
+  border:1px solid #c3d4ea;border-radius:7px;background:#fff;color:#1268d3}
+.mld-lk-l{overflow-y:auto;padding:8px 15px 15px;display:flex;flex-direction:column;gap:7px}
+.mld-lk-i{display:block;width:100%;text-align:left;cursor:pointer;padding:10px 12px;
+  border:1px solid var(--bd,#e3e8ef);border-radius:10px;background:var(--surface,#fff);font:inherit}
+.mld-lk-i:hover{border-color:#1268d3;background:#f7fbff}
+.mld-lk-i1{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.mld-lk-i1 b{font-size:13.5px}
+.mld-lk-i1 span{font-size:12px;color:#5b6775}
+.mld-lk-i2{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:3px;font-size:11px}
+.mld-lk-i2 i{font-style:normal;color:#1268d3;font-weight:600}
+.mld-lk-i2 span{color:#9aa4b2}
+.mld-lk-i3{margin-top:3px;font-size:11.5px;color:#7a8595}
+.mld-lk-e{padding:16px;text-align:center;font-size:12.5px;color:#9aa4b2}
+
+/* 관리자 '사무소로 보기' 띠 — 내 매물장과 헷갈리면 안 된다 */
+.mlt-asbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;
+  padding:9px 13px;border:1px solid #f0c98a;background:#fff8ec;border-radius:9px;font-size:12.5px;color:#7a5a1e}
+.mlt-asbar>b:first-child{padding:2px 8px;border-radius:999px;background:#e8a53a;color:#fff;font-size:11.5px}
+
+.mlt-adn{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:999px;font-style:normal;
+  font-size:10.5px;font-weight:700;background:#fff3e0;color:#b76b1a;border:1px solid #f0d2a8;cursor:help}
+.mlt-foldn{font-style:normal;color:#7a8595}
+.mlt-cpn{font-style:normal;color:#b76b1a;font-weight:600}
+.mlt-rkbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;
+  padding:8px 13px;border:1px solid #cfe0f8;background:#f2f7ff;border-radius:9px;font-size:12.5px;color:#1268d3}
+.mlt-rkbar button{margin-left:auto;font:inherit;font-size:11.5px;padding:3px 10px;cursor:pointer;
+  border:1px solid #c3d4ea;border-radius:7px;background:#fff;color:#1268d3}
+.mlt-rkask{font:inherit;font-size:11px;padding:2px 8px;cursor:pointer;color:#1268d3;
+  border:1px dashed #a8c8f0;border-radius:7px;background:transparent}
+.mlt-rkask:hover{background:#f2f7ff;border-style:solid}
+.mlt-rk{white-space:nowrap}
+.mlt-rk.warn{color:#b76b1a;font-weight:600}
+.mlt-rk i{margin-left:4px;font-style:normal;font-size:10px;padding:1px 5px;border-radius:999px;
+  background:#fff3e0;border:1px solid #f0d2a8}
+.mlt-lf{white-space:nowrap}
+.mlt-lf.warn{color:#b76b1a;font-weight:600}
+.mlt-lf.bad{color:#b3261e;font-weight:700}
+
+/* 건축물대장으로 빈 칸 채우기 안내 */
+.mlt-fill{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;
+  padding:9px 13px;border:1px solid #cfe0f8;background:#f2f7ff;border-radius:9px;font-size:12.5px}
+.mlt-fill b{color:#1268d3}
+.mlt-fill button{font:inherit;font-size:12px;padding:5px 12px;cursor:pointer;
+  border:1px solid #c3d4ea;border-radius:7px;background:#fff;color:#1268d3}
+.mlt-fill button.on{background:#1268d3;border-color:#1268d3;color:#fff;font-weight:600}
+.mlt-fill button:first-of-type{margin-left:auto}
+.mlt-fill.run{border-color:#e3e8ef;background:#f7f9fc;color:#5b6775}
+
+/* 여러 개 고르는 열 필터(동·평형) — 표가 overflow 컨테이너라 메뉴는 position:fixed 로 띄운다 */
+.mlt-fchk{display:inline-flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap}
+.mlt-chkmenu{position:fixed;z-index:60;width:200px;background:var(--surface,#fff);
+  border:1px solid var(--bd,#e3e8ef);border-radius:10px;box-shadow:0 10px 28px rgba(16,32,64,.18);
+  overflow:hidden}
+.mlt-chkmenu-h{display:flex;align-items:center;gap:6px;padding:7px 10px;font-size:11.5px;
+  border-bottom:1px solid var(--bd,#e3e8ef);color:#7a8595}
+.mlt-chkmenu-h b{font-size:12.5px;color:#1f2a37}
+.mlt-chkmenu-h button{margin-left:auto;font:inherit;font-size:11px;padding:3px 8px;cursor:pointer;
+  border:1px solid var(--bd,#e3e8ef);border-radius:6px;background:var(--surface,#fff);color:#1268d3}
+.mlt-chkmenu-q{display:block;width:calc(100% - 20px);margin:7px 10px 3px;font:inherit;font-size:12px;
+  padding:5px 8px;border:1px solid var(--bd,#e3e8ef);border-radius:7px;background:var(--surface,#fff);
+  color:inherit;outline:none}
+.mlt-chkmenu-q:focus{border-color:#1268d3}
+.mlt-chkmenu-l{max-height:280px;overflow-y:auto;padding:4px 0}
+.mlt-chkmenu-l label{display:flex;align-items:center;gap:7px;padding:5px 10px;font-size:12.5px;cursor:pointer}
+.mlt-chkmenu-l label:hover{background:#f2f7ff}
+.mlt-chkmenu-e{padding:10px;font-size:11.5px;color:#9aa4b2}
+
+/* 표에서 바로 고치기 — 담당자 드롭다운 / 연락처·메모 입력칸 / 맨 뒤 수정 버튼 */
+.mlt .c-act{width:48px;text-align:center;padding-left:4px;padding-right:4px}
+.mlt-edbtn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+  padding:0;cursor:pointer;color:#5b6775;background:transparent;
+  border:1px solid transparent;border-radius:7px}
+.mlt-edbtn:hover{color:#1268d3;background:#f2f7ff;border-color:#cfe0f8}
+.mlt-cell-sel{font:inherit;font-size:12.5px;width:100%;max-width:100%;padding:2px 2px;cursor:pointer;
+  color:inherit;background:transparent;border:1px solid transparent;border-radius:6px}
+.mlt-cell-sel:hover,.mlt-cell-sel:focus{border-color:#cfe0f8;background:#fff}
+.mlt-ed{cursor:text}
+.mlt-ed:hover{background:#f7fbff;box-shadow:inset 0 0 0 1px #dde9f8}
+.mlt-cell-in{font:inherit;font-size:12.5px;width:100%;padding:2px 5px;
+  border:1px solid #1268d3;border-radius:6px;background:#fff;color:inherit;outline:none}
+.mlt-okdot{margin-left:5px;font-style:normal;font-size:11px;font-weight:700;color:#12924f}
+
+/* 열 고르기 — 화면에 맞춤 / 직접 고르기 */
+.mlt-colmode{display:flex;gap:4px;padding:4px 10px 2px}
+.mlt-colmode button{flex:1;padding:5px 6px;font-size:11.5px;font-weight:600;cursor:pointer;
+  border:1px solid var(--bd,#e3e8ef);border-radius:7px;background:var(--surface,#fff);color:#5b6775}
+.mlt-colmode button.on{background:#eaf2ff;border-color:#9dc4f5;color:#1268d3}
+.mlt-colmode-n{padding:3px 10px 5px;font-size:10.5px;line-height:1.45;color:#7a8595}
+.mlt-colsmenu label.off{opacity:.5}
+.mlt-colsmenu label i{margin-left:4px;font-style:normal;font-size:10px;color:#9aa4b2}
+
+/* 마우스를 올리면 커서를 따라오는 "끌 수 있다" 표시. 클릭을 막지 않게 pointer-events 를 끈다. */
+.mlt-grabtip{position:absolute;left:0;top:0;opacity:0;pointer-events:none;z-index:6;
+  transform:translate(14px,-130%);transition:opacity .12s;white-space:nowrap;
+  background:rgba(22,32,48,.9);color:#fff;font-size:11.5px;font-weight:600;
+  padding:4px 9px;border-radius:999px;box-shadow:0 2px 8px rgba(16,32,64,.22)}
+.mlt-nudge{position:absolute;top:50%;transform:translateY(-50%);z-index:5;
+  width:28px;height:44px;border:1px solid var(--bd,#e3e8ef);border-radius:8px;
+  background:var(--surface,#fff);color:#1268d3;font-size:20px;line-height:1;
+  cursor:pointer;box-shadow:0 2px 8px rgba(16,32,64,.14);padding:0}
+.mlt-nudge:hover{background:#f2f7ff}
+.mlt-nudge.r{right:6px}
+.mlt .c-supply,.mlt .c-excl,.mlt .c-floor{white-space:nowrap}
+.mlt .c-area_name,.mlt .c-direction{white-space:nowrap}
+.mlt-hint{margin-top:6px;font-size:11.5px;color:#7a8595}
+.mlt{border-collapse:separate;border-spacing:0;width:100%;min-width:760px;
+     font-variant-numeric:tabular-nums}
+.mlt thead th{position:sticky;top:0;z-index:2;background:var(--surface,#fff);
+     border-bottom:1.5px solid var(--bd,#e3e8ef);padding:10px 11px;text-align:left;
+     font-size:12px;font-weight:700;color:#5b6775;white-space:nowrap;cursor:pointer;user-select:none}
+.mlt thead th:hover{color:#1268d3}
+.mlt-ar{font-style:normal;font-size:10px;color:#1268d3;margin-left:3px}
+.mlt tbody td{border-bottom:1px solid #eef1f5;padding:9px 11px;font-size:13px;white-space:nowrap}
+.mlt tbody tr{cursor:pointer}
+.mlt tbody tr:nth-child(even){background:#fafbfd}
+.mlt tbody tr:hover{background:#eaf2fe}
+.mlt tbody tr.on{background:#fdeef0}
+.mlt-nm{font-weight:500}
+.mlt-nm em{font-style:normal;margin-left:6px;padding:1px 6px;border-radius:999px;
+           font-size:11px;background:#eaf2fe;color:#1268d3}
+.mlt-spec{color:#5b6775;font-size:12.5px}
+.mlt-price{text-align:right;font-weight:600}
+.mlt-memo{white-space:normal;min-width:140px;max-width:260px;color:#5b6775;font-size:12px}
+.mlt-tel{font-variant-numeric:tabular-nums}
+.mlt-no{color:#9aa4b2}
+.mlt-ck{width:38px;text-align:center}
+.mlt-empty{padding:40px 16px;text-align:center;color:#8b96a5;white-space:normal}
+/* 삭제 안내줄 */
+.mlj2-delbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;
+     padding:9px 12px;border:1px solid #e8b9bc;background:#fdeef0;border-radius:10px;font-size:13px}
+.mlj2-delbar b{color:#b4232a}
+.mlj2-delall{margin-left:auto;font:inherit;font-size:12.5px;padding:5px 11px;cursor:pointer;
+     border:1px solid #d9c2c4;border-radius:7px;background:#fff;color:#5b6775}
+.mlj2-delgo{font:inherit;font-size:12.5px;font-weight:600;padding:6px 14px;cursor:pointer;
+     border:0;border-radius:7px;background:#b4232a;color:#fff}
+.mlj2-delgo:disabled{background:#d8b3b6;cursor:default}
+.mlj2-count-act button.danger{color:#b4232a;border-color:#e8b9bc}
+
+/* 매물장 표 — 단지 선택과 열별 거르기 (2026-10-06)
+   표 하나로 합치면서 묶음(단지별 폴딩)이 사라져, 단지를 고르는 자리를 상단에 따로 뒀다.
+   열 머리 아래 드롭다운은 엑셀 자동필터와 같은 쓰임이다. */
+.mlj2-cxsel{position:relative;display:inline-flex;align-items:center}
+.mlj2-cxsel select{appearance:none;font:inherit;font-size:13px;font-weight:500;
+   padding:7px 26px 7px 11px;max-width:230px;color:var(--fg,#16202e);
+   background:var(--surface,#fff);border:1px solid var(--bd,#d7dde5);border-radius:9px;cursor:pointer}
+.mlj2-cxsel svg{position:absolute;right:9px;pointer-events:none;color:#8b96a5}
+.mlt-f th{position:sticky;top:38px;z-index:1;background:#fafbfd;border-bottom:1px solid #e3e8ef;
+   padding:5px 8px;text-align:left}
+.mlt-f-cx{font-size:12px;color:#5b6775;font-weight:500;white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.mlt-fsel{font:inherit;font-size:11.5px;padding:3px 6px;max-width:100px;margin-right:4px;
+   color:#5b6775;background:#fff;border:1px solid #dde3ea;border-radius:6px;cursor:pointer}
+.mlt-fsel.on{border-color:#1268d3;color:#1268d3;background:#f2f7ff;font-weight:600}
+.mlt-fbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;
+   padding:7px 12px;border:1px solid #cfe0f8;background:#f2f7ff;border-radius:9px;font-size:12.5px}
+.mlt-fbar b{color:#1268d3}
+.mlt-fbar button{margin-left:auto;font:inherit;font-size:12px;padding:4px 11px;cursor:pointer;
+   border:1px solid #c3d4ea;border-radius:7px;background:#fff;color:#1268d3}
+
+/* 매물장 표 — 가로가 화면을 넘어 잘리던 문제 (2026-10-06)
+   네 가지를 같이 쓴다. ①거래·동호 두 열을 왼쪽에 붙여 두어 가로로 밀어도 '어느 집인지'가 남는다
+   ②단지를 고르면 단지 열은 숨긴다(값이 다 같아 자리만 먹는다) ③열 고르기로 사람이 직접 줄인다
+   ④좁은 화면은 처음부터 부가 열을 접고 글자·여백을 줄인다. min-width 를 두지 않아 표가 화면에 맞게 줄어든다. */
+.mlt{min-width:0}
+.mlt th,.mlt td{padding:9px 9px}
+.mlt .c-trade_type{position:sticky;left:0;z-index:3;width:54px;padding-left:10px}
+.mlt .c-unit{position:sticky;z-index:3;white-space:nowrap}
+.mlt thead .c-trade_type,.mlt thead .c-unit{z-index:4}
+/* 고정 열은 제 배경을 가져야 아래 칸이 비쳐 보이지 않는다 */
+.mlt tbody tr .c-trade_type,.mlt tbody tr .c-unit{background:#fff}
+.mlt tbody tr:nth-child(even) .c-trade_type,.mlt tbody tr:nth-child(even) .c-unit{background:#fafbfd}
+.mlt tbody tr:hover .c-trade_type,.mlt tbody tr:hover .c-unit{background:#eaf2fe}
+.mlt tbody tr.on .c-trade_type,.mlt tbody tr.on .c-unit{background:#fdeef0}
+.mlt thead .c-trade_type,.mlt thead .c-unit{background:#fff}
+.mlt .mlt-f .c-trade_type,.mlt .mlt-f .c-unit{background:#fafbfd}
+.mlt .c-unit{left:54px}
+.mlt .c-unit::after{content:"";position:absolute;top:0;right:0;bottom:0;width:1px;background:#e3e8ef}
+.mlt .c-memo{max-width:200px}
+/* 열 고르기 */
+.mlt-colsbtn{position:relative;display:inline-flex}
+.mlt-colsmenu{position:absolute;top:calc(100% + 6px);right:0;z-index:30;min-width:176px;
+   padding:9px;background:#fff;border:1px solid #dde3ea;border-radius:10px;
+   box-shadow:0 8px 24px rgba(20,32,48,.14)}
+.mlt-colsmenu-h{font-size:11.5px;color:#8b96a5;margin-bottom:6px}
+.mlt-colsmenu label{display:flex;align-items:center;gap:7px;padding:5px 4px;
+   font-size:13px;cursor:pointer;border-radius:6px}
+.mlt-colsmenu label:hover{background:#f4f7fb}
+.mlt-colsmenu label.off{color:#9aa4b2;cursor:default}
+.mlt-colsmenu label i{font-style:normal;margin-left:auto;font-size:10.5px;color:#9aa4b2}
+.mlt-colsmenu-r{width:100%;margin-top:6px;font:inherit;font-size:12px;padding:6px;cursor:pointer;
+   border:1px solid #dde3ea;border-radius:7px;background:#fff;color:#1268d3}
+/* 좁은 화면 — 글자·여백을 줄여 한 화면에 더 담는다 */
+@media (max-width:900px){
+  .mlt th,.mlt td{padding:7px 7px;font-size:12.5px}
+  .mlt .c-trade_type{width:46px}
+  .mlt .c-unit{left:46px}
+  .mlt-colsmenu{right:auto;left:0}
+}
+@media (max-width:560px){
+  .mlt th,.mlt td{padding:6px 6px;font-size:12px}
+  .mlt .c-spec,.mlt .c-src{font-size:11.5px}
+  .mlj2-cxsel select{max-width:150px}
+}
+
+/* ── 중개사 앱 출시 팝업 ──────────────────────────────────────────────
+   사진이 말을 하고 글자는 거들기만 한다. 장식용 그라데이션·유리효과를 쓰지 않는 이유는
+   그것들이 요즘 'AI가 만든 티'로 읽히기 때문이다. 쓰는 것은 사진, 여백, 브랜드색 하나뿐. */
+.bzpop-ov{position:fixed;inset:0;z-index:10000;background:rgba(10,18,30,.56);
+  display:flex;align-items:center;justify-content:center;padding:20px;
+  padding-top:calc(20px + env(safe-area-inset-top,0px));
+  padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));
+  animation:bzfade .18s ease-out}
+@keyframes bzfade{from{opacity:0}to{opacity:1}}
+.bzpop{position:relative;width:100%;max-width:352px;background:#fff;border-radius:16px;
+  overflow:hidden;box-shadow:0 24px 60px rgba(10,20,40,.34);animation:bzrise .22s cubic-bezier(.2,.7,.3,1)}
+@keyframes bzrise{from{transform:translateY(12px);opacity:.4}to{transform:none;opacity:1}}
+.bzpop-x{position:absolute;top:10px;right:10px;z-index:3;background:rgba(12,18,28,.42);
+  border:none;border-radius:999px;color:#fff;cursor:pointer;padding:6px;line-height:0}
+
+.bzpop-shots{position:relative;aspect-ratio:3/2;background:#0e1724;overflow:hidden}
+.bzpop-shots img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  opacity:0;transition:opacity .5s ease}
+.bzpop-shots img.on{opacity:1}
+/* 키커가 사진 위에 얹히므로 하단만 어둡게 — 전면 그라데이션은 사진을 죽인다 */
+.bzpop-veil{position:absolute;inset:auto 0 0 0;height:46%;
+  background:linear-gradient(to top,rgba(8,14,24,.72),transparent)}
+.bzpop-kicker{position:absolute;left:16px;bottom:13px;color:#fff;font-size:12px;
+  font-weight:700;letter-spacing:.02em;text-shadow:0 1px 3px rgba(0,0,0,.4)}
+
+.bzpop-body{padding:16px 18px 14px}
+.bzpop-title{margin:0;font-size:20px;line-height:1.34;font-weight:800;color:var(--c-text);
+  white-space:pre-line;letter-spacing:-.02em}
+.bzpop-desc{margin:8px 0 0;font-size:13.5px;line-height:1.56;color:var(--c-muted);
+  min-height:42px}
+
+.bzpop-dots{display:flex;gap:6px;margin:14px 0 12px}
+.bzpop-dots button{width:18px;height:3px;border:none;border-radius:2px;padding:0;
+  background:var(--c-border);cursor:pointer;transition:background .2s}
+.bzpop-dots button.on{background:var(--c-primary)}
+
+.bzpop-cta{display:flex;align-items:center;justify-content:center;gap:2px;
+  background:var(--c-primary);color:#fff;text-decoration:none;font-weight:700;font-size:15px;
+  padding:13px 16px;border-radius:10px}
+.bzpop-cta:active{background:var(--c-primary-strong)}
+
+.bzpop-dont{display:flex;align-items:center;gap:6px;justify-content:center;
+  margin-top:10px;font-size:12.5px;color:var(--c-faint);cursor:pointer}
+.bzpop-dont input{accent-color:var(--c-primary);width:13px;height:13px;cursor:pointer}
+
+@media (max-width:360px){.bzpop-title{font-size:18.5px}.bzpop-desc{font-size:13px}}
