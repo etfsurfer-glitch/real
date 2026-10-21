@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from collector.config import settings  # noqa: E402
-from collector.realtor_matching import normalize_regno  # noqa: E402
+from collector.realtor_matching import apply_match_locks, normalize_regno  # noqa: E402
 
 
 def main() -> int:
@@ -110,6 +110,9 @@ def main() -> int:
         print(f"  {kind:30s} {n:>6}")
         total += n
     print(f"  {'total':30s} {total:>6}")
+
+    # 관리자 수동 교정(realtor_match_lock)을 마지막에 되살린다.
+    apply_match_locks(conn)
     return 0
 
 

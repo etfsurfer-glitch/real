@@ -9211,6 +9211,47 @@ def admin_vworld_search(q: str = "", sgg: str = "", limit: int = 30,
 
 class MatchBody(BaseModel):
     sys_regno: str | None = None   # None/빈값이면 '매칭 없음'으로 확정
+    reason: str | None = None      # 잠금 사유(나중에 왜 이렇게 뒀는지 알 수 있게)
+
+
+def _lock_match(c, realtor_id: str, sys_regno: str | None, match_type: str, reason: str | None) -> None:
+    """수동 매칭을 realtor_match_lock 에 박아 둔다.
+
+    매칭 배치는 매일 realtor_match 를 통째로 지우고 다시 만든다. 이 잠금이 없으면
+    여기서 고친 매칭이 그날 밤에 사라진다(실제로 그렇게 깨진 신고가 있었다).
+    """
+    from collector.realtor_matching import ensure_match_lock_table
+    ensure_match_lock_table(c)
+    c.execute(
+        "INSERT INTO realtor_match_lock(realtor_id, sys_regno, match_type, reason, locked_by, locked_at) "
+        "VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(realtor_id) DO UPDATE SET "
+        "sys_regno=excluded.sys_regno, match_type=excluded.match_type, reason=excluded.reason, "
+        "locked_by=excluded.locked_by, locked_at=excluded.locked_at",
+        (realtor_id, sys_regno, match_type, reason or "관리자 수동 매칭", "admin"))
+
+
+@app.delete("/admin/realtor-match/{realtor_id}/lock")
+def admin_unlock_match(realtor_id: str, _admin: dict = Depends(admin_user)):
+    """매칭 잠금 해제 — 다음 배치부터 자동 매칭으로 되돌린다."""
+    with _open_db() as c:
+        n = c.execute("DELETE FROM realtor_match_lock WHERE realtor_id=?", (realtor_id,)).rowcount
+        c.commit()
+    return {"ok": True, "realtor_id": realtor_id, "removed": n}
+
+
+@app.get("/admin/realtor-match/locks")
+def admin_list_match_locks(_admin: dict = Depends(admin_user)):
+    """잠긴 매칭 목록."""
+    with _open_db() as c:
+        from collector.realtor_matching import ensure_match_lock_table
+        ensure_match_lock_table(c)
+        rows = c.execute(
+            "SELECT l.realtor_id, l.sys_regno, l.match_type, l.reason, l.locked_by, l.locked_at, "
+            "       m.naver_name, m.total_listings, v.business_name, v.representative "
+            "FROM realtor_match_lock l "
+            "LEFT JOIN realtor_match m ON m.realtor_id=l.realtor_id "
+            "LEFT JOIN vworld_brokers v ON v.sys_regno=l.sys_regno ORDER BY l.locked_at DESC").fetchall()
+    return {"items": [dict(r) for r in rows], "total": len(rows)}
 
 
 @app.post("/admin/realtor-match/{realtor_id}")
@@ -9230,12 +9271,14 @@ def admin_apply_match(realtor_id: str, body: MatchBody, _admin: dict = Depends(a
                 "UPDATE realtor_match SET sys_regno=?, vworld_name=?, vworld_rep=?, vworld_status=?, "
                 "match_type='manual', matched_at=datetime('now') WHERE realtor_id=?",
                 (sr, v[0], v[1], v[2], realtor_id))
+            _lock_match(c, realtor_id, sr, "manual", body.reason)
             c.commit()
-            return {"ok": True, "realtor_id": realtor_id, "sys_regno": sr, "vworld_name": v[0]}
+            return {"ok": True, "realtor_id": realtor_id, "sys_regno": sr, "vworld_name": v[0], "locked": True}
         c.execute("UPDATE realtor_match SET match_type='manual_none', matched_at=datetime('now') "
                   "WHERE realtor_id=?", (realtor_id,))
+        _lock_match(c, realtor_id, None, "manual_none", body.reason)
         c.commit()
-        return {"ok": True, "realtor_id": realtor_id, "sys_regno": None}
+        return {"ok": True, "realtor_id": realtor_id, "sys_regno": None, "locked": True}
 
 
 @app.get("/admin/users")

@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from collector.config import settings  # noqa: E402
-from collector.realtor_matching import addr_sgg_key  # noqa: E402
+from collector.realtor_matching import addr_sgg_key, apply_match_locks  # noqa: E402
 
 
 def main() -> int:
@@ -86,6 +86,9 @@ def main() -> int:
         if not (kind.startswith("multi") or kind == "none"):
             total_one_to_one += n
     print(f"  ── 1:1 합계: {total_one_to_one:,}")
+
+    # 관리자 수동 교정(realtor_match_lock)을 마지막에 되살린다.
+    apply_match_locks(conn)
     return 0
 
 

@@ -502,3 +502,91 @@ def run_matching(conn: sqlite3.Connection, verbose: bool = False) -> dict[str, i
     conn.commit()
     print(f"  total: {time.time()-t0:.1f}s", flush=True)
     return stats
+
+
+# ── 매칭 잠금 ────────────────────────────────────────────────────────────
+# 매칭 배치(match_clean.py)는 매일 realtor_match 를 통째로 지우고 다시 만든다.
+# 관리자가 손으로 바로잡은 매칭은 이 잠금에 적어 두지 않으면 다음 실행에서 사라진다.
+# 실제로 '대표자 변경으로 고쳐 준 매칭이 다시 깨졌다'는 신고가 여기서 나왔다.
+#
+# 잠금은 '사무소'가 아니라 '네이버 계정(realtor_id)' 단위로 건다. 다만 계정이
+# 다른 사무소로 옮겨 가는 일이 있으므로(중개사가 네이버 아이디를 들고 이사),
+# 잠근 뒤에도 활동 시군구가 사무소와 어긋나면 경고로 뽑아 재확인한다.
+
+MATCH_LOCK_DDL = """
+CREATE TABLE IF NOT EXISTS realtor_match_lock(
+    realtor_id TEXT PRIMARY KEY,
+    sys_regno  TEXT,              -- 비우면 '매칭 없음'으로 고정
+    match_type TEXT,              -- 기본 manual / manual_none
+    reason     TEXT,
+    locked_by  TEXT,
+    locked_at  TEXT,
+    expires_at TEXT               -- 비우면 무기한
+)
+"""
+
+
+def ensure_match_lock_table(conn: sqlite3.Connection) -> None:
+    conn.execute(MATCH_LOCK_DDL)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS realtor_match_lock_sys_idx ON realtor_match_lock(sys_regno)"
+    )
+    conn.commit()
+
+
+def active_match_locks(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    ensure_match_lock_table(conn)
+    now = datetime.now().isoformat(timespec="seconds")
+    cur = conn.execute(
+        "SELECT realtor_id, sys_regno, match_type, reason FROM realtor_match_lock "
+        "WHERE expires_at IS NULL OR expires_at='' OR expires_at > ?",
+        (now,),
+    )
+    cur.row_factory = sqlite3.Row
+    return cur.fetchall()
+
+
+def apply_match_locks(conn: sqlite3.Connection, *, verbose: bool = True) -> int:
+    """잠긴 매칭을 realtor_match 에 강제로 다시 쓴다. 매칭 단계 '맨 마지막'에 부른다."""
+    rows = active_match_locks(conn)
+    if not rows:
+        if verbose:
+            print("  [lock] 잠긴 매칭 없음", flush=True)
+        return 0
+    now = datetime.now().isoformat(timespec="seconds")
+    n = 0
+    for r in rows:
+        sr = (r["sys_regno"] or "").strip() or None
+        if sr:
+            v = conn.execute(
+                "SELECT business_name, representative, status FROM vworld_brokers WHERE sys_regno=?",
+                (sr,),
+            ).fetchone()
+            if v is None:
+                print(f"  [lock] !! sys_regno 없음: {r['realtor_id']} → {sr} (건너뜀)", flush=True)
+                continue
+            vname, vrep, vst = v[0], v[1], v[2]
+            mt = r["match_type"] or "manual"
+        else:
+            vname = vrep = vst = None
+            mt = r["match_type"] or "manual_none"
+        conn.execute(
+            """
+            INSERT INTO realtor_match
+                (realtor_id, sys_regno, vworld_name, vworld_rep, vworld_status, match_type, matched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(realtor_id) DO UPDATE SET
+                sys_regno=excluded.sys_regno,
+                vworld_name=excluded.vworld_name,
+                vworld_rep=excluded.vworld_rep,
+                vworld_status=excluded.vworld_status,
+                match_type=excluded.match_type,
+                matched_at=excluded.matched_at
+            """,
+            (r["realtor_id"], sr, vname, vrep, vst, mt, now),
+        )
+        n += 1
+    conn.commit()
+    if verbose:
+        print(f"  [lock] 잠긴 매칭 {n}건 재적용", flush=True)
+    return n

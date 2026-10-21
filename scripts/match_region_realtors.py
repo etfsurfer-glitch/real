@@ -21,6 +21,7 @@ def _norm(s: str) -> str:
     return re.sub(r"\(주\)|\(유\)|주식회사|유한회사|\s", "", s or "")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from collector.config import settings  # noqa: E402
+from collector.realtor_matching import apply_match_locks  # noqa: E402
 
 DB = Path(str(settings.local_db_path))
 REGION_DBS = ["listings_villa", "listings_house", "listings_sangga", "listings_office",
@@ -118,6 +119,8 @@ def main():
     after = m.execute("SELECT COUNT(*) FROM realtor_match").fetchone()[0]
     sys_after = m.execute("SELECT COUNT(*) FROM realtor_match WHERE sys_regno IS NOT NULL AND sys_regno!=''").fetchone()[0]
     print(f"\n[commit] realtor_match {before:,} → {after:,} (신규 +{after-before:,}) · sys보유 {sys_before:,} → {sys_after:,} (+{sys_after-sys_before:,})")
+    # 관리자 수동 교정(realtor_match_lock)을 마지막에 되살린다.
+    apply_match_locks(m)
     return 0
 
 

@@ -21,7 +21,7 @@ from collections import defaultdict
 
 sys.path.insert(0, ".")
 from collector.config import settings                       # noqa: E402
-from collector.realtor_matching import normalize_name       # noqa: E402
+from collector.realtor_matching import apply_match_locks, normalize_name  # noqa: E402
 
 
 def main():
@@ -91,6 +91,8 @@ def main():
             print(f"  linked {linked} …", flush=True)
     db.commit()
     print(f"[*] 이름매칭 연결: {linked:,} · 모호(스킵) {ambig:,} · 무매칭 {zero:,} / 대상 {len(targets):,}")
+    # 관리자 수동 교정(realtor_match_lock)을 마지막에 되살린다.
+    apply_match_locks(db)
     db.close()
 
 

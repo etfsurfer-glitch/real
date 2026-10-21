@@ -32,6 +32,11 @@ import re
 import sqlite3
 import sys
 from datetime import datetime
+from pathlib import Path as _Path
+
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+
+from collector.realtor_matching import apply_match_locks  # noqa: E402
 
 DB = "/opt/koczip/data/naverreal.sqlite"
 APPLY = "--apply" in sys.argv
@@ -127,6 +132,8 @@ def main():
             (r["realtor_id"], r["sys_regno"], r["business_name"], r["rep"], now, r["vstatus"]))
     con.commit()
     print("\n적용 %d곳 (match_type=dong_rep)" % len(rows))
+    # 관리자 수동 교정(realtor_match_lock)을 마지막에 되살린다.
+    apply_match_locks(con)
     return 0
 
 

@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from collector.config import settings  # noqa: E402
 from collector.realtor_matching import (  # noqa: E402
     addr_sgg_key,
+    apply_match_locks,
     extract_dong,
     fill_vworld_normalized,
     normalize_name,
@@ -531,6 +532,11 @@ def main():
         (now,),
     )
     conn.commit()
+
+    # 관리자가 손으로 바로잡은 매칭을 되살린다. 이 파이프라인은 맨 앞에서
+    # realtor_match 를 통째로 지우므로, 이 단계가 없으면 수동 교정이 매일 사라진다.
+    print("\n[*] applying manual match locks...", flush=True)
+    apply_match_locks(conn)
 
     print("\n[*] populating naver_name/primary_sgg fields...", flush=True)
     populate_naver_fields(conn)

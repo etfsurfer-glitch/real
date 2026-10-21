@@ -39,7 +39,7 @@ sys.path.insert(0, ".")
 from collector.config import settings                          # noqa: E402
 from collector.creds import ensure_creds                        # noqa: E402
 from collector.http import get_json                             # noqa: E402
-from collector.realtor_matching import normalize_name           # noqa: E402
+from collector.realtor_matching import apply_match_locks, normalize_name  # noqa: E402
 
 DATA = os.environ.get("KOCZIP_DATA", os.path.dirname(settings.local_db_path))
 MAIN = settings.local_db_path
@@ -264,6 +264,8 @@ def main():
     db.commit()
     print(f"[*] 완료: 연결 {linked:,}(등록번호+대표 {regno_rep:,}) · 등록번호 미제공 {noregno:,} · "
           f"혼재(공동중개 오염) {mixed:,} · vworld無/모호 {nomatch:,} · 검증탈락(대표·비표준) {rejected:,} / 대상 {len(todo):,}", flush=True)
+    # 관리자 수동 교정(realtor_match_lock)을 마지막에 되살린다.
+    apply_match_locks(db)
     db.close()
 
 
