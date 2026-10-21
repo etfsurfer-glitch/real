@@ -92,18 +92,45 @@ def gather_offices(cats):
 
 
 def load_vworld():
-    """ra_regno(정규화) → (sys_regno, business_name, representative). 영업+폐업 모두(등록번호는 유일)."""
+    """ra_regno(정규화) → (sys_regno, business_name, representative). 영업+폐업 모두(등록번호는 유일).
+    두 번째 반환값은 sys_regno → (business_name, representative)."""
     c = sqlite3.connect(f"file:{MAIN}?mode=ro", uri=True)
-    idx = {}
+    idx, by_sys = {}, {}
     try:
         for sys_regno, ra, name, rep in c.execute(
                 "SELECT sys_regno, ra_regno, business_name, representative FROM vworld_brokers WHERE ra_regno IS NOT NULL"):
+            by_sys[sys_regno] = (name, rep)
             k = normalize_regno(ra)
             if k:
                 idx.setdefault(k, (sys_regno, name, rep))
     finally:
         c.close()
-    return idx
+    return idx, by_sys
+
+
+def load_succession():
+    """승계로 확정된 '옛 사무소 → 새 사무소' 매핑.
+
+    중개사무소는 대표가 바뀌면 같은 자리라도 새 등록번호로 다시 등록된다. 비단지 매물
+    광고는 옛 등록번호를 그대로 달고 있는 경우가 많아, 등록번호만 보면 떠난 사람에게
+    매물이 귀속된다. 단지 매물은 realtor_match 가 새 사무소를 보는데 비단지만 옛
+    사무소에 남아, 같은 사무소의 매물이 둘로 갈렸다(2026-10-21 확인, 11건).
+
+    사람이 확정한 것만 따른다 — 매칭 잠금(realtor_match_lock)이 걸린 승계 건에 한한다.
+    """
+    c = sqlite3.connect(f"file:{MAIN}?mode=ro", uri=True)
+    m = {}
+    try:
+        for old_r, new_r in c.execute(
+                "SELECT DISTINCT r.old_regno, r.new_regno FROM realtor_succession_review r "
+                "JOIN realtor_match_lock l ON l.realtor_id = r.realtor_id AND l.sys_regno = r.new_regno "
+                "WHERE r.grade = 'A' AND r.old_regno IS NOT NULL AND r.new_regno IS NOT NULL"):
+            m[old_r] = new_r
+    except sqlite3.OperationalError:
+        pass            # 승계 테이블이 아직 없는 환경
+    finally:
+        c.close()
+    return m
 
 
 def fetch_regno(art, creds):
@@ -163,10 +190,13 @@ def main():
         todo = todo[:a.limit]
     print(f"[*] 상세조회 대상: {len(todo):,} 사무소 (workers={a.workers})", flush=True)
 
-    vw = load_vworld()
+    vw, vw_by_sys = load_vworld()
+    succ = load_succession()
+    if succ:
+        print(f"    승계 매핑 {len(succ):,}건 적용", flush=True)
     creds = ensure_creds()
     now = datetime.datetime.now().isoformat(timespec="seconds")
-    done = regno_rep = regno_only = nomatch = 0
+    done = regno_rep = regno_only = nomatch = succ_applied = 0
 
     def work(item):
         nm, sgg, art = item
@@ -188,6 +218,14 @@ def main():
                     regno_rep += 1
                 else:
                     regno_only += 1
+                # 그 사무소가 승계됐으면 후임에게 보낸다. ra_regno 는 광고가 적어 낸 번호를
+                # 그대로 남겨 두어 나중에 되짚을 수 있게 한다.
+                nxt = succ.get(sys_regno)
+                if nxt and nxt in vw_by_sys:
+                    sys_regno = nxt
+                    bname, brep = vw_by_sys[nxt]
+                    confirm += "_succ"
+                    succ_applied += 1
             else:
                 nomatch += 1
             db.execute(
@@ -218,7 +256,8 @@ def main():
     db.commit()
     matched_offices = db.execute("SELECT COUNT(*) FROM region_office_attribution WHERE sys_regno IS NOT NULL").fetchone()[0]
     matched_listings = sum(per_sys.values())
-    print(f"[*] 귀속 완료: {matched_offices:,} 사무소 · {matched_listings:,} 매물 → sys_regno {len(per_sys):,}개", flush=True)
+    print(f"[*] 귀속 완료: {matched_offices:,} 사무소 · {matched_listings:,} 매물 → sys_regno {len(per_sys):,}개"
+          + (f" · 승계 반영 {succ_applied:,}건" if succ_applied else ""), flush=True)
     db.close()
 
 

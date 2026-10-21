@@ -11,7 +11,12 @@
   A 승계   계정 대표 = 새 사무소 대표  → 계정을 새 번호로 옮기면 된다
   B 이사   계정 대표 = 옛 사무소 대표 '이면서' 활동 지역이 그 자리를 떠났다
            → 계정 주인이 딴 데로 갔다. 새 번호엔 다른 계정이 와야 한다
-  C 보류   둘 다 아님 / 대표 정보 없음
+  C 보류   둘 다 아님 / 대표 정보 없음 / 증거가 엇갈림
+
+계정이 신고한 등록번호가 그룹 안의 특정 사무소를 가리키면 그게 가장 강한 증거다.
+그게 '지금 붙어 있는 사무소'를 가리키면 매칭이 이미 자기모순이 없다는 뜻이라
+대표가 새 사무소와 같더라도 건드리지 않는다(같은 사람이 재등록한 경우가 많다).
+vworld 의 sys_regno 는 내부 일련번호고 실제 등록번호는 ra_regno 다. 둘은 전부 다르다.
 
 대표가 옛 사무소와 같고 활동 지역도 그대로면 승계가 아니다. 같은 건물에 비슷한
 상호의 다른 사무소가 생긴 것뿐이고 현재 매칭이 맞다 — 후보에서 뺀다.
@@ -72,6 +77,11 @@ def unit_key(addr: str | None) -> str:
     """호실 번호. 'B103-2호' '비103-2호' '103-2호' 를 같게 본다."""
     m = re.findall(r"(?:비|[Bb])?(\d+(?:-\d+)?)\s*호", addr or "")
     return m[-1] if m else ""
+
+
+def regno_digits(s: str | None) -> str:
+    """등록번호 숫자만. vworld 는 ra_regno(실제 등록번호)와 sys_regno(내부 일련번호)가 따로다."""
+    return re.sub(r"[^0-9]", "", s or "")
 
 
 def rep_key(name: str | None) -> str:
@@ -137,14 +147,22 @@ def find_candidates(c: sqlite3.Connection) -> list[dict]:
                 accs = att.get(old["sys_regno"], [])
                 if not accs or att.get(new["sys_regno"]):
                     continue              # 옛쪽에만 계정이 있고 새쪽은 비어 있어야 후보
+                ra_old, ra_new = regno_digits(old["ra_regno"]), regno_digits(new["ra_regno"])
                 same_unit = unit_key(old["address"]) and unit_key(old["address"]) == unit_key(new["address"])
                 for a in accs:
                     if a["realtor_id"] in locked:
                         continue
                     moved = bool(a["primary_sgg_cd"] and old["sgg_cd"]
                                  and str(a["primary_sgg_cd"]) != str(old["sgg_cd"]))
+                    nre = regno_digits(a["nregno"])
+                    if nre and nre == ra_old:
+                        # 계정이 신고한 등록번호가 지금 붙어 있는 사무소를 가리킨다.
+                        # 대표가 새 쪽과 같아도(같은 사람 재등록) 옮길 근거가 못 된다.
+                        continue
                     if rep_same(a["nrep"], new["representative"]):
                         grade, why = "A", "계정 대표 = 새 사무소 대표"
+                        if nre and nre == ra_new:
+                            why += " · 등록번호도 새 사무소를 가리킴"
                     elif rep_same(a["nrep"], old["representative"]):
                         if not moved:
                             continue      # 옛 사무소에 그대로 있다 — 승계 아님, 현재 매칭이 맞다
@@ -161,6 +179,11 @@ def find_candidates(c: sqlite3.Connection) -> list[dict]:
                         new_regno=new["sys_regno"], new_name=new["business_name"],
                         new_rep=new["representative"], new_ymd=(new["registered_ymd"] or "")[:10],
                         new_sgg=new["sgg_cd"], bldg=bk, biz=nk))
+    # 한 사무소에 계정이 둘 이상 몰리면 지금 고치려던 1:N 중복을 새로 만드는 꼴이다.
+    crowd = collections.Counter(r["new_regno"] for r in out if r["grade"] == "A")
+    for r in out:
+        if r["grade"] == "A" and crowd[r["new_regno"]] > 1:
+            r["grade"], r["why"] = "C", "같은 새 사무소로 계정 %d개가 몰림" % crowd[r["new_regno"]]
     out.sort(key=lambda r: ({"A": 0, "B": 1, "C": 2}[r["grade"]], -r["listings"]))
     return out
 
@@ -210,6 +233,15 @@ def main() -> int:
     if a.save or a.apply:
         c.execute(REVIEW_DDL)
         now = datetime.now().isoformat(timespec="seconds")
+        # 이번에 후보가 아닌 옛 행은 지운다. 안 그러면 기준을 고쳐도 옛 판정이 남아
+        # 다음 사람이 그걸 보고 잘못 적용한다.
+        keep = {(r["realtor_id"], r["new_regno"]) for r in rows}
+        drop = [k for k in c.execute("SELECT realtor_id, new_regno FROM realtor_succession_review")
+                if (k[0], k[1]) not in keep]
+        for k in drop:
+            c.execute("DELETE FROM realtor_succession_review WHERE realtor_id=? AND new_regno=?", (k[0], k[1]))
+        if drop:
+            print("\n[*] 후보에서 빠진 옛 행 삭제 %d건" % len(drop))
         for r in rows:
             c.execute(
                 "INSERT INTO realtor_succession_review(realtor_id, old_regno, new_regno, grade, why, "
@@ -225,20 +257,26 @@ def main() -> int:
 
     if a.apply:
         ensure_match_lock_table(c)
-        n = 0
+        now2 = datetime.now().isoformat(timespec="seconds")
+        made = skipped = 0
         for r in [x for x in rows if x["grade"] == "A"]:
+            cur = c.execute("SELECT sys_regno FROM realtor_match_lock WHERE realtor_id=?",
+                            (r["realtor_id"],)).fetchone()
+            if cur is not None:          # 이미 손으로 정해 둔 건 건드리지 않는다
+                skipped += 1
+                continue
             c.execute(
                 "INSERT INTO realtor_match_lock(realtor_id, sys_regno, match_type, reason, locked_by, locked_at) "
-                "VALUES(?,?,?,?,?,?) ON CONFLICT(realtor_id) DO NOTHING",
+                "VALUES(?,?,?,?,?,?)",
                 (r["realtor_id"], r["new_regno"], "manual",
                  "승계 탐지: %s(%s) → %s(%s), 같은 자리 신규 등록번호"
                  % (r["old_name"], r["old_rep"], r["new_name"], r["new_rep"]),
-                 "detect_succession", datetime.now().isoformat(timespec="seconds")))
-            n += c.total_changes and 1 or 0
+                 "detect_succession", now2))
+            made += 1
         c.commit()
         from collector.realtor_matching import apply_match_locks
         apply_match_locks(c)
-        print("[*] A등급 잠금 생성 완료")
+        print("[*] A등급 잠금 생성 %d건 · 기존 잠금 유지 %d건" % (made, skipped))
     c.close()
     return 0
 
