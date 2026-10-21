@@ -199,6 +199,20 @@ CREATE TABLE IF NOT EXISTS realtor_succession_review(
 )
 """
 
+# 적용된 승계만 담는 영구 기록. review 테이블은 '현재 후보' 목록이라 적용된 건은
+# 다음 탐지에서 후보에서 빠지며 지워진다(계정에 잠금이 걸리면 후보 조건에서 제외).
+# 그래서 '옛 사무소 → 새 사무소' 매핑을 review 에서 읽으면 다음 날 0건이 된다
+# (2026-10-22 아침 점검에서 발견). 비단지 귀속이 쓰는 매핑은 여기서 읽는다.
+SUCC_DDL = """
+CREATE TABLE IF NOT EXISTS office_succession(
+    old_regno  TEXT PRIMARY KEY,
+    new_regno  TEXT NOT NULL,
+    realtor_id TEXT,
+    applied_at TEXT,
+    applied_by TEXT
+)
+"""
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -257,6 +271,7 @@ def main() -> int:
 
     if a.apply:
         ensure_match_lock_table(c)
+        c.execute(SUCC_DDL)
         now2 = datetime.now().isoformat(timespec="seconds")
         made = skipped = 0
         for r in [x for x in rows if x["grade"] == "A"]:
@@ -272,6 +287,14 @@ def main() -> int:
                  "승계 탐지: %s(%s) → %s(%s), 같은 자리 신규 등록번호"
                  % (r["old_name"], r["old_rep"], r["new_name"], r["new_rep"]),
                  "detect_succession", now2))
+            # 영구 기록 — 비단지 귀속이 이 매핑을 본다.
+            c.execute(
+                "INSERT INTO office_succession(old_regno, new_regno, realtor_id, applied_at, applied_by) "
+                "VALUES(?,?,?,?,?) "
+                "ON CONFLICT(old_regno) DO UPDATE SET new_regno=excluded.new_regno, "
+                "  realtor_id=excluded.realtor_id, applied_at=excluded.applied_at, "
+                "  applied_by=excluded.applied_by",
+                (r["old_regno"], r["new_regno"], r["realtor_id"], now2, "detect_succession"))
             made += 1
         c.commit()
         from collector.realtor_matching import apply_match_locks

@@ -116,18 +116,27 @@ def load_succession():
     매물이 귀속된다. 단지 매물은 realtor_match 가 새 사무소를 보는데 비단지만 옛
     사무소에 남아, 같은 사무소의 매물이 둘로 갈렸다(2026-10-21 확인, 11건).
 
-    사람이 확정한 것만 따른다 — 매칭 잠금(realtor_match_lock)이 걸린 승계 건에 한한다.
+    사람이 확정한 것만 따른다 — 적용 시점에 office_succession 에 남긴 기록을 읽는다.
+    review 테이블은 '지금의 후보' 목록이어서 적용된 건은 다음 탐지에서 지워진다.
+    그래서 review 를 읽으면 적용 다음 날 매핑이 0건이 된다(2026-10-22 아침 점검).
     """
     c = sqlite3.connect(f"file:{MAIN}?mode=ro", uri=True)
     m = {}
     try:
         for old_r, new_r in c.execute(
+                "SELECT old_regno, new_regno FROM office_succession "
+                "WHERE old_regno IS NOT NULL AND new_regno IS NOT NULL"):
+            m[old_r] = new_r
+    except sqlite3.OperationalError:
+        pass            # 아직 적용된 승계가 없는 환경
+    try:                # 아직 후보에 남아 있으면서 잠금이 걸린 건도 함께(과도기 보완)
+        for old_r, new_r in c.execute(
                 "SELECT DISTINCT r.old_regno, r.new_regno FROM realtor_succession_review r "
                 "JOIN realtor_match_lock l ON l.realtor_id = r.realtor_id AND l.sys_regno = r.new_regno "
                 "WHERE r.grade = 'A' AND r.old_regno IS NOT NULL AND r.new_regno IS NOT NULL"):
-            m[old_r] = new_r
+            m.setdefault(old_r, new_r)
     except sqlite3.OperationalError:
-        pass            # 승계 테이블이 아직 없는 환경
+        pass
     finally:
         c.close()
     return m
