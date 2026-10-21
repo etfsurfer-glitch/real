@@ -90,6 +90,10 @@ step "step 9a: link_region_regno (미매칭 등록번호)" $PY -u scripts/link_r
 #   비교해 바뀐 곳만 모아 vworld 공부상 상호로 대조하고, 그 사무소 프로필만 다시 받는다.
 #   반드시 9b(build_realtor_dong) **앞**이어야 realtor_names 가 새 상호를 싣는다.
 step "step 9a-2: realtor_name_watch (상호 변경)" $PY -u scripts/realtor_name_watch.py --max-sgg 40; namewatch_exit=$?
+# 9a-3: 사무소 승계 탐지. 대표가 바뀌면 같은 자리·같은 상호라도 새 등록번호로 다시 등록되는데,
+#   우리 vworld 적재분에는 폐업 상태가 없어 옛 번호가 계속 '영업'으로 남는다. 계정이 옛 번호에
+#   붙은 채 굳어 매칭이 조용히 틀어진다(2026-10-21 흑석 새봄 제보). 탐지만 하고 적용은 사람이 한다.
+step "step 9a-3: detect_succession (승계 후보)" $PY -u scripts/detect_succession.py --save --limit 0; succession_exit=$?
 step "step 9b: build_realtor_dong (우리동네)" $PY -u scripts/build_realtor_dong.py; rdong_exit=$?
 step "step 10: rematch_all_realprice"      $PY -u scripts/rematch_all_realprice.py --tables apt rent offi offi_rent --concurrency 4; rematch_exit=$?
 
