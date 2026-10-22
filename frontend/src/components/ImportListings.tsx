@@ -13,6 +13,7 @@ type Col = { index: number; header: string; field: string; label: string; unit: 
 type Row = Record<string, any> & { _row?: number; _dup?: string };
 type Sheet = { name: string; header_row: number; columns: Col[]; rows: Row[];
   skipped: { row: number; why: string; text: string }[]; n_skipped: number; n_dup: number;
+  n_merged?: number; n_split?: number;
   cut?: number; stopped_at?: number };
 type Preview = { sheets: Sheet[]; filename: string; fields: { key: string; label: string }[];
   needs_complex?: boolean; complex_hint?: string };
@@ -55,6 +56,9 @@ export default function ImportListings({ authH, onClose, onSaved }: {
   const [vis, setVis] = useState("office");
   const [off, setOff] = useState<Set<number>>(new Set());   // 사람이 뺀 줄
   const [done, setDone] = useState<{ saved: number; skipped: number } | null>(null);
+  // 담은 직후 건축물대장으로 빈 칸을 채우며 검증한다 — 나중에 따로 돌릴 일이 아니다.
+  const [fill, setFill] = useState<{ done: number; total: number; ok: number } | null>(null);
+  const fillStop = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef("");
   // 올린 파일을 들고 있는다 — 열 매핑을 고치면 **다시 읽어야** 값도 따라 바뀐다.
@@ -138,9 +142,32 @@ export default function ImportListings({ authH, onClose, onSaved }: {
       if (!r.ok) throw new Error(d?.detail || `담지 못했어요 (${r.status})`);
       setDone({ saved: d.saved || 0, skipped: d.n_skipped || 0 });
       onSaved();
+      await enrich(d.ids || []);
     } catch (e: any) {
       setErr(e.message || "담지 못했어요");
     } finally { setBusy(false); }
+  };
+
+  // 담은 행을 한 건씩 보강한다. 한 번에 몰면 외부 API(국토부) 응답을 기다리다
+  // 게이트웨이가 끊는다. 실패한 건은 건너뛰고 계속 간다.
+  const enrich = async (ids: number[]) => {
+    if (!ids.length) return;
+    fillStop.current = false;
+    setFill({ done: 0, total: ids.length, ok: 0 });
+    let ok = 0;
+    for (let i = 0; i < ids.length; i++) {
+      if (fillStop.current) break;
+      try {
+        const r = await fetch(`${API_BASE}/lounge/private-listings/${ids[i]}/enrich`, {
+          method: "POST", headers: { ...authH(), "Content-Type": "application/json" }, body: "{}",
+        });
+        const d = await r.json().catch(() => null);
+        if (d?.filled?.length) ok++;
+      } catch { /* 한 건 실패가 전체를 멈추지 않는다 */ }
+      setFill({ done: i + 1, total: ids.length, ok });
+    }
+    setFill(null);
+    onSaved();
   };
 
   return (
@@ -156,6 +183,14 @@ export default function ImportListings({ authH, onClose, onSaved }: {
             <Check size={30} />
             <b>{done.saved.toLocaleString()}건을 매물장에 담았어요</b>
             {done.skipped > 0 && <span>{done.skipped}건은 이미 있는 매물이라 건너뛰었어요.</span>}
+            {fill ? (
+              <div className="imp-fill">
+                <span>건축물대장으로 빈 칸 채우는 중… <b>{fill.done}/{fill.total}</b> · 채움 {fill.ok}건</span>
+                <button onClick={() => { fillStop.current = true; }}>중단</button>
+              </div>
+            ) : (
+              <span className="imp-done-s">전용면적·층은 건축물대장에서 확인해 채웠습니다.</span>
+            )}
             <span className="imp-done-s">
               가져온 매물은 매물장에서 <i className="imp-chip"><FileSpreadsheet size={9} /></i> 표시로 구분됩니다.
             </span>
@@ -208,6 +243,9 @@ export default function ImportListings({ authH, onClose, onSaved }: {
                   {sheet.header_row > 0 && <i>머리글 {sheet.header_row}행</i>}
                   {sheet.n_dup > 0 && <i className="dup"><Copy size={10} /> 이미 있는 것 {sheet.n_dup}건</i>}
                   {sheet.n_skipped > 0 && <i className="skip">건너뜀 {sheet.n_skipped}건</i>}
+                  {/* 양식 차이를 어떻게 폈는지 숨기지 않는다 — 건수가 안 맞으면 바로 의심하게 된다 */}
+                  {!!sheet.n_merged && <i className="skip" title="같은 집의 메모 줄을 그 매물에 합쳤습니다">메모줄 합침 {sheet.n_merged}건</i>}
+                  {!!sheet.n_split && <i className="skip" title="한 줄에 매매가와 전세가가 같이 있어 매물 둘로 나눴습니다">매매·전세 나눔 {sheet.n_split}건</i>}
                 </div>
                 {/* 못 읽은 것을 조용히 넘기지 않는다 — 안 알리면 '다 가져왔다'로 읽힌다 */}
                 {!!sheet.stopped_at && (

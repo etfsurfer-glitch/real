@@ -7,11 +7,9 @@ import OfferForm from "../components/OfferForm";
 import type { Offer as KOffer } from "../components/OfferForm";
 import { Loading } from "../components/Loading";
 import ImportListings from "../components/ImportListings";
-import { Building2, MessageSquare, Pencil, Globe, Phone, Share2, Link2, Search, ExternalLink,
-  MapPin, Map as MapIcon, Star, TrendingUp, Award, Plus, Minus, X, ChevronRight, Flame, RefreshCw,
-  Users, Camera, Lock, Trash2, Sparkles, ChevronDown, Loader2,
-  Check, Upload, FileSpreadsheet,
-  Store, Home as HomeIcon, SlidersHorizontal, ArrowLeft, Landmark } from "lucide-react";
+import {
+  ArrowLeft, Award, Building2, Camera, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileSpreadsheet, Flame, Globe, Link2, Loader2, Lock, Map as MapIcon, MapPin, MessageSquare, Minus, Pencil, Phone, Plus, RefreshCw, Search, Share2, SlidersHorizontal, Sparkles, Star, Trash2, TrendingUp, Upload, Users, X,
+} from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
 import LoungeCalendarPanel from "../components/LoungeCalendarPanel";
@@ -37,6 +35,31 @@ function ymd(s: string | null | undefined): string {
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE;
+
+// 회원 전용 GET. 200 이 아니면 사람이 읽을 수 있는 오류를 던진다.
+// 401 응답을 그대로 r.json() 으로 흘려보내면 {detail:...} 이 데이터 자리에 앉아,
+// 화면이 빈 채로 멈추거나 매물·상담이 '없음'으로 보인다 — 라운지 입구에서 겪은
+// 그 구멍과 같은 모양이다(2026-10-22 전수 점검).
+async function authGet<T>(url: string, h: Record<string, string>): Promise<T> {
+  const r = await fetch(url, { headers: h });
+  if (r.status === 401) throw new Error("세션이 만료됐어요. 다시 로그인해 주세요.");
+  if (!r.ok) throw new Error(`불러오지 못했어요 (오류 ${r.status})`);
+  return (await r.json()) as T;
+}
+
+// 못 불러왔을 때 — 이유를 말하고 다시 시도할 길을 준다.
+function LoadError({ msg, onRetry }: { msg: string; onRetry?: () => void }) {
+  return (
+    <Card>
+      <p style={{ margin: 0, fontWeight: 700 }}>{msg}</p>
+      {onRetry && (
+        <button className="chip" style={{ marginTop: 10, cursor: "pointer" }} onClick={onRetry}>
+          다시 시도
+        </button>
+      )}
+    </Card>
+  );
+}
 
 export type Office = {
   realtor_id: string; realtor_name: string | null; address?: string | null;
@@ -79,6 +102,7 @@ export function DashboardTab({ authH, office, onGoTab }: {
   authH: () => Record<string, string>; office: Office; onGoTab: (t: Tab) => void;
 }) {
   const [d, setD] = useState<Dash | null>(null);
+  const [dErr, setDErr] = useState("");
   const [favs, setFavs] = useState<Fav[] | null>(null);
   const [offices, setOffices] = useState<FavOffice[] | null>(null);
   const loadFavs = useCallback(() => {
@@ -89,13 +113,18 @@ export function DashboardTab({ authH, office, onGoTab }: {
     fetch(`${API_BASE}/lounge/fav-offices`, { headers: authH() })
       .then((r) => r.json()).then((x) => setOffices(x.items ?? [])).catch(() => setOffices([]));
   }, [authH]);
+  const loadDash = useCallback(() => {
+    setDErr("");
+    authGet<Dash>(`${API_BASE}/lounge/dashboard`, authH())
+      .then(setD).catch((e: Error) => { setD(null); setDErr(e.message); });
+  }, [authH]);
   useEffect(() => {
-    fetch(`${API_BASE}/lounge/dashboard`, { headers: authH() })
-      .then((r) => r.json()).then(setD).catch(() => setD(null));
+    loadDash();
     loadFavs();
     loadOffices();
-  }, [authH, loadFavs, loadOffices]);
+  }, [loadDash, loadFavs, loadOffices]);
 
+  if (dErr) return <LoadError msg={dErr} onRetry={loadDash} />;
   if (!d) return <Loading />;
   const s = d.stats;
   const greetName = office.representative || office.realtor_name || "대표";
@@ -581,9 +610,12 @@ function fmtLeadTime(s?: string | null): string {
 
 export function LeadsTab({ authH }: { authH: () => Record<string, string> }) {
   const [items, setItems] = useState<Lead[]>([]);
+  const [ldErr, setLdErr] = useState("");
   const load = useCallback(() => {
-    fetch(`${API_BASE}/lounge/leads`, { headers: authH() })
-      .then((r) => r.json()).then((d) => setItems(d.items ?? [])).catch(() => {});
+    setLdErr("");
+    authGet<{ items?: Lead[] }>(`${API_BASE}/lounge/leads`, authH())
+      .then((d) => setItems(d.items ?? []))
+      .catch((e: Error) => setLdErr(e.message));
   }, [authH]);
   useEffect(() => { load(); }, [load]);
   const [regDone, setRegDone] = useState<Record<number, boolean>>({});
@@ -609,6 +641,8 @@ export function LeadsTab({ authH }: { authH: () => Record<string, string> }) {
     const r = await fetch(`${API_BASE}/lounge/leads/${id}`, { method: "DELETE", headers: authH() });
     if (r.ok) load(); else alert("삭제에 실패했어요");
   };
+  // 오류를 '없음'으로 보여주면 중개사는 상담이 안 들어온 줄 안다 — 먼저 오류를 말한다.
+  if (ldErr) return <LoadError msg={ldErr} onRetry={load} />;
   if (items.length === 0) return <Card><p className="muted" style={{ margin: 0 }}>아직 들어온 상담신청이 없습니다. 홈페이지를 만들면 상담신청이 여기로 쌓입니다.</p></Card>;
   return (
     <div className="lead-list">
@@ -861,10 +895,13 @@ export function StaffManageTab({ authH, office }: { authH: () => Record<string, 
   const [invName, setInvName] = useState("");
   const [invRole, setInvRole] = useState<"assoc" | "assist">("assoc");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
   const load = useCallback(() => {
-    fetch(`${API_BASE}/lounge/staff`, { headers: authH() })
-      .then((r) => r.json()).then(setData).catch(() => setData({ members: [], invites: [] }));
+    setErr("");
+    authGet<{ members: StaffMember[]; invites: StaffInvite[] }>(`${API_BASE}/lounge/staff`, authH())
+      .then((d) => setData({ members: d.members ?? [], invites: d.invites ?? [] }))
+      .catch((e: Error) => { setData(null); setErr(e.message); });
   }, [authH]);
   useEffect(() => {
     load();
@@ -894,6 +931,7 @@ export function StaffManageTab({ authH, office }: { authH: () => Record<string, 
     alert("초대 문자를 보냈어요. 상대가 가입 후 전화인증하면 자동 승인됩니다.");
   };
 
+  if (err) return <LoadError msg={err} onRetry={load} />;
   if (!data) return <Loading />;
   const pending = data.members.filter((m) => m.status === "pending");
   const active = data.members.filter((m) => m.status === "active");
@@ -1001,10 +1039,12 @@ export function HomepageTab({ authH, office, onStatusChange }: { authH: () => Re
   const [ver, setVer] = useState(0);   // 업로드 사진 캐시버스터
   const [delConfirm, setDelConfirm] = useState(false);
   const [step, setStep] = useState(0);
+  const [hpErr, setHpErr] = useState("");
 
   const load = useCallback(() => {
-    fetch(`${API_BASE}/lounge/homepage`, { headers: authH() })
-      .then((r) => r.json()).then((d) => {
+    setHpErr("");
+    authGet<{ config: HpCfg }>(`${API_BASE}/lounge/homepage`, authH())
+      .then((d) => {
         const c: HpCfg = d.config;
         setCfg(c);
         setF({
@@ -1013,7 +1053,7 @@ export function HomepageTab({ authH, office, onStatusChange }: { authH: () => Re
           kakao_url: c.kakao_url ?? "", consult_tel: c.consult_tel ?? office.tel ?? "",
           map_memo: c.map_memo ?? "", published: c.published,
         });
-      }).catch(() => {});
+      }).catch((e: Error) => setHpErr(e.message));
   }, [authH, office.tel]);
   useEffect(() => { load(); }, [load]);
 
@@ -1058,6 +1098,7 @@ export function HomepageTab({ authH, office, onStatusChange }: { authH: () => Re
       .catch(() => { alert("업로드 실패 — 다시 시도해주세요"); });
   };
 
+  if (hpErr) return <LoadError msg={hpErr} onRetry={load} />;
   if (!cfg) return <Loading />;
   const set: SetFn = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const photos = (
@@ -1408,6 +1449,11 @@ type MLItem = {
   source_article_no?: string; source_saved_at?: string;
   // 같은 물건이 매물장에도 있고 네이버에도 광고 중이면 한 줄에 두 표시가 붙는다
   also_naver?: boolean; naver_article_no?: string;
+  // 같은 물건을 CP(제휴 채널)마다 올려 매물번호가 따로 난 광고들 — 대표 줄에 접어 둔다
+  ad_dupes?: MLItem[];
+  rent_price?: number | null;
+  // /biz/my-rank 에서 합쳐 넣는 값 — 매물장 응답을 느리게 하지 않으려고 따로 받는다
+  rank_in_group?: number; group_size?: number; expose_left?: number; bump_needed?: boolean;
   import_file?: string | null; import_at?: string | null;   // 엑셀에서 가져온 매물
   // 비주거 — 상가·사무실·토지·공장·건물에서만 뜻이 있다(주거 매물엔 값이 없다)
   premium?: number | null; bunyang_premium?: number | null; vat_separate?: string;
@@ -1525,25 +1571,6 @@ function mlSpecLine(l: MLItem): string {
 function mlPriceMain(l: MLItem): string {
   return l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text;
 }
-/** 거래 구성 카운트(매·전·월). */
-function mlMix(g: MLItem[]): { s: number; j: number; w: number } {
-  const m = { s: 0, j: 0, w: 0 };
-  for (const l of g) {
-    if (l.trade_type === "매매") m.s++;
-    else if (l.trade_type === "전세") m.j++;
-    else if (l.trade_type === "월세") m.w++;
-  }
-  return m;
-}
-/** 폴더 요약 가격범위 — 값이 있는 것 중 최저~최고 매물의 표기를 그대로 쓴다. */
-function mlPriceRange(g: MLItem[]): string {
-  const vals = g.filter((l) => l.price > 0);
-  if (!vals.length) return "";
-  let lo = vals[0], hi = vals[0];
-  for (const l of vals) { if (l.price < lo.price) lo = l; if (l.price > hi.price) hi = l; }
-  const a = mlPriceMain(lo), b = mlPriceMain(hi);
-  return a === b ? a : `${a}~${b}`;
-}
 /** 출처 뱃지(카드 하단) — SrcIcon 과 같은 규칙, 라벨 달린 알약. */
 function SrcPills({ l }: { l: MLItem }) {
   if (!l.is_private) {
@@ -1566,22 +1593,10 @@ function SrcPills({ l }: { l: MLItem }) {
     </>
   );
 }
-/** 폴더 아이콘 — 유형별/단지별 공통. */
-function GroupIcon({ l, mode }: { l: MLItem; mode: "complex" | "type" }) {
-  const bucket = mode === "type" ? mlTypeBucket(l) : "";
-  if (mode === "complex") {
-    return isAddrFirst(l)
-      ? <span className="mlj2-fic villa"><HomeIcon size={16} /></span>
-      : <span className="mlj2-fic apt"><Building2 size={16} /></span>;
-  }
-  if (bucket === "상가") return <span className="mlj2-fic store"><Store size={16} /></span>;
-  if (bucket === "사무실" || bucket === "토지·건물") return <span className="mlj2-fic store"><Landmark size={16} /></span>;
-  if (bucket.startsWith("빌라") || bucket.startsWith("단독")) return <span className="mlj2-fic villa"><HomeIcon size={16} /></span>;
-  return <span className="mlj2-fic apt"><Building2 size={16} /></span>;
-}
 
 export function ListingsTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
   const [items, setItems] = useState<MLItem[] | null>(null);
+  const [loadErr, setLoadErr] = useState("");
   const [managers, setManagers] = useState<Manager[]>([]);
   const [q, setQ] = useState("");
   const [trade, setTrade] = useState("");
@@ -1601,6 +1616,50 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   const [plOpen, setPlOpen] = useState(false);        // 비공개매물 등록 모달
   const [impOpen, setImpOpen] = useState(false);      // 매물장 엑셀 가져오기
   const [editPL, setEditPL] = useState<MLItem | null>(null);
+  // 표(엑셀) 보기 — 2026-10-06 부터 매물장은 표 하나로 간다(카드·폴딩 제거).
+  const [sel, setSel] = useState<Set<number>>(new Set());   // 선택 삭제용 private_id
+  const [delMode, setDelMode] = useState(false);            // 삭제하기 모드
+  const [tSort, setTSort] = useState<{ k: string; asc: boolean }>({ k: "unit", asc: true });
+  // 엑셀처럼 열마다 거르기 — 서버가 준 items 위에서 바로 건다(요청 때마다 다시 부르지 않는다).
+  const [cx, setCx] = useState("");                      // 단지 — 상단에서 고른다
+  const [colF, setColF] = useState<Record<string, string[]>>({});
+  // 체크박스 드롭다운 — 표가 overflow 컨테이너 안이라 position:fixed 로 띄워야 안 잘린다.
+  // 관리자 '사무소로 보기'(?as=<realtor_id>) — 민원 때 그 사무소가 실제로 뭘 보는지 확인한다.
+  // 남의 계정으로 들어가는 게 아니라 읽기만 한다. 고치는 기능은 전부 잠근다.
+  const asRid = useMemo(() => {
+    try { return new URLSearchParams(window.location.search).get("as") || ""; } catch { return ""; }
+  }, []);
+  const [asName, setAsName] = useState("");
+  const ro = !!asRid;                     // 읽기 전용
+  const [chkOpen, setChkOpen] = useState<{ k: string; x: number; y: number } | null>(null);
+  const [chkQ, setChkQ] = useState("");
+  // 건축물대장으로 빈 칸 채우기 — 매물장을 열었을 때 한 번 물어본다.
+  const [fillAsk, setFillAsk] = useState(true);
+  const [filling, setFilling] = useState<{ done: number; total: number; ok: number } | null>(null);
+  const fillStop = useRef(false);
+  // 보여줄 열 고르기 — 표가 화면을 넘어가 잘리는 걸 사람이 직접 줄일 수 있게.
+  // 처음 열 때는 화면 폭을 보고 정한다(좁으면 부가 열을 접는다). 고른 값은 기기에 남긴다.
+  const [cols, setCols] = useState<Record<string, boolean>>(() => {
+    try {
+      const v = localStorage.getItem("ml.cols");
+      if (v) return JSON.parse(v);
+    } catch { /* 저장소를 못 쓰는 환경 — 기본값으로 */ }
+    return {};
+  });
+  // 자동 = 표가 들어갈 폭을 실제로 재서 들어가는 만큼 띄운다. 넓은 모니터면 9개 전부 나온다.
+  // 예전에는 처음 열 때 innerWidth 를 한 번만 보고 localStorage 에 굳혀서, 창을 넓혀도
+  // 안 늘고 좁은 창에서 처음 들어온 사람은 큰 화면에서도 계속 접힌 표를 봤다(2026-10-06 수정).
+  const [colAuto, setColAuto] = useState<boolean>(() => {
+    try { return localStorage.getItem("ml.colauto") !== "0"; } catch { return true; }
+  });
+  const [tw, setTw] = useState(0);              // 표가 쓸 수 있는 폭(px)
+  const [colsOpen, setColsOpen] = useState(false);
+  useEffect(() => {
+    try { localStorage.setItem("ml.cols", JSON.stringify(cols)); } catch { /* 무시 */ }
+  }, [cols]);
+  useEffect(() => {
+    try { localStorage.setItem("ml.colauto", colAuto ? "1" : "0"); } catch { /* 무시 */ }
+  }, [colAuto]);
 
   useEffect(() => {
     fetch(`${API_BASE}/lounge/managers`, { headers: authH() })
@@ -1619,20 +1678,58 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       .catch((e) => setLookErr(e.message || "조회 실패"));
   }, [authH]);
 
+  // 한 물건을 CP(우리집부동산·부동산뱅크·매경 등)마다 올리면 네이버 매물번호가 따로 생긴다.
+  // 중개사 눈에는 똑같은 줄이 둘·셋으로 겹쳐 보인다(실측: 광고 610건 중 겹치는 줄 40조).
+  // 지우지 않고 한 줄로 접는다 — 네이버는 호를 주지 않아 '정말 같은 집'인지 단정할 수
+  // 없다. 다른 집이 잘못 묶였을 수 있으니 펼쳐 볼 수 있어야 한다.
+  const adKey = (l: MLItem) => [l.complex_no, l.building_name, l.trade_type, l.price,
+    l.rent_price ?? "", l.area_name, l.floor_info, l.direction].join("|");
+  const foldAdDupes = (list: MLItem[]): MLItem[] => {
+    const g = new Map<string, MLItem[]>(); const order: string[] = [];
+    for (const l of list) {
+      // 매물장 매물(직접등록·엑셀)은 손대지 않는다 — CP 중복이라는 개념이 없다
+      const k = l.is_private ? `P${l.article_no}` : adKey(l);
+      if (!g.has(k)) { g.set(k, []); order.push(k); }
+      g.get(k)!.push(l);
+    }
+    return order.map((k) => {
+      const v = g.get(k)!;
+      if (v.length === 1) return v[0];
+      const srt = [...v].sort((a, b) => (b.confirm_ymd || "").localeCompare(a.confirm_ymd || ""));
+      return { ...srt[0], ad_dupes: srt.slice(1) };   // 확인일이 가장 최근인 광고가 대표
+    });
+  };
+  const rawRef = useRef<MLItem[]>([]);
+  const [foldAds, setFoldAds] = useState(true);
+  // load 는 useCallback 이라 foldAds 를 그대로 읽으면 옛 값이 박힌다 — '펼침'으로 바꾼 뒤
+  // 필터를 건드리면 다시 접힌 채로 돌아온다(버튼 글자와 화면이 어긋난다). ref 로 읽는다.
+  const foldRef = useRef(true);
+  // 순위·광고 잔여일은 /biz/my-rank 가 계산한다. 자동으로 부르지 않는다 — 한 단지의
+  // 등수를 내려면 그 단지의 **모든 중개사 매물**을 읽어야 해서, 77개 단지를 다루는
+  // 사무소면 매물장을 열 때마다 77개 단지를 통째로 읽게 된다.
+  // 버튼을 눌렀을 때 **화면에 보이는 줄의 단지만** 점검한다.
+  const [rankBy, setRankBy] = useState<Record<string, any>>({});
+  const [rankBusy, setRankBusy] = useState(false);
+  const [rankMsg, setRankMsg] = useState("");
+
   const load = useCallback(() => {
     setBusy(true); setForeign(null); setLookErr("");
     const p = new URLSearchParams({ q, trade, cat, manager, sort,
       private: priv || privOnly ? "1" : "0", private_only: privOnly ? "1" : "0" });
-    fetch(`${API_BASE}/lounge/listings?${p}`, { headers: authH() })
-      .then((r) => r.json())
+    if (asRid) p.set("as_realtor", asRid);
+    setLoadErr("");
+    authGet<{ listings?: MLItem[]; as_realtor?: string; realtor_name?: string }>(
+      `${API_BASE}/lounge/listings?${p}`, authH())
       .then((d) => {
         const list: MLItem[] = d.listings || [];
-        setItems(list);
+        rawRef.current = list;
+        setItems(foldRef.current ? foldAdDupes(list) : list);
+        if (d.as_realtor) setAsName(d.realtor_name || asRid);
         // 내 매물장에 없고 매물번호 형태면 → 남의 물건인지 조회
         const an = q.trim();
         if (list.length === 0 && /^\d{6,}$/.test(an)) lookup(an);
       })
-      .catch(() => setItems([]))
+      .catch((e: Error) => { setItems(null); setLoadErr(e.message); })
       .finally(() => setBusy(false));
   }, [authH, q, trade, cat, manager, sort, priv, privOnly, lookup]);
   useEffect(() => { load(); }, [trade, cat, manager, sort, priv, privOnly]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1662,22 +1759,15 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     } catch (e: any) { alert(e.message || "보관 실패"); }
   };
 
-  const [open, setOpen] = useState<Set<string>>(new Set());   // 펼쳐 둔 폴더(기본은 전부 접힘)
-  const [gmode, setGmode] = useState<"complex" | "type" | null>(null);  // null = 자동
   const [focusKey, setFocusKey] = useState<string | null>(null);   // 큰 폴더 전체보기
   const [sheetOpen, setSheetOpen] = useState(false);               // 필터 바텀시트
-
-  const today = useMemo(() => {
-    const d = new Date();
-    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-  }, []);
   // 자동 묶음: 비단지(빌라·상가·사무실 등)가 절반 넘으면 유형별, 아니면 단지별
   const autoMode: "complex" | "type" = useMemo(() => {
     const list = items || [];
     if (!list.length) return "complex";
     return list.filter(isAddrFirst).length > list.length / 2 ? "type" : "complex";
   }, [items]);
-  const mode = gmode ?? autoMode;
+  const mode = autoMode;
 
   // 같은 단지(또는 같은 유형) 물건을 한 덩어리로 — 정렬 순서는 두고 첫 등장 자리에 모은다.
   const groups = useMemo(() => {
@@ -1694,7 +1784,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     return order.map((k) => ({ key: k, items: by.get(k)! }));
   }, [items, mode]);
   // 묶음이 바뀌면 펼침/포커스 초기화
-  useEffect(() => { setOpen(new Set()); setFocusKey(null); }, [mode]);
+  useEffect(() => { setFocusKey(null); }, [mode]);
 
   const groupName = (g: MLItem[]) => mode === "type" ? mlTypeBucket(g[0]) : mlName(g[0]);
   // 활성 필터 개수(시트 뱃지)
@@ -1730,27 +1820,377 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     </div>
   );
 
-  // 단지 묶음 통째로 비우기 — 엑셀을 잘못 올리면 한 단지 수십·수백 건이 어긋나는데
-  // 한 건씩 지우면 사실상 못 지운다(2026-10-02 요청). 낱건 삭제와 같게 보관만 해제한다.
-  const clearGroup = async (name: string, items: MLItem[]) => {
-    const inBook = items.filter((l) => l.private_id);
-    if (!inBook.length) {
-      alert("이 묶음에는 매물장에 담은 매물이 없습니다(네이버 광고만 있는 묶음).");
-      return;
+  // 표에 뿌릴 행 — 필터는 서버가 걸러 준 items 를 그대로 쓰고 여기서는 정렬만 한다.
+  const num = (v?: string | null) => { const m = String(v || "").match(/\d+/); return m ? +m[0] : 0; };
+  // 열마다 고를 수 있는 값 — 지금 불러온 매물에서 실제로 쓰인 것만 세운다.
+  // dong 칸에는 두 가지가 섞여 들어온다 — 아파트 '101동'(건물 동)과 '송도동'(법정동).
+  // 원천이 그렇게 생겼다(네이버 비단지 매물은 법정동을 dong 에 담는다). 거르는 칸을 둘로 가른다.
+  // 건물 동 판정 — '101동'·'A동'·'가동'은 건물 동, '송도동'·'안서동'은 법정동.
+  // 가르는 기준은 **동 앞 글자 수**다. 법정동은 두 음절 이상이고(한 음절짜리 법정동은 없다)
+  // 건물 동은 숫자이거나 한 글자다. 숫자로만 보면 A동·가동을 법정동으로 오인한다(2026-10-06).
+  const BLD_DONG = /^(\d+(?:-\d+)?|[A-Za-z]|[가-힣])\s*동?$/;
+  const isBldDong = (v: string) => BLD_DONG.test(v.trim());
+  // 표의 '동·호' 칸은 건물 동만 세운다. 법정동('송도동')이 같은 칸에 섞여 나오면
+  // 101동과 송도동이 한 줄에 뒤섞여 무엇을 가리키는지 알 수 없다(2026-10-06 지적).
+  // 법정동은 단지명·주소가 이미 알려 주므로 여기서 또 쓰지 않는다.
+  // 단지형(아파트·오피스텔)은 네이버 building_name 이 곧 '101동'이다 — 상세의 '건물명' 칸과
+  // 같은 값이다. dong 이 비어 '—'로 남던 줄을 여기서 채운다(2026-10-06 요청).
+  // 비단지는 building_name 이 '일반상가' 같은 유형 딱지라 쓰지 않는다.
+  const bldDongOf = (l: MLItem) => {
+    const v = (l.dong || "").trim();
+    if (isBldDong(v)) return v;
+    if (!isAddrFirst(l)) { const b = (l.building_name || "").trim(); if (isBldDong(b)) return b; }
+    return "";
+  };
+  const floorCell = (l: MLItem) => {
+    if (!l.floor_info) return "";
+    const tot = l.total_floor && !String(l.floor_info).includes("/") ? `/${l.total_floor}` : "";
+    return `${l.floor_info}${tot}층`;
+  };
+  const unitCell = (l: MLItem) => {
+    const d = bldDongOf(l), h = (l.ho || "").trim();
+    const dd = d ? (/동$/.test(d) ? d : `${d}동`) : "";
+    const hh = h ? (/호$/.test(h) ? h : `${h}호`) : "";
+    return [dd, hh].filter(Boolean).join(" ") || "";
+  };
+  const areaDongOf = (l: MLItem) => { const v = (l.dong || "").trim(); return isBldDong(v) ? "" : v; };
+  // 열 머리 필터 가운데 "값이 같으냐"로 안 되는 것들 — 파생값(출처)·유무(연락처·메모)·구간(가격).
+  // price 는 원 단위다(API 가 price_man = price/10000 로 함께 내려준다).
+  const PRICE_BANDS: [string, number, number][] = [
+    ["1억 미만", 0, 1e8], ["1~3억", 1e8, 3e8], ["3~5억", 3e8, 5e8],
+    ["5~10억", 5e8, 10e8], ["10~20억", 10e8, 20e8], ["20억 이상", 20e8, Infinity],
+  ];
+  const COLPRED: Record<string, (l: MLItem, v: string) => boolean> = {
+    // 광고중은 "네이버 매물"과 "매물장에 있고 네이버에도 광고 중"을 함께 잡는다(뱃지와 같은 규칙).
+    src: (l, v) => v === "광고중" ? (!l.is_private || !!l.also_naver)
+                 : v === "엑셀" ? !!l.import_file
+                 : !!l.is_private && !l.import_file,
+    // 접힌 광고의 CP 까지 본다. 대표만 보면 '부동산뱅크'로 걸러도 접힌 줄이 빠진다.
+    cp_name: (l, v) => [l, ...(l.ad_dupes || [])].some((x) => (x.cp_name || "") === v),
+    contact_has: (l, v) => (v === "있음") === !!(l.contact || "").trim(),
+    memo_has: (l, v) => (v === "있음") === !!(l.memo || "").trim(),
+    price_band: (l, v) => {
+      const b = PRICE_BANDS.find((x) => x[0] === v);
+      return !!b && (l.price || 0) >= b[1] && (l.price || 0) < b[2];
+    },
+  };
+
+  // 한 열의 값을 꺼내는 규칙 — 거르기와 선택지 만들기가 같은 규칙을 써야 어긋나지 않는다.
+  const colVal = (k: string, l: MLItem) =>
+    k === "dong" ? bldDongOf(l)
+    : k === "areaDong" ? areaDongOf(l)
+    : k === "supply" ? String(l.area1_m2 || "")
+    : k === "excl" ? String(l.area2_m2 || "")
+    : k === "floor" ? String(l.floor_info || "")
+    : String((l as any)[k] || "");
+
+  // 걸린 조건을 적용한다. skip 을 주면 그 열의 조건만 빼고 적용한다
+  // (엑셀처럼 — 자기 열의 선택지는 자기 조건에 깎이면 안 된다).
+  const applyColF = (list: MLItem[], skip?: string) => {
+    for (const [k, vs] of Object.entries(colF)) {
+      if (!vs || !vs.length || k === skip) continue;
+      const pred = COLPRED[k];
+      if (pred) { list = list.filter((l) => vs.some((v) => pred(l, v))); continue; }
+      list = list.filter((l) => vs.includes(colVal(k, l)));
     }
+    return list;
+  };
+
+  // 단지를 고르면 그 단지 안에서만 선택지를 만든다 — 전체 기준으로 만들면
+  // 다른 단지의 동·평형이 떠서 고르면 0건이 된다(2026-10-06 지적).
+  // 단지를 바꾸면 열 조건을 비운다 — 앞 단지의 '103동'이 남아 있으면 새 단지에선 0건이 된다.
+  // 조건이 바뀌면 삭제 선택을 비운다. 안 그러면 3건을 고른 뒤 필터를 바꿔 그 줄이
+  // 화면에서 사라져도 선택은 남아, 보이지 않는 매물이 지워진다(확인창의 목록도 어긋난다).
+  useEffect(() => { setSel(new Set()); }, [cx, colF, q, trade, cat, manager, priv, privOnly]);
+
+  const cxPrev = useRef(cx);
+  useEffect(() => {
+    if (cxPrev.current !== cx) { cxPrev.current = cx; setColF({}); setChkOpen(null); }
+  }, [cx]);
+
+  const base = useMemo(() => (cx ? (items || []).filter((l) => mlName(l) === cx) : (items || [])),
+                       [items, cx]);
+
+  const opts = useMemo(() => {
+    const srt = (a: string, b: string) => { const x = num(a), y = num(b);
+      return (x || y) && x !== y ? x - y : a.localeCompare(b, "ko"); };
+    const pick = (f: (l: MLItem) => string, skip?: string) =>
+      [...new Set(applyColF(base.slice(), skip).map(f).filter(Boolean))].sort(srt);
+    const has = (k: string, v: string) => applyColF(base.slice(), k).some((l) => COLPRED[k](l, v));
+    return {
+      // 단지 목록만은 전체 기준이다 — 그래야 다른 단지로 옮겨 갈 수 있다
+      cx: [...new Set((items || []).map(mlName).filter(Boolean))].sort(srt),
+      trade_type: pick((l) => l.trade_type || "", "trade_type"),
+      dong: pick(bldDongOf, "dong"),
+      areaDong: pick(areaDongOf, "areaDong"),
+      area_name: pick((l) => l.area_name || "", "area_name"),
+      direction: pick((l) => l.direction || "", "direction"),
+      manager: pick((l) => l.manager || "", "manager"),
+      cp_name: [...new Set(applyColF(base.slice(), "cp_name")
+        .flatMap((l) => [l, ...(l.ad_dupes || [])]).map((x) => x.cp_name || "").filter(Boolean))].sort(srt),
+      src: ["광고중", "엑셀", "직접등록"].filter((v) => has("src", v)),
+      priceBand: PRICE_BANDS.map((b) => b[0]).filter((v) => has("price_band", v)),
+      contactHas: ["있음", "없음"].filter((v) => has("contact_has", v)),
+      memoHas: ["있음", "없음"].filter((v) => has("memo_has", v)),
+    };
+  }, [items, cx, colF]);
+
+  const rows = useMemo(() => {
+    const list = applyColF(base.slice());
+    const dir = tSort.asc ? 1 : -1;
+    const k = tSort.k;
+    return list.sort((a, b) => {
+      if (k === "price") return ((a.price || 0) - (b.price || 0)) * dir;
+      if (k === "unit") {                      // 법정동은 숫자가 없어 0 으로 묶인다(의도)
+        const d = num(bldDongOf(a)) - num(bldDongOf(b)); if (d) return d * dir;
+        return (num(a.ho) - num(b.ho)) * dir;
+      }
+      if (k === "name") return mlName(a).localeCompare(mlName(b), "ko") * dir;
+      if (k === "supply") return ((a.area1_m2 || 0) - (b.area1_m2 || 0)) * dir;
+      if (k === "excl") return ((a.area2_m2 || 0) - (b.area2_m2 || 0)) * dir;
+      if (k === "floor") return (num(a.floor_info) - num(b.floor_info)) * dir;
+      if (k === "rank") return ((bestRank(a)?.rank_in_group ?? 10 ** 9)
+                              - (bestRank(b)?.rank_in_group ?? 10 ** 9)) * dir;
+      if (k === "left") return ((soonLeft(a) ?? 10 ** 9) - (soonLeft(b) ?? 10 ** 9)) * dir;
+      if (k === "src") {
+        // 'src' 라는 칸은 없다. 뱃지를 만드는 규칙(SrcPills)과 같은 값으로 정렬해야
+        // 머리글을 눌렀을 때 실제로 줄이 움직인다(전에는 전부 "" 라 꿈쩍도 안 했다).
+        const g = (x: MLItem) => (!x.is_private ? "1광고중" : x.import_file ? "2엑셀" : "3직접등록");
+        return g(a).localeCompare(g(b), "ko") * dir;
+      }
+      if (k === "area_name") {               // '110' 이 '59' 보다 뒤여야 한다
+        const d2 = num(a.area_name) - num(b.area_name);
+        if (d2) return d2 * dir;
+      }
+      return String((a as any)[k] || "").localeCompare(String((b as any)[k] || ""), "ko") * dir;
+    });
+  }, [base, tSort, colF, rankBy]);
+
+  // 열 머리 아래 드롭다운 한 칸 — 고른 값만 남긴다(엑셀 자동필터와 같은 쓰임).
+  const colSel = (k: string, list: string[], label?: string) => (
+    <select className={"mlt-fsel" + (colF[k]?.length ? " on" : "")} value={colF[k]?.[0] || ""}
+      aria-label={`${label || k} 거르기`}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setColF((f) => ({ ...f, [k]: e.target.value ? [e.target.value] : [] }))}>
+      <option value="">{label || "전체"}</option>
+      {list.map((v) => <option key={v} value={v}>{v}</option>)}
+    </select>
+  );
+  // 여러 개 고르는 필터(네이버 동·타입 선택과 같은 방식). 고른 개수를 버튼에 적는다.
+  const colChk = (k: string, label: string) => {
+    const cur = colF[k] || [];
+    return (
+      <button className={"mlt-fsel mlt-fchk" + (cur.length ? " on" : "")}
+        aria-label={`${label} 거르기`}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setChkQ("");
+          if (chkOpen?.k === k) { setChkOpen(null); return; }
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          setChkOpen({ k, x: Math.min(r.left, window.innerWidth - 212), y: r.bottom + 4 });
+        }}>
+        {cur.length ? `${label} ${cur.length}` : label}<ChevronDown size={11} aria-hidden />
+      </button>
+    );
+  };
+  // 실제로 그릴 열. 순서는 동·호를 앞으로 — 가로로 밀려도 왼쪽에 '어느 집인지'가 남는다.
+  const ALLCOLS: [string, string][] = [
+    ["trade_type", "거래"], ["unit", "동·호"], ["name", "단지·건물"],
+    // 면적은 쪼개 둔다 — 한 칸에 묶으면 공급·전용이 안 보이고 정렬·거르기도 못 한다(2026-10-06 요청).
+    ["area_name", "평형"], ["supply", "공급"], ["excl", "전용"], ["floor", "층"], ["direction", "향"],
+    ["price", "가격"], ["rank", "순위"], ["left", "광고잔여"], ["src", "출처"], ["cp_name", "광고채널"],
+    ["manager", "담당자"], ["contact", "연락처"], ["memo", "메모"], ["act", "수정"],
+  ];
+  const ALWAYS = new Set(["trade_type", "unit", "price", "act"]);   // 이 넷은 끌 수 없다
+
+  // 열이 실제로 차지하는 최소 폭(px). 좁은 화면에서는 글자·여백이 줄어 함께 줄인다.
+  const COLW: Record<string, number> = { trade_type: 56, unit: 94, name: 180,
+                                         area_name: 88, supply: 106, excl: 106, floor: 84, direction: 74,
+                                         price: 124, rank: 96, left: 92, src: 104, cp_name: 112, manager: 112,
+                                         contact: 128, memo: 170, act: 48 };
+  // 자리가 모자랄 때 접는 순서의 거꾸로 — 앞쪽이 먼저 살아남는다.
+  const COLPRIO = ["name", "excl", "floor", "area_name", "supply", "direction",
+                   "rank", "left", "contact", "src", "cp_name", "manager", "memo"];
+  const autoCols = useMemo(() => {
+    const dense = tw > 0 && tw < 900 ? 0.86 : 1;         // CSS 와 같은 구간에서 패딩이 줄어든다
+    const w = (k: string) => COLW[k] * dense;
+    const on: Record<string, boolean> = {};
+    // 거래·동·호·가격은 늘 보이고, 단지명도 단지를 고르지 않았다면 뺄 수 없다.
+    let used = w("trade_type") + w("unit") + w("price") + w("act") + (delMode ? 40 : 0);
+    if (!cx) { on.name = true; used += w("name"); }
+    for (const k of COLPRIO) {
+      if (k === "name") continue;
+      if (tw > 0 && used + w(k) > tw) continue;          // 안 들어가면 접는다
+      on[k] = true; used += w(k);
+    }
+    return on;
+  }, [tw, cx, delMode]);
+
+  const effCols = colAuto ? autoCols : cols;
+  // 표 최소폭도 고른 열에 맞춘다. CSS 에 760px 을 박아 두면 폰에서 자동 맞춤이 무의미해진다
+  // (열을 접어도 760px 로 늘어나 결국 가로로 넘친다).
+  const minW = useMemo(() => {
+    const dense = tw > 0 && tw < 900 ? 0.86 : 1;
+    const ks = ALLCOLS.map(([k]) => k).filter((k) =>
+      ALWAYS.has(k) ? true
+      : k === "name" ? !cx && effCols.name !== false
+      : colAuto ? !!effCols[k] : effCols[k] !== false);
+    return Math.round(ks.reduce((a, k) => a + COLW[k] * dense, 0) + (delMode ? 40 : 0));
+  }, [tw, cx, delMode, colAuto, effCols]);
+  const VIEWCOLS = ALLCOLS.filter(([k]) =>
+    ALWAYS.has(k) ? true
+    : k === "name" ? !cx && effCols.name !== false      // 단지를 골랐으면 단지 열은 군더더기
+    : colAuto ? !!effCols[k] : effCols[k] !== false);
+
+  const colFilterCount = Object.values(colF).filter((a) => a && a.length).length + (cx ? 1 : 0);
+  const clearColF = () => { setColF({}); setCx(""); setChkOpen(null); };
+
+  // 표를 끌어서 좌우로 민다 + 오른쪽에 더 있다는 표시.
+  // 가로 스크롤막대는 눈에 잘 안 띄어 "오른쪽이 없는 줄 안다"는 지적이 있었다(2026-10-06).
+  // 손가락은 원래 스크롤이 되므로 마우스일 때만 끌기를 건다.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef({ on: false, x: 0, left: 0, moved: false });
+  const [edge, setEdge] = useState<{ l: boolean; r: boolean }>({ l: false, r: false });
+
+  const syncEdge = useCallback(() => {
+    const el = wrapRef.current; if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setEdge({ l: el.scrollLeft > 4, r: max > 4 && el.scrollLeft < max - 4 });
+    // clientWidth 는 스크롤막대가 생겼다 없어질 때 값이 흔들려 열이 깜빡인다. offsetWidth 로 고정.
+    setTw(Math.max(0, el.offsetWidth - 18));
+  }, []);
+  useEffect(() => {
+    syncEdge();
+    const el = wrapRef.current; if (!el) return;
+    const ro = new ResizeObserver(syncEdge);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [syncEdge, rows.length, VIEWCOLS.length, cx, delMode]);
+
+  const onDragDown = (e: React.PointerEvent) => {
+    if (e.pointerType !== "mouse") return;            // 터치는 기본 스크롤에 맡긴다
+    const el = wrapRef.current; if (!el) return;
+    dragRef.current = { on: true, x: e.clientX, left: el.scrollLeft, moved: false };
+    hideTip();
+  };
+  const hideTip = () => { const t = tipRef.current; if (t) t.style.opacity = "0"; };
+  const moveTip = (e: React.PointerEvent) => {
+    const t = tipRef.current, box = outerRef.current;
+    if (!t || !box) return;
+    // 끌 수 있을 때만, 마우스일 때만, 끌고 있지 않을 때만 보여준다.
+    if (e.pointerType !== "mouse" || dragRef.current.on || (!edge.l && !edge.r)) { hideTip(); return; }
+    const r = box.getBoundingClientRect();
+    t.style.left = e.clientX - r.left + "px";
+    t.style.top = e.clientY - r.top + "px";
+    t.style.opacity = "1";
+  };
+
+  const onDragMove = (e: React.PointerEvent) => {
+    moveTip(e);
+    const d = dragRef.current; const el = wrapRef.current;
+    if (!d.on || !el) return;
+    const dx = e.clientX - d.x;
+    if (Math.abs(dx) > 4) d.moved = true;
+    el.scrollLeft = d.left - dx;
+  };
+  const onDragUp = () => { dragRef.current.on = false; };
+  const nudge = (dir: number) => {
+    const el = wrapRef.current; if (!el) return;
+    el.scrollBy({ left: dir * Math.max(200, el.clientWidth * 0.6), behavior: "smooth" });
+  };
+
+  const sortBy = (k: string) =>
+    setTSort((s2) => (s2.k === k ? { k, asc: !s2.asc } : { k, asc: true }));
+
+  // 선택 삭제 — 되돌릴 수 없다. 무엇을 지우는지 보여 주고 두 번 확인받는다.
+  const deleteSelected = async () => {
+    const ids = [...sel];
+    if (!ids.length) return;
+    const names = rows.filter((l) => l.private_id && sel.has(l.private_id))
+      .slice(0, 5).map((l) => `· ${mlName(l)} ${unitOf(l)}`).join("\n");
     if (!window.confirm(
-      `${name}\n\n이 단지의 매물장 ${inBook.length}건을 한 번에 비웁니다.\n` +
-      `네이버에 광고 중인 매물은 그대로 남습니다. 계속할까요?`)) return;
+      `매물장에서 ${ids.length}건을 지웁니다.\n\n${names}` +
+      (ids.length > 5 ? `\n· 외 ${ids.length - 5}건` : "") +
+      `\n\n네이버에 광고 중인 매물은 그대로 남습니다.`)) return;
+    if (!window.confirm(
+      `정말 지울까요?\n\n한 번 지우면 되돌릴 수 없습니다.\n` +
+      `${ids.length}건을 삭제하려면 확인을 눌러 주세요.`)) return;
     try {
       const r = await fetch(`${API_BASE}/lounge/private-listings/bulk-close`, {
         method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
-        body: JSON.stringify({ complex_name: name === "단지명 없음" ? "" : name }),
+        body: JSON.stringify({ ids }),
       });
       const d = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(d?.detail || `비우지 못했어요 (${r.status})`);
-      if (d?.blocked) alert(`${d.closed}건을 비웠습니다.\n(${d.blocked}건은 다른 분의 개인 매물이라 남겼습니다)`);
-      load();
-    } catch (e: any) { alert(e?.message || "비우지 못했어요"); }
+      if (!r.ok) throw new Error(d?.detail || `지우지 못했어요 (${r.status})`);
+      if (d?.blocked) alert(`${d.closed}건을 지웠습니다.\n(${d.blocked}건은 다른 분의 개인 매물이라 남겼습니다)`);
+      setSel(new Set()); setDelMode(false); load();
+    } catch (e: any) { alert(e?.message || "지우지 못했어요"); }
+  };
+
+  // 지금 보이는 그대로 엑셀로 — 필터·정렬이 반영된 행만 담는다.
+  // 접힌 CP 광고까지 본다 — 표·정렬·엑셀받기가 **같은 규칙**을 써야 숫자가 어긋나지 않는다.
+  const bestRank = (l: MLItem) =>
+    [l, ...(l.ad_dupes || [])].map((x) => rankBy[x.article_no]).filter(Boolean)
+      .sort((a, b) => (a.rank_in_group || 99) - (b.rank_in_group || 99))[0];
+  const soonLeft = (l: MLItem) => {
+    const v = [l, ...(l.ad_dupes || [])].map((x) => rankBy[x.article_no]?.expose_left)
+      .filter((x) => x != null) as number[];
+    return v.length ? Math.min(...v) : null;
+  };
+
+  // 화면에 보이는 줄만 점검한다. 접힌 CP 광고도 함께 — 채널마다 등수가 다르다.
+  const checkRank = async () => {
+    const vis = rows.flatMap((l) => [l, ...(l.ad_dupes || [])]).filter((l) => !l.is_private);
+    if (!vis.length) { setRankMsg("점검할 네이버 광고가 화면에 없습니다."); return; }
+    const cx = [...new Set(vis.map((l) => l.complex_no).filter(Boolean))] as string[];
+    const an = [...new Set(vis.map((l) => l.article_no))];
+    setRankBusy(true); setRankMsg("");
+    try {
+      const p = new URLSearchParams();
+      if (cx.length && cx.length <= 200) p.set("complexes", cx.join(","));
+      if (an.length <= 1500) p.set("articles", an.join(","));
+      if (asRid) p.set("as_realtor", asRid);      // 사무소로 보기도 그 사무소 기준으로 점검
+      const r = await fetch(`${API_BASE}/biz/my-rank?${p}`, { headers: authH() });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.detail || "점검하지 못했어요");
+      const m: Record<string, any> = { ...rankBy };
+      for (const x of d.items || []) m[x.article_no] = x;
+      setRankBy(m);
+      const got = (d.items || []).length;
+      const bump = (d.items || []).filter((x: any) => x.bump_needed).length;
+      setRankMsg(`광고 ${got}건 점검 · 단지 ${cx.length}곳`
+        + (bump ? ` · 끌올 권장 ${bump}건` : " · 끌올 필요 없음")
+        + (d.any_estimated ? " (일부 단지는 확인일 기준 추정)" : ""));
+    } catch (e: any) {
+      setRankMsg(e.message || "점검하지 못했어요");
+    } finally { setRankBusy(false); }
+  };
+
+  const downloadCsv = () => {
+    const head = ["거래", "단지·건물", "지역(법정동)", "동", "호", "평형", "공급(㎡)", "전용(㎡)", "층", "향",
+                  "가격", "월세", "순위", "경쟁", "광고잔여(일)", "출처", "광고채널", "담당자", "연락처", "메모"];
+    const cell = (v: any) => {
+      const t = v == null ? "" : String(v);
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const body = rows.map((l) => [
+      l.trade_type, mlName(l), areaDongOf(l), bldDongOf(l), l.ho || "", l.area_name || "",
+      l.area1_m2 || "", l.area2_m2 || "",
+      l.floor_info || "", l.direction || "", l.price_text || "", l.rent_price_text || "",
+      bestRank(l)?.rank_in_group ?? "", bestRank(l)?.group_size ?? "", soonLeft(l) ?? "",
+      l.is_private ? (l.import_file ? "엑셀" : "직접등록") : "광고중",
+      [l, ...(l.ad_dupes || [])].map((x) => x.cp_name || "").filter(Boolean).join(" / "),
+      l.manager || "", l.contact || "", (l.memo || "").replace(/\n/g, " "),
+    ].map(cell).join(","));
+    const csv = "\uFEFF" + [head.join(","), ...body].join("\r\n");   // BOM — 엑셀 한글 깨짐 방지
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `매물장_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
 
   // 직접등록 매물 삭제 — 되돌릴 수 없으니 무엇을 지우는지 이름으로 확인받는다.
@@ -1766,6 +2206,77 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       setDetail(null);
       load();
     } catch (e: any) { alert(e?.message || "삭제하지 못했어요"); }
+  };
+
+  // ── 표에서 바로 고치기(엑셀처럼) ───────────────────────────────────────────
+  // 연락처·메모·담당자는 lounge_notes 라 네이버 매물에도 쓸 수 있다. 나머지 항목은
+  // 매물장 매물(직접등록·엑셀)만 고칠 수 있어 '수정' 버튼이 등록 폼을 연다.
+  const [cellEdit, setCellEdit] = useState<{ an: string; k: "contact" | "memo" } | null>(null);
+  const [draft, setDraft] = useState("");
+  const beginEdit = (l: MLItem, k: "contact" | "memo") => {
+    if (ro) return;
+    setCellEdit({ an: l.article_no, k }); setDraft((l[k] || "") as string);
+  };
+  const commitEdit = async () => {
+    const e = cellEdit; if (!e) return;
+    setCellEdit(null);
+    const l = (items || []).find((x) => x.article_no === e.an);
+    if (!l || (l[e.k] || "") === draft) return;          // 안 바뀌었으면 보내지 않는다
+    patch(e.an, e.k, draft);
+    await fetch(`${API_BASE}/lounge/listings/note`, {
+      method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        article_no: e.an,
+        memo: e.k === "memo" ? draft : l.memo,
+        contact: e.k === "contact" ? draft : l.contact,
+        manager: l.manager,
+      }),
+    });
+    setSaved((x) => ({ ...x, [e.an]: true }));
+    setTimeout(() => setSaved((x) => ({ ...x, [e.an]: false })), 1200);
+  };
+  const editKey = (ev: React.KeyboardEvent) => {
+    if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); (ev.target as HTMLElement).blur(); }
+    else if (ev.key === "Escape") { setCellEdit(null); }
+  };
+
+  useEffect(() => {
+    if (!chkOpen) return;
+    const away = (e: Event) => {
+      if (!(e.target as HTMLElement)?.closest?.(".mlt-chkmenu,.mlt-fchk")) setChkOpen(null);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setChkOpen(null); };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+  }, [chkOpen]);
+
+  // 대장으로 채울 수 있는 건 매물장 매물(직접등록·엑셀)뿐이다. 네이버 광고 매물은
+  // 네이버가 준 값이라 우리가 덮지 않는다. 전유부 조회는 호가 있어야 한 집을 특정한다.
+  const needFill = useMemo(() => (items || []).filter((l) =>
+    l.is_private && l.private_id && (l.ho || "").trim() && (!l.area2_m2 || !l.floor_info)
+  ), [items]);
+
+  const runFill = async () => {
+    if (ro) return;
+    fillStop.current = false;
+    const list = needFill.slice(0, 500);
+    setFilling({ done: 0, total: list.length, ok: 0 });
+    let ok = 0;
+    for (let i = 0; i < list.length; i++) {
+      if (fillStop.current) break;
+      try {
+        // 한 건씩 부른다 — 한 번에 몰면 외부 API 응답을 기다리다 게이트웨이가 끊는다.
+        const r = await fetch(`${API_BASE}/lounge/private-listings/${list[i].private_id}/enrich`, {
+          method: "POST", headers: { ...authH(), "Content-Type": "application/json" }, body: "{}",
+        });
+        const d = await r.json().catch(() => null);
+        if (d?.filled?.length) ok++;
+      } catch { /* 한 건 실패가 전체를 멈추지 않는다 */ }
+      setFilling({ done: i + 1, total: list.length, ok });
+    }
+    setFilling(null); setFillAsk(false);
+    load();
   };
 
   // 담당자 즉시 배정(저장까지)
@@ -1798,6 +2309,13 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               <input placeholder="단지·건물·지역 또는 매물번호" value={q} inputMode="text"
                 onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
             </span>
+            <span className="mlj2-cxsel">
+              <select value={cx} onChange={(e) => setCx(e.target.value)} aria-label="단지 선택">
+                <option value="">단지 전체 ({opts.cx.length}곳)</option>
+                {opts.cx.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+              <ChevronDown size={12} aria-hidden />
+            </span>
             <span className="mlj2-sort">
               <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="정렬">
                 <option value="confirm">최신확인순</option>
@@ -1812,16 +2330,119 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           </div>
           {/* 묶는 단위 + 보조 액션(거래유형은 필터 시트로 이동해 중복 제거) */}
           <div className="mlj2-tools">
-            <span className="mlj2-gseg">
-              <button className={mode === "complex" ? "on" : ""} onClick={() => setGmode("complex")}>단지별</button>
-              <button className={mode === "type" ? "on" : ""} onClick={() => setGmode("type")}>유형별</button>
-            </span>
             <span className="mlj2-count-act">
               <button onClick={() => setMapOpen(true)}><MapIcon size={13} aria-hidden />지도</button>
-              <button onClick={() => setImpOpen(true)}><Upload size={13} aria-hidden />가져오기</button>
+              {!ro && <button onClick={() => setImpOpen(true)}><Upload size={13} aria-hidden />가져오기</button>}
+              <span className="mlt-colsbtn">
+                <button onClick={() => setColsOpen((v) => !v)}>
+                  <SlidersHorizontal size={13} aria-hidden />열 고르기
+                </button>
+                {colsOpen && (
+                  <div className="mlt-colsmenu" onMouseLeave={() => setColsOpen(false)}>
+                    <div className="mlt-colsmenu-h">표에 보여줄 열</div>
+                    <div className="mlt-colmode">
+                      <button className={colAuto ? "on" : ""} onClick={() => setColAuto(true)}>
+                        화면에 맞춤
+                      </button>
+                      <button className={colAuto ? "" : "on"}
+                        onClick={() => { setCols({ ...autoCols }); setColAuto(false); }}>
+                        직접 고르기
+                      </button>
+                    </div>
+                    {colAuto && (
+                      <div className="mlt-colmode-n">
+                        지금 폭({tw ? Math.round(tw) + "px" : "측정 중"})에 {VIEWCOLS.length}개가 들어갑니다.
+                        창을 넓히면 저절로 늘어납니다.
+                      </div>
+                    )}
+                    {ALLCOLS.filter(([k]) => !ALWAYS.has(k)).map(([k, t]) => {
+                      const shown = VIEWCOLS.some(([v]) => v === k);
+                      return (
+                        <label key={k} className={(k === "name" && cx) || colAuto ? "off" : ""}>
+                          <input type="checkbox" checked={shown}
+                            disabled={colAuto || (k === "name" && !!cx)}
+                            onChange={(e) => setCols((c) => ({ ...c, [k]: e.target.checked }))} />
+                          {t}
+                          {k === "name" && cx && <i>단지를 골라 숨김</i>}
+                          {colAuto && !shown && !(k === "name" && cx) && <i>자리 부족</i>}
+                        </label>
+                      );
+                    })}
+                    {!colAuto && (
+                      <button className="mlt-colsmenu-r"
+                        onClick={() => setCols({ spec: true, src: true, manager: true, contact: true, memo: true, name: true })}>
+                        전부 보이기
+                      </button>
+                    )}
+                  </div>
+                )}
+              </span>
+              <button className={foldAds ? "on" : ""} title="같은 물건을 CP 채널마다 올린 광고를 한 줄로 접습니다"
+                onClick={() => { const n = !foldAds; setFoldAds(n); foldRef.current = n;
+                  setItems(n ? foldAdDupes(rawRef.current) : rawRef.current.slice()); }}>
+                <Link2 size={13} aria-hidden />{foldAds ? "광고 접음" : "광고 펼침"}
+              </button>
+              {(
+                <button className={rankBusy ? "on" : ""} disabled={rankBusy}
+                  title="화면에 보이는 매물의 네이버 순위와 광고 잔여일을 점검합니다"
+                  onClick={checkRank}>
+                  <TrendingUp size={13} aria-hidden />{rankBusy ? "점검 중…" : "순위 점검"}
+                </button>
+              )}
+              <button onClick={downloadCsv}><Download size={13} aria-hidden />엑셀받기</button>
+              {!ro && <button className={delMode ? "on danger" : ""}
+                onClick={() => { setDelMode((v) => !v); setSel(new Set()); }}>
+                <Trash2 size={13} aria-hidden />{delMode ? "선택 끝내기" : "삭제하기"}
+              </button>}
             </span>
           </div>
+          {delMode && (
+            <div className="mlj2-delbar">
+              <span>지울 매물을 고르세요 — <b>{sel.size}건</b> 선택</span>
+              <button className="mlj2-delall" onClick={() => {
+                const ids = rows.filter((l) => l.private_id).map((l) => l.private_id as number);
+                setSel((s) => s.size === ids.length ? new Set() : new Set(ids));
+              }}>{sel.size && sel.size === rows.filter((l) => l.private_id).length ? "선택 해제" : "보이는 것 전체"}</button>
+              <button className="mlj2-delgo" disabled={!sel.size} onClick={deleteSelected}>
+                {sel.size}건 삭제
+              </button>
+            </div>
+          )}
 
+          {ro && (
+            <div className="mlt-asbar">
+              <b>사무소로 보기</b>
+              <span>{asName || asRid} 사장님이 보는 매물장입니다 — <b>읽기 전용</b>(고치기·삭제·가져오기 잠김)</span>
+            </div>
+          )}
+          {fillAsk && !ro && !filling && needFill.length > 0 && (
+            <div className="mlt-fill">
+              <span>
+                전용면적·층이 비어 있는 매물이 <b>{needFill.length}건</b> 있습니다.
+                건축물대장에서 채울까요?
+              </span>
+              <button className="on" onClick={runFill}>채우기</button>
+              <button onClick={() => setFillAsk(false)}>나중에</button>
+            </div>
+          )}
+          {filling && (
+            <div className="mlt-fill run">
+              <span>건축물대장 조회 중… <b>{filling.done}/{filling.total}</b> · 채움 {filling.ok}건</span>
+              <button onClick={() => { fillStop.current = true; }}>중단</button>
+            </div>
+          )}
+          {rankMsg && (
+            <div className="mlt-rkbar">
+              <span>{rankMsg}</span>
+              <button onClick={() => setRankMsg("")}>닫기</button>
+            </div>
+          )}
+          {colFilterCount > 0 && (
+            <div className="mlt-fbar">
+              <span>표에서 거른 조건 <b>{colFilterCount}개</b> · <b>{rows.length}</b>건 보임</span>
+              <button onClick={clearColF}>조건 지우기</button>
+            </div>
+          )}
           {lookErr && <div className="mlj-foreign mlj-foreign-err">{lookErr}</div>}
           {foreign && (
             <div className="mlj-foreign">
@@ -1839,61 +2460,202 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           <div className="mlj2-count">
             <span>{busy
               ? <b style={{ color: "var(--c-primary)" }}>불러오는 중…</b>
-              : <>총 <b>{items?.length ?? 0}</b>개{(items?.length ?? 0) > 0 && ` · ${mode === "type" ? "유형" : "단지"} ${groups.length}곳`}</>}</span>
+              : <>총 <b>{items?.length ?? 0}</b>개{(items?.length ?? 0) > 0 && ` · ${mode === "type" ? "유형" : "단지"} ${groups.length}곳`}
+                  {foldAds && rawRef.current.length > (items?.length ?? 0)
+                    && <i className="mlt-foldn"> · 겹친 광고 {rawRef.current.length - (items?.length ?? 0)}건 접음</i>}</>}</span>
           </div>
 
-          {!items || (busy && items.length === 0) ? (
+          {loadErr ? (
+            /* 예전엔 여기서 '매물 없음'이 떴다 — 세션이 끊긴 건데 매물이 사라진 줄 안다. */
+            <LoadError msg={loadErr} onRetry={load} />
+          ) : !items || (busy && items.length === 0) ? (
             <Loading label="내 매물을 불러오는 중이에요" slowHint="매물이 많으면 조금 더 걸릴 수 있어요" />
           ) : items.length === 0 ? (
             <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 매물장에 나옵니다.</div>
           ) : (
-            <div className="mlj2-list">
-              {groups.map((g) => {
-                const gi = g.items;
-                if (gi.length < 2) return Card(gi[0], true);
-                const isOpen = open.has(g.key);
-                const mix = mlMix(gi);
-                const range = mlPriceRange(gi);
-                const newN = gi.filter((l) => l.confirm_ymd === today).length;
-                const big = gi.length > 8;
-                return (
-                  <div key={g.key} className={"mlj2-fold" + (isOpen ? " open" : "")}>
-                    <div className="mlj2-fhead" onClick={() => {
-                      if (big) { setFocusKey(g.key); return; }
-                      setOpen((s) => { const n = new Set(s); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n; });
-                    }}>
-                      <GroupIcon l={gi[0]} mode={mode} />
-                      <span className="mlj2-fmid">
-                        <span className="mlj2-fname">{groupName(gi)}</span>
-                        <span className="mlj2-fsub">
-                          <span className="mlj2-mix">
-                            {mix.s > 0 && <i className="m-s">매{mix.s}</i>}
-                            {mix.j > 0 && <i className="m-j">전{mix.j}</i>}
-                            {mix.w > 0 && <i className="m-w">월{mix.w}</i>}
-                          </span>
-                          {range && <span className="mlj2-range">{range}</span>}
-                        </span>
-                      </span>
-                      <span className="mlj2-fright">
-                        <span className="mlj2-fcnt">{gi.length}</span>
-                        {newN > 0 && <span className="mlj2-fnew">신규 {newN}</span>}
-                        {mode === "complex" && gi.some((l) => l.private_id) && (
-                          <button
-                            className="mlj2-fclear"
-                            title="이 단지의 매물장 비우기"
-                            onClick={(e) => { e.stopPropagation(); clearGroup(groupName(gi), gi); }}
-                          >비우기</button>
+            <div className="mlt-outer" ref={outerRef}>
+            <div className="mlt-wrap" ref={wrapRef} onScroll={syncEdge}
+              onPointerDown={onDragDown} onPointerMove={onDragMove}
+              onPointerUp={onDragUp}
+              onPointerLeave={() => { onDragUp(); hideTip(); }}>
+              <table className="mlt" style={{ minWidth: minW }}>
+                <thead>
+                  <tr>
+                    {delMode && <th className="mlt-ck" />}
+                    {VIEWCOLS.map(([k, t]) => (
+                      k === "act"
+                        ? <th key={k} className="c-act">{t}</th>
+                        : <th key={k} className={`c-${k}`} onClick={() => sortBy(k)} title="눌러서 정렬">
+                            {t}{tSort.k === k && <i className="mlt-ar">{tSort.asc ? "▲" : "▼"}</i>}
+                          </th>
+                    ))}
+                  </tr>
+                  <tr className="mlt-f">
+                    {delMode && <th className="mlt-ck" />}
+                    {VIEWCOLS.map(([k]) => (
+                      <th key={k} className={`c-${k}`}>
+                        {k === "trade_type" && colSel("trade_type", opts.trade_type)}
+                        {k === "unit" && (opts.dong.length > 0 ? colChk("dong", "동") : null)}
+                        {k === "name" && (opts.areaDong.length > 0
+                          ? colSel("areaDong", opts.areaDong, "지역")
+                          : <span className="mlt-f-cx">{cx || "전체"}</span>)}
+                        {k === "area_name" && opts.area_name.length > 0 && colChk("area_name", "평형")}
+                        {k === "direction" && opts.direction.length > 0 && colSel("direction", opts.direction, "향")}
+                        {k === "price" && opts.priceBand.length > 1 && colSel("price_band", opts.priceBand, "가격")}
+                        {k === "src" && opts.src.length > 1 && colSel("src", opts.src, "출처")}
+                        {k === "cp_name" && opts.cp_name.length > 0 && colChk("cp_name", "광고채널")}
+                        {k === "manager" && colSel("manager", opts.manager)}
+                        {k === "contact" && opts.contactHas.length > 1 && colSel("contact_has", opts.contactHas, "연락처")}
+                        {k === "memo" && opts.memoHas.length > 1 && colSel("memo_has", opts.memoHas, "메모")}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((l) => {
+                    const pid = l.private_id;
+                    const picked = !!pid && sel.has(pid);
+                    return (
+                      <tr key={l.article_no} className={picked ? "on" : ""}
+                        onClick={() => {
+                          if (dragRef.current.moved) { dragRef.current.moved = false; return; }
+                          if (delMode) {
+                            if (!pid) return;            // 네이버 광고 매물은 매물장에서 못 지운다
+                            setSel((x) => { const n = new Set(x); n.has(pid) ? n.delete(pid) : n.add(pid); return n; });
+                            return;
+                          }
+                          setDetailOwner(""); setDetail(l);
+                        }}>
+                        {delMode && (
+                          <td className="mlt-ck">
+                            {pid ? <input type="checkbox" checked={picked} readOnly /> : <span className="mlt-no">—</span>}
+                          </td>
                         )}
-                      </span>
-                      {big
-                        ? <ChevronRight size={16} className="mlj2-chev" aria-hidden />
-                        : <ChevronDown size={16} className="mlj2-chev" aria-hidden />}
-                    </div>
-                    {isOpen && !big && <div className="mlj2-fbody">{gi.map((l) => Card(l, mode === "type"))}</div>}
-                  </div>
-                );
-              })}
+                        {VIEWCOLS.map(([k]) => {
+                          if (k === "trade_type") return <td key={k} className="c-trade_type"><i className={`mlj2-badge b-${l.trade_type}`}>{l.trade_type || "미정"}</i></td>;
+                          if (k === "unit") return <td key={k} className="c-unit">{unitCell(l) || <span className="mlt-no">—</span>}</td>;
+                          if (k === "name") return <td key={k} className="c-name mlt-nm">{mlName(l)}{l.type && <em>{l.type}</em>}</td>;
+                          if (k === "area_name") return <td key={k} className="c-area_name mlt-spec">{l.area_name || <span className="mlt-no">—</span>}</td>;
+                          if (k === "supply") return <td key={k} className="c-supply mlt-spec">{l.area1_m2 ? areaLabel(l.area1_m2) : <span className="mlt-no">—</span>}</td>;
+                          if (k === "excl") return <td key={k} className="c-excl mlt-spec">{l.area2_m2 ? areaLabel(l.area2_m2) : <span className="mlt-no">—</span>}</td>;
+                          if (k === "floor") return <td key={k} className="c-floor mlt-spec">{floorCell(l) || <span className="mlt-no">—</span>}</td>;
+                          if (k === "direction") return <td key={k} className="c-direction mlt-spec">{l.direction || <span className="mlt-no">—</span>}</td>;
+                          if (k === "price") return <td key={k} className="c-price mlt-price">{mlPriceMain(l) || <span className="mlt-no">—</span>}</td>;
+                          if (k === "src") return (
+                            <td key={k} className="c-src mlt-src">
+                              <SrcPills l={l} />
+                              {!!l.ad_dupes?.length && (
+                                <i className="mlt-adn" title={`같은 조건의 광고 ${l.ad_dupes.length + 1}건을 한 줄로 접었습니다 — ${
+                                  [l, ...l.ad_dupes].map((x) => `${x.cp_name || "네이버"} ${x.article_no}`).join(", ")}`}>
+                                  광고 {l.ad_dupes.length + 1}
+                                </i>
+                              )}
+                            </td>
+                          );
+                          if (k === "rank") {
+                            const rk = bestRank(l);      // 채널마다 등수가 다르다 — 가장 좋은 것
+                            return (
+                              <td key={k} className="c-rank mlt-spec">
+                                {rk ? (
+                                  <span className={rk.bump_needed ? "mlt-rk warn" : "mlt-rk"}
+                                    title={rk.bump_needed ? "확인일을 갱신(끌올)하면 위로 올라갈 수 있습니다" : ""}>
+                                    {rk.group_size > 1 ? `${rk.group_size}곳 중 ${rk.rank_in_group}등` : "단독"}
+                                    {rk.bump_needed && <i>끌올</i>}
+                                  </span>
+                                ) : (
+                                  <button className="mlt-rkask" onClick={(e) => { e.stopPropagation(); checkRank(); }}
+                                    title="누르면 화면에 보이는 매물의 순위를 점검합니다">점검</button>
+                                )}
+                              </td>
+                            );
+                          }
+                          if (k === "left") {
+                            const d = soonLeft(l);       // 가장 임박한 쪽을 보여 준다
+                            return (
+                              <td key={k} className="c-left mlt-spec">
+                                {d == null ? (l.is_private && !l.also_naver
+                                    ? <span className="mlt-no">—</span>
+                                    : <button className="mlt-rkask" onClick={(e) => { e.stopPropagation(); checkRank(); }}
+                                        title="누르면 화면에 보이는 매물의 광고 잔여일을 점검합니다">점검</button>)
+                                  : <span className={d <= 3 ? "mlt-lf bad" : d <= 7 ? "mlt-lf warn" : "mlt-lf"}
+                                      title="확인일 + 30일 기준. 네이버가 만료일을 주지 않아 실측 노출기간으로 계산합니다">
+                                      {d < 0 ? "지남" : `${d}일`}
+                                    </span>}
+                              </td>
+                            );
+                          }
+                          if (k === "cp_name") return (
+                            <td key={k} className="c-cp_name mlt-spec"
+                              title={[l, ...(l.ad_dupes || [])].map((x) => `${x.cp_name || "네이버"} ${x.article_no}`).join("\n")}>
+                              {l.cp_name || <span className="mlt-no">—</span>}
+                              {!!l.ad_dupes?.length && <i className="mlt-cpn"> 외 {l.ad_dupes.length}</i>}
+                            </td>
+                          );
+                          if (k === "manager") return (
+                            <td key={k} className="c-manager" onClick={(e) => e.stopPropagation()}>
+                              {delMode || ro ? (l.manager || <span className="mlt-no">—</span>) : (
+                                <select className="mlt-cell-sel" value={l.manager || ""}
+                                  onChange={(e) => assignManager(l, e.target.value)}>
+                                  <option value="">미지정</option>
+                                  {managers.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
+                                </select>
+                              )}
+                            </td>
+                          );
+                          if (k === "contact" || k === "memo") {
+                            const on = cellEdit?.an === l.article_no && cellEdit.k === k;
+                            return (
+                              <td key={k} className={k === "contact" ? "c-contact mlt-tel mlt-ed" : "c-memo mlt-memo mlt-ed"}
+                                title={delMode ? undefined : "눌러서 바로 고치기"}
+                                onClick={(e) => { if (delMode || ro) return; e.stopPropagation(); if (!on) beginEdit(l, k); }}>
+                                {on ? (
+                                  <input className="mlt-cell-in" autoFocus value={draft}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => setDraft(e.target.value)}
+                                    onKeyDown={editKey} onBlur={commitEdit} />
+                                ) : (
+                                  (l[k] || "") || <span className="mlt-no">{k === "contact" ? "—" : ""}</span>
+                                )}
+                                {saved[l.article_no] && !on && <i className="mlt-okdot" title="저장됨">✓</i>}
+                              </td>
+                            );
+                          }
+                          return (
+                            <td key={k} className="c-act">
+                              <button className="mlt-edbtn"
+                                title={l.is_private ? "매물 수정" : "상세 보기 — 네이버 광고 매물은 내용을 못 고칩니다"}
+                                aria-label={l.is_private ? "매물 수정" : "상세 보기"}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (l.is_private && !ro) { setEditPL(l); setPlOpen(true); }
+                                  else { setDetailOwner(""); setDetail(l); }
+                                }}>
+                                <Pencil size={13} aria-hidden />
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                  {!rows.length && (
+                    <tr><td colSpan={VIEWCOLS.length + (delMode ? 1 : 0)} className="mlt-empty">
+                      조건에 맞는 매물이 없습니다.
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
+            <div className="mlt-grabtip" ref={tipRef} aria-hidden>↔ 끌어서 좌우로</div>
+            {edge.r && <div className="mlt-fade r" aria-hidden />}
+            {edge.r && (
+              <button className="mlt-nudge r" title="오른쪽 열 보기" aria-label="오른쪽 열 보기"
+                onClick={() => nudge(1)}>›</button>
+            )}
+            </div>
+          )}
+          {(edge.r || edge.l) && (
+            <div className="mlt-hint">표를 좌우로 끌어 옮길 수 있습니다{edge.r ? " — 오른쪽에 열이 더 있습니다" : ""}</div>
           )}
 
           {/* 필터 바텀시트 */}
@@ -1939,26 +2701,63 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       )}
 
       {/* 매물 직접등록 — 플로팅 */}
-      <button className="mlj2-fab" onClick={() => { setEditPL(null); setPlOpen(true); }}>
+      {!ro && <button className="mlj2-fab" onClick={() => { setEditPL(null); setPlOpen(true); }}>
         <Plus size={18} aria-hidden />직접등록
-      </button>
+      </button>}
       {impOpen && (
         <ImportListings authH={authH} onClose={() => setImpOpen(false)}
           onSaved={() => { setPriv(true); load(); }} />
       )}
       {detail && <ListingDetail l={detail} owner={detailOwner} authH={authH}
         managers={managers}
-        onPatch={(k, v) => { patch(detail.article_no, k, v); setDetail({ ...detail, [k]: v } as MLItem); }}
-        onSaveNote={() => saveNote(detail)}
+        onPatch={ro ? undefined
+          : (k, v) => { patch(detail.article_no, k, v); setDetail({ ...detail, [k]: v } as MLItem); }}
+        onSaveNote={ro ? undefined : () => saveNote(detail)}
         saved={!!saved[detail.article_no]}
-        onAssign={(v) => { assignManager(detail, v); setDetail({ ...detail, manager: v }); }}
-        onToPrivate={(vis) => toPrivate(detail, vis)}
+        onAssign={ro ? undefined : (v) => { assignManager(detail, v); setDetail({ ...detail, manager: v }); }}
+        onToPrivate={ro ? undefined : (vis) => toPrivate(detail, vis)}
         privMsg={privMsg[detail.article_no]}
-        onFilled={load}
-        onEditPrivate={() => { setEditPL(detail); setPlOpen(true); setDetail(null); }}
-        onDeletePrivate={() => delPrivate(detail)}
+        onFilled={ro ? undefined : load}
+        onEditPrivate={ro ? undefined : () => { setEditPL(detail); setPlOpen(true); setDetail(null); }}
+        onDeletePrivate={ro ? undefined : () => delPrivate(detail)}
         onSavedPrivate={() => { setPriv(true); load(); }}
         onClose={() => { setDetail(null); setDetailOwner(""); }} />}
+      {chkOpen && (() => {
+        const k = chkOpen.k;
+        const all = k === "dong" ? opts.dong : k === "area_name" ? opts.area_name
+                  : k === "cp_name" ? opts.cp_name : [];
+        const q = chkQ.trim().toLowerCase();
+        const list = q ? all.filter((v) => v.toLowerCase().includes(q)) : all;
+        const cur = colF[k] || [];
+        const label = k === "dong" ? "동" : k === "cp_name" ? "광고채널" : "평형";
+        const flip = (v: string) => setColF((f) => {
+          const n = new Set(f[k] || []);
+          n.has(v) ? n.delete(v) : n.add(v);
+          return { ...f, [k]: [...n] };
+        });
+        return (
+          <div className="mlt-chkmenu" style={{ left: chkOpen.x, top: chkOpen.y }}>
+            <div className="mlt-chkmenu-h">
+              <b>{label}</b>
+              <span>{cur.length ? `${cur.length}개 선택` : "전체"}</span>
+              <button onClick={() => setColF((f) => ({ ...f, [k]: [] }))}>해제</button>
+            </div>
+            {all.length > 10 && (
+              <input className="mlt-chkmenu-q" autoFocus value={chkQ} placeholder="찾기"
+                onChange={(e) => setChkQ(e.target.value)} />
+            )}
+            <div className="mlt-chkmenu-l">
+              {list.map((v) => (
+                <label key={v}>
+                  <input type="checkbox" checked={cur.includes(v)} onChange={() => flip(v)} />
+                  <span>{v}</span>
+                </label>
+              ))}
+              {!list.length && <div className="mlt-chkmenu-e">{q ? "찾는 값이 없습니다." : "고를 값이 없습니다."}</div>}
+            </div>
+          </div>
+        );
+      })()}
       {mapOpen && <OfficeMap authH={authH} officeName={office.realtor_name} onClose={() => setMapOpen(false)} />}
       {plOpen && <PrivateListingForm authH={authH} init={editPL} managers={managers}
         onClose={() => setPlOpen(false)} onSaved={() => { setPlOpen(false); setPriv(true); load(); }} />}
@@ -2625,6 +3424,70 @@ function FillInfo({ authH, pid, onDone }: {
   );
 }
 
+/** 매물장 매물 ↔ 네이버 광고 수동 연결. 자동으로 못 가린 짝을 중개사가 고른다. */
+function LinkNaver({ pid, authH, onClose, onDone }: {
+  pid: number; authH: () => Record<string, string>; onClose: () => void; onDone: () => void;
+}) {
+  const [d, setD] = useState<any>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    fetch(`${API_BASE}/lounge/private-listings/${pid}/link-candidates`, { headers: authH() })
+      .then((r) => r.json()).then(setD).catch(() => setErr("후보를 불러오지 못했어요"));
+  }, [pid, authH]);
+  const link = async (an: string) => {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`${API_BASE}/lounge/private-listings/${pid}/link`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ article_no: an }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(j?.detail || "연결하지 못했어요");
+      onDone(); onClose();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="mld-ov" onClick={onClose}>
+      <div className="mld-lk" onClick={(e) => e.stopPropagation()}>
+        <div className="mld-lk-h">
+          <b>네이버 광고 연결</b>
+          {d?.listing && <span>{d.listing.dong} {d.listing.ho} · {d.listing.trade_type} · {d.listing.price_text}</span>}
+          <button onClick={onClose}><X size={16} /></button>
+        </div>
+        {err && <div className="mld-lk-err">{err}</div>}
+        {!d ? <Loading /> : (
+          <>
+            {d.linked && (
+              <div className="mld-lk-cur">
+                지금 연결됨 — 매물번호 {d.linked}
+                <button disabled={busy} onClick={() => link("")}>연결 해제</button>
+              </div>
+            )}
+            <div className="mld-lk-l">
+              {d.candidates.map((c: any) => (
+                <button key={c.article_no} className="mld-lk-i" disabled={busy}
+                  onClick={() => link(c.article_no)}>
+                  <div className="mld-lk-i1">
+                    <b>{c.trade_type} {c.price_text}{c.rent_price_text ? `/${c.rent_price_text}` : ""}</b>
+                    <span>{c.building_name} · {c.area_name} · {c.floor_info}층 · {c.direction}</span>
+                  </div>
+                  <div className="mld-lk-i2">
+                    <i>{c.why}</i>
+                    <span>{c.cp_name} · {c.article_no} · 확인 {fmtYmd(c.confirm_ymd || "")}</span>
+                  </div>
+                  {c.feature_desc && <div className="mld-lk-i3">{c.feature_desc}</div>}
+                </button>
+              ))}
+              {!d.candidates.length && <div className="mld-lk-e">이을 만한 우리 사무소 광고가 없습니다.</div>}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
   managers = [], onPatch, onSaveNote, saved, onAssign, onToPrivate, privMsg, onFilled,
   onEditPrivate, onDeletePrivate }: {
@@ -2642,6 +3505,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
   // 네이버 연동매물 → 비공개매물장 보관. 네이버에서 내려가도 사무소가 계속 관리할 수 있게
   // 현재 값을 그대로 떠서 저장한다(복사). 내 사무소 매물에만 노출.
   const [savePick, setSavePick] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const canSave = !!authH && !l.is_private && !owner && !!l.article_no;
@@ -2808,8 +3672,19 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
           {l.is_private && onDeletePrivate && (
             <button className="mld-del" onClick={onDeletePrivate}><Trash2 size={14} /> 삭제</button>
           )}
+          {/* 자동 짝 맞추기가 못 가린 것은 사람이 가장 잘 안다 — 중개사가 직접 잇는다 */}
+          {l.is_private && !!l.private_id && onEditPrivate && (
+            <button className="mlj-naver" onClick={() => setLinkOpen(true)}>
+              <Link2 size={14} /> {l.also_naver ? "네이버 광고 연결 바꾸기" : "네이버 광고 연결"}
+            </button>
+          )}
         </div>
       </div>
+      {linkOpen && !!l.private_id && authH && (
+        <LinkNaver pid={l.private_id} authH={authH}
+          onClose={() => setLinkOpen(false)}
+          onDone={() => { onSavedPrivate?.(); onClose(); }} />
+      )}
     </div>
   );
 }
