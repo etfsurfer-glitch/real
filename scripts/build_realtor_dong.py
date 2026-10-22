@@ -18,7 +18,10 @@ realtor_dong(sys_regno PK, cortar_no, realtor_id, dong_name, sgg_cd)
          ② vworld 주소와 네이버 주소의 도로명+건물번호가 같다(같은 건물임이 확인됨)
          cortar_no 에는 옛 등록지가 남아 있는 경우가 있어 단독으로 믿으면 안 된다
          (평택 이민재 — 주소는 고덕동인데 cortar_no 는 장안동).
-  4차  승계(office_succession)를 반영한다. 대표가 바뀌면 같은 자리에 새 등록번호가 생기는데
+  4차  주소를 VWorld 에 물어 받아 둔 법정동(coord_addr.broker_dong_fwd). 도로명만 등록되고
+       네이버 매칭도 없어 세 단계 모두 단서가 없던 사무소가 여기서 살아난다.
+       수집은 scripts/geocode_broker_dong.py 가 따로 한다(가드는 거기서 걸러 'ok' 만 온다).
+  5차  승계(office_succession)를 반영한다. 대표가 바뀌면 같은 자리에 새 등록번호가 생기는데
        vworld 에는 폐업 기록이 없어 옛 사무소가 계속 '영업'으로 남는다. 후임이 아직 동을
        못 찾았으면 옛 사무소의 동을 물려주고, 옛 행은 지운다.
 
@@ -35,6 +38,7 @@ sys.path.insert(0, ".")
 from collector.config import settings  # noqa: E402
 
 DB = settings.local_db_path
+CA = (DB.parent / "coord_addr.sqlite").as_posix()
 DRY = "--dry-run" in sys.argv
 
 # 도로명 + 건물번호. '한강대로 95' 처럼 '대로'도 뒤의 '로'로 잡힌다.
@@ -90,6 +94,23 @@ def _load_links(c):
     return out
 
 
+def _load_geocoded(c):
+    """주소를 물어 받아 둔 법정동. 시군구·동명 가드는 수집 쪽에서 이미 통과한 것만 'ok'."""
+    try:
+        c.execute("ATTACH ? AS ca", (CA,))   # 읽기만 한다. URI 는 ATTACH 에서 안 먹는 환경이 있어 생경로.
+    except sqlite3.OperationalError:
+        return {}
+    try:
+        return {sr: (cn, dn) for sr, cn, dn in c.execute(
+            "SELECT sys_regno, cortar_no, dong_name FROM ca.broker_dong_fwd "
+            "WHERE status='ok' AND cortar_no IS NOT NULL")}
+    except sqlite3.OperationalError:
+        return {}                       # 아직 수집 전
+    finally:
+        # 비단지 집계가 DB 10개를 붙인다 — 자리를 돌려주지 않으면 거기서 터진다.
+        c.execute("DETACH ca")
+
+
 def _load_succession(c):
     try:
         return dict(c.execute("SELECT old_regno, new_regno FROM office_succession"))
@@ -110,7 +131,8 @@ def build_dong(c):
             if hit:
                 sec_remap[code10] = hit
 
-    rows, stat = {}, {"1차": 0, "2차": 0, "3차": 0, "가드탈락": 0, "미해결": 0}
+    geo = _load_geocoded(c)
+    rows, stat = {}, {"1차": 0, "2차": 0, "3차": 0, "4차": 0, "가드탈락": 0, "미해결": 0}
     for sys_regno, sgg_cd, dong_name, address in c.execute(
             "SELECT sys_regno, sgg_cd, dong_name, address FROM vworld_brokers"):
         eff = remap.get(sgg_cd, sgg_cd)
@@ -139,6 +161,11 @@ def build_dong(c):
                     else:
                         stat["가드탈락"] += 1
                 if hit is None:
+                    g = geo.get(sys_regno)
+                    if g and g[0] in secname and g[0][:5] == eff:
+                        rows[sys_regno] = (g[0], secname[g[0]], eff)
+                        stat["4차"] += 1
+                        continue
                     stat["미해결"] += 1
                     continue
         rows[sys_regno] = (hit, secname.get(hit), eff)
@@ -153,8 +180,8 @@ def build_dong(c):
                 inherited += 1
             del rows[old]
             dropped += 1
-    print("  1차 공부상 동명 %6d · 2차 주소 해석 %6d · 3차 계정 동코드 %6d"
-          % (stat["1차"], stat["2차"], stat["3차"]))
+    print("  1차 공부상 동명 %6d · 2차 주소 해석 %6d · 3차 계정 동코드 %6d · 4차 주소조회 %6d"
+          % (stat["1차"], stat["2차"], stat["3차"], stat["4차"]))
     print("  가드 탈락 %d · 미해결 %d · 승계 물려받음 %d · 옛 사무소 제외 %d"
           % (stat["가드탈락"], stat["미해결"], inherited, dropped))
     return [(sr, cn, (links.get(sr) or (None,))[0], dn, sg) for sr, (cn, dn, sg) in rows.items()]

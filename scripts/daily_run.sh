@@ -94,6 +94,11 @@ step "step 9a-2: realtor_name_watch (상호 변경)" $PY -u scripts/realtor_name
 #   우리 vworld 적재분에는 폐업 상태가 없어 옛 번호가 계속 '영업'으로 남는다. 계정이 옛 번호에
 #   붙은 채 굳어 매칭이 조용히 틀어진다(2026-10-21 흑석 새봄 제보). 탐지만 하고 적용은 사람이 한다.
 step "step 9a-3: detect_succession (승계 후보)" $PY -u scripts/detect_succession.py --save --limit 0; succession_exit=$?
+# 9a-4: 도로명만 등록돼 동을 못 찾는 사무소의 주소를 VWorld 에 물어 법정동을 받아 둔다.
+#   '우리동네 중개사'는 사무소 소재 동이 있어야 보이는데, 신축 상가처럼 도로명만 등록되고
+#   네이버 매칭도 없으면 단서가 없어 통째로 빠졌다(2026-10-22 전국 대조 12,787곳).
+#   받아 둔 값은 9b 가 4차 패스로 읽는다. 신규분만 점증(이미 물어본 건 건너뜀).
+step "step 9a-4: geocode_broker_dong (사무소 법정동)" $PY -u scripts/geocode_broker_dong.py --limit 500; brokerdong_exit=$?
 step "step 9b: build_realtor_dong (우리동네)" $PY -u scripts/build_realtor_dong.py; rdong_exit=$?
 step "step 10: rematch_all_realprice"      $PY -u scripts/rematch_all_realprice.py --tables apt rent offi offi_rent --concurrency 4; rematch_exit=$?
 
@@ -126,5 +131,5 @@ step "step 13: region_listings(비단지 전국)" $PY -u scripts/collect_region_
 step "step 13-pre: hidden_realtor_map(비단지 신규분 귀속)" $PY -u scripts/apply_hidden_realtor_map.py
 step "step 13b: build_realtor_dong (비단지 반영)" $PY -u scripts/build_realtor_dong.py; rdong2_exit=$?
 
-log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} villa=${villa_exit:-NA} house=${house_exit:-NA} comm=${comm_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} namewatch=${namewatch_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} trendcache=${trendcache_exit:-NA} region=${region_exit:-NA}"
+log "daily run done  collect=$collect_exit archive=${archive_exit:-NA} realprice=${realprice_exit:-NA} rentals=${rentals_exit:-NA} offi=${offi_exit:-NA} silv=${silv_exit:-NA} villa=${villa_exit:-NA} house=${house_exit:-NA} comm=${comm_exit:-NA} supply=${supply_exit:-NA} cdetail=${cdetail_exit:-NA} nrealtor=${nrealtor_exit:-NA} namewatch=${namewatch_exit:-NA} brokerdong=${brokerdong_exit:-NA} match=${match_exit:-NA} rematch=${rematch_exit:-NA} rollup=${rollup_exit:-NA} cache=${cache_exit:-NA} trendcache=${trendcache_exit:-NA} region=${region_exit:-NA}"
 bash "$ROOT/scripts/warm_api.sh" >>"$LOG" 2>&1 || true   # 캐시 워밍(재빌드 후 첫 사용자도 빠르게)
