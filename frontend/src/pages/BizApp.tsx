@@ -61,6 +61,7 @@ export default function BizApp() {
   const nav = useNavigate();
   const [st, setSt] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);      // 입구에서 막혔을 때 보여 줄 안내
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [joinRole, setJoinRole] = useState<"owner" | "staff">("owner");
   const [consentRid, setConsentRid] = useState<string | null>(null);   // 신규가입 약관동의 대기
@@ -79,12 +80,35 @@ export default function BizApp() {
     return () => { if (link && prev) link.href = prev; };
   }, []);
 
+  // 라운지 입구. 여기서 200 이 아닌 응답이 하나라도 그냥 흘러가면 사용자는 아무 안내 없이
+  // 빈 화면이나 영원한 스피너를 본다 — '중개사라운지를 눌러도 안 들어가진다' 민원의 실체였다
+  // (2026-10-22 재현). 401 은 세션 만료, 5xx·네트워크는 배포 블립이므로 서로 다르게 다룬다.
   const loadStatus = useCallback(() => {
     if (!token || !API_BASE) { setLoading(false); return; }
     setLoading(true);
-    fetch(`${API_BASE}/lounge/status`, { headers: authH() })
-      .then((r) => r.json()).then((d: Status) => setSt(d))
-      .catch(() => setSt(null)).finally(() => setLoading(false));
+    setErr(null);
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    (async () => {
+      // 일시적 실패(배포 재시작·순간 네트워크)는 흡수한다 — useFetchJson 과 같은 정책.
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const r = await fetch(`${API_BASE}/lounge/status`, { headers: authH() });
+          if ((r.status === 502 || r.status === 503 || r.status === 504) && attempt < 3) {
+            await sleep(400 * attempt); continue;
+          }
+          if (r.status === 401) {       // 세션 만료 — 다시 로그인하면 된다
+            setSt(null); setErr("세션이 만료됐어요. 다시 로그인하면 바로 들어갑니다."); return;
+          }
+          if (!r.ok) { setSt(null); setErr(`라운지를 불러오지 못했어요 (오류 ${r.status})`); return; }
+          const d = (await r.json()) as Status;
+          if (!d || !d.state) { setSt(null); setErr("라운지 상태를 알 수 없어요."); return; }
+          setSt(d); return;
+        } catch {
+          if (attempt < 3) { await sleep(400 * attempt); continue; }
+          setSt(null); setErr("연결이 끊겼어요. 잠시 후 다시 시도해 주세요.");
+        }
+      }
+    })().finally(() => setLoading(false));
   }, [token, authH]);
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
@@ -93,7 +117,9 @@ export default function BizApp() {
   // ── ① 비로그인: 중개사 전용 랜딩 ──
   if (!user || !configured) return <BizLanding />;
 
-  if (loading || !st) return <div className="biz-shell"><BizTop /><Loading /></div>;
+  if (loading) return <div className="biz-shell"><BizTop /><Loading /></div>;
+  // 못 불러왔으면 이유를 말하고 길을 준다. 예전엔 여기서 그냥 스피너가 멈춰 있었다.
+  if (!st) return <BizStatusError msg={err ?? "라운지를 불러오지 못했어요."} onRetry={loadStatus} />;
 
   // ── ② 사무소 연결 전 흐름 ──
   if (st.state !== "linked" || !st.office) {
@@ -151,6 +177,17 @@ export default function BizApp() {
           )}
           {st.state === "admin_pick" && (
             <Card><p><b>관리자</b> — 둘러볼 사무소를 검색해 연결하세요.</p><AdminPick authH={authH} onPicked={loadStatus} /></Card>
+          )}
+          {/* 아는 상태가 하나도 안 걸리면 — 서버에 새 state 가 생겼거나 응답이 깨진 경우.
+              예전엔 여기서 본문이 통째로 비어 '라운지가 안 열린다'가 됐다. */}
+          {!KNOWN_STATES.has(st.state as string) && (
+            <Card>
+              <p>라운지 상태를 해석하지 못했어요.</p>
+              <p className="muted" style={{ fontSize: 13 }}>
+                앱을 최신 버전으로 업데이트한 뒤에도 같으면 알려 주세요. (상태: {String(st.state ?? "없음")})
+              </p>
+              <button className="ai-send" style={{ padding: "8px 16px" }} onClick={loadStatus}>다시 시도</button>
+            </Card>
           )}
           {consentRid && (
             <BizTermsConsentModal authH={authH}
@@ -211,10 +248,11 @@ export default function BizApp() {
 
   // ── 데스크톱 레일 셸(플래그 ?ui=rail) — 같은 메뉴·같은 화면을 사이드바로 ──
   if (useRail) {
+    const wide = RAIL_WIDE.has(screen || "");
     return (
       <div className="biz-rail-shell">
         <BizRail screen={screen} role={st.role ?? "owner"} mini={railMini} />
-        <div className="biz-rail-main">
+        <div className={"biz-rail-main" + (wide ? " wide" : "")}>
           {dispatch ?? homeBody}
         </div>
         {callPhone && <QuickAddCustomer phone={callPhone} onClose={closeCallAdd} />}
@@ -303,6 +341,37 @@ function BizTop({ backTo, title, settings }: { backTo?: string; title?: string; 
 }
 
 // ── 비로그인 랜딩: 중개사 전용 강조 ──
+// 프런트가 아는 라운지 상태. 여기에 없는 값이 오면 빈 화면 대신 안내를 띄운다.
+const KNOWN_STATES = new Set(["need_phone", "select", "no_match", "staff_pending",
+                              "doc_pending", "admin_pick", "linked"]);
+
+// 라운지 입구에서 막혔을 때 — 왜 막혔는지 말하고, 나갈 길을 준다.
+function BizStatusError({ msg, onRetry }: { msg: string; onRetry: () => void }) {
+  const expired = msg.includes("세션");
+  return (
+    <div className="biz-shell">
+      <BizTop />
+      <div className="biz-body">
+        <Card>
+          <p style={{ fontWeight: 700 }}>{msg}</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+            {expired ? (
+              <button className="ai-send" style={{ padding: "8px 16px" }} onClick={() => logout()}>
+                다시 로그인
+              </button>
+            ) : (
+              <button className="ai-send" style={{ padding: "8px 16px" }} onClick={onRetry}>
+                다시 시도
+              </button>
+            )}
+            <Link to="/" className="chip">콕집 홈으로</Link>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 function BizLanding() {
   return (
     <div className="biz-shell biz-landing">
@@ -424,13 +493,16 @@ function tabForScreen(screen?: string): BizTab {
 }
 
 // 라우트 전용 셸 래퍼 — BizApp 밖의 /biz 라우트(계약서 작성 등)도 레일/탭바 셸에 담는다.
+// 표가 주인공인 화면 — 1120px 읽기 폭에 가두면 열이 잘리고 양옆만 빈다(2026-10-06 민원).
+const RAIL_WIDE = new Set(["diary", "audit", "rank", "ledger", "analyze"]);
+
 export function BizRouteShell({ screen, children }: { screen: string; children: React.ReactNode }) {
   const { on: useRail, mini } = useRailShell();
   if (useRail) {
     return (
       <div className="biz-rail-shell">
         <BizRail screen={screen} role="owner" mini={mini} />
-        <div className="biz-rail-main">{children}</div>
+        <div className={"biz-rail-main" + (RAIL_WIDE.has(screen) ? " wide" : "")}>{children}</div>
       </div>
     );
   }
