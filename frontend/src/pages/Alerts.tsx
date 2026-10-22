@@ -41,6 +41,7 @@ export default function Alerts() {
   const loc = useLocation();
   const [items, setItems] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());   // 펼쳐서 전체 내용을 보는 알림 id
 
@@ -54,9 +55,13 @@ export default function Alerts() {
       const r = await fetch(`${API}/me/alerts?${qs}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
+      // 오류를 '알림 없음'으로 보여주면 놓친 알림이 없는 줄 안다.
+      if (r.status === 401) throw new Error("세션이 만료됐어요. 다시 로그인해 주세요.");
+      if (!r.ok) throw new Error(`불러오지 못했어요 (오류 ${r.status})`);
       const d = await r.json();
       setItems(d.items || []);
-    } catch { /* 무시 */ }
+      setErr("");
+    } catch (e) { setErr(e instanceof Error ? e.message : "불러오지 못했어요"); }
     setLoading(false);
   }, [token]);
 
@@ -118,7 +123,13 @@ export default function Alerts() {
         )}
       </div>
 
-      {loading ? (
+      {err ? (
+        <div className="alerts-empty">
+          <Bell size={40} strokeWidth={1.6} />
+          <p>{err}</p>
+          <button className="chip" style={{ cursor: "pointer" }} onClick={() => load()}>다시 시도</button>
+        </div>
+      ) : loading ? (
         <div className="alerts-empty">불러오는 중…</div>
       ) : items.length === 0 ? (
         <div className="alerts-empty">

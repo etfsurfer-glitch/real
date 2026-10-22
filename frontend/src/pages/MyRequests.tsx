@@ -23,12 +23,21 @@ export default function MyRequests() {
   const { token } = useAuth();
   const [items, setItems] = useState<Req[]>([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
 
   const load = useCallback(() => {
     if (!token) { setLoading(false); return; }
+    setErr("");
     fetch(`${API}/me/requests`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json()).then((d) => setItems(d.items || []))
-      .catch(() => setItems([])).finally(() => setLoading(false));
+      .then((r) => {
+        if (r.status === 401) throw new Error("세션이 만료됐어요. 다시 로그인해 주세요.");
+        if (!r.ok) throw new Error(`불러오지 못했어요 (오류 ${r.status})`);
+        return r.json();
+      })
+      .then((d) => setItems(d.items || []))
+      // 보낸 요청이 있는데 '없음'으로 보이면 요청이 날아간 줄 안다.
+      .catch((e: Error) => { setItems([]); setErr(e.message); })
+      .finally(() => setLoading(false));
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
@@ -48,7 +57,12 @@ export default function MyRequests() {
     <div className="kreq">
       <h2><Sparkles size={20} strokeWidth={2.3} /> 내 콕집요청</h2>
 
-      {loading ? <div className="muted">불러오는 중…</div>
+      {err ? (
+        <div className="kreq-card kreq-center">
+          <p className="muted">{err}</p>
+          <button className="kreq-primary" onClick={load} style={{ cursor: "pointer" }}>다시 시도</button>
+        </div>
+      ) : loading ? <div className="muted">불러오는 중…</div>
         : items.length === 0 ? (
           <div className="kreq-card kreq-center">
             <p className="kreq-lead">아직 보낸 요청이 없어요.</p>

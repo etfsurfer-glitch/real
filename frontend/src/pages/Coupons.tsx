@@ -23,11 +23,20 @@ function when(s: string): string {
 export default function Coupons() {
   const { token } = useAuth();
   const [items, setItems] = useState<Coupon[] | null>(null);
+  const [err, setErr] = useState("");
 
   const load = useCallback(() => {
     if (!token || !isInstalledApp()) { setItems([]); return; }
+    setErr("");
     fetch(`${API}/me/coupons`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json()).then((d) => setItems(d.items || [])).catch(() => setItems([]));
+      // 401 을 그대로 흘리면 쿠폰이 '없음'으로 보인다 — 받은 쿠폰이 사라진 줄 안다.
+      .then((r) => {
+        if (r.status === 401) throw new Error("세션이 만료됐어요. 다시 로그인해 주세요.");
+        if (!r.ok) throw new Error(`불러오지 못했어요 (오류 ${r.status})`);
+        return r.json();
+      })
+      .then((d) => setItems(d.items || []))
+      .catch((e: Error) => { setItems([]); setErr(e.message); });
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
@@ -56,7 +65,12 @@ export default function Coupons() {
     <div className="cp-wrap">
       <h1><Ticket size={20} strokeWidth={2.2} /> 쿠폰함</h1>
 
-      {items === null ? (
+      {err ? (
+        <div className="cp-empty">
+          <p>{err}</p>
+          <button className="cp-go" onClick={load} style={{ cursor: "pointer" }}>다시 시도</button>
+        </div>
+      ) : items === null ? (
         <div className="cp-empty">불러오는 중…</div>
       ) : items.length === 0 ? (
         <div className="cp-empty">
