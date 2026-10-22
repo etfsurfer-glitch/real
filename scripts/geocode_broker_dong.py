@@ -39,6 +39,11 @@ import time
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path as _Path
+
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+
+from collector.icn_remap import ICN_DONG_REMAP  # noqa: E402
 
 NV = "/opt/koczip/data/naverreal.sqlite"
 CA = "/opt/koczip/data/coord_addr.sqlite"
@@ -85,11 +90,20 @@ def sgg_remap(nv):
 
 def load_regions(nv):
     """(시군구5 → 시군구명, (시군구5, 동명) → cortar_no)."""
-    sgg_name, sec = {}, {}
+    sgg_name, sec, name_of = {}, {}, {}
     for no, nm in nv.execute("SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='dvsn'"):
         sgg_name[no[:5]] = nm
     for no, nm in nv.execute("SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='sec'"):
         sec[(no[:5], nm)] = no
+        name_of[no] = nm
+    # 인천 2026-07 개편 — vworld 는 소멸한 중·동·서구(28110·28140·28260)로 등록해 두는데
+    # regions 는 신설구(제물포·영종·서해·검단)만 들고 있다. '중구 운서동'을 중구에서 찾으면
+    # 없어서 가드②가 통째로 버린다(2026-10-22, 인천 75곳). 검증된 옛동→신동 표로 옛 구
+    # 번호에도 같은 동을 달아 둔다. 표에 있는 동만 달리므로 다른 구가 섞일 여지는 없다.
+    for old, new in ICN_DONG_REMAP.items():
+        nm = name_of.get(new)
+        if nm:
+            sec.setdefault((old[:5], nm), new)
     return sgg_name, sec
 
 

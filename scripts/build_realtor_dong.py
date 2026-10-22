@@ -36,6 +36,7 @@ import sys
 
 sys.path.insert(0, ".")
 from collector.config import settings  # noqa: E402
+from collector.icn_remap import ICN_DONG_REMAP  # noqa: E402
 
 DB = settings.local_db_path
 CA = (DB.parent / "coord_addr.sqlite").as_posix()
@@ -71,14 +72,27 @@ def _sgg_remap(c):
 
 
 def _load_sec(c):
-    """시군구5 → [(동명, cortar_no)] (긴 이름 먼저), cortar_no → 동명."""
+    """시군구5 → [(동명, cortar_no)] (긴 이름 먼저), cortar_no → 동명, 허용쌍 {(시군구5, cortar)}.
+
+    인천은 2026-07 개편으로 중·동·서구(28110·28140·28260)가 없어졌는데 vworld 는 아직 그
+    번호로 등록해 두고 regions 는 신설구(제물포·영종·서해·검단)만 들고 있다. 그래서 '중구
+    운서동'을 중구에서 찾으면 없고, 그 사무소가 통째로 빠진다(2026-10-22, 인천 75곳).
+    검증된 옛동→신동 표(collector/icn_remap, 모호 0)로 옛 구 번호에도 같은 동을 달아 둔다.
+    표에 실린 동만 달리므로 다른 구가 섞일 여지는 없다. 등재되는 sgg_cd 는 해석된 cortar 의
+    앞 5자리라 신설구로 들어간다 — 노출은 현행 구를 따른다는 기준과 같다.
+    """
     byset, name = {}, {}
     for no, nm in c.execute("SELECT cortar_no, cortar_name FROM regions WHERE cortar_type='sec'"):
         byset.setdefault(no[:5], []).append((nm, no))
         name[no] = nm
+    for old, new in ICN_DONG_REMAP.items():
+        nm = name.get(new)
+        if nm and (nm, new) not in byset.get(old[:5], []):
+            byset.setdefault(old[:5], []).append((nm, new))
     for k in byset:
         byset[k].sort(key=lambda t: -len(t[0]))
-    return byset, name
+    allowed = {(k, no) for k, v in byset.items() for _, no in v}
+    return byset, name, allowed
 
 
 def _load_links(c):
@@ -120,7 +134,7 @@ def _load_succession(c):
 
 def build_dong(c):
     remap = _sgg_remap(c)
-    sec, secname = _load_sec(c)
+    sec, secname, allowed = _load_sec(c)
     links = _load_links(c)
     # 광주·전남 법정동 코드도 이름으로 29/46 체계로 옮긴다(네이버 계정 cortar 가 12xxx 인 경우).
     sec_remap = {}
@@ -150,7 +164,7 @@ def build_dong(c):
                 link = links.get(sys_regno)
                 nc = link[2] if link else None
                 nc = sec_remap.get(nc, nc)
-                if nc and nc in secname and nc[:5] == eff:
+                if nc and (eff, nc) in allowed:
                     nm, naddr = secname[nc], (link[1] or "")
                     rk = _road_key(addr)
                     same_dong = nm in naddr or nm in _dong_words(naddr)
@@ -162,13 +176,13 @@ def build_dong(c):
                         stat["가드탈락"] += 1
                 if hit is None:
                     g = geo.get(sys_regno)
-                    if g and g[0] in secname and g[0][:5] == eff:
-                        rows[sys_regno] = (g[0], secname[g[0]], eff)
+                    if g and (eff, g[0]) in allowed:
+                        rows[sys_regno] = (g[0], secname[g[0]], g[0][:5])
                         stat["4차"] += 1
                         continue
                     stat["미해결"] += 1
                     continue
-        rows[sys_regno] = (hit, secname.get(hit), eff)
+        rows[sys_regno] = (hit, secname.get(hit), hit[:5])
 
     # 4차 — 승계. 후임이 못 풀렸으면 옛 사무소 자리를 물려받고, 옛 행은 뺀다.
     succ = _load_succession(c)
