@@ -1222,11 +1222,21 @@ function MoreHub({ authH, hasHomepage, role, onLogout }: {
         <BizBtn to="/biz/dash" icon={<LayoutDashboard size={22} />} label="대시보드" desc="오늘의 사무소 현황" />
         <BizBtn to="/biz/edit" icon={<Pencil size={22} />} label="정보수정요청" desc="사무소 정보 정정" />
         <BizBtn to="/biz/settings" icon={<Settings size={22} />} label="설정" desc="알림·계정" />
-        <button className="biz-btn" onClick={openConsumerApp}>
-          <span className="biz-btn-ic"><Home size={22} /></span>
-          <b>콕집 (일반)</b>
-          <span className="biz-btn-desc">일반 사용자 앱 열기</span>
-        </button>
+        {/* 중개사앱에서만 '다른 앱 실행'이 뜻이 있다. 일반앱·PWA·브라우저에서는 같은 앱 안이라
+            인텐트를 쏘면 밖으로 새거나 스토어로 튄다 — 그냥 제자리에서 홈으로 간다. */}
+        {isRealtorApp() ? (
+          <button className="biz-btn" onClick={openConsumerApp}>
+            <span className="biz-btn-ic"><Home size={22} /></span>
+            <b>콕집 (일반)</b>
+            <span className="biz-btn-desc">일반 사용자 앱 열기</span>
+          </button>
+        ) : (
+          <Link to="/" className="biz-btn">
+            <span className="biz-btn-ic"><Home size={22} /></span>
+            <b>콕집 홈</b>
+            <span className="biz-btn-desc">실거래·급매·시세 보기</span>
+          </Link>
+        )}
       </div>
       {pushSupported() && (
         <button className={`biz-push ${pushOn ? "on" : ""}`} onClick={togglePush} disabled={pushOn}>

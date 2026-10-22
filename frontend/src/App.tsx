@@ -14,7 +14,7 @@ import { setAuthReturn } from "./lib/authreturn";
 import { logPageview } from "./lib/pageview";
 import PhoneVerify from "./components/PhoneVerify";
 import CrossAppGate from "./components/CrossAppGate";
-import { isGeneralApp, isRealtorApp, isInstalledApp } from "./lib/appmode";
+import { isRealtorApp, isInstalledApp } from "./lib/appmode";
 import AccountMenu from "./components/AccountMenu";
 import Overview from "./pages/Overview";
 import ComplexDetail from "./pages/ComplexDetail";
@@ -268,9 +268,16 @@ function AppShell() {
   }
   // /biz — 콕집 중개사 앱(TWA 전용 셸). 소비자용 크롬 없이 독립 렌더.
   if (location.pathname === "/biz" || location.pathname.startsWith("/biz/")) {
-    // 일반(소비자) 앱이 /biz 로 들어오면 소비자 홈으로 돌려보낸다. /biz 는 중개사 전용 셸이고,
-    // 구 /lounge 는 이제 /biz 로 리다이렉트되므로 여기서 /lounge 로 보내면 무한 루프가 된다.
-    if (isGeneralApp()) return <Navigate to="/" replace />;
+    // 일반앱도 라운지를 그대로 쓴다(2026-08-14 앱 통합). 아래 '앱 분리 게이트'의 기준과 같다.
+    //
+    // 예전엔 여기서 일반앱을 /lounge 로 돌려보냈고, 그때는 /lounge 가 실제 화면이라 동작했다.
+    // 통합 셸(2026-09-15)로 /lounge 가 /biz 에 흡수되면서 무한 루프를 피하려 홈(/)으로 바꿨는데,
+    // 그 결과 일반앱·PWA 설치본에서는 '중개사라운지'를 눌러도 홈으로 되돌아왔다 —
+    // /lounge → /biz → / 가 한 번에 일어나 사용자 눈엔 아무 일도 안 일어난 것처럼 보인다.
+    // 9월 15일 이후 이 경로로 들어온 중개사는 라운지에 한 번도 못 들어갔다(민원, 2026-10-22).
+    //
+    // 막을 이유가 없다 — 라운지 API 는 전부 _require_member 로 막혀 있고, 미연결 사용자에겐
+    // 라운지가 스스로 '사무소 연결'을 안내한다. 나가는 길은 '더보기 → 콕집 (일반)'이 준다.
     return (
       <ErrorBoundary key={location.pathname}>
         <InAppAutoExternal />
