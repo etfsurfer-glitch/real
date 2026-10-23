@@ -146,6 +146,17 @@ def _is_residential(rtype) -> bool:
     return bool(rtype) and any(k in str(rtype) for k in _RESIDENTIAL_KEYWORDS)
 
 
+def _lacks_room_fields(rtype) -> bool:
+    """네이버 '건물'(통건물) 유형은 입력 폼에 방 수·방향 기준 칸이 아예 없다.
+
+    실측(2026-10-23) 표본 26건 전부 두 값이 비어 있었고, 같은 DB의 '상가주택' 14건은
+    14건 모두 채워져 있었다 — 중개사가 안 쓴 게 아니라 쓸 칸이 없는 것이다. 고칠 수
+    없는 항목은 지적하지 않는다(상업용 방향을 점검에서 뺀 2026-10-13 결정과 같은 기준).
+    욕실 수는 '건물'에도 들어오므로 그대로 본다.
+    """
+    return str(rtype or "").strip() == "건물"
+
+
 def _purps_cat(purps) -> str:
     """건축물대장 용도 → 대분류(주거/업무/상업/숙박/기타)."""
     p = str(purps or "")
@@ -406,6 +417,8 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     #      · 비주거 : 욕실만 보면 된다. 방 수는 사무실·상가에서 적을 내용이 없어
     #                 아무도 쓰지 않는다(실측 120건 중 사무실·상가·지산 입력 0건).
     #                 욕실 미입력은 위반 — 68%가 적는 항목을 빼먹은 것이다.
+    #      · 통건물 : '건물' 유형은 방 수 칸 자체가 없다 → 욕실만 본다(_lacks_room_fields).
+    #                 주택이 섞인 통건물이라도 방 수를 요구하면 고칠 수 없는 지적이 된다.
     #      · 욕실 0 : **비주거만** 주의. 아무 생각 없이 0 을 넣는 경우가 대부분이고,
     #                 건물 밖 공용화장실이라 0 이라는 소명도 드물지만 가능하다.
     #                 **주거의 욕실 0 은 위반** — 사람이 사는 집에 화장실 0 개는 없다.
@@ -421,10 +434,14 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     _entered = lambda v: v is not None and str(v).strip() not in ("", "-", "None")
     has_room, has_bath = _entered(f.get("room_count")), _entered(f.get("bathroom_count"))
     bath0 = has_bath and _to_float(f.get("bathroom_count")) == 0
-    if residential and not (has_room and has_bath):
+    # 통건물('건물')은 방 수 칸이 없다 — 주거가 섞여 있어도 욕실만 본다(_lacks_room_fields).
+    room_required = residential and not _lacks_room_fields(rtype)
+    if room_required and not (has_room and has_bath):
         add(8, "방수/욕실수", "위반",
             "방 수 미표시" if has_bath else
             ("욕실 수 미표시" if has_room else "방 수·욕실 수 미표시"))
+    elif residential and not has_bath:
+        add(8, "방수/욕실수", "위반", "욕실 수(화장실) 미표시")
     elif residential and bath0:
         # 주거는 욕실이 0 일 수 없다 — 비주거의 '0 은 주의'를 여기엔 적용하지 않는다
         # (2026-10-12 결정). 사람이 사는 집에 화장실 0 개는 성립하지 않는다.
@@ -434,7 +451,7 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
     elif bath0:
         add(8, "방수/욕실수", "주의", "욕실 수가 0개로 입력됨 — 실제 0개가 맞는지 확인")
     else:
-        add(8, "방수/욕실수", "통과", "" if residential else "욕실 수 표시됨")
+        add(8, "방수/욕실수", "통과", "" if room_required else "욕실 수 표시됨")
 
     # ⑨ 사용승인일 (대장 대조 — 오입력 적발. 단지형은 동별 집합 매칭)
     ua = f.get("use_approve_ymd")
@@ -534,6 +551,8 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
         add(12, "방향", "통과", "상업용 — 기준 선택란 없음(주출입구 기준) · 플랫폼 필수입력")
     elif not _has(f.get("direction")):
         add(12, "방향", "위반", "방향 미표시")
+    elif residential and _lacks_room_fields(rtype):
+        add(12, "방향", "통과", "통건물 — 기준 선택란 없음(주출입구 기준)")
     elif residential and not _has(f.get("direction_base")):
         add(12, "방향", "주의", "방향 기준(거실/안방 등) 미표시")
     else:
