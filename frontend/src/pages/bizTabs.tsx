@@ -1853,7 +1853,19 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     const hh = h ? (/호$/.test(h) ? h : `${h}호`) : "";
     return [dd, hh].filter(Boolean).join(" ") || "";
   };
-  const areaDongOf = (l: MLItem) => { const v = (l.dong || "").trim(); return isBldDong(v) ? "" : v; };
+  // 법정동만 띄우면 어느 동네인지 가릴 수 없다 — 같은 이름의 동이 전국에 여럿이고,
+  // 동 바로 위가 구인 곳도 있고(서초구 양재동) 시인 곳도 있다(김포시 북변동).
+  // 주소에서 동 앞 토막을 붙여 '서초구 양재동'으로 보여 준다(2026-10-26 지적).
+  // 주소를 못 받은 매물은 종전대로 동만 쓴다. 선택지와 거르기가 이 함수 하나를 쓰므로
+  // 표기를 바꿔도 어긋나지 않는다.
+  const areaDongOf = (l: MLItem) => {
+    const v = (l.dong || "").trim();
+    if (!v || isBldDong(v)) return "";
+    const parts = (l.address || "").trim().split(/\s+/);
+    const i = parts.indexOf(v);
+    const up = i > 0 ? parts[i - 1] : "";
+    return up && up !== v ? `${up} ${v}` : v;
+  };
   // 열 머리 필터 가운데 "값이 같으냐"로 안 되는 것들 — 파생값(출처)·유무(연락처·메모)·구간(가격).
   // price 는 원 단위다(API 가 price_man = price/10000 로 함께 내려준다).
   const PRICE_BANDS: [string, number, number][] = [
@@ -2170,7 +2182,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   };
 
   const downloadCsv = () => {
-    const head = ["거래", "단지·건물", "지역(법정동)", "동", "호", "평형", "공급(㎡)", "전용(㎡)", "층", "향",
+    const head = ["거래", "단지·건물", "지역(시군구·법정동)", "동", "호", "평형", "공급(㎡)", "전용(㎡)", "층", "향",
                   "가격", "월세", "순위", "경쟁", "광고잔여(일)", "출처", "광고채널", "담당자", "연락처", "메모"];
     const cell = (v: any) => {
       const t = v == null ? "" : String(v);
