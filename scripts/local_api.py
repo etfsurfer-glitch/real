@@ -18732,7 +18732,12 @@ def lounge_private_from_naver(body: dict, user: dict = Depends(current_user)):
             "area1_m2": str(src["area1_m2"]) if src.get("area1_m2") else None,
             "area2_m2": str(src["area2_m2"]) if src.get("area2_m2") else None,
             "floor_info": src.get("floor_info"), "direction": src.get("direction"),
-            "price": str(src["price"]) if src.get("price") else _parse_price_man(src.get("price_text")),
+            # 금액은 **price_man**(만원)을 쓴다. 매물장은 만원 단위인데 단지형 네이버 매물의
+            # price 는 원 단위라, 그대로 담으면 1만 배가 된다 — 22.5억이 '225000억'으로
+            # 저장돼 있었다(실측 2건, 2026-08-28 보관분). 비단지는 price_man==price 라
+            # 두 경로가 같은 값이 된다.
+            "price": (str(src["price_man"]) if src.get("price_man")
+                      else _parse_price_man(src.get("price_text"))),
             "rent_price": _parse_price_man(src.get("rent_price_text")),
             "approve_ymd": str(src["approve_ymd"]) if src.get("approve_ymd") else None,
             "parking": str(src["parking_per"]) if src.get("parking_per") else None,
