@@ -15812,8 +15812,13 @@ _QA_PROMPT = (
     "  만들어라. 매물번호에는 그 매물이 매물 배열의 몇 번째인지(0부터) 넣어라.\n"
     "  손님이 찾는 쪽이면 kind=구함이고 매물번호는 비운다.\n"
     "  중개사 본인·사무소·대표는 고객이 아니다. 넣지 마라.\n"
-    "★ 사람이 안 나오는 글(이름도 전화도 없음)은 **매물**이다. '전세 5억' 처럼 짧아도\n"
-    "  매물 배열에 넣고 고객은 비워라 — 누구의 요건인지 알 수 없는 것은 요건이 아니다.\n"
+    "★ 사람이 안 나오는 글(이름도 전화도 없음)의 기본은 **매물**이다. '전세 5억' 처럼\n"
+    "  짧아도 매물 배열에 넣어라.\n"
+    "  ★ 다만 **가진 물건이 아니라 찾는 조건**을 적은 글이면 요건이다 — 지역을 여럿\n"
+    "    늘어놓거나 '100평 전후'·'1000만원선'·'예산'·'구함'·'원함'·'희망' 처럼 범위로\n"
+    "    말한 글이 그렇다(예: '강남, 장충, 약수에 전용 100평 전후 월 1000만원선').\n"
+    "    이때는 이름·전화를 비운 고객 한 명을 만들고 그 아래 kind=구함 요건으로 담아라.\n"
+    "    이름은 중개사가 나중에 채운다. **조건이 분명한 줄을 못읽은줄에 버리지 마라.**\n"
     "  문자·카톡이면 중개사 본인 발화('나')는 근거에서 뺀다.\n" + _QA_COMMON)
 
 
@@ -18175,6 +18180,23 @@ def lounge_quick_parse(body: dict, user: dict = Depends(current_user)):
     return out
 
 
+def _qa_anon_name(it: dict) -> str:
+    """이름을 안 적은 손님에게 알아볼 수 있는 임시 이름을 붙인다.
+
+    고객은 (회원, 이름, 전화)가 유니크 키라, 전부 '(이름없음)' 으로 넣으면 서로 다른
+    손님의 요건이 한 사람 밑에 뭉친다. 첫 요건의 지역·물건종류로 갈라 두고, 중개사가
+    카드에서 이름을 고쳐 쓰면 그때 제대로 된 이름이 된다.
+    """
+    nd = (it.get("요건") or [{}])[0]
+    region = (nd.get("region") or nd.get("complex_name") or "").strip()
+    parts = [x for x in _re.split(r"[,\s]+", region) if x]
+    tag = ""
+    if parts:
+        tag = parts[0] + (f" 외 {len(parts) - 1}곳" if len(parts) > 1 else "")
+    tag = tag or (nd.get("ptype") or "").strip()
+    return f"이름없음 · {tag}" if tag else "(이름없음)"
+
+
 @app.post("/lounge/quick-save")
 def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
     """확인을 마친 매물 + 고객을 한 번에 저장하고 서로 연결한다.
@@ -18235,17 +18257,21 @@ def lounge_quick_save(body: dict, user: dict = Depends(current_user)):
         for it in items:
             name = (it.get("name") or "").strip()
             phone = _digits(it.get("phone") or "") or None
-            if not name and not phone:
+            # 이름 없는 손님도 받는다 — '강남·장충에 100평 전후, 월 1000만원선' 처럼
+            # 조건만 먼저 받아 적는 일이 흔하다(2026-10-26 민원). 요건이 하나라도 있으면
+            # 알아볼 이름을 붙여 넣고, 담을 게 아무것도 없을 때만 건너뛴다.
+            if not name and not phone and not (it.get("요건") or []):
                 continue
+            anon = _qa_anon_name(it) if not name else name
             rc.execute(
                 "INSERT INTO biz_customers(user_id, realtor_id, name, phone, memo) VALUES(?,?,?,?,?) "
                 "ON CONFLICT(user_id, name, COALESCE(phone,'')) DO UPDATE SET "
                 "  memo=COALESCE(NULLIF(excluded.memo,''), biz_customers.memo), "
                 "  updated_at=datetime('now')",
-                (user["id"], rid, name or "(이름없음)", phone, (it.get("memo") or "").strip()))
+                (user["id"], rid, anon, phone, (it.get("memo") or "").strip()))
             cid = rc.execute(
                 "SELECT id FROM biz_customers WHERE user_id=? AND name=? AND COALESCE(phone,'')=?",
-                (user["id"], name or "(이름없음)", phone or "")).fetchone()
+                (user["id"], anon, phone or "")).fetchone()
             cid = cid[0] if cid else None
             for nd in (it.get("요건") or []):
                 # 단지명은 저장 시점에 코드로 못박는다 — 나중에 이름으로 다시 찾지 않게

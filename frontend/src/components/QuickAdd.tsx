@@ -489,6 +489,9 @@ export default function QuickAdd({ authH, onSaved }: {
                 </div>
               ))}
               {(c.요건 || []).length === 0 && <p className="qadd-note">요건은 못 읽었어요. 저장 후 채우실 수 있습니다.</p>}
+              {!(c.name || "").trim() && (c.요건 || []).length > 0 && (
+                <p className="qadd-note">이름을 적어 두면 나중에 찾기 쉬워요. 비워 두면 지역으로 적어 둡니다.</p>
+              )}
             </div>
           ))}
 
