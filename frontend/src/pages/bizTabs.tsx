@@ -1773,7 +1773,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     setSaved((s) => ({ ...s, [l.article_no]: true }));
     setTimeout(() => setSaved((s) => ({ ...s, [l.article_no]: false })), 1500);
   };
-  // 네이버 매물 → 비공개매물장 보관(목록에서 바로)
+  // 네이버 매물 → 사무실 매물장 보관(목록에서 바로)
   const toPrivate = async (l: MLItem, visibility: "office" | "me") => {
     try {
       const r = await fetch(`${API_BASE}/lounge/private-listings/from-naver`, {
@@ -2254,7 +2254,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     const csv = "\uFEFF" + [head.join(","), ...body].join("\r\n");   // BOM — 엑셀 한글 깨짐 방지
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    a.download = `매물장_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `${SHELF_KR[shelf].replace(/ /g, "")}_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
@@ -2360,7 +2360,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
         // ── 큰 폴더 전체보기 ──
         <div className="mlj2-focus">
           <div className="mlj2-fbar">
-            <button className="mlj2-back" onClick={() => setFocusKey(null)}><ArrowLeft size={18} />매물장</button>
+            <button className="mlj2-back" onClick={() => setFocusKey(null)}><ArrowLeft size={18} />{SHELF_KR[shelf]}</button>
             <b>{groupName(focusGroup.items)}</b>
             <span className="mlj2-fbar-n">{focusGroup.items.length}건</span>
           </div>
@@ -2591,7 +2591,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           ) : !items || (busy && items.length === 0) ? (
             <Loading label="내 매물을 불러오는 중이에요" slowHint="매물이 많으면 조금 더 걸릴 수 있어요" />
           ) : items.length === 0 ? (
-            <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 매물장에 나옵니다.</div>
+            <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 사무실 매물장에 나옵니다.</div>
           ) : (
             <div className="mlt-outer" ref={outerRef}>
             <div className="mlt-wrap" ref={wrapRef} onScroll={syncEdge}
@@ -3633,7 +3633,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
   privMsg?: string; onFilled?: () => void;
   onEditPrivate?: () => void; onDeletePrivate?: () => void;
 }) {
-  // 네이버 연동매물 → 우리 매물장 보관. 네이버에서 내려가도 사무소가 계속 관리할 수 있게
+  // 네이버 연동매물 → 사무실 매물장 보관. 네이버에서 내려가도 사무소가 계속 관리할 수 있게
   // 현재 값을 그대로 떠서 저장한다(복사). 내 사무소 매물에만 노출.
   const [savePick, setSavePick] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -3650,7 +3650,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.detail || "저장 실패");
-      setSaveMsg(d.duplicated ? "이미 비공개매물장에 있어요." : "비공개매물장에 저장했어요.");
+      setSaveMsg(d.duplicated ? "이미 사무실 매물장에 있어요." : "사무실 매물장에 저장했어요.");
       setSavePick(false);
       onSavedPrivate?.();
     } catch (e: any) { setSaveMsg(e.message || "저장 실패"); }
@@ -3758,7 +3758,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
               privMsg ? <span className="mlj-keep-ok">{privMsg}</span> : (
                 <div className="mlj-fill">
                   <button onClick={() => onToPrivate("office")}>
-                    <Lock size={12} /> 우리 매물장에 보관</button>
+                    <Lock size={12} /> 사무실 매물장에 보관</button>
                 </div>
               )
             )}
@@ -3768,14 +3768,14 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
         {/* 보조 패널·안내는 고정 버튼 바 '위'에 둔다 — 아래에 두면 sticky 푸터에 가린다 */}
         {savePick && (
           <div className="mld-topriv-pick">
-            <div className="mld-topriv-t">우리 매물장에 보관할까요?</div>
+            <div className="mld-topriv-t">사무실 매물장에 보관할까요?</div>
             <div className="pl-vis">
               <button disabled={saving} onClick={() => toPrivate("office")}>
                 <b>보관하기</b><span>사무실 매물장에 들어갑니다</span></button>
             </div>
             <div className="mld-topriv-n">
-              네이버에서 내려가도 우리 매물장에 남아 계속 관리할 수 있어요.
-              대표만 보게 하려면 매물장에서 <b>고르기 → 비공개로 보내기</b>를 쓰세요.
+              네이버에서 내려가도 사무실 매물장에 남아 계속 관리할 수 있어요.
+              대표만 보게 하려면 <b>고르기 → 비공개로 보내기</b>를 쓰세요.
             </div>
           </div>
         )}
@@ -3790,7 +3790,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
           {route && <a className="mlj-naver" href={route} target="_blank" rel="noreferrer"><MapPin size={14} /> 길찾기</a>}
           {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> 네이버 매물</a>}
           {canSave && <button className="mlj-topriv" onClick={() => setSavePick((v) => !v)}>
-            <Lock size={14} /> 우리 매물장에 보관</button>}
+            <Lock size={14} /> 사무실 매물장에 보관</button>}
           {/* 직접등록한 물건만 고치고 지울 수 있다. 네이버 매물은 수집분이라 우리가 못 지운다 */}
           {l.is_private && onEditPrivate && (
             <button className="mlj-naver" onClick={onEditPrivate}><Pencil size={14} /> 수정</button>

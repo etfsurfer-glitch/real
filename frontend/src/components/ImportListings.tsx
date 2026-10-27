@@ -1,4 +1,4 @@
-// 남의 매물장 엑셀 → 우리 매물장.
+// 남이 쓰던 매물장 엑셀 → 우리 사무실 매물장.
 //
 // 서식이 제각각이라 '이 양식으로 맞춰 오세요'는 답이 아니다. 아무 파일이나 받아 읽고,
 // **무엇을 어떻게 읽었는지 먼저 보여 준 다음** 사람이 확인하면 저장한다. 열 인식이
@@ -53,7 +53,7 @@ export default function ImportListings({ authH, onClose, onSaved }: {
   const [si, setSi] = useState(0);                     // 고른 시트
   const [drop, setDrop] = useState(false);
   const [skipDup, setSkipDup] = useState(true);        // 이미 있는 것은 빼고 담는다
-  // 엑셀로 담은 매물은 늘 사무실 매물장으로 간다. 숨기는 길은 대표가 매물장에서
+  // 엑셀로 담은 매물은 늘 사무실 매물장으로 간다. 숨기는 길은 대표가 거기서
   // 비공개매물장으로 보내는 하나뿐 — 가져오기 화면에서 공개범위를 고르게 하지 않는다.
   const [off, setOff] = useState<Set<number>>(new Set());   // 사람이 뺀 줄
   const [done, setDone] = useState<{ saved: number; skipped: number } | null>(null);
@@ -175,14 +175,14 @@ export default function ImportListings({ authH, onClose, onSaved }: {
     <div className="imp-back" onClick={onClose}>
       <div className="imp" onClick={(e) => e.stopPropagation()}>
         <div className="imp-h">
-          <h3><Upload size={16} strokeWidth={2.3} /> 매물장 가져오기</h3>
+          <h3><Upload size={16} strokeWidth={2.3} /> 사무실 매물장으로 가져오기</h3>
           <button className="imp-x" onClick={onClose} aria-label="닫기"><X size={16} /></button>
         </div>
 
         {done ? (
           <div className="imp-done">
             <Check size={30} />
-            <b>{done.saved.toLocaleString()}건을 매물장에 담았어요</b>
+            <b>{done.saved.toLocaleString()}건을 사무실 매물장에 담았어요</b>
             {done.skipped > 0 && <span>{done.skipped}건은 이미 있는 매물이라 건너뛰었어요.</span>}
             {fill ? (
               <div className="imp-fill">
@@ -193,9 +193,9 @@ export default function ImportListings({ authH, onClose, onSaved }: {
               <span className="imp-done-s">전용면적·층은 건축물대장에서 확인해 채웠습니다.</span>
             )}
             <span className="imp-done-s">
-              가져온 매물은 매물장에서 <i className="imp-chip"><FileSpreadsheet size={9} /></i> 표시로 구분됩니다.
+              가져온 매물은 사무실 매물장에서 <i className="imp-chip"><FileSpreadsheet size={9} /></i> 표시로 구분됩니다.
             </span>
-            <button className="imp-go" onClick={onClose}>매물장으로</button>
+            <button className="imp-go" onClick={onClose}>사무실 매물장으로</button>
           </div>
         ) : !prev ? (
           <>
@@ -342,7 +342,7 @@ export default function ImportListings({ authH, onClose, onSaved }: {
 
                 <div className="imp-opts">
                   <label><input type="checkbox" checked={skipDup}
-                    onChange={(e) => setSkipDup(e.target.checked)} /> 이미 매물장에 있는 것은 빼고 담기</label>
+                    onChange={(e) => setSkipDup(e.target.checked)} /> 이미 사무실 매물장에 있는 것은 빼고 담기</label>
                 </div>
 
                 <div className="imp-tbl">
@@ -391,7 +391,7 @@ export default function ImportListings({ authH, onClose, onSaved }: {
                   <button className="imp-again" onClick={() => { setPrev(null); setErr(""); }}>다른 파일</button>
                   <button className="imp-save" onClick={commit} disabled={busy || !picked.length || needCx}>
                     {busy ? <Loader2 size={14} className="txm-spin" /> : <Check size={14} />}
-                    {picked.length.toLocaleString()}건 매물장에 담기
+                    {picked.length.toLocaleString()}건 사무실 매물장에 담기
                   </button>
                 </div>
               </>

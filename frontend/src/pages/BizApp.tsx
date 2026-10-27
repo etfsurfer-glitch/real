@@ -35,7 +35,7 @@ type Screen = "diary" | "ledger" | "match" | "calendar" | "contract" | "contract
             | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze" | "verify" | "brief" | "rank" | "requests";
 
 const SCREENS: Record<Screen, { title: string }> = {
-  diary: { title: "매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
+  diary: { title: "사무실 매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
   calendar: { title: "계약캘린더" },
   contract: { title: "계약" },
   contracts: { title: "계약관리" }, audit: { title: "매물점검" },
@@ -747,7 +747,7 @@ function BizHome({ office, authH, role, staffName, hideChrome }: {
         {/* 빠른 실행 */}
         <div className="biz-quick-h">빠른 실행</div>
         <div className="biz-quick">
-          <BizQuick to="/biz/diary" icon={<ClipboardList size={20} />} label="매물장" />
+          <BizQuick to="/biz/diary" icon={<ClipboardList size={20} />} label="사무실 매물장" />
           <BizQuick to="/biz/ledger" icon={<Users size={20} />} label="고객원장" />
           <BizQuick to="/biz/contracts" icon={<FileText size={20} />} label="AI 계약" />
           <BizQuick to="/biz/audit" icon={<ShieldCheck size={20} />} label="매물점검" />
@@ -757,7 +757,7 @@ function BizHome({ office, authH, role, staffName, hideChrome }: {
         <Link to="/biz/diary" className="biz-chg">
           <div className="biz-chg-h">
             <span>우리 매물 오늘 변화</span>
-            <span className="biz-chg-sub">{chg?.date ? "어제 대비" : ""} 매물장 ›</span>
+            <span className="biz-chg-sub">{chg?.date ? "어제 대비" : ""} 사무실 매물장 ›</span>
           </div>
           {chg?.note ? (
             <div className="biz-chg-empty">{chg.note}</div>
