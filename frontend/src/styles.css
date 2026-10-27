@@ -4370,7 +4370,14 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .biz-brand { display: inline-flex; align-items: center; gap: 6px; color: inherit; font-size: 16px; }
 .biz-brand-tag { font-size: 10.5px; font-weight: 800; color: #fff; background: #0f2f5c;
   border-radius: 999px; padding: 2px 8px; letter-spacing: .03em; }
-.biz-top-title { margin-left: auto; font-size: 13.5px; font-weight: 700; color: #475569; }
+/* 화면 제목 — 예전엔 margin-left:auto 로 오른쪽 끝에 붙였다. 그런데 홈에서는 그 자리가
+   설정(톱니) 버튼이라, 하위 화면 오른쪽 끝의 제목 글자를 버튼으로 알고 누르는 민원이 났다
+   ('더보기를 눌러도 이동이 안 된다', 2026-10-28). 제목은 상호 옆에 두고,
+   오른쪽 끝은 실제로 눌리는 것만 남긴다. */
+.biz-top-title { flex: 1; min-width: 0; margin-left: 2px; padding-left: 10px;
+  border-left: 1px solid var(--c-border, #e4e9f0);
+  font-size: 13.5px; font-weight: 700; color: #475569;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .biz-body { flex: 1; padding: 14px 14px calc(78px + env(safe-area-inset-bottom)); max-width: 860px; width: 100%; margin: 0 auto; }
 
 /* 랜딩 */
