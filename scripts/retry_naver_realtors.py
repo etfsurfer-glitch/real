@@ -75,6 +75,12 @@ def upsert_realtor(conn, rid, art, ar, now):
     conn.execute("CREATE TABLE IF NOT EXISTS realtor_contact_locks("
                  "realtor_id TEXT PRIMARY KEY, note TEXT, "
                  "locked_at TEXT DEFAULT (datetime('now')))")
+    # 대표자명 수동 고정 — fetch_naver_realtors(_direct) 와 같은 잠금을 여기서도 지킨다.
+    # 이 스크립트만 잠금을 안 보고 덮어써서, 손으로 고쳐 둔 대표가 네이버 수집값(옛 대표)으로
+    # 조용히 되돌아갔다(사무소 인수 건 제보).
+    conn.execute("CREATE TABLE IF NOT EXISTS realtor_rep_locks("
+                 "realtor_id TEXT PRIMARY KEY, representative_name TEXT, note TEXT, "
+                 "locked_at TEXT DEFAULT (datetime('now')))")
     conn.execute(
         """
         INSERT INTO naver_realtors
@@ -85,7 +91,9 @@ def upsert_realtor(conn, rid, art, ar, now):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(realtor_id) DO UPDATE SET
             realtor_name=excluded.realtor_name,
-            representative_name=excluded.representative_name,
+            representative_name=CASE WHEN EXISTS(
+                SELECT 1 FROM realtor_rep_locks k WHERE k.realtor_id=naver_realtors.realtor_id)
+                THEN naver_realtors.representative_name ELSE excluded.representative_name END,
             address=excluded.address,
             establish_registration_no=excluded.establish_registration_no,
             representative_tel_no=CASE WHEN EXISTS(
