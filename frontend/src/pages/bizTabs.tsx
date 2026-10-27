@@ -8,7 +8,7 @@ import type { Offer as KOffer } from "../components/OfferForm";
 import { Loading } from "../components/Loading";
 import ImportListings from "../components/ImportListings";
 import {
-  ArrowLeft, Award, Building2, Camera, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileSpreadsheet, Flame, Globe, Link2, Loader2, Lock, Map as MapIcon, MapPin, MessageSquare, Minus, Pencil, Phone, Plus, RefreshCw, Search, Share2, SlidersHorizontal, Sparkles, Star, Trash2, TrendingUp, Upload, Users, X,
+  ArrowLeft, Award, Building2, Camera, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileSpreadsheet, Flame, Globe, Link2, Loader2, Lock, Map as MapIcon, MapPin, MessageSquare, Minus, Pencil, Phone, Plus, RefreshCw, Search, Share2, SlidersHorizontal, Sparkles, Star, Trash2, TrendingUp, Upload, User, Users, X, EyeOff,
 } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
@@ -1573,35 +1573,64 @@ function mlSpecLine(l: MLItem): string {
 function mlPriceMain(l: MLItem): string {
   return l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text;
 }
-/** 어느 매물장에 들어 있는지 — 글자로 적는다. 툴팁에만 두면 폰에서는 확인할 길이 없다. */
-function ShelfPills({ l }: { l: MLItem }) {
+// 출처·매물장 표시. 한 줄에 서너 개가 붙으면 표가 안 읽혀서 표에서는 **아이콘만** 쓰고,
+// 뜻은 표 위 범례(SrcLegend)와 아이콘 툴팁 두 곳에 둔다. 카드에서는 글자를 그대로 쓴다.
+const SRC_META: { k: string; label: string; tip: string; icon: (n: number) => React.ReactNode }[] = [
+  { k: "pv", label: "직접등록", tip: "콕집에 직접 등록한 매물", icon: (n) => <Lock size={n} /> },
+  { k: "im", label: "엑셀", tip: "엑셀에서 가져온 매물", icon: (n) => <FileSpreadsheet size={n} /> },
+  { k: "nv", label: "광고중", tip: "네이버에 지금 광고 중", icon: (n) => <Globe size={n} /> },
+  { k: "my", label: "내 매물장", tip: "내 매물장에 담은 매물", icon: (n) => <Star size={n} /> },
+  { k: "pvt", label: "비공개", tip: "비공개매물장 — 대표만 보입니다", icon: (n) => <EyeOff size={n} /> },
+  // 지금은 만들 수 없는 옛 설정. 남아 있는 줄을 알아볼 수 있어야 해서 표시만 남긴다.
+  { k: "me", label: "나만 보기", tip: "옛 '나만 보기' — 등록한 사람만 보입니다(지금은 만들 수 없습니다)",
+    icon: (n) => <User size={n} /> },
+];
+const SRC_BY_K: Record<string, typeof SRC_META[number]> =
+  Object.fromEntries(SRC_META.map((m) => [m.k, m]));
+
+/** 표 위 범례 — 아이콘만 보여 주니 뜻은 여기서 한 번에 읽는다. */
+function SrcLegend() {
   return (
-    <>
-      {l.in_private && <span className="mlj2-src pvt" title="비공개매물장 — 대표만 보입니다">
-        <Lock size={10} />비공개</span>}
-      {l.in_my && <span className="mlj2-src my" title="내 매물장에 담은 매물">
-        <Star size={10} />내 매물장</span>}
-      {l.visibility === "me" && <span className="mlj2-src me" title="예전 '나만 보기' — 작성자만 보입니다">
-        나만</span>}
-    </>
+    <div className="mlt-legend">
+      {SRC_META.map((m) => (
+        <span key={m.k} title={m.tip}>
+          <i className={`mlj2-src ic ${m.k}`}>{m.icon(11)}</i>{m.label}
+        </span>
+      ))}
+      <span title="같은 물건을 채널마다 올린 광고를 한 줄로 접은 수">
+        <i className="mlt-adn">×N</i>광고 겹침
+      </span>
+    </div>
   );
 }
-/** 출처 뱃지(카드 하단) — SrcIcon 과 같은 규칙, 라벨 달린 알약. */
-function SrcPills({ l }: { l: MLItem }) {
-  const nv = <span className="mlj2-src nv" title={l.is_private
-    ? `네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}` : "네이버 — 지금 광고 중"}>
-    <Globe size={10} />광고중</span>;
-  if (!l.is_private) {
-    return <>{nv}<ShelfPills l={l} /></>;
-  }
+
+function Pill({ k, icon, tip }: { k: string; icon?: boolean; tip?: string }) {
+  const m = SRC_BY_K[k];
+  return (
+    <span className={`mlj2-src ${k}${icon ? " ic" : ""}`} title={tip || m.tip}>
+      {m.icon(icon ? 12 : 10)}{icon ? null : m.label}
+    </span>
+  );
+}
+
+/** 출처 뱃지 — 표(icon)는 아이콘만, 카드는 글자까지. */
+function SrcPills({ l, icon }: { l: MLItem; icon?: boolean }) {
+  const nv = <Pill k="nv" icon={icon} tip={l.is_private
+    ? `네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}` : "네이버 — 지금 광고 중"} />;
   return (
     <>
-      {l.import_file
-        ? <span className="mlj2-src im" title={`엑셀에서 가져온 매물 — ${l.import_file}${l.import_at ? ` (${l.import_at})` : ""}`}>
-            <FileSpreadsheet size={10} />엑셀</span>
-        : <span className="mlj2-src pv" title="콕집에 직접 등록한 매물"><Lock size={10} />직접등록</span>}
-      {l.also_naver && nv}
-      <ShelfPills l={l} />
+      {!l.is_private ? nv : (
+        <>
+          {l.import_file
+            ? <Pill k="im" icon={icon}
+                tip={`엑셀에서 가져온 매물 — ${l.import_file}${l.import_at ? ` (${l.import_at})` : ""}`} />
+            : <Pill k="pv" icon={icon} />}
+          {l.also_naver && nv}
+        </>
+      )}
+      {l.in_private && <Pill k="pvt" icon={icon} />}
+      {l.in_my && <Pill k="my" icon={icon} />}
+      {l.visibility === "me" && <Pill k="me" icon={icon} />}
     </>
   );
 }
@@ -1639,7 +1668,6 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   // 표에서 체크한 줄. 키는 줄의 article_no 다 — 네이버 광고도 골라야 하니(직접등록은 'P<id>').
   // 담기·비공개는 둘 다 되고, 삭제만 직접등록으로 한정된다.
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [pickMode, setPickMode] = useState(false);            // 고르기 모드(담기·비공개·삭제)
   const [shelf, setShelf] = useState<Shelf>("office");      // 지금 보고 있는 매물장
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [isOwner, setIsOwner] = useState(false);            // 비공개는 대표만 다룬다
@@ -1805,7 +1833,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       const d = await r.json().catch(() => null);
       if (!r.ok) throw new Error(d?.detail || `바꾸지 못했어요 (${r.status})`);
       const n = d?.n ?? nos.length;
-      setSel(new Set()); setPickMode(false); load();
+      setSel(new Set()); load();
       setMoveAsk(action === "add"
         ? { to, msg: `${n}건을 ${SHELF_KR[to]}으로 보냈어요.` }
         : { to: shelf, msg: `${n}건을 ${SHELF_KR[to]}에서 뺐어요.` });
@@ -2082,7 +2110,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     const w = (k: string) => COLW[k] * dense;
     const on: Record<string, boolean> = {};
     // 거래·동·호·가격은 늘 보이고, 단지명도 단지를 고르지 않았다면 뺄 수 없다.
-    let used = w("trade_type") + w("unit") + w("price") + w("act") + (pickMode ? 40 : 0);
+    let used = w("trade_type") + w("unit") + w("price") + w("act") + (ro ? 0 : 40);
     if (!cx) { on.name = true; used += w("name"); }
     for (const k of COLPRIO) {
       if (k === "name") continue;
@@ -2090,7 +2118,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       on[k] = true; used += w(k);
     }
     return on;
-  }, [tw, cx, pickMode]);
+  }, [tw, cx, ro]);
 
   const effCols = colAuto ? autoCols : cols;
   // 표 최소폭도 고른 열에 맞춘다. CSS 에 760px 을 박아 두면 폰에서 자동 맞춤이 무의미해진다
@@ -2101,8 +2129,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       ALWAYS.has(k) ? true
       : k === "name" ? !cx && effCols.name !== false
       : colAuto ? !!effCols[k] : effCols[k] !== false);
-    return Math.round(ks.reduce((a, k) => a + COLW[k] * dense, 0) + (pickMode ? 40 : 0));
-  }, [tw, cx, pickMode, colAuto, effCols]);
+    return Math.round(ks.reduce((a, k) => a + COLW[k] * dense, 0) + (ro ? 0 : 40));
+  }, [tw, cx, ro, colAuto, effCols]);
   const VIEWCOLS = ALLCOLS.filter(([k]) =>
     ALWAYS.has(k) ? true
     : k === "name" ? !cx && effCols.name !== false      // 단지를 골랐으면 단지 열은 군더더기
@@ -2133,7 +2161,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     const ro = new ResizeObserver(syncEdge);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [syncEdge, rows.length, VIEWCOLS.length, cx, pickMode]);
+  }, [syncEdge, rows.length, VIEWCOLS.length, cx, ro]);
 
   const onDragDown = (e: React.PointerEvent) => {
     if (e.pointerType !== "mouse") return;            // 터치는 기본 스크롤에 맡긴다
@@ -2192,7 +2220,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       const d = await r.json().catch(() => null);
       if (!r.ok) throw new Error(d?.detail || `지우지 못했어요 (${r.status})`);
       if (d?.blocked) alert(`${d.closed}건을 지웠습니다.\n(${d.blocked}건은 다른 분의 개인 매물이라 남겼습니다)`);
-      setSel(new Set()); setPickMode(false); load();
+      setSel(new Set()); load();
     } catch (e: any) { alert(e?.message || "지우지 못했어요"); }
   };
 
@@ -2373,8 +2401,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
             {(["office", "my", ...(isOwner ? ["private"] : [])] as Shelf[]).map((k) => (
               <button key={k} role="tab" aria-selected={shelf === k}
                 className={shelf === k ? "on" : ""}
-                onClick={() => { if (k === shelf) return; setShelf(k); setSel(new Set()); setPickMode(false); setMoveAsk(null); }}>
-                {k === "private" && <Lock size={12} aria-hidden />}
+                onClick={() => { if (k === shelf) return; setShelf(k); setSel(new Set()); setMoveAsk(null); }}>
+                {k === "private" && <EyeOff size={12} aria-hidden />}
                 {k === "my" && <Star size={12} aria-hidden />}
                 {SHELF_KR[k]}
                 {counts[k] != null && <i>{counts[k]}</i>}
@@ -2485,20 +2513,11 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                 </button>
               )}
               <button onClick={downloadCsv}><Download size={13} aria-hidden />엑셀받기</button>
-              {!ro && <button className={pickMode ? "on" : ""}
-                title="체크해서 내 매물장에 담거나, 비공개로 보내거나, 지웁니다"
-                onClick={() => { setPickMode((v) => !v); setSel(new Set()); }}>
-                <Check size={13} aria-hidden />{pickMode ? "선택 끝내기" : "고르기"}
-              </button>}
             </span>
           </div>
-          {pickMode && (
+          {sel.size > 0 && (
             <div className="mlj2-delbar">
-              <span><b>{sel.size}건</b> 선택</span>
-              <button className="mlj2-delall" onClick={() => {
-                const ans = rows.map((l) => l.article_no);
-                setSel((s) => s.size === ans.length ? new Set() : new Set(ans));
-              }}>{sel.size && sel.size === rows.length ? "선택 해제" : "보이는 것 전체"}</button>
+              <span><b>{sel.size}건</b> 선택 — 어디로 보낼까요?</span>
               {shelf !== "my" && (
                 <button className="mlj2-shelfgo" disabled={!sel.size}
                   onClick={() => shelfSet("my", "add")}>
@@ -2514,7 +2533,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               {isOwner && shelf !== "private" && (
                 <button className="mlj2-shelfgo pv" disabled={!sel.size}
                   onClick={() => shelfSet("private", "add")}>
-                  <Lock size={13} aria-hidden />비공개로 보내기
+                  <EyeOff size={13} aria-hidden />비공개로 보내기
                 </button>
               )}
               {isOwner && shelf === "private" && (
@@ -2526,6 +2545,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               <button className="mlj2-delgo" disabled={!sel.size} onClick={deleteSelected}>
                 <Trash2 size={13} aria-hidden />삭제
               </button>
+              <button className="mlj2-delall" onClick={() => setSel(new Set())}>선택 해제</button>
             </div>
           )}
 
@@ -2593,6 +2613,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
           ) : items.length === 0 ? (
             <div className="dash-empty">표시할 매물이 없습니다. 사무소 매물이 네이버에 등록되면 자동으로 사무실 매물장에 나옵니다.</div>
           ) : (
+            <>
+            <SrcLegend />
             <div className="mlt-outer" ref={outerRef}>
             <div className="mlt-wrap" ref={wrapRef} onScroll={syncEdge}
               onPointerDown={onDragDown} onPointerMove={onDragMove}
@@ -2601,7 +2623,12 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               <table className="mlt" style={{ minWidth: minW }}>
                 <thead>
                   <tr>
-                    {pickMode && <th className="mlt-ck" />}
+                    {!ro && <th className="mlt-ck">
+                      <input type="checkbox" aria-label="보이는 것 전체 고르기"
+                        checked={rows.length > 0 && sel.size === rows.length}
+                        onChange={() => setSel((x) => x.size === rows.length
+                          ? new Set() : new Set(rows.map((l) => l.article_no)))} />
+                    </th>}
                     {VIEWCOLS.map(([k, t]) => (
                       k === "act"
                         ? <th key={k} className="c-act">{t}</th>
@@ -2611,7 +2638,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                     ))}
                   </tr>
                   <tr className="mlt-f">
-                    {pickMode && <th className="mlt-ck" />}
+                    {!ro && <th className="mlt-ck" />}
                     {VIEWCOLS.map(([k]) => (
                       <th key={k} className={`c-${k}`}>
                         {k === "trade_type" && colSel("trade_type", opts.trade_type)}
@@ -2639,14 +2666,15 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                       <tr key={l.article_no} className={picked ? "on" : ""}
                         onClick={() => {
                           if (dragRef.current.moved) { dragRef.current.moved = false; return; }
-                          if (pickMode) {
-                            setSel((x) => { const n = new Set(x); n.has(an) ? n.delete(an) : n.add(an); return n; });
-                            return;
-                          }
                           setDetailOwner(""); setDetail(l);
                         }}>
-                        {pickMode && (
-                          <td className="mlt-ck"><input type="checkbox" checked={picked} readOnly /></td>
+                        {!ro && (
+                          <td className="mlt-ck" onClick={(e) => e.stopPropagation()}>
+                            <input type="checkbox" checked={picked} aria-label="고르기"
+                              onChange={() => setSel((x) => {
+                                const n = new Set(x); n.has(an) ? n.delete(an) : n.add(an); return n;
+                              })} />
+                          </td>
                         )}
                         {VIEWCOLS.map(([k]) => {
                           if (k === "trade_type") return <td key={k} className="c-trade_type"><i className={`mlj2-badge b-${l.trade_type}`}>{l.trade_type || "미정"}</i></td>;
@@ -2660,11 +2688,11 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                           if (k === "price") return <td key={k} className="c-price mlt-price">{mlPriceMain(l) || <span className="mlt-no">—</span>}</td>;
                           if (k === "src") return (
                             <td key={k} className="c-src mlt-src">
-                              <SrcPills l={l} />
+                              <SrcPills l={l} icon />
                               {!!l.ad_dupes?.length && (
                                 <i className="mlt-adn" title={`같은 조건의 광고 ${l.ad_dupes.length + 1}건을 한 줄로 접었습니다 — ${
                                   [l, ...l.ad_dupes].map((x) => `${x.cp_name || "네이버"} ${x.article_no}`).join(", ")}`}>
-                                  광고 {l.ad_dupes.length + 1}
+                                  ×{l.ad_dupes.length + 1}
                                 </i>
                               )}
                             </td>
@@ -2710,7 +2738,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                           );
                           if (k === "manager") return (
                             <td key={k} className="c-manager" onClick={(e) => e.stopPropagation()}>
-                              {pickMode || ro ? (l.manager || <span className="mlt-no">—</span>) : (
+                              {ro ? (l.manager || <span className="mlt-no">—</span>) : (
                                 <select className="mlt-cell-sel" value={l.manager || ""}
                                   onChange={(e) => assignManager(l, e.target.value)}>
                                   <option value="">미지정</option>
@@ -2723,8 +2751,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                             const on = cellEdit?.an === l.article_no && cellEdit.k === k;
                             return (
                               <td key={k} className={k === "contact" ? "c-contact mlt-tel mlt-ed" : "c-memo mlt-memo mlt-ed"}
-                                title={pickMode ? undefined : "눌러서 바로 고치기"}
-                                onClick={(e) => { if (pickMode || ro) return; e.stopPropagation(); if (!on) beginEdit(l, k); }}>
+                                title="눌러서 바로 고치기"
+                                onClick={(e) => { if (ro) return; e.stopPropagation(); if (!on) beginEdit(l, k); }}>
                                 {on ? (
                                   <input className="mlt-cell-in" autoFocus value={draft}
                                     onClick={(e) => e.stopPropagation()}
@@ -2756,7 +2784,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                     );
                   })}
                   {!rows.length && (
-                    <tr><td colSpan={VIEWCOLS.length + (pickMode ? 1 : 0)} className="mlt-empty">
+                    <tr><td colSpan={VIEWCOLS.length + (ro ? 0 : 1)} className="mlt-empty">
                       조건에 맞는 매물이 없습니다.
                     </td></tr>
                   )}
@@ -2770,6 +2798,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                 onClick={() => nudge(1)}>›</button>
             )}
             </div>
+            </>
           )}
           {(edge.r || edge.l) && (
             <div className="mlt-hint">표를 좌우로 끌어 옮길 수 있습니다{edge.r ? " — 오른쪽에 열이 더 있습니다" : ""}</div>
@@ -3394,7 +3423,7 @@ function PrivateListingForm({ authH, init, managers, isOwner, onClose, onSaved }
             <div className="pl-sec">공개 범위</div>
             <label className="pl-privchk">
               <input type="checkbox" checked={toPriv} onChange={(e) => setToPriv(e.target.checked)} />
-              <b><Lock size={12} aria-hidden /> 비공개매물장에 넣기</b>
+              <b><EyeOff size={12} aria-hidden /> 비공개매물장에 넣기</b>
               <span>대표만 보입니다. 체크하지 않으면 소속 직원 모두가 보는 사무실 매물장에 들어갑니다.</span>
             </label>
           </>
