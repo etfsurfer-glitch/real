@@ -46,12 +46,22 @@ def open_db() -> sqlite3.Connection:
     return c
 
 
-def pick_articles(conn: sqlite3.Connection, *, only_unmatched: bool, skip_done: bool) -> list[tuple]:
+def pick_articles(conn: sqlite3.Connection, *, only_unmatched: bool, skip_done: bool,
+                  missing_regno: bool = False, ids: list[str] | None = None) -> list[tuple]:
     """Returns [(realtor_id, article_no, real_estate_type, trade_type)] — one article per realtor."""
     # 우선순위: 최신 article_confirm_ymd. articles_current에 realtor당 한 행만 뽑기.
     where = ["l.realtor_id IS NOT NULL"]
     if skip_done:
         where.append("l.realtor_id NOT IN (SELECT realtor_id FROM naver_realtors)")
+    if missing_regno:
+        # 개설 직후엔 네이버에도 등록번호가 없다가 나중에 사무소가 채워 넣는다. 그런데 daily 는
+        # --skip-done 이라 한 번 받은 사무소를 다시 안 보고, 상호감시가 쓰는 /api/realtors 는
+        # 등록번호를 아예 안 준다. 그래서 '나중에 등록한' 사무소는 영영 공란으로 굳고,
+        # 등록번호가 없으니 자동매칭이 안 돼 사람이 손으로 잠그게 된다(2026-10-27 흑석 새봄).
+        where.append("l.realtor_id IN (SELECT realtor_id FROM naver_realtors "
+                     "WHERE establish_registration_no IS NULL OR establish_registration_no='')")
+    if ids:
+        where.append("l.realtor_id IN (%s)" % ",".join("'%s'" % i.replace("'", "") for i in ids))
     if only_unmatched:
         where.append("""
             l.realtor_id IN (
@@ -59,6 +69,12 @@ def pick_articles(conn: sqlite3.Connection, *, only_unmatched: bool, skip_done: 
                 WHERE match_type='none' OR match_type LIKE 'multi%'
             )
         """)
+    # 공란 메우기는 --limit 로 끊어 도는 일이라, 오래 안 본 사무소부터 돈다.
+    # (정렬이 없으면 매일 같은 앞머리만 다시 받고 뒤쪽은 영영 차례가 안 온다)
+    tail = "WHERE rk = 1"
+    if missing_regno:
+        tail = ("JOIN naver_realtors nr ON nr.realtor_id = ranked.realtor_id "
+                "WHERE rk = 1 ORDER BY nr.fetched_at ASC")
     sql = f"""
         WITH ranked AS (
             SELECT l.realtor_id, l.article_no, l.real_estate_type, l.trade_type,
@@ -66,8 +82,8 @@ def pick_articles(conn: sqlite3.Connection, *, only_unmatched: bool, skip_done: 
             FROM listings_current l
             WHERE {' AND '.join(where)}
         )
-        SELECT realtor_id, article_no, real_estate_type, trade_type
-        FROM ranked WHERE rk = 1
+        SELECT ranked.realtor_id, ranked.article_no, ranked.real_estate_type, ranked.trade_type
+        FROM ranked {tail}
     """
     return conn.execute(sql).fetchall()
 
@@ -153,11 +169,16 @@ def main():
     p.add_argument("--skip-done", action="store_true",
                    help="naver_realtors에 이미 row 있는 realtor 건너뜀")
     p.add_argument("--limit", type=int)
+    p.add_argument("--missing-regno", action="store_true",
+                   help="개설등록번호가 비어 있는 사무소만 다시 받는다(나중에 등록한 신규 사무소)")
+    p.add_argument("--ids", help="쉼표로 구분한 realtor_id 목록만 다시 받는다")
     args = p.parse_args()
 
     conn = open_db()
     creds = ensure_creds()
-    todo = pick_articles(conn, only_unmatched=args.only_unmatched, skip_done=args.skip_done)
+    todo = pick_articles(conn, only_unmatched=args.only_unmatched, skip_done=args.skip_done,
+                         missing_regno=args.missing_regno,
+                         ids=[x.strip() for x in args.ids.split(",") if x.strip()] if args.ids else None)
     if args.limit:
         todo = todo[: args.limit]
     print(f"[*] realtors to fetch: {len(todo)}  parallel={args.parallel}", flush=True)

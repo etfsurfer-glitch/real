@@ -74,6 +74,12 @@ fi
 step "step 6: refresh_supply_area"         $PY -u scripts/refresh_supply_area.py; supply_exit=$?
 step "step 7: fetch_complex_detail"        $PY -u scripts/fetch_complex_detail.py --only-missing --parallel 8; cdetail_exit=$?
 step "step 8: fetch_naver_realtors"        $PY -u scripts/fetch_naver_realtors_direct.py --only-missing --parallel 8; nrealtor_exit=$?
+# 8b: 개설등록번호 공란 메우기. step 8 이 쓰는 /api/realtors 는 등록번호를 아예 안 주고,
+#     등록번호를 주는 매물상세 경로는 '행이 이미 있으면' 건너뛴다. 그래서 개설 직후 번호 없이
+#     수집된 사무소는 나중에 네이버에 번호를 넣어도 우리는 영영 공란이고, 번호가 없으니
+#     자동매칭이 안 돼 사람이 손으로 잠그게 된다(2026-10-27 흑석 새봄 — 9/14 공란으로 굳어 있었음).
+#     오래 안 본 사무소부터 하루 300곳씩 돌며 메운다(공란 7,061곳 기준 약 24일에 한 바퀴).
+step "step 8b: regno 공란 메우기(일 300)" $PY -u scripts/fetch_naver_realtors.py --missing-regno --limit 300 --parallel 5; regnofill_exit=$?
 
 # 9~10) 매칭 (시군구-local 안전 병렬)
 step "step 8-pre-a: hidden 신규 검증(등록번호, 일 300그룹)" $PY -u scripts/build_hidden_realtor_map.py --limit 300 --workers 3
