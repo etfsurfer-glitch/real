@@ -2096,7 +2096,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   // 열이 실제로 차지하는 최소 폭(px). 좁은 화면에서는 글자·여백이 줄어 함께 줄인다.
   const COLW: Record<string, number> = { trade_type: 56, unit: 94, name: 180,
                                          area_name: 88, supply: 106, excl: 106, floor: 84, direction: 74,
-                                         price: 124, rank: 96, left: 92, src: 112, cp_name: 112, manager: 112,
+                                         price: 124, rank: 96, left: 92, src: 92, cp_name: 112, manager: 112,
                                          contact: 128, memo: 170, act: 48 };
   // 자리가 모자랄 때 접는 순서의 거꾸로 — 앞쪽이 먼저 살아남는다.
   const COLPRIO = ["name", "excl", "floor", "area_name", "supply", "direction",

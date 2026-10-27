@@ -6358,7 +6358,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
    같은 특이도로 적었더니 별(내 매물장)·눈(비공개)만 네모가 남았다. */
 .mlt-src .mlj2-src.ic,
 .mlt-legend .mlj2-src.ic{background:none;padding:0;gap:0;border-radius:0}
-.mlt-src{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+/* 칸에는 display:flex 를 걸지 않는다 — td 에 걸면 표 칸이 아니게 되고(익명 셀로 감싼다)
+   열 너비가 내용과 따로 놀아 가로가 남아돈다. 간격은 margin 으로 못박는다. */
+.mlt-src{white-space:nowrap}
+.mlt-src .mlj2-src.ic{vertical-align:middle;margin-right:4px}
+.mlt-src .mlt-adn{margin-left:0;vertical-align:middle}
 /* 아이콘 뜻을 표 위에 한 줄로. 아이콘에 올리면 설명이 다시 뜬다(title) */
 .mlt-legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:2px 0 6px;
    font-size:11.5px;color:#8b96a5}
