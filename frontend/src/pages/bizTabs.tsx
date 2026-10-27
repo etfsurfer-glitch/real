@@ -1444,9 +1444,11 @@ type MLItem = {
   bld_name?: string;
   parking_total: number | null; parking_per: number | null; households: number | null;
   approve_ymd: string | number | null; builder: string | null; mgmt_tel: string | null;
-  // 비공개매물(콕집 직접등록) 전용 — 네이버 매물엔 없다
+  // 직접등록 매물 전용 — 네이버 매물엔 없다. visibility 는 옛 '나만 보기'(새로 안 만든다)
   is_private?: boolean; private_id?: number; visibility?: string; created_by?: string;
   source_article_no?: string; source_saved_at?: string;
+  // 어느 매물장에 들어 있는지 — 비공개매물장(대표만) · 내 매물장(담기)
+  in_private?: boolean; in_my?: boolean;
   // 같은 물건이 매물장에도 있고 네이버에도 광고 중이면 한 줄에 두 표시가 붙는다
   also_naver?: boolean; naver_article_no?: string;
   // 같은 물건을 CP(제휴 채널)마다 올려 매물번호가 따로 난 광고들 — 대표 줄에 접어 둔다
@@ -1571,28 +1573,45 @@ function mlSpecLine(l: MLItem): string {
 function mlPriceMain(l: MLItem): string {
   return l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text;
 }
-/** 출처 뱃지(카드 하단) — SrcIcon 과 같은 규칙, 라벨 달린 알약. */
-function SrcPills({ l }: { l: MLItem }) {
-  if (!l.is_private) {
-    return <span className="mlj2-src nv" title="네이버 — 지금 광고 중"><Globe size={10} />광고중</span>;
-  }
-  if (l.import_file) {
-    return (
-      <>
-        <span className="mlj2-src im" title={`엑셀에서 가져온 매물 — ${l.import_file}${l.import_at ? ` (${l.import_at})` : ""}`}>
-          <FileSpreadsheet size={10} />엑셀</span>
-        {l.also_naver && <span className="mlj2-src nv" title={`네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}`}><Globe size={10} />광고중</span>}
-      </>
-    );
-  }
+/** 어느 매물장에 들어 있는지 — 글자로 적는다. 툴팁에만 두면 폰에서는 확인할 길이 없다. */
+function ShelfPills({ l }: { l: MLItem }) {
   return (
     <>
-      <span className="mlj2-src pv" title={`직접등록 — ${l.visibility === "me" ? "나만 보기" : "사무실 전체 공개"}`}>
-        <Lock size={10} />직접등록</span>
-      {l.also_naver && <span className="mlj2-src nv" title={`네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}`}><Globe size={10} />광고중</span>}
+      {l.in_private && <span className="mlj2-src pvt" title="비공개매물장 — 대표만 보입니다">
+        <Lock size={10} />비공개</span>}
+      {l.in_my && <span className="mlj2-src my" title="내 매물장에 담은 매물">
+        <Star size={10} />내 매물장</span>}
+      {l.visibility === "me" && <span className="mlj2-src me" title="예전 '나만 보기' — 작성자만 보입니다">
+        나만</span>}
     </>
   );
 }
+/** 출처 뱃지(카드 하단) — SrcIcon 과 같은 규칙, 라벨 달린 알약. */
+function SrcPills({ l }: { l: MLItem }) {
+  const nv = <span className="mlj2-src nv" title={l.is_private
+    ? `네이버에도 광고 중 — 매물번호 ${l.naver_article_no || ""}` : "네이버 — 지금 광고 중"}>
+    <Globe size={10} />광고중</span>;
+  if (!l.is_private) {
+    return <>{nv}<ShelfPills l={l} /></>;
+  }
+  return (
+    <>
+      {l.import_file
+        ? <span className="mlj2-src im" title={`엑셀에서 가져온 매물 — ${l.import_file}${l.import_at ? ` (${l.import_at})` : ""}`}>
+            <FileSpreadsheet size={10} />엑셀</span>
+        : <span className="mlj2-src pv" title="콕집에 직접 등록한 매물"><Lock size={10} />직접등록</span>}
+      {l.also_naver && nv}
+      <ShelfPills l={l} />
+    </>
+  );
+}
+
+// 매물장은 셋이다 — 사무실(소속 전원) · 내 매물장(각자 담아 두는 작업 목록) · 비공개(대표만).
+// 한 벌의 매물을 거른 것일 뿐이라 메모·담당·광고 접기는 세 곳에서 똑같이 보인다.
+type Shelf = "office" | "my" | "private";
+const SHELF_KR: Record<Shelf, string> = {
+  office: "사무실 매물장", my: "내 매물장", private: "비공개매물장",
+};
 
 export function ListingsTab({ authH, office }: { authH: () => Record<string, string>; office: Office }) {
   const [items, setItems] = useState<MLItem[] | null>(null);
@@ -1617,8 +1636,15 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   const [impOpen, setImpOpen] = useState(false);      // 매물장 엑셀 가져오기
   const [editPL, setEditPL] = useState<MLItem | null>(null);
   // 표(엑셀) 보기 — 2026-10-06 부터 매물장은 표 하나로 간다(카드·폴딩 제거).
-  const [sel, setSel] = useState<Set<number>>(new Set());   // 선택 삭제용 private_id
-  const [delMode, setDelMode] = useState(false);            // 삭제하기 모드
+  // 표에서 체크한 줄. 키는 줄의 article_no 다 — 네이버 광고도 골라야 하니(직접등록은 'P<id>').
+  // 담기·비공개는 둘 다 되고, 삭제만 직접등록으로 한정된다.
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [pickMode, setPickMode] = useState(false);            // 고르기 모드(담기·비공개·삭제)
+  const [shelf, setShelf] = useState<Shelf>("office");      // 지금 보고 있는 매물장
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [isOwner, setIsOwner] = useState(false);            // 비공개는 대표만 다룬다
+  // 옮긴 뒤에 '그 매물장으로 갈까요'를 물어본다 — 어디로 갔는지 모르면 옮긴 게 사라진 걸로 보인다
+  const [moveAsk, setMoveAsk] = useState<{ to: Shelf; msg: string } | null>(null);
   const [tSort, setTSort] = useState<{ k: string; asc: boolean }>({ k: "unit", asc: true });
   // 엑셀처럼 열마다 거르기 — 서버가 준 items 위에서 바로 건다(요청 때마다 다시 부르지 않는다).
   const [cx, setCx] = useState("");                      // 단지 — 상단에서 고른다
@@ -1714,16 +1740,19 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
 
   const load = useCallback(() => {
     setBusy(true); setForeign(null); setLookErr("");
-    const p = new URLSearchParams({ q, trade, cat, manager, sort,
+    const p = new URLSearchParams({ q, trade, cat, manager, sort, shelf,
       private: priv || privOnly ? "1" : "0", private_only: privOnly ? "1" : "0" });
     if (asRid) p.set("as_realtor", asRid);
     setLoadErr("");
-    authGet<{ listings?: MLItem[]; as_realtor?: string; realtor_name?: string }>(
+    authGet<{ listings?: MLItem[]; as_realtor?: string; realtor_name?: string;
+              counts?: Record<string, number>; is_owner?: boolean }>(
       `${API_BASE}/lounge/listings?${p}`, authH())
       .then((d) => {
         const list: MLItem[] = d.listings || [];
         rawRef.current = list;
         setItems(foldRef.current ? foldAdDupes(list) : list);
+        if (d.counts) setCounts(d.counts);
+        setIsOwner(!!d.is_owner);
         if (d.as_realtor) setAsName(d.realtor_name || asRid);
         // 내 매물장에 없고 매물번호 형태면 → 남의 물건인지 조회
         const an = q.trim();
@@ -1731,8 +1760,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       })
       .catch((e: Error) => { setItems(null); setLoadErr(e.message); })
       .finally(() => setBusy(false));
-  }, [authH, q, trade, cat, manager, sort, priv, privOnly, lookup]);
-  useEffect(() => { load(); }, [trade, cat, manager, sort, priv, privOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authH, q, trade, cat, manager, sort, priv, privOnly, shelf, lookup]);
+  useEffect(() => { load(); }, [trade, cat, manager, sort, priv, privOnly, shelf]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patch = (an: string, k: "memo" | "contact" | "manager", v: string) =>
     setItems((its) => its ? its.map((x) => x.article_no === an ? { ...x, [k]: v } : x) : its);
@@ -1757,6 +1786,30 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       setTimeout(() => setPrivMsg((m) => ({ ...m, [l.article_no]: "" })), 2500);
       if (priv || privOnly) load();
     } catch (e: any) { alert(e.message || "보관 실패"); }
+  };
+
+  // 고른 줄을 비공개매물장·내 매물장으로 넣고 뺀다. 네이버 광고도 대상이다 —
+  // 콕집 화면에서만 옮겨지고 네이버에 올라간 광고는 손대지 않는다.
+  const shelfSet = async (to: "private" | "my", action: "add" | "remove") => {
+    const nos = [...sel];
+    if (!nos.length) return;
+    if (to === "private" && action === "add" && !window.confirm(
+      `${nos.length}건을 비공개매물장으로 보냅니다.\n\n` +
+      `사무실 매물장·사무소 지도·손님 매칭에서 빠지고 대표만 보게 됩니다.\n` +
+      `네이버에 올라간 광고는 그대로 남습니다.`)) return;
+    try {
+      const r = await fetch(`${API_BASE}/lounge/listings/shelf`, {
+        method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+        body: JSON.stringify({ shelf: to, action, article_nos: nos }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(d?.detail || `바꾸지 못했어요 (${r.status})`);
+      const n = d?.n ?? nos.length;
+      setSel(new Set()); setPickMode(false); load();
+      setMoveAsk(action === "add"
+        ? { to, msg: `${n}건을 ${SHELF_KR[to]}으로 보냈어요.` }
+        : { to: shelf, msg: `${n}건을 ${SHELF_KR[to]}에서 뺐어요.` });
+    } catch (e: any) { alert(e?.message || "바꾸지 못했어요"); }
   };
 
   const [focusKey, setFocusKey] = useState<string | null>(null);   // 큰 폴더 전체보기
@@ -1913,7 +1966,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   // 단지를 바꾸면 열 조건을 비운다 — 앞 단지의 '103동'이 남아 있으면 새 단지에선 0건이 된다.
   // 조건이 바뀌면 삭제 선택을 비운다. 안 그러면 3건을 고른 뒤 필터를 바꿔 그 줄이
   // 화면에서 사라져도 선택은 남아, 보이지 않는 매물이 지워진다(확인창의 목록도 어긋난다).
-  useEffect(() => { setSel(new Set()); }, [cx, colF, q, trade, cat, manager, priv, privOnly]);
+  useEffect(() => { setSel(new Set()); }, [cx, colF, q, trade, cat, manager, priv, privOnly, shelf]);
 
   const cxPrev = useRef(cx);
   useEffect(() => {
@@ -2029,7 +2082,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     const w = (k: string) => COLW[k] * dense;
     const on: Record<string, boolean> = {};
     // 거래·동·호·가격은 늘 보이고, 단지명도 단지를 고르지 않았다면 뺄 수 없다.
-    let used = w("trade_type") + w("unit") + w("price") + w("act") + (delMode ? 40 : 0);
+    let used = w("trade_type") + w("unit") + w("price") + w("act") + (pickMode ? 40 : 0);
     if (!cx) { on.name = true; used += w("name"); }
     for (const k of COLPRIO) {
       if (k === "name") continue;
@@ -2037,7 +2090,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       on[k] = true; used += w(k);
     }
     return on;
-  }, [tw, cx, delMode]);
+  }, [tw, cx, pickMode]);
 
   const effCols = colAuto ? autoCols : cols;
   // 표 최소폭도 고른 열에 맞춘다. CSS 에 760px 을 박아 두면 폰에서 자동 맞춤이 무의미해진다
@@ -2048,8 +2101,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       ALWAYS.has(k) ? true
       : k === "name" ? !cx && effCols.name !== false
       : colAuto ? !!effCols[k] : effCols[k] !== false);
-    return Math.round(ks.reduce((a, k) => a + COLW[k] * dense, 0) + (delMode ? 40 : 0));
-  }, [tw, cx, delMode, colAuto, effCols]);
+    return Math.round(ks.reduce((a, k) => a + COLW[k] * dense, 0) + (pickMode ? 40 : 0));
+  }, [tw, cx, pickMode, colAuto, effCols]);
   const VIEWCOLS = ALLCOLS.filter(([k]) =>
     ALWAYS.has(k) ? true
     : k === "name" ? !cx && effCols.name !== false      // 단지를 골랐으면 단지 열은 군더더기
@@ -2080,7 +2133,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
     const ro = new ResizeObserver(syncEdge);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [syncEdge, rows.length, VIEWCOLS.length, cx, delMode]);
+  }, [syncEdge, rows.length, VIEWCOLS.length, cx, pickMode]);
 
   const onDragDown = (e: React.PointerEvent) => {
     if (e.pointerType !== "mouse") return;            // 터치는 기본 스크롤에 맡긴다
@@ -2119,10 +2172,11 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
 
   // 선택 삭제 — 되돌릴 수 없다. 무엇을 지우는지 보여 주고 두 번 확인받는다.
   const deleteSelected = async () => {
-    const ids = [...sel];
-    if (!ids.length) return;
-    const names = rows.filter((l) => l.private_id && sel.has(l.private_id))
-      .slice(0, 5).map((l) => `· ${mlName(l)} ${unitOf(l)}`).join("\n");
+    // 지울 수 있는 건 직접등록뿐 — 네이버 광고는 수집분이라 우리가 못 지운다
+    const picked = rows.filter((l) => sel.has(l.article_no) && l.private_id);
+    const ids = picked.map((l) => l.private_id as number);
+    if (!ids.length) { alert("고른 것 중 지울 수 있는 매물(직접등록)이 없어요."); return; }
+    const names = picked.slice(0, 5).map((l) => `· ${mlName(l)} ${unitOf(l)}`).join("\n");
     if (!window.confirm(
       `매물장에서 ${ids.length}건을 지웁니다.\n\n${names}` +
       (ids.length > 5 ? `\n· 외 ${ids.length - 5}건` : "") +
@@ -2138,7 +2192,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       const d = await r.json().catch(() => null);
       if (!r.ok) throw new Error(d?.detail || `지우지 못했어요 (${r.status})`);
       if (d?.blocked) alert(`${d.closed}건을 지웠습니다.\n(${d.blocked}건은 다른 분의 개인 매물이라 남겼습니다)`);
-      setSel(new Set()); setDelMode(false); load();
+      setSel(new Set()); setPickMode(false); load();
     } catch (e: any) { alert(e?.message || "지우지 못했어요"); }
   };
 
@@ -2314,6 +2368,35 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
         </div>
       ) : (
         <>
+          {/* 어느 매물장을 볼지 — 사무실 / 내 매물장 / 비공개(대표만) */}
+          <div className="mlj2-shelf" role="tablist" aria-label="매물장 고르기">
+            {(["office", "my", ...(isOwner ? ["private"] : [])] as Shelf[]).map((k) => (
+              <button key={k} role="tab" aria-selected={shelf === k}
+                className={shelf === k ? "on" : ""}
+                onClick={() => { if (k === shelf) return; setShelf(k); setSel(new Set()); setPickMode(false); setMoveAsk(null); }}>
+                {k === "private" && <Lock size={12} aria-hidden />}
+                {k === "my" && <Star size={12} aria-hidden />}
+                {SHELF_KR[k]}
+                {counts[k] != null && <i>{counts[k]}</i>}
+              </button>
+            ))}
+            <span className="mlj2-shelf-n">
+              {shelf === "private" ? "대표만 보입니다 — 사무실 매물장·지도·손님 매칭에서 빠집니다."
+                : shelf === "my" ? "내가 담은 것만 보입니다. 사무실 매물장에도 그대로 있어요."
+                : "소속 직원 모두가 봅니다."}
+            </span>
+          </div>
+          {moveAsk && (
+            <div className="mlj2-movebar">
+              <span><b>{moveAsk.msg}</b>{moveAsk.to !== shelf ? " 지금 보시겠어요?" : ""}</span>
+              {moveAsk.to !== shelf && (
+                <button className="mv-go" onClick={() => { setShelf(moveAsk.to); setMoveAsk(null); }}>
+                  {SHELF_KR[moveAsk.to]}으로 이동
+                </button>
+              )}
+              <button className="mv-x" onClick={() => setMoveAsk(null)}>닫기</button>
+            </div>
+          )}
           {/* 검색 · 정렬 · 필터 */}
           <div className="mlj2-top">
             <span className="mlj2-srch">
@@ -2402,21 +2485,46 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                 </button>
               )}
               <button onClick={downloadCsv}><Download size={13} aria-hidden />엑셀받기</button>
-              {!ro && <button className={delMode ? "on danger" : ""}
-                onClick={() => { setDelMode((v) => !v); setSel(new Set()); }}>
-                <Trash2 size={13} aria-hidden />{delMode ? "선택 끝내기" : "삭제하기"}
+              {!ro && <button className={pickMode ? "on" : ""}
+                title="체크해서 내 매물장에 담거나, 비공개로 보내거나, 지웁니다"
+                onClick={() => { setPickMode((v) => !v); setSel(new Set()); }}>
+                <Check size={13} aria-hidden />{pickMode ? "선택 끝내기" : "고르기"}
               </button>}
             </span>
           </div>
-          {delMode && (
+          {pickMode && (
             <div className="mlj2-delbar">
-              <span>지울 매물을 고르세요 — <b>{sel.size}건</b> 선택</span>
+              <span><b>{sel.size}건</b> 선택</span>
               <button className="mlj2-delall" onClick={() => {
-                const ids = rows.filter((l) => l.private_id).map((l) => l.private_id as number);
-                setSel((s) => s.size === ids.length ? new Set() : new Set(ids));
-              }}>{sel.size && sel.size === rows.filter((l) => l.private_id).length ? "선택 해제" : "보이는 것 전체"}</button>
+                const ans = rows.map((l) => l.article_no);
+                setSel((s) => s.size === ans.length ? new Set() : new Set(ans));
+              }}>{sel.size && sel.size === rows.length ? "선택 해제" : "보이는 것 전체"}</button>
+              {shelf !== "my" && (
+                <button className="mlj2-shelfgo" disabled={!sel.size}
+                  onClick={() => shelfSet("my", "add")}>
+                  <Star size={13} aria-hidden />내 매물장에 담기
+                </button>
+              )}
+              {shelf === "my" && (
+                <button className="mlj2-shelfgo" disabled={!sel.size}
+                  onClick={() => shelfSet("my", "remove")}>
+                  <Minus size={13} aria-hidden />내 매물장에서 빼기
+                </button>
+              )}
+              {isOwner && shelf !== "private" && (
+                <button className="mlj2-shelfgo pv" disabled={!sel.size}
+                  onClick={() => shelfSet("private", "add")}>
+                  <Lock size={13} aria-hidden />비공개로 보내기
+                </button>
+              )}
+              {isOwner && shelf === "private" && (
+                <button className="mlj2-shelfgo pv" disabled={!sel.size}
+                  onClick={() => shelfSet("private", "remove")}>
+                  <Globe size={13} aria-hidden />비공개 해제
+                </button>
+              )}
               <button className="mlj2-delgo" disabled={!sel.size} onClick={deleteSelected}>
-                {sel.size}건 삭제
+                <Trash2 size={13} aria-hidden />삭제
               </button>
             </div>
           )}
@@ -2493,7 +2601,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
               <table className="mlt" style={{ minWidth: minW }}>
                 <thead>
                   <tr>
-                    {delMode && <th className="mlt-ck" />}
+                    {pickMode && <th className="mlt-ck" />}
                     {VIEWCOLS.map(([k, t]) => (
                       k === "act"
                         ? <th key={k} className="c-act">{t}</th>
@@ -2503,7 +2611,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                     ))}
                   </tr>
                   <tr className="mlt-f">
-                    {delMode && <th className="mlt-ck" />}
+                    {pickMode && <th className="mlt-ck" />}
                     {VIEWCOLS.map(([k]) => (
                       <th key={k} className={`c-${k}`}>
                         {k === "trade_type" && colSel("trade_type", opts.trade_type)}
@@ -2525,23 +2633,20 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                 </thead>
                 <tbody>
                   {rows.map((l) => {
-                    const pid = l.private_id;
-                    const picked = !!pid && sel.has(pid);
+                    const an = l.article_no;
+                    const picked = sel.has(an);
                     return (
                       <tr key={l.article_no} className={picked ? "on" : ""}
                         onClick={() => {
                           if (dragRef.current.moved) { dragRef.current.moved = false; return; }
-                          if (delMode) {
-                            if (!pid) return;            // 네이버 광고 매물은 매물장에서 못 지운다
-                            setSel((x) => { const n = new Set(x); n.has(pid) ? n.delete(pid) : n.add(pid); return n; });
+                          if (pickMode) {
+                            setSel((x) => { const n = new Set(x); n.has(an) ? n.delete(an) : n.add(an); return n; });
                             return;
                           }
                           setDetailOwner(""); setDetail(l);
                         }}>
-                        {delMode && (
-                          <td className="mlt-ck">
-                            {pid ? <input type="checkbox" checked={picked} readOnly /> : <span className="mlt-no">—</span>}
-                          </td>
+                        {pickMode && (
+                          <td className="mlt-ck"><input type="checkbox" checked={picked} readOnly /></td>
                         )}
                         {VIEWCOLS.map(([k]) => {
                           if (k === "trade_type") return <td key={k} className="c-trade_type"><i className={`mlj2-badge b-${l.trade_type}`}>{l.trade_type || "미정"}</i></td>;
@@ -2605,7 +2710,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                           );
                           if (k === "manager") return (
                             <td key={k} className="c-manager" onClick={(e) => e.stopPropagation()}>
-                              {delMode || ro ? (l.manager || <span className="mlt-no">—</span>) : (
+                              {pickMode || ro ? (l.manager || <span className="mlt-no">—</span>) : (
                                 <select className="mlt-cell-sel" value={l.manager || ""}
                                   onChange={(e) => assignManager(l, e.target.value)}>
                                   <option value="">미지정</option>
@@ -2618,8 +2723,8 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                             const on = cellEdit?.an === l.article_no && cellEdit.k === k;
                             return (
                               <td key={k} className={k === "contact" ? "c-contact mlt-tel mlt-ed" : "c-memo mlt-memo mlt-ed"}
-                                title={delMode ? undefined : "눌러서 바로 고치기"}
-                                onClick={(e) => { if (delMode || ro) return; e.stopPropagation(); if (!on) beginEdit(l, k); }}>
+                                title={pickMode ? undefined : "눌러서 바로 고치기"}
+                                onClick={(e) => { if (pickMode || ro) return; e.stopPropagation(); if (!on) beginEdit(l, k); }}>
                                 {on ? (
                                   <input className="mlt-cell-in" autoFocus value={draft}
                                     onClick={(e) => e.stopPropagation()}
@@ -2651,7 +2756,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
                     );
                   })}
                   {!rows.length && (
-                    <tr><td colSpan={VIEWCOLS.length + (delMode ? 1 : 0)} className="mlt-empty">
+                    <tr><td colSpan={VIEWCOLS.length + (pickMode ? 1 : 0)} className="mlt-empty">
                       조건에 맞는 매물이 없습니다.
                     </td></tr>
                   )}
@@ -2771,8 +2876,12 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
         );
       })()}
       {mapOpen && <OfficeMap authH={authH} officeName={office.realtor_name} onClose={() => setMapOpen(false)} />}
-      {plOpen && <PrivateListingForm authH={authH} init={editPL} managers={managers}
-        onClose={() => setPlOpen(false)} onSaved={() => { setPlOpen(false); setPriv(true); load(); }} />}
+      {plOpen && <PrivateListingForm authH={authH} init={editPL} managers={managers} isOwner={isOwner}
+        onClose={() => setPlOpen(false)}
+        onSaved={(toPriv) => {
+          setPlOpen(false); setPriv(true); load();
+          if (toPriv) setMoveAsk({ to: "private", msg: "비공개매물장에 등록했어요." });
+        }} />}
     </div>
   );
 }
@@ -3127,14 +3236,17 @@ function PLMoney({ f, setF, k, label }: any) {
   );
 }
 
-function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
+function PrivateListingForm({ authH, init, managers, isOwner, onClose, onSaved }: {
   authH: () => Record<string, string>; init: MLItem | null; managers: Manager[];
-  onClose: () => void; onSaved: () => void;
+  isOwner?: boolean; onClose: () => void; onSaved: (toPrivate?: boolean) => void;
 }) {
   const [f, setF] = useState<Record<string, any>>(() => ({
+    // 공개범위는 더 고르지 않는다 — 사무실 공개가 기본이고, 숨기는 건 대표가 비공개매물장으로
+    // 보내는 길 하나다(아래 체크). 예전에 '나만 보기'로 저장된 건은 그대로 작성자만 본다.
     visibility: "office", trade_type: "매매", type: "아파트",
     ...(init ? { ...init, id: init.private_id } : {}),
   }));
+  const [toPriv, setToPriv] = useState(!!init?.in_private);
   const [photos, setPhotos] = useState<string[]>(init?.photos || []);
   const [busy, setBusy] = useState(false);
   const [upBusy, setUpBusy] = useState(false);
@@ -3236,7 +3348,15 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.detail || "저장 실패");
-      onSaved();
+      // 대표가 비공개로 체크했으면 저장된 id 로 선반까지 옮긴다(체크를 풀면 되돌린다)
+      if (isOwner && d?.id && toPriv !== !!init?.in_private) {
+        await fetch(`${API_BASE}/lounge/listings/shelf`, {
+          method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
+          body: JSON.stringify({ shelf: "private", action: toPriv ? "add" : "remove",
+                                 article_nos: [`P${d.id}`] }),
+        }).catch(() => { /* 매물은 이미 저장됐다 — 선반은 매물장에서 다시 바꿀 수 있다 */ });
+      }
+      onSaved(isOwner && toPriv);
     } catch (e: any) { alert(e.message || "저장 실패"); }
     finally { setBusy(false); }
   };
@@ -3269,16 +3389,16 @@ function PrivateListingForm({ authH, init, managers, onClose, onSaved }: {
           </div>
         )}
 
-        <div className="pl-sec">공개 범위</div>
-        <div className="pl-vis">
-          {([["office", "사무실 전체", "같은 사무소 회원 모두가 봅니다"],
-             ["me", "나만 보기", "작성자 본인만 보고 수정할 수 있어요"]] as const).map(([v, t, d]) => (
-            <button key={v} className={f.visibility === v ? "on" : ""}
-              onClick={() => setF((s) => ({ ...s, visibility: v }))}>
-              <b>{t}</b><span>{d}</span>
-            </button>
-          ))}
-        </div>
+        {isOwner && (
+          <>
+            <div className="pl-sec">공개 범위</div>
+            <label className="pl-privchk">
+              <input type="checkbox" checked={toPriv} onChange={(e) => setToPriv(e.target.checked)} />
+              <b><Lock size={12} aria-hidden /> 비공개매물장에 넣기</b>
+              <span>대표만 보입니다. 체크하지 않으면 소속 직원 모두가 보는 사무실 매물장에 들어갑니다.</span>
+            </label>
+          </>
+        )}
 
         <div className="pl-sec">기본</div>
         <div className="pl-grid">
@@ -3513,8 +3633,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
   privMsg?: string; onFilled?: () => void;
   onEditPrivate?: () => void; onDeletePrivate?: () => void;
 }) {
-  const [keepPick, setKeepPick] = useState(false);
-  // 네이버 연동매물 → 비공개매물장 보관. 네이버에서 내려가도 사무소가 계속 관리할 수 있게
+  // 네이버 연동매물 → 우리 매물장 보관. 네이버에서 내려가도 사무소가 계속 관리할 수 있게
   // 현재 값을 그대로 떠서 저장한다(복사). 내 사무소 매물에만 노출.
   const [savePick, setSavePick] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -3638,14 +3757,8 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
             {!l.is_private && onToPrivate && (
               privMsg ? <span className="mlj-keep-ok">{privMsg}</span> : (
                 <div className="mlj-fill">
-                  <button onClick={() => setKeepPick((v) => !v)}>
-                    <Lock size={12} /> 비공개매물장에 보관</button>
-                  {keepPick && (
-                    <>
-                      <button className="cand" onClick={() => onToPrivate("office")}>사무실 전체</button>
-                      <button className="cand" onClick={() => onToPrivate("me")}>나만</button>
-                    </>
-                  )}
+                  <button onClick={() => onToPrivate("office")}>
+                    <Lock size={12} /> 우리 매물장에 보관</button>
                 </div>
               )
             )}
@@ -3655,14 +3768,15 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
         {/* 보조 패널·안내는 고정 버튼 바 '위'에 둔다 — 아래에 두면 sticky 푸터에 가린다 */}
         {savePick && (
           <div className="mld-topriv-pick">
-            <div className="mld-topriv-t">누구에게 보이게 할까요?</div>
+            <div className="mld-topriv-t">우리 매물장에 보관할까요?</div>
             <div className="pl-vis">
               <button disabled={saving} onClick={() => toPrivate("office")}>
-                <b>사무실 전체</b><span>같은 사무소 회원 모두가 봅니다</span></button>
-              <button disabled={saving} onClick={() => toPrivate("me")}>
-                <b>나만 보기</b><span>작성자 본인만 보고 수정할 수 있어요</span></button>
+                <b>보관하기</b><span>사무실 매물장에 들어갑니다</span></button>
             </div>
-            <div className="mld-topriv-n">네이버에서 내려가도 비공개매물장에 남아 계속 관리할 수 있어요.</div>
+            <div className="mld-topriv-n">
+              네이버에서 내려가도 우리 매물장에 남아 계속 관리할 수 있어요.
+              대표만 보게 하려면 매물장에서 <b>고르기 → 비공개로 보내기</b>를 쓰세요.
+            </div>
           </div>
         )}
         {saveMsg && <div className="pl-msg" style={{ marginTop: 8 }}>{saveMsg}</div>}
@@ -3676,7 +3790,7 @@ function ListingDetail({ l, owner = "", authH, onSavedPrivate, onClose,
           {route && <a className="mlj-naver" href={route} target="_blank" rel="noreferrer"><MapPin size={14} /> 길찾기</a>}
           {l.naver_url && <a className="mlj-naver" href={l.naver_url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> 네이버 매물</a>}
           {canSave && <button className="mlj-topriv" onClick={() => setSavePick((v) => !v)}>
-            <Lock size={14} /> 비공개매물장에 보관</button>}
+            <Lock size={14} /> 우리 매물장에 보관</button>}
           {/* 직접등록한 물건만 고치고 지울 수 있다. 네이버 매물은 수집분이라 우리가 못 지운다 */}
           {l.is_private && onEditPrivate && (
             <button className="mlj-naver" onClick={onEditPrivate}><Pencil size={14} /> 수정</button>

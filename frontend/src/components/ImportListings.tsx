@@ -53,7 +53,8 @@ export default function ImportListings({ authH, onClose, onSaved }: {
   const [si, setSi] = useState(0);                     // 고른 시트
   const [drop, setDrop] = useState(false);
   const [skipDup, setSkipDup] = useState(true);        // 이미 있는 것은 빼고 담는다
-  const [vis, setVis] = useState("office");
+  // 엑셀로 담은 매물은 늘 사무실 매물장으로 간다. 숨기는 길은 대표가 매물장에서
+  // 비공개매물장으로 보내는 하나뿐 — 가져오기 화면에서 공개범위를 고르게 하지 않는다.
   const [off, setOff] = useState<Set<number>>(new Set());   // 사람이 뺀 줄
   const [done, setDone] = useState<{ saved: number; skipped: number } | null>(null);
   // 담은 직후 건축물대장으로 빈 칸을 채우며 검증한다 — 나중에 따로 돌릴 일이 아니다.
@@ -134,7 +135,7 @@ export default function ImportListings({ authH, onClose, onSaved }: {
       const r = await fetch(`${API_BASE}/lounge/import/commit`, {
         method: "POST", headers: { ...authH(), "Content-Type": "application/json" },
         body: JSON.stringify({
-          rows: picked, filename: nameRef.current, visibility: vis,
+          rows: picked, filename: nameRef.current, visibility: "office",
           complex_no: cxPick?.complex_no, complex_name: cxPick?.complex_name,
         }),
       });
@@ -342,12 +343,6 @@ export default function ImportListings({ authH, onClose, onSaved }: {
                 <div className="imp-opts">
                   <label><input type="checkbox" checked={skipDup}
                     onChange={(e) => setSkipDup(e.target.checked)} /> 이미 매물장에 있는 것은 빼고 담기</label>
-                  <label className="vis">공개범위
-                    <select value={vis} onChange={(e) => setVis(e.target.value)}>
-                      <option value="office">사무실 전체</option>
-                      <option value="me">나만 보기</option>
-                    </select>
-                  </label>
                 </div>
 
                 <div className="imp-tbl">

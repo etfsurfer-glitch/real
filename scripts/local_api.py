@@ -15296,17 +15296,85 @@ def realtor_listings_public(realtor_id: str, cat: str = "", trade: str = "",
     return {"realtor_id": realtor_id, "count": len(items), "listings": items}
 
 
+# ── 매물장 선반(비공개매물장 · 내 매물장) ───────────────────────────────────
+# 매물장 한 줄은 네이버 광고일 수도, 콕집 직접등록일 수도 있다. 두 경로를 한 키로 다루려고
+# 줄의 article_no 를 그대로 쓴다 — 직접등록은 'P<id>' 꼴이라 네이버 번호와 겹치지 않는다.
+#
+#   private  사무소에 하나. **대표만** 넣고 빼고 본다. 넣으면 사무실 매물장에서 빠진다.
+#   my       직원마다 하나(대표 포함). 담아도 사무실 매물장에는 그대로 남는다 — '담기'다.
+#
+# 예전 공개범위 visibility='me'(작성자만 보기)는 새로 만들 수 없게 두고, 이미 있는 건은
+# 그대로 작성자만 본다 — 지금 숨겨진 물건이 전환 때문에 동료에게 보이면 안 된다.
+def _ensure_listing_shelf(c) -> None:
+    c.executescript("""
+    CREATE TABLE IF NOT EXISTS listing_shelf(
+      realtor_id TEXT NOT NULL,
+      shelf      TEXT NOT NULL,          -- private | my
+      owner_uid  TEXT NOT NULL,          -- my=주인 user_id, private=''(사무소 공용)
+      article_no TEXT NOT NULL,          -- 매물장 줄의 키(네이버 번호 또는 'P<id>')
+      private_id INTEGER,                -- 직접등록이면 그 id
+      added_by   TEXT NOT NULL,
+      added_at   TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY(realtor_id, shelf, owner_uid, article_no));
+    """)
+
+
+def _is_office_owner(c, rid: str, uid: str) -> bool:
+    """대표(role='owner')인가 — 비공개매물장을 다룰 수 있는 사람."""
+    return bool(c.execute(
+        "SELECT 1 FROM realtor_members WHERE realtor_id=? AND user_id=? "
+        "AND role='owner' AND status='active' LIMIT 1", (rid, uid)).fetchone())
+
+
+def _shelf_keys(c, rid: str, shelf: str, owner_uid: str = "") -> set:
+    _ensure_listing_shelf(c)
+    return {r[0] for r in c.execute(
+        "SELECT article_no FROM listing_shelf WHERE realtor_id=? AND shelf=? AND owner_uid=?",
+        (rid, shelf, owner_uid))}
+
+
+def _hidden_private_ids(c, rid: str, uid: str) -> set:
+    """비공개매물장에 들어간 직접등록 매물의 id. 대표면 빈 집합(다 본다).
+
+    매물장 목록만 가리면 모자란다 — 손님 매칭·고객원장도 같은 테이블을 읽는다.
+    """
+    if _is_office_owner(c, rid, uid):
+        return set()
+    _ensure_listing_shelf(c)
+    return {int(r[0]) for r in c.execute(
+        "SELECT private_id FROM listing_shelf WHERE realtor_id=? AND shelf='private' "
+        "AND owner_uid='' AND private_id IS NOT NULL", (rid,))}
+
+
+def _item_keys(it: dict) -> list:
+    """그 줄이 가리키는 매물번호 전부. 직접등록이 네이버 광고와 한 줄로 합쳐지면 줄의 키는
+    'P<id>' 가 되는데(_merge_private_naver), 선반에는 네이버 번호로 담겼을 수 있다."""
+    ks = [it.get("article_no"), it.get("naver_article_no")]
+    ks += [d.get("article_no") for d in (it.get("ad_dupes") or [])]
+    return [k for k in ks if k]
+
+
 @app.get("/lounge/listings")
 def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str = "",
                     cat: str = "", manager: str = "", sort: str = "confirm", limit: int = 1500,
-                    private: int = 0, private_only: int = 0, as_realtor: str = ""):
+                    private: int | None = None, private_only: int = 0, as_realtor: str = "",
+                    shelf: str = "office"):
     """매물장 — 내 중개사무소(realtor_id)의 매물 통합. trade=매매/전세/월세, cat=유형, manager=담당자.
-    private=1 이면 비공개매물도 함께, private_only=1 이면 비공개매물만(공개범위 규칙 적용).
+    private=1 이면 직접등록 매물도 함께, private_only=1 이면 직접등록 매물만.
+    (여기서 private 은 '콕집에 직접 등록한 매물'이라는 뜻이다 — 아래 shelf 의 '비공개'와
+     다른 말이다. 화면에서는 '직접등록'으로만 부른다.)
 
     as_realtor — 관리자 전용 '사무소로 보기'(읽기만). 민원을 받으면 그 사무소가 실제로
     무엇을 보는지 확인해야 하는데, 남의 계정으로 들어갈 수는 없다. 공개범위('나만 보기')
     까지 똑같이 재현하려면 그 사무소 대표의 user_id 기준으로 봐야 한다.
+
+    shelf — 어느 매물장을 볼지. office(사무실·기본) / my(내 매물장) / private(비공개, 대표만).
+    세 목록은 같은 한 벌을 거른 것이다 — 선반마다 따로 모으면 같은 물건이 화면마다
+    다른 값으로 보인다(메모·담당·광고 접기가 여기서 한 번에 붙는다).
     """
+    shelf = (shelf or "office").strip() or "office"
+    if shelf not in ("office", "my", "private"):
+        raise HTTPException(400, "shelf 는 office|my|private 중 하나입니다")
     with _reviews_db() as rc:
         if as_realtor:
             if not user.get("is_admin"):
@@ -15322,8 +15390,16 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
         _ensure_lounge_notes(rc)
         notes = {r[0]: (r[1], r[2], r[3]) for r in rc.execute(
             "SELECT article_no, memo, contact, manager FROM lounge_notes WHERE realtor_id=?", (rid,)).fetchall()}
+        is_owner = _is_office_owner(rc, rid, vuid)
+        if shelf == "private" and not is_owner:
+            raise HTTPException(403, "비공개매물장은 대표만 볼 수 있습니다")
+        hidden = _shelf_keys(rc, rid, "private")
+        mine = _shelf_keys(rc, rid, "my", vuid)
         priv = []
-        if private or private_only:
+        # private 을 안 보내면(None) 선반을 볼 때 직접등록도 함께 읽는다 — 비공개·내 매물장이
+        # 조용히 반쪽만 보이면 안 된다. 다만 **private=0 을 명시**했으면(출처 '네이버만')
+        # 그 뜻을 그대로 지킨다. 그래서 0 과 '안 보냄'을 구분해야 하고 기본값이 None 이다.
+        if private_only or private == 1 or (private is None and shelf != "office"):
             rc.row_factory = sqlite3.Row
             priv = _collect_private_listings(rc, rid, vuid, _TRADE_CODE.get(trade), cat)
     items = [] if private_only else _collect_realtor_listings(rid, _TRADE_CODE.get(trade), cat)
@@ -15347,6 +15423,21 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
         items = [it for it in items if not it["manager"]]
     elif manager:
         items = [it for it in items if it["manager"] == manager]
+    # 선반 — 비공개는 사무실 매물장에서 빠지고(대표만 본다), 내 매물장은 담은 줄만 남는다.
+    # 세기는 거르기 **전에** 한다 — 탭에 붙는 숫자가 '지금 조건에서 몇 건'이어야 한다.
+    for it in items:
+        ks = _item_keys(it)
+        it["in_private"] = any(k in hidden for k in ks)
+        it["in_my"] = any(k in mine for k in ks)
+    counts = {"office": sum(1 for it in items if not it["in_private"]),
+              "my": sum(1 for it in items if it["in_my"] and not it["in_private"]),
+              "private": sum(1 for it in items if it["in_private"])}
+    if shelf == "private":
+        items = [it for it in items if it["in_private"]]
+    elif shelf == "my":
+        items = [it for it in items if it["in_my"] and not it["in_private"]]
+    else:
+        items = [it for it in items if not it["in_private"]]
     if sort == "price_desc":
         items.sort(key=lambda x: x["price"] or 0, reverse=True)
     elif sort == "price_asc":
@@ -15354,7 +15445,8 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
     else:
         items.sort(key=lambda x: x["confirm_ymd"] or "", reverse=True)
     items = items[:min(max(int(limit), 1), 3000)]
-    out = {"realtor_id": rid, "count": len(items), "listings": items}
+    out = {"realtor_id": rid, "count": len(items), "listings": items,
+           "shelf": shelf, "counts": counts, "is_owner": is_owner}
     if as_realtor:
         with _open_db() as c:
             nm = c.execute("SELECT realtor_name FROM naver_realtors WHERE realtor_id=?", (rid,)).fetchone()
@@ -15363,9 +15455,59 @@ def lounge_listings(user: dict = Depends(current_user), q: str = "", trade: str 
     return out
 
 
-# ── 비공개매물 ──────────────────────────────────────────────────────────────
-# 네이버 연동이 아니라 대표·직원이 콕집에 직접 등록하는 매물. 공개범위(me=작성자만 /
-# office=사무실 전체)를 등록자가 고른다. 항목은 네이버 매물 수준으로 넓게 두되 **전부 선택**
+@app.post("/lounge/listings/shelf")
+def lounge_listings_shelf(body: dict, user: dict = Depends(current_user)):
+    """매물장 줄을 비공개매물장·내 매물장에 넣고 뺀다 — 표에서 체크한 여러 건을 한 번에.
+
+    네이버 연동매물도 대상이다. 네이버 광고는 그대로 살아 있고 콕집 화면에서만 옮겨진다 —
+    광고를 내리는 일(네이버 CP)과는 아무 관계가 없다.
+
+    body: {shelf: private|my, action: add|remove, article_nos: [...]}
+    """
+    shelf = (body.get("shelf") or "").strip()
+    action = (body.get("action") or "add").strip()
+    nos, seen = [], set()
+    for x in (body.get("article_nos") or []):
+        k = str(x).strip()
+        if k and k not in seen:
+            seen.add(k); nos.append(k)
+    if shelf not in ("private", "my"):
+        raise HTTPException(400, "shelf 는 private|my 입니다")
+    if action not in ("add", "remove"):
+        raise HTTPException(400, "action 은 add|remove 입니다")
+    if not nos:
+        raise HTTPException(400, "고른 매물이 없습니다")
+    if len(nos) > 1000:
+        raise HTTPException(400, "한 번에 1,000건까지만 됩니다")
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+        _ensure_listing_shelf(c)
+        # 비공개는 사무소 전체에 영향을 준다(동료 화면에서 사라진다) — 대표만.
+        if shelf == "private" and not _is_office_owner(c, rid, user["id"]):
+            raise HTTPException(403, "비공개매물장은 대표만 설정할 수 있습니다")
+        own = "" if shelf == "private" else user["id"]
+        n = 0
+        for an in nos:
+            pid = int(an[1:]) if an[:1] == "P" and an[1:].isdigit() else None
+            if action == "add":
+                cur = c.execute(
+                    "INSERT OR IGNORE INTO listing_shelf"
+                    "(realtor_id, shelf, owner_uid, article_no, private_id, added_by) "
+                    "VALUES(?,?,?,?,?,?)", (rid, shelf, own, an, pid, user["id"]))
+            else:
+                cur = c.execute(
+                    "DELETE FROM listing_shelf WHERE realtor_id=? AND shelf=? "
+                    "AND owner_uid=? AND article_no=?", (rid, shelf, own, an))
+            n += max(cur.rowcount, 0)
+        c.commit()
+    return {"ok": True, "shelf": shelf, "action": action, "n": n}
+
+
+# ── 직접등록 매물(테이블 이름은 private_listings) ───────────────────────────
+# 네이버 연동이 아니라 대표·직원이 콕집에 직접 등록하는 매물. 화면에서는 '직접등록'이다 —
+# '비공개'는 이제 대표만 보는 선반(listing_shelf, shelf='private')을 가리키는 말이라
+# 둘을 섞어 부르면 안 된다. 등록할 때 고르던 공개범위(me=작성자만)는 더 만들지 않는다.
+# 이미 저장된 me 행은 그대로 작성자만 본다(_pl_visible_sql). 항목은 네이버 매물 수준으로 넓게 두되 **전부 선택**
 # (필수 없음) — 현장에서 아는 만큼만 적고 나중에 채우는 실제 업무 흐름에 맞춘다.
 PRIVATE_IMG_DIR: Path = DB_PATH.parent / "private_listing_photos"
 PRIVATE_IMG_DIR.mkdir(parents=True, exist_ok=True)
@@ -17141,7 +17283,8 @@ def _fit(nd: dict, hit: dict) -> list:
     return out
 
 
-def _match_ours(rc, rid: str, nd: dict, limit: int = 12, level: int = 0) -> list:
+def _match_ours(rc, rid: str, nd: dict, limit: int = 12, level: int = 0,
+                hide: set | None = None) -> list:
     """우리 사무소 매물장에서 찾기. 금액은 만원 단위로 저장돼 있다.
 
     level 을 올리면 예산·면적 여유가 커진다 — 확대 검색이 남의 물건만 넓히면
@@ -17193,6 +17336,9 @@ def _match_ours(rc, rid: str, nd: dict, limit: int = 12, level: int = 0) -> list
         f"ORDER BY CAST(price AS REAL) LIMIT ?", args + [limit]).fetchall()
     out = []
     for r in rows:
+        # 대표가 비공개매물장으로 보낸 물건은 직원 매칭 화면에도 떠선 안 된다
+        if hide and r["id"] in hide:
+            continue
         out.append({"src": "ours", "id": r["id"],
                     "name": r["complex_name"] or r["building_name"] or r["address"] or "매물",
                     "where": " ".join(x for x in [r["address"], r["dong"], r["ho"]] if x),
@@ -17928,9 +18074,10 @@ def lounge_match(user: dict = Depends(current_user), need_id: int = 0, limit: in
         if need_id:
             q += " AND n.id=?"; args.append(need_id)
         needs = [dict(r) for r in rc.execute(q + " ORDER BY n.updated_at DESC LIMIT 60", args)]
+        hide = _hidden_private_ids(rc, rid, user["id"])
         items = []
         for nd in needs:
-            ours = _match_ours(rc, rid, nd, limit)
+            ours = _match_ours(rc, rid, nd, limit, hide=hide)
             nd_m = _need_region_hint(rc, rid, nd)
             try:
                 market = _match_market(nd_m, limit)
@@ -17966,8 +18113,10 @@ def lounge_match_expand(need_id: int, level: int = 1, limit: int = 20,
     # 우리 매물장도 같은 폭으로 다시 본다 — 기본 조건에서 살짝 벗어난 우리 물건을
     # 두고 밖에서 찾는 일이 없게. 이미 기본 목록에 나온 건 뺀다.
     with _reviews_db() as rc2:
-        base_ids = {x["id"] for x in _match_ours(rc2, rid, nd, 50, level=0)}
-        ours = [x for x in _match_ours(rc2, rid, nd, limit, level=lv) if x["id"] not in base_ids]
+        hide = _hidden_private_ids(rc2, rid, user["id"])
+        base_ids = {x["id"] for x in _match_ours(rc2, rid, nd, 50, level=0, hide=hide)}
+        ours = [x for x in _match_ours(rc2, rid, nd, limit, level=lv, hide=hide)
+                if x["id"] not in base_ids]
         nd = _need_region_hint(rc2, rid, nd)
     try:
         hits = _match_market(nd, limit, level=lv)
@@ -17988,7 +18137,7 @@ def lounge_match_listing(pid: int, user: dict = Depends(current_user), limit: in
         _ensure_private_listings(rc)
         l = rc.execute("SELECT * FROM private_listings WHERE id=? AND realtor_id=?",
                        (pid, rid)).fetchone()
-        if not l:
+        if not l or pid in _hidden_private_ids(rc, rid, user["id"]):
             raise HTTPException(404, "매물을 찾을 수 없어요")
         price = (_to_f(l["price"]) or 0) * 10000          # 만원 → 원
         area = _to_f(l["area2_m2"])
@@ -18092,6 +18241,7 @@ def lounge_customers(user: dict = Depends(current_user), q: str = "", limit: int
             "WHERE realtor_id=? ORDER BY updated_at DESC LIMIT ?", (rid, max(1, min(limit, 1000)))
         ).fetchall()
         cids = [c["id"] for c in cust]
+        hide = _hidden_private_ids(rc, rid, user["id"])
         needs: dict = {}
         if cids:
             qs = ",".join("?" * len(cids))
@@ -18104,7 +18254,8 @@ def lounge_customers(user: dict = Depends(current_user), q: str = "", limit: int
                 f"WHERE n.customer_id IN ({qs}) ORDER BY n.id", cids).fetchall():
                 d = dict(n)
                 lst = None
-                if d.get("listing_id") and d.get("l_name") is not None:
+                if d.get("listing_id") and d.get("l_name") is not None \
+                        and d["listing_id"] not in hide:
                     lst = {"id": d["listing_id"], "complex_name": d["l_name"], "dong": d["l_dong"],
                            "ho": d["l_ho"], "trade_type": d["l_trade"], "price": d["l_price"],
                            "deposit": d["l_deposit"], "rent_price": d["l_rent"], "area2_m2": d["l_area"]}
