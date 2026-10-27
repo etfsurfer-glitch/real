@@ -15583,6 +15583,13 @@ def _ensure_private_listings(c) -> None:
         if col not in have:
             c.execute(f"ALTER TABLE private_listings ADD COLUMN {col} TEXT")
     c.execute("CREATE INDEX IF NOT EXISTS pl_src ON private_listings(realtor_id, source_article_no)")
+    # 옛 공개범위 'me'(작성자만 보기)를 사무실 공개로 올린다 — 2026-10-27 결정.
+    # 숨기는 길은 대표의 비공개매물장 하나로 모았고, 'me' 는 더 만들 수 없다.
+    # 남겨 두면 화면 어디에도 설명이 없는 채로 혼자 안 보이는 줄이 된다.
+    # (한 번만 돈다. 평소에는 아래 SELECT 가 빈손으로 끝난다.)
+    if c.execute("SELECT 1 FROM private_listings WHERE visibility='me' LIMIT 1").fetchone():
+        c.execute("UPDATE private_listings SET visibility='office' WHERE visibility='me'")
+        c.commit()
 
 
 def _geocode_addr(addr: str):
@@ -15631,7 +15638,11 @@ def _parse_price_man(txt) -> str | None:
 
 
 def _pl_visible_sql(uid: str) -> tuple:
-    """공개범위 필터 — office 는 사무실 전원, me 는 작성자 본인만."""
+    """공개범위 필터. 지금은 전부 office 라 모두 통과한다 — 숨기는 일은 비공개매물장이 한다.
+
+    옛 'me'(작성자만 보기)를 위해 남은 자리다. _ensure_private_listings 가 남은 me 를
+    office 로 올리므로 걸릴 행이 없지만, 혹시 남아도 작성자에게는 보이게 둔다.
+    """
     return ("(visibility='office' OR created_by=?)", [uid])
 
 

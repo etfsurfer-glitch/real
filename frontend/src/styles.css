@@ -6352,17 +6352,18 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .mlj2-count-act button.danger{color:#b4232a;border-color:#e8b9bc}
 
 /* 어느 매물장에 들어 있는지 — 출처 알약 옆에 같은 모양으로 붙는다 */
-/* 표에서는 아이콘만 — 네모에 가깝게 줄이고 글자 자리를 없앤다 */
-.mlj2-src.ic{padding:3px;gap:0;border-radius:6px}
-.mlt-src{display:flex;align-items:center;gap:3px;flex-wrap:wrap}
+/* 표에서는 아이콘만 — 알약 배경까지 빼고 색만 남긴다. 줄마다 네모가 서넛 겹치면
+   그 자체로 지저분해진다(2026-10-27 실측 화면). 색과 모양으로만 구분하고 뜻은 범례에. */
+.mlj2-src.ic{background:none;padding:0;gap:0;border-radius:0}
+.mlt-src{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
 /* 아이콘 뜻을 표 위에 한 줄로. 아이콘에 올리면 설명이 다시 뜬다(title) */
 .mlt-legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:2px 0 6px;
    font-size:11.5px;color:#8b96a5}
 .mlt-legend>span{display:inline-flex;align-items:center;gap:4px;cursor:help}
+.mlt-legend .mlj2-src.ic{flex:none}
 .mlt-legend i{font-style:normal}
 .mlj2-src.pvt{background:#dde4ee;color:#28415e}
 .mlj2-src.my{background:#fff4e2;color:#8a5a12}
-.mlj2-src.me{background:#f0f1f3;color:#5b6775}
 
 /* 매물장 셋 — 사무실 · 내 매물장 · 비공개(대표만).
    탭처럼 보이지만 같은 한 벌을 거른 것이라, 숫자(i)를 붙여 어디에 몇 건인지 바로 보이게 한다. */

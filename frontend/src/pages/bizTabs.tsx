@@ -8,7 +8,7 @@ import type { Offer as KOffer } from "../components/OfferForm";
 import { Loading } from "../components/Loading";
 import ImportListings from "../components/ImportListings";
 import {
-  ArrowLeft, Award, Building2, Camera, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileSpreadsheet, Flame, Globe, Link2, Loader2, Lock, Map as MapIcon, MapPin, MessageSquare, Minus, Pencil, Phone, Plus, RefreshCw, Search, Share2, SlidersHorizontal, Sparkles, Star, Trash2, TrendingUp, Upload, User, Users, X, EyeOff,
+  ArrowLeft, Award, Building2, Camera, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileSpreadsheet, Flame, Globe, Link2, Loader2, Lock, Map as MapIcon, MapPin, MessageSquare, Minus, Pencil, Phone, Plus, RefreshCw, Search, Share2, SlidersHorizontal, Sparkles, Star, Trash2, TrendingUp, Upload, Users, X, EyeOff,
 } from "lucide-react";
 import ListingAudit from "../components/ListingAudit";
 import OfficeMap from "../components/OfficeMap";
@@ -1581,9 +1581,6 @@ const SRC_META: { k: string; label: string; tip: string; icon: (n: number) => Re
   { k: "nv", label: "광고중", tip: "네이버에 지금 광고 중", icon: (n) => <Globe size={n} /> },
   { k: "my", label: "내 매물장", tip: "내 매물장에 담은 매물", icon: (n) => <Star size={n} /> },
   { k: "pvt", label: "비공개", tip: "비공개매물장 — 대표만 보입니다", icon: (n) => <EyeOff size={n} /> },
-  // 지금은 만들 수 없는 옛 설정. 남아 있는 줄을 알아볼 수 있어야 해서 표시만 남긴다.
-  { k: "me", label: "나만 보기", tip: "옛 '나만 보기' — 등록한 사람만 보입니다(지금은 만들 수 없습니다)",
-    icon: (n) => <User size={n} /> },
 ];
 const SRC_BY_K: Record<string, typeof SRC_META[number]> =
   Object.fromEntries(SRC_META.map((m) => [m.k, m]));
@@ -1608,7 +1605,7 @@ function Pill({ k, icon, tip }: { k: string; icon?: boolean; tip?: string }) {
   const m = SRC_BY_K[k];
   return (
     <span className={`mlj2-src ${k}${icon ? " ic" : ""}`} title={tip || m.tip}>
-      {m.icon(icon ? 12 : 10)}{icon ? null : m.label}
+      {m.icon(icon ? 13 : 10)}{icon ? null : m.label}
     </span>
   );
 }
@@ -1630,7 +1627,6 @@ function SrcPills({ l, icon }: { l: MLItem; icon?: boolean }) {
       )}
       {l.in_private && <Pill k="pvt" icon={icon} />}
       {l.in_my && <Pill k="my" icon={icon} />}
-      {l.visibility === "me" && <Pill k="me" icon={icon} />}
     </>
   );
 }
@@ -2100,7 +2096,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
   // 열이 실제로 차지하는 최소 폭(px). 좁은 화면에서는 글자·여백이 줄어 함께 줄인다.
   const COLW: Record<string, number> = { trade_type: 56, unit: 94, name: 180,
                                          area_name: 88, supply: 106, excl: 106, floor: 84, direction: 74,
-                                         price: 124, rank: 96, left: 92, src: 104, cp_name: 112, manager: 112,
+                                         price: 124, rank: 96, left: 92, src: 112, cp_name: 112, manager: 112,
                                          contact: 128, memo: 170, act: 48 };
   // 자리가 모자랄 때 접는 순서의 거꾸로 — 앞쪽이 먼저 살아남는다.
   const COLPRIO = ["name", "excl", "floor", "area_name", "supply", "direction",
