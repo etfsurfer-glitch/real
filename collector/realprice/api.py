@@ -5,7 +5,9 @@ Free tier limit: 10,000 calls/day. We typically need ~255 calls/day
 """
 from __future__ import annotations
 
+import random
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -65,6 +67,24 @@ _cb_lock = _threading.Lock()
 _cb_fail_streak = 0
 _cb_tripped = False
 
+# ── 엔드포인트별 동시호출 제한 ─────────────────────────────────────
+# 2026-08-26 부터 data.go.kr 가 같은 API 에 동시 4개로 몰아치면 35콜쯤에서 429 를
+# 내고 ~55초 막는다(실측 2026-10-31: 동시2=100/100 정상, 동시4=35 후 429, 순차는
+# 16콜/s 도 정상). 다른 API 는 영향 없음 → 제한 단위는 엔드포인트. 스크립트가
+# 스레드를 몇 개 띄우든 여기서 엔드포인트당 2개로 묶는다.
+_EP_MAX_INFLIGHT = 2
+_ep_sems: dict[str, _threading.Semaphore] = {}
+_ep_lock = _threading.Lock()
+_RATE_LIMIT_WAIT = 60   # 429 벌칙창(~55초)보다 길게
+
+
+def _ep_sem(endpoint: str) -> _threading.Semaphore:
+    with _ep_lock:
+        s = _ep_sems.get(endpoint)
+        if s is None:
+            s = _ep_sems[endpoint] = _threading.Semaphore(_EP_MAX_INFLIGHT)
+        return s
+
 
 def circuit_open() -> bool:
     return _cb_tripped
@@ -102,19 +122,32 @@ def fetch_xml(lawd_cd: str, deal_ymd: str, page_no: int = 1, num_rows: int = 100
     })
     url = f"{endpoint}?{qs}"
     last_err: Exception | None = None
-    for attempt in range(retries):
+    sem = _ep_sem(endpoint)
+    attempt = 0
+    rate_waits = 0
+    while attempt < retries:
         try:
             req = urllib.request.Request(url, headers={"Accept": "application/xml"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with sem, urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = resp.read()
             _cb_record(True)
             return data
+        except urllib.error.HTTPError as e:
+            last_err = e
+            # 429 = 속도제한(장애 아님). 벌칙창이 풀릴 때까지 기다리고 재시도 횟수·
+            # 차단기에 세지 않는다 — 2초·4초 재시도로 차단기가 내려가 나머지 1,500 task
+            # 를 버리던 것(분양권 8/26~10/31 사실상 미수집).
+            if e.code == 429 and rate_waits < 5:
+                rate_waits += 1
+                time.sleep(_RATE_LIMIT_WAIT + random.uniform(0, 10))
+                continue
         except Exception as e:  # noqa: BLE001
             last_err = e
-            if _cb_tripped:  # 다른 스레드가 차단 → 더 기다리지 말고 즉시 중단
-                break
-            if attempt < retries - 1:
-                time.sleep(2 * (attempt + 1))
+        if _cb_tripped:  # 다른 스레드가 차단 → 더 기다리지 말고 즉시 중단
+            break
+        attempt += 1
+        if attempt < retries:
+            time.sleep(2 * attempt)
     _cb_record(False)
     raise APIError(f"fetch failed after {retries} attempts: {last_err}")
 
