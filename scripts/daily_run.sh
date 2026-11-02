@@ -59,6 +59,14 @@ step "step 5c: backfill_villa (빌라 매매·전월세)" $PY -u scripts/backfil
 step "step 5d: backfill_nonresi house (단독 매매·전월세)" $PY -u scripts/backfill_nonresi.py --kind house --all --months 6; house_exit=$?
 step "step 5e: backfill_nonresi comm (상가/사무실 매매)"   $PY -u scripts/backfill_nonresi.py --kind comm  --all --months 6; comm_exit=$?
 
+# 실거래 단계는 task 실패(API_ERR)가 있어도 exit=0 이다 — 8/26~10/31 동안 429 로
+# 분양권·상가가 거의 전부 빠졌는데 아무 알림이 없었다. 실패 건수를 세서 알린다.
+rp_err=$(awk '/step 3: backfill_realprice/{p=1} /step 5e: backfill_nonresi comm .*exit=/{p=0} p' "$LOG" | grep -c API_ERR)
+log "실거래 API_ERR=$rp_err"
+if [ "$rp_err" -gt 0 ]; then
+  $PY scripts/tg_notify.py "⚠️ 실거래 수집 API 오류 ${rp_err}건 (step 3~5e) — $LOG" >/dev/null 2>&1
+fi
+
 # 실거래 성공 마커 — backfill 후 data.go.kr 이 살아있으면 '오늘 실거래 수집됨' 기록.
 # DOWN(장애)이면 미기록 → catchup(koczip-catchup.timer)이 낮에 회복 시 채운다.
 if $PY scripts/dgk_health.py >>"$LOG" 2>&1; then

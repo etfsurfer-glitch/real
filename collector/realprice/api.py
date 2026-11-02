@@ -5,7 +5,6 @@ Free tier limit: 10,000 calls/day. We typically need ~255 calls/day
 """
 from __future__ import annotations
 
-import random
 import time
 import urllib.error
 import urllib.parse
@@ -72,10 +71,15 @@ _cb_tripped = False
 # 내고 ~55초 막는다(실측 2026-10-31: 동시2=100/100 정상, 동시4=35 후 429, 순차는
 # 16콜/s 도 정상). 다른 API 는 영향 없음 → 제한 단위는 엔드포인트. 스크립트가
 # 스레드를 몇 개 띄우든 여기서 엔드포인트당 2개로 묶는다.
+# 2026-11-02 추가: 동시2라도 빈 응답이 빠르면 초당 한도(returnReasonCode 23)를 넘는다
+# → 엔드포인트당 초당 8콜 간격. 벌칙 중에 계속 찌르면 벌칙이 연장된다(스레드별 60초
+# 재시도로 10분+ 막힘 실측) → 429 를 본 스레드가 엔드포인트 전체 쿨다운을 걸고 모두 쉰다.
 _EP_MAX_INFLIGHT = 2
+_EP_MIN_INTERVAL = 0.125   # 초당 8콜
+_RATE_LIMIT_WAIT = 65      # 429 벌칙창(~55초)보다 길게
 _ep_sems: dict[str, _threading.Semaphore] = {}
+_ep_next: dict[str, float] = {}   # 엔드포인트별 다음 호출 가능 시각(monotonic)
 _ep_lock = _threading.Lock()
-_RATE_LIMIT_WAIT = 60   # 429 벌칙창(~55초)보다 길게
 
 
 def _ep_sem(endpoint: str) -> _threading.Semaphore:
@@ -84,6 +88,23 @@ def _ep_sem(endpoint: str) -> _threading.Semaphore:
         if s is None:
             s = _ep_sems[endpoint] = _threading.Semaphore(_EP_MAX_INFLIGHT)
         return s
+
+
+def _ep_wait_turn(endpoint: str) -> None:
+    """호출 슬롯 예약 — 간격·쿨다운을 지킬 때까지 잔다."""
+    with _ep_lock:
+        now = time.monotonic()
+        at = max(now, _ep_next.get(endpoint, 0.0))
+        _ep_next[endpoint] = at + _EP_MIN_INTERVAL
+    if at > now:
+        time.sleep(at - now)
+
+
+def _ep_cooldown(endpoint: str) -> None:
+    with _ep_lock:
+        until = time.monotonic() + _RATE_LIMIT_WAIT
+        if _ep_next.get(endpoint, 0.0) < until:
+            _ep_next[endpoint] = until
 
 
 def circuit_open() -> bool:
@@ -128,18 +149,20 @@ def fetch_xml(lawd_cd: str, deal_ymd: str, page_no: int = 1, num_rows: int = 100
     while attempt < retries:
         try:
             req = urllib.request.Request(url, headers={"Accept": "application/xml"})
-            with sem, urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = resp.read()
+            with sem:
+                _ep_wait_turn(endpoint)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = resp.read()
             _cb_record(True)
             return data
         except urllib.error.HTTPError as e:
             last_err = e
-            # 429 = 속도제한(장애 아님). 벌칙창이 풀릴 때까지 기다리고 재시도 횟수·
+            # 429 = 속도제한(장애 아님). 엔드포인트 전체 쿨다운 후 재시도, 재시도 횟수·
             # 차단기에 세지 않는다 — 2초·4초 재시도로 차단기가 내려가 나머지 1,500 task
             # 를 버리던 것(분양권 8/26~10/31 사실상 미수집).
             if e.code == 429 and rate_waits < 5:
                 rate_waits += 1
-                time.sleep(_RATE_LIMIT_WAIT + random.uniform(0, 10))
+                _ep_cooldown(endpoint)
                 continue
         except Exception as e:  # noqa: BLE001
             last_err = e
