@@ -10599,6 +10599,61 @@ def _sgg_centroids():
     return _SGG_CENTROID
 
 
+@app.get("/map/listings")
+def map_listings(swlat: float, swlng: float, nelat: float, nelng: float,
+                 types: str = "APT,ABYG,JGC", trade: str = "A1",
+                 price_min: int = 0, price_max: int = 0, area_min: float = 0, area_max: float = 0,
+                 approve_from: int = 0, approve_to: int = 0, hh_min: int = 0, hh_max: int = 0,
+                 limit: int = 500):
+    """지도 매물찾기 — bbox 안 단지별 매물 요약(필터 적용). 지도 시험판 필터 바용.
+    types: 단지 유형(APT 아파트·ABYG 아파트분양권·JGC 재건축·OPST 오피스텔·OBYG 오피스텔분양권) 쉼표.
+    trade: A1 매매·B1 전세·B2 월세. price_*: 매매가/보증금(원), area_*: 전용 ㎡, approve_*: 사용승인 연도,
+    hh_*: 세대수. 단지는 매물이 1건 이상 맞는 곳만, 매물수 내림차순. 너무 넓으면 too_wide(줌인 유도)."""
+    if not (swlat < nelat and swlng < nelng):
+        raise HTTPException(400, "bad bounds")
+    if trade not in ("A1", "B1", "B2"):
+        raise HTTPException(400, "trade must be A1|B1|B2")
+    tl = [t for t in (types or "").split(",") if t in ("APT", "ABYG", "JGC", "OPST", "OBYG")] or ["APT"]
+    limit = min(max(int(limit), 50), 1500)
+    with _open_db() as c:
+        n_cx = c.execute("SELECT COUNT(*) FROM complexes WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?",
+                         (swlat, nelat, swlng, nelng)).fetchone()[0]
+        if n_cx > 3000:
+            return {"too_wide": True, "n_complexes": n_cx, "items": []}
+        lw, lp = ["l.trade_type=?"], [trade]
+        if price_min:
+            lw.append("l.deal_or_warrant_price>=?"); lp.append(price_min)
+        if price_max:
+            lw.append("l.deal_or_warrant_price<=?"); lp.append(price_max)
+        if area_min:
+            lw.append("l.area2_m2>=?"); lp.append(area_min)
+        if area_max:
+            lw.append("l.area2_m2<=?"); lp.append(area_max)
+        cw, cp = [f"cx.real_estate_type IN ({','.join('?' * len(tl))})"], [*tl]
+        if approve_from:
+            cw.append("CAST(substr(cx.use_approve_ymd,1,4) AS INT)>=?"); cp.append(approve_from)
+        if approve_to:
+            cw.append("CAST(substr(cx.use_approve_ymd,1,4) AS INT)<=?"); cp.append(approve_to)
+        if hh_min:
+            cw.append("cx.total_household_count>=?"); cp.append(hh_min)
+        if hh_max:
+            cw.append("cx.total_household_count<=?"); cp.append(hh_max)
+        rows = c.execute(
+            f"SELECT cx.complex_no, cx.complex_name, cx.latitude, cx.longitude, cx.real_estate_type, "
+            f"  cx.total_household_count, substr(cx.use_approve_ymd,1,4), COUNT(l.article_no), "
+            f"  MIN(l.deal_or_warrant_price), MAX(l.deal_or_warrant_price), MIN(l.rent_price), "
+            f"  SUM(1.0/MAX(COALESCE(l.same_addr_cnt,1),1)) "
+            f"FROM complexes cx JOIN listings_current l ON l.complex_no=cx.complex_no AND {' AND '.join(lw)} "
+            f"WHERE cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ? AND {' AND '.join(cw)} "
+            f"GROUP BY cx.complex_no ORDER BY COUNT(l.article_no) DESC LIMIT ?",
+            [*lp, swlat, nelat, swlng, nelng, *cp, limit]).fetchall()
+    return {"too_wide": False, "n_complexes": n_cx, "trade": trade, "items": [
+        {"complex_no": r[0], "name": r[1], "lat": r[2], "lng": r[3], "type": r[4], "households": r[5],
+         "approve_year": int(r[6]) if r[6] and str(r[6]).isdigit() else None,
+         "n": r[7], "min_price": r[8], "max_price": r[9], "min_rent": r[10], "units": round(r[11] or 0)}
+        for r in rows]}
+
+
 @app.get("/stats/tx-map/agg")
 def tx_map_agg(level: str = "gu", asset: str = "apt", trade: str = "A1",
                sw_lat: float = 0, sw_lng: float = 0, ne_lat: float = 0, ne_lng: float = 0,
@@ -10612,9 +10667,10 @@ def tx_map_agg(level: str = "gu", asset: str = "apt", trade: str = "A1",
     · gap  매매−전세 평당 갭·전세가율 — 최근 window 거래 평균(84㎡ 환산 금액 함께).
     · hoga 매물 호가 변동 — 오늘 스냅샷 vs window(≤60일) 전 스냅샷, 같은 단지·평형 셀만 비교(믹스 변화 배제).
     · gu: 전국 sgg 그룹, 좌표는 사전캐시, bounds 주면 그 안만. dong: bounds 로 단지 좁혀 cortar[:10] 그룹.
+    · cx: 단지 단위(최소 단위) — bounds 안 단지별. code=complex_no 라 프런트가 단지 서랍을 연다.
     asset=apt|offi, trade=A1(매매)."""
-    if level not in ("gu", "dong"):
-        raise HTTPException(400, "level must be gu|dong")
+    if level not in ("gu", "dong", "cx"):
+        raise HTTPException(400, "level must be gu|dong|cx")
     if asset not in ("apt", "offi") or trade != "A1":
         raise HTTPException(400, "asset=apt|offi, trade=A1(매매)만 지원")
     if metric not in ("tx", "vol", "gap", "hoga"):
@@ -10637,6 +10693,11 @@ def tx_map_agg(level: str = "gu", asset: str = "apt", trade: str = "A1",
         """레벨별 그룹 쿼리: k(코드), lat, lng, name, {cols}. gu 는 좌표·이름을 사전캐시에서 붙인다."""
         if level == "gu":
             return (f"SELECT ({_eff}) k, NULL, NULL, NULL, {cols} FROM {tbl} t WHERE {where} GROUP BY k", params)
+        if level == "cx":
+            return (f"SELECT cx.complex_no k, cx.latitude, cx.longitude, cx.complex_name, {cols} "
+                    f"FROM {tbl} t JOIN complexes cx ON cx.complex_no=t.matched_complex_no "
+                    f"WHERE {where} AND cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ? GROUP BY k",
+                    [*params, sw_lat, ne_lat, sw_lng, ne_lng])
         return (f"SELECT substr(cx.cortar_no,1,10) k, AVG(cx.latitude), AVG(cx.longitude), "
                 f"  (SELECT cortar_name FROM regions WHERE cortar_no=substr(cx.cortar_no,1,10)), {cols} "
                 f"FROM {tbl} t JOIN complexes cx ON cx.complex_no=t.matched_complex_no "
@@ -10717,10 +10778,11 @@ def tx_map_agg(level: str = "gu", asset: str = "apt", trade: str = "A1",
             d1 = d.execute("SELECT MAX(snapshot_date) FROM complex_daily_agg WHERE snapshot_date<=date(?, ?)",
                            (d0, f"-{window_days} days")).fetchone()[0] if d0 else None
             if d0 and d1 and d1 < d0:
-                box = (" AND cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ?" if (level == "dong" or in_box) else "")
+                box = (" AND cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ?" if (level != "gu" or in_box) else "")
                 bp = [sw_lat, ne_lat, sw_lng, ne_lng] if box else []
+                kexpr = "cx.complex_no" if level == "cx" else f"substr(cx.cortar_no,1,{5 if level == 'gu' else 10})"
                 rows = d.execute(
-                    f"SELECT substr(cx.cortar_no,1,{5 if level == 'gu' else 10}) k, cx.latitude, cx.longitude, "
+                    f"SELECT {kexpr} k, cx.latitude, cx.longitude, "
                     f"  a.listing_count, a.price_avg, b.price_avg "
                     f"FROM complex_daily_agg a "
                     f"JOIN complex_daily_agg b ON b.snapshot_date=? AND b.complex_no=a.complex_no "
@@ -10736,11 +10798,14 @@ def tx_map_agg(level: str = "gu", asset: str = "apt", trade: str = "A1",
                     a = acc.setdefault(k, [0.0, 0, 0, 0.0, 0.0])   # Σw·chg, Σw, cells, Σlat, Σlng
                     a[0] += (r - 1) * n; a[1] += n; a[2] += 1; a[3] += lat or 0; a[4] += lng or 0
                 for k, (sw, w, cells, sl, sg) in acc.items():
-                    if w < min_n or cells < 2:
+                    if w < min_n or (cells < 2 and level != "cx"):
                         continue
                     nm = None
                     if level == "dong":
                         rr = d.execute("SELECT cortar_name FROM regions WHERE cortar_no=?", (k,)).fetchone()
+                        nm = rr[0] if rr else None
+                    elif level == "cx":
+                        rr = d.execute("SELECT complex_name FROM complexes WHERE complex_no=?", (k,)).fetchone()
                         nm = rr[0] if rr else None
                     it = place(k, sl / cells, sg / cells, nm)
                     if it:

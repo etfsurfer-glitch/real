@@ -25,6 +25,34 @@ type Agg = {
   jppy?: number; gap_ppy?: number; gap84?: number; rate?: number; n_jeonse?: number; cells?: number;
 };
 type PriceMetric = "tx" | "hoga" | "vol" | "gap";
+// 매물찾기 필터(지도 위 필터 바). 값은 /map/listings 파라미터와 1:1.
+type Trade = "A1" | "B1" | "B2";
+type Flt = { types: string[]; trade: Trade; pmin: number; pmax: number; amin: number; amax: number; afrom: number; ato: number; hmin: number; hmax: number };
+const FLT0: Flt = { types: ["APT", "ABYG", "JGC"], trade: "A1", pmin: 0, pmax: 0, amin: 0, amax: 0, afrom: 0, ato: 0, hmin: 0, hmax: 0 };
+const CX_TYPES: { k: string; l: string }[] = [
+  { k: "APT", l: "아파트" }, { k: "ABYG", l: "아파트분양권" }, { k: "JGC", l: "재건축" }, { k: "OPST", l: "오피스텔" }, { k: "OBYG", l: "오피스텔분양권" },
+];
+const TRADES: { k: Trade; l: string }[] = [{ k: "A1", l: "매매" }, { k: "B1", l: "전세" }, { k: "B2", l: "월세" }];
+const E = 1e8;
+const PRICE_OPTS: { l: string; a: number; b: number }[] = [
+  { l: "전체", a: 0, b: 0 }, { l: "3억 이하", a: 0, b: 3 * E }, { l: "3~5억", a: 3 * E, b: 5 * E }, { l: "5~10억", a: 5 * E, b: 10 * E },
+  { l: "10~15억", a: 10 * E, b: 15 * E }, { l: "15~20억", a: 15 * E, b: 20 * E }, { l: "20~30억", a: 20 * E, b: 30 * E }, { l: "30억 이상", a: 30 * E, b: 0 },
+];
+const AREA_OPTS: { l: string; a: number; b: number }[] = [
+  { l: "전체", a: 0, b: 0 }, { l: "40㎡ 이하 (~12평)", a: 0, b: 40 }, { l: "40~60㎡ (12~18평)", a: 40, b: 60 }, { l: "60~85㎡ (18~25평)", a: 60, b: 85 },
+  { l: "85~102㎡ (25~31평)", a: 85, b: 102 }, { l: "102~135㎡ (31~41평)", a: 102, b: 135 }, { l: "135㎡ 이상 (41평~)", a: 135, b: 0 },
+];
+const YEAR = new Date().getFullYear();
+const APPROVE_OPTS: { l: string; a: number; b: number }[] = [
+  { l: "전체", a: 0, b: 0 }, { l: "5년 이내", a: YEAR - 5, b: 0 }, { l: "10년 이내", a: YEAR - 10, b: 0 }, { l: "10~20년", a: YEAR - 20, b: YEAR - 10 },
+  { l: "20~30년", a: YEAR - 30, b: YEAR - 20 }, { l: "30년 이상", a: 0, b: YEAR - 30 },
+];
+const HH_OPTS: { l: string; a: number; b: number }[] = [
+  { l: "전체", a: 0, b: 0 }, { l: "100세대 이상", a: 100, b: 0 }, { l: "300세대 이상", a: 300, b: 0 }, { l: "500세대 이상", a: 500, b: 0 },
+  { l: "1,000세대 이상", a: 1000, b: 0 }, { l: "2,000세대 이상", a: 2000, b: 0 },
+];
+const fltQs = (f: Flt) => new URLSearchParams({ types: f.types.join(","), trade: f.trade, price_min: String(f.pmin), price_max: String(f.pmax),
+  area_min: String(f.amin), area_max: String(f.amax), approve_from: String(f.afrom), approve_to: String(f.ato), hh_min: String(f.hmin), hh_max: String(f.hmax) });
 // 기간 — 실거래 신고는 계약 후 30일 안에 해야 하고(실측 30일 내 91%·14일 70%), 동 단위 표본은 분기(90일)쯤
 // 모여야 유의미하다. 기본 3개월, 더 넓게는 6·12개월. 호가는 스냅샷 보관 때문에 60일 고정.
 const PRICE_WINDOWS: { d: number; l: string }[] = [{ d: 90, l: "3개월" }, { d: 180, l: "6개월" }, { d: 365, l: "12개월" }];
@@ -77,6 +105,7 @@ export default function App() {
   const [aggMeta, setAggMeta] = useState<{ snapshot?: string; baseline?: string }>({});
   const [pm, setPm] = useState<PriceMetric>(init.pm);
   const [pw, setPw] = useState<number>(90);
+  const [flt, setFlt] = useState<Flt>(FLT0);
   const [rkDong, setRkDong] = useState<{ code: string; name: string } | null>(null);
   const [mapErr, setMapErr] = useState("");
   const [hint, setHint] = useState("");
@@ -166,7 +195,6 @@ export default function App() {
     if (!view) return;
     const k = window.kakao;
     let off = false;
-    const bbox = `swlat=${view.swLat}&swlng=${view.swLng}&nelat=${view.neLat}&nelng=${view.neLng}`;
     const clear = () => { ovs.current.forEach((o) => o.setMap(null)); ovs.current = []; };
     const put = (lat: number, lng: number, html: string, onClick?: () => void, z = 1, yAnchor = 1) => {
       if (!map) return;
@@ -181,44 +209,47 @@ export default function App() {
     };
 
     if (layer === "deals") {
-      // 지도에는 급매와 콕집 매물이 있는 단지만 올린다. 그 밖의 단지는 네이버 매물뿐이라 띄우지 않는다.
+      // 필터에 맞는 매물이 있는 단지를 전부 올리고(최저가·매물수), 급매가 있는 단지는 빨간 핀으로 강조.
       // 콕집 매물(직접 등록)은 아직 원천이 없어 비어 있다 — 생기면 kokCx 에 합친다.
-      getJson(`/stats/quick-deals-map?${bbox}&min_discount=0.03`).then((jd) => {
+      const b2 = `swlat=${view.swLat}&swlng=${view.swLng}&nelat=${view.neLat}&nelng=${view.neLng}`;
+      const qd = flt.trade === "B2" ? Promise.resolve({ items: [] })
+        : getJson(`/stats/quick-deals-map?${b2}&min_discount=0.03&trade_type=${flt.trade}`).catch(() => ({ items: [] }));
+      Promise.all([getJson(`/map/listings?${b2}&${fltQs(flt)}`), qd]).then(([ml, jd]) => {
         if (off) return;
         clear();
-        if (jd.too_wide) { setInView([]); setHint("지도를 조금 더 확대하면 급매 단지가 보여요"); return; }
-        const by = new Map<string, Cx & { disc: number; n: number }>();
-        for (const d of jd.items || []) {
-          const o = by.get(d.complex_no);
-          if (o) { o.disc = Math.min(o.disc, d.discount); o.n += 1; }
-          else by.set(d.complex_no, { complex_no: d.complex_no, name: d.complex_name, lat: d.lat, lng: d.lng, disc: d.discount, n: 1 });
-        }
+        if (ml.too_wide) { setInView([]); setHint("지도를 조금 더 확대하면 매물이 있는 단지가 보여요"); return; }
+        const disc = new Map<string, number>();
+        for (const d of jd.items || []) disc.set(d.complex_no, Math.min(disc.get(d.complex_no) ?? 0, d.discount));
+        const items: (Cx & { n: number; minp: number | null; minr: number | null; disc?: number })[] = (ml.items || []).map((m: any) => ({
+          complex_no: m.complex_no, name: m.name, lat: m.lat, lng: m.lng, households: m.households, listings: m.n,
+          n: m.n, minp: m.min_price, minr: m.min_rent, disc: disc.get(m.complex_no),
+        }));
         const kokCx: Cx[] = [];
-        const items = [...by.values()];
         setInView(items);
-        setHint(items.length ? "" : "이 지역엔 지금 급매가 없어요");
+        setHint(items.length ? "" : "이 조건에 맞는 매물이 이 범위엔 없어요");
         for (const c of items) {
           const on = c.complex_no === selNo;
-          put(c.lat, c.lng, `<div class="t2-pin deal${on ? " on" : ""}"><b>${esc(shortName(c.name))}</b><i>급매 ${pct(c.disc, 0)}</i></div>`,
-            () => pickComplex(c, false), on ? 50 : 5);
+          const price = c.minp ? wonShort(c.minp) + (flt.trade === "B2" && c.minr ? `/${Math.round(c.minr / 1e4)}` : "") : "-";
+          put(c.lat, c.lng, `<div class="t2-pin lst${c.disc ? " deal" : ""}${on ? " on" : ""}"><b>${esc(shortName(c.name))}</b><i>${price}</i><em>${c.n}건${c.disc ? ` · 급매 ${pct(c.disc, 0)}` : ""}</em></div>`,
+            () => pickComplex(c, false), on ? 50 : c.disc ? 6 : 5);
         }
         for (const c of kokCx) {
           put(c.lat, c.lng, `<div class="t2-pin kok"><b>${esc(shortName(c.name))}</b><i>콕집</i></div>`, () => pickComplex(c, false), 6);
         }
-        // 검색으로 고른 단지가 급매 단지가 아니면 그 하나만 표시(어디인지는 보여야 하니까)
-        if (sel && sel.lat && !by.has(sel.complex_no)) {
+        if (sel && sel.lat && !items.some((c) => c.complex_no === sel.complex_no)) {
           put(sel.lat, sel.lng, `<div class="t2-pin plain on"><b>${esc(shortName(sel.name))}</b></div>`, undefined, 50);
         }
       }).catch(() => {});
     } else {
       // 시세분석·중개사랭킹: 동(확대)·구(축소) 버블 — /stats/tx-map/agg. 시세분석은 칩(metric)·기간(window)에 따라
       // 같은 버블에 실거래가 변동률·호가 변동·거래량·갭을 바꿔 칠한다.
-      const lv = view.level >= 7 ? "gu" : "dong";
       const isPrice = layer === "price";
+      // 시세분석은 단지까지 내려간다(확대 ≤4). 중개사랭킹은 동이 최소 단위.
+      const lv = view.level >= 7 ? "gu" : (isPrice && view.level <= 4) ? "cx" : "dong";
       const qs = new URLSearchParams({ level: lv, asset: "apt", trade: "A1",
         metric: isPrice ? pm : "tx", window_days: String(isPrice ? pw : 120),
         sw_lat: String(view.swLat), sw_lng: String(view.swLng), ne_lat: String(view.neLat), ne_lng: String(view.neLng),
-        min_n: lv === "gu" ? "8" : "3" });
+        min_n: lv === "gu" ? "8" : lv === "cx" ? "2" : "3" });
       setAggLoading(true);
       getJson(`/stats/tx-map/agg?${qs}`).then((d) => {
         if (off) return;
@@ -228,8 +259,12 @@ export default function App() {
         for (const a of items) {
           if (isPrice) {
             const b = bubble(pm, a);
-            put(a.lat, a.lng, `<div class="t2-bub ${b.cls}"><b>${esc(a.name)}</b><span>${b.main}</span><em>${b.sub}</em></div>`,
-              () => { map.setLevel(lv === "gu" ? 6 : 4, { anchor: new k.maps.LatLng(a.lat, a.lng) }); }, 1, 0.5);
+            const on = lv === "cx" && a.code === selNo;
+            put(a.lat, a.lng, `<div class="t2-bub ${b.cls}${lv === "cx" ? " cx" : ""}${on ? " on" : ""}"><b>${esc(lv === "cx" ? shortName(a.name) : a.name)}</b><span>${b.main}</span><em>${b.sub}</em></div>`,
+              () => {
+                if (lv === "cx") pickComplex({ complex_no: a.code, name: a.name, lat: a.lat, lng: a.lng }, false);
+                else map.setLevel(lv === "gu" ? 6 : 4, { anchor: new k.maps.LatLng(a.lat, a.lng) });
+              }, on ? 50 : 1, 0.5);
           } else if (lv === "dong") {
             const on = (rkDong?.code || region?.dong) === a.code;
             put(a.lat, a.lng, `<div class="t2-dong${on ? " on" : ""}"><b>${esc(a.name)}</b><span>${on ? "랭킹 보는 중" : "랭킹 보기"}</span></div>`,
@@ -242,7 +277,7 @@ export default function App() {
       }).catch(() => { if (!off) { setAgg([]); setAggLoading(false); } });
     }
     return () => { off = true; };
-  }, [layer, view, selNo, rkDong, region?.dong, pickComplex, pm, pw]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layer, view, selNo, rkDong, region?.dong, pickComplex, pm, pw, flt]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (layer !== "deals") setHint(""); }, [layer]);
 
@@ -253,7 +288,7 @@ export default function App() {
     <>
       {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} />}
       {layer === "price" && <PricePanel region={region} agg={agg} level={view?.level ?? 5} metric={pm} onMetric={setPm}
-        win={pw} onWin={setPw} loading={aggLoading} meta={aggMeta} />}
+        win={pw} onWin={setPw} loading={aggLoading} meta={aggMeta} onPick={pickComplex} />}
       {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} />}
     </>
   );
@@ -277,6 +312,19 @@ export default function App() {
                 onClick={() => { setLayer(l.key); setSel(null); }}>{l.label}</button>
             ))}
           </div>
+          {layer === "deals" && <DealFilterBar flt={flt} onChange={setFlt} />}
+          {layer === "price" && (
+            <div className="t2-fbar price">
+              <div className="t2-chips">
+                {METRICS.map((c) => <button key={c.k} className={pm === c.k ? "on" : ""} onClick={() => setPm(c.k)}>{c.l}</button>)}
+              </div>
+              {pm !== "hoga" && (
+                <div className="t2-chips sm t2-period">
+                  {PRICE_WINDOWS.map((w) => <button key={w.d} className={pw === w.d ? "on" : ""} onClick={() => setPw(w.d)}>{w.l}</button>)}
+                </div>
+              )}
+            </div>
+          )}
           <div className="t2-zoom">
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() - 1)} aria-label="확대">+</button>
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>
@@ -368,6 +416,58 @@ function TopBar({ phone, onPick }: { phone: boolean; onPick: (c: Cx) => void }) 
   );
 }
 
+// ── 매물찾기 필터 바(지도 위) ────────────────────────
+function Dd({ id, open, setOpen, label, active, children }: { id: string; open: string | null; setOpen: (v: string | null) => void; label: string; active: boolean; children: React.ReactNode }) {
+  return (
+    <span className="t2-dd">
+      <button className={"t2-fdd" + (active ? " on" : "")} aria-expanded={open === id} onClick={() => setOpen(open === id ? null : id)}>{label} ▾</button>
+      {open === id && <span className="t2-ddm" onClick={() => setOpen(null)}>{children}</span>}
+    </span>
+  );
+}
+
+function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const set = (patch: Partial<Flt>) => onChange({ ...flt, ...patch });
+  const toggleType = (k: string) => {
+    const has = flt.types.includes(k);
+    if (has && flt.types.length === 1) return;          // 하나는 남긴다
+    set({ types: has ? flt.types.filter((t) => t !== k) : [...flt.types, k] });
+  };
+  const pick = (opts: { l: string; a: number; b: number }[], a: number, b: number) => opts.find((o) => o.a === a && o.b === b)?.l;
+  const priceL = pick(PRICE_OPTS, flt.pmin, flt.pmax);
+  const areaL = pick(AREA_OPTS, flt.amin, flt.amax);
+  const apprL = pick(APPROVE_OPTS, flt.afrom, flt.ato);
+  const hhL = pick(HH_OPTS, flt.hmin, flt.hmax);
+  const dirty = JSON.stringify(flt) !== JSON.stringify(FLT0);
+  const opt = (o: { l: string }, on: boolean, f: () => void) => <button key={o.l} className={on ? "on" : ""} onClick={f}>{o.l}</button>;
+  return (
+    <div className="t2-fbar" onMouseLeave={() => setOpen(null)}>
+      <div className="t2-ftypes">
+        {CX_TYPES.map((t) => (
+          <button key={t.k} className={flt.types.includes(t.k) ? "on" : ""} onClick={() => toggleType(t.k)}>{flt.types.includes(t.k) ? "✓ " : ""}{t.l}</button>
+        ))}
+      </div>
+      <Dd id="trade" open={open} setOpen={setOpen} label={TRADES.find((t) => t.k === flt.trade)!.l} active>
+        {TRADES.map((t) => opt(t, flt.trade === t.k, () => set({ trade: t.k })))}
+      </Dd>
+      <Dd id="price" open={open} setOpen={setOpen} label={priceL && priceL !== "전체" ? priceL : (flt.trade === "A1" ? "가격대" : "보증금")} active={!!flt.pmin || !!flt.pmax}>
+        {PRICE_OPTS.map((o) => opt(o, flt.pmin === o.a && flt.pmax === o.b, () => set({ pmin: o.a, pmax: o.b })))}
+      </Dd>
+      <Dd id="area" open={open} setOpen={setOpen} label={areaL && areaL !== "전체" ? areaL.split(" ")[0] : "면적"} active={!!flt.amin || !!flt.amax}>
+        {AREA_OPTS.map((o) => opt(o, flt.amin === o.a && flt.amax === o.b, () => set({ amin: o.a, amax: o.b })))}
+      </Dd>
+      <Dd id="appr" open={open} setOpen={setOpen} label={apprL && apprL !== "전체" ? apprL : "사용승인일"} active={!!flt.afrom || !!flt.ato}>
+        {APPROVE_OPTS.map((o) => opt(o, flt.afrom === o.a && flt.ato === o.b, () => set({ afrom: o.a, ato: o.b })))}
+      </Dd>
+      <Dd id="hh" open={open} setOpen={setOpen} label={hhL && hhL !== "전체" ? hhL : "세대수"} active={!!flt.hmin || !!flt.hmax}>
+        {HH_OPTS.map((o) => opt(o, flt.hmin === o.a && flt.hmax === o.b, () => set({ hmin: o.a, hmax: o.b })))}
+      </Dd>
+      {dirty && <button className="t2-freset" onClick={() => onChange(FLT0)}>초기화</button>}
+    </div>
+  );
+}
+
 // ── 매물찾기: 위 2/3 급매, 아래 1/3 콕집 매물 ─────────────────
 function DealsPanel({ region, inView, onPick, zoomedOut }: { region: Region | null; inView: Cx[]; onPick: (c: Cx) => void; zoomedOut: boolean }) {
   const [deals, setDeals] = useState<Deal[] | null>(null);
@@ -450,11 +550,12 @@ const METRICS: { k: PriceMetric; l: string; h: string }[] = [
   { k: "gap", l: "갭·전세가율", h: "매매−전세 갭" },
 ];
 
-function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading, meta }: {
+function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading, meta, onPick }: {
   region: Region | null; agg: Agg[]; level: number; metric: PriceMetric; onMetric: (m: PriceMetric) => void;
-  win: number; onWin: (d: number) => void; loading: boolean; meta: { snapshot?: string; baseline?: string };
+  win: number; onWin: (d: number) => void; loading: boolean; meta: { snapshot?: string; baseline?: string }; onPick: (c: Cx) => void;
 }) {
-  const unit = level >= 7 ? "구별" : "동별";
+  const isCx = level <= 4;
+  const unit = level >= 7 ? "구별" : isCx ? "단지별" : "동별";
   const rows = useMemo(() => {
     const r = [...agg];
     if (metric === "gap") r.sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0));
@@ -486,6 +587,7 @@ function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading,
         )}
       </div>
       <p className="t2-note">{note}</p>
+      {isCx && <p className="t2-note">단지 단위(최소 단위). 거래 2건 이상인 단지만 — 더 보려면 지도를 조금 넓혀 동·구 단위로.</p>}
       {loading && rows.length === 0 ? <Skel /> : rows.length === 0 ? <div className="t2-empty">이 범위엔 표본이 모자라요. 지도를 조금 넓혀 보세요.</div> : (
         <ul className="t2-rows">
           {rows.map((a) => {
@@ -496,8 +598,9 @@ function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading,
               : metric === "vol" ? `${a.n}건 ← ${a.n_prev ?? 0}건${a.pending ? ` · 신고 중 ${a.pending}` : ""}`
               : `매매 ${Math.round((a.ppy ?? 0) / 1e4).toLocaleString()} · 전세 ${Math.round((a.jppy ?? 0) / 1e4).toLocaleString()}만/평 · 갭 ${eok(a.gap84 ?? 0)}`;
             return (
-              <li key={a.code}>
-                <span className="nm">{a.name}</span>
+              <li key={a.code} className={isCx ? "t2-click" : ""} onClick={isCx ? () => onPick({ complex_no: a.code, name: a.name, lat: a.lat, lng: a.lng }) : undefined}
+                title={isCx ? "단지 열기" : undefined}>
+                <span className="nm">{isCx ? shortName(a.name) : a.name}</span>
                 <span className="mid">{mid}</span>
                 <span className={metric === "gap" ? "" : b.cls}>{b.main}</span>
               </li>
