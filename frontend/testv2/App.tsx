@@ -306,25 +306,28 @@ export default function App() {
           <div ref={mapEl} className="t2-map" />
           {mapErr && <div className="t2-maperr">{mapErr}</div>}
           {hint && !mapErr && <div className="t2-hint">{hint}</div>}
-          <div className="t2-layers" role="tablist">
-            {LAYERS.map((l) => (
-              <button key={l.key} role="tab" aria-selected={layer === l.key} className={layer === l.key ? "on" : ""}
-                onClick={() => { setLayer(l.key); setSel(null); }}>{l.label}</button>
-            ))}
-          </div>
-          {layer === "deals" && <DealFilterBar flt={flt} onChange={setFlt} />}
-          {layer === "price" && (
-            <div className="t2-fbar price">
-              <div className="t2-chips">
-                {METRICS.map((c) => <button key={c.k} className={pm === c.k ? "on" : ""} onClick={() => setPm(c.k)}>{c.l}</button>)}
-              </div>
-              {pm !== "hoga" && (
-                <div className="t2-chips sm t2-period">
-                  {PRICE_WINDOWS.map((w) => <button key={w.d} className={pw === w.d ? "on" : ""} onClick={() => setPw(w.d)}>{w.l}</button>)}
-                </div>
-              )}
+          {/* 레이어 탭 + 그 레이어의 필터가 한 줄로 이어진다(폰은 두 줄) */}
+          <div className="t2-maptop">
+            <div className="t2-layers" role="tablist">
+              {LAYERS.map((l) => (
+                <button key={l.key} role="tab" aria-selected={layer === l.key} className={layer === l.key ? "on" : ""}
+                  onClick={() => { setLayer(l.key); setSel(null); }}>{l.label}</button>
+              ))}
             </div>
-          )}
+            {layer === "deals" && <DealFilterBar flt={flt} onChange={setFlt} />}
+            {layer === "price" && (
+              <div className="t2-fbar price">
+                <div className="t2-chips">
+                  {METRICS.map((c) => <button key={c.k} className={pm === c.k ? "on" : ""} onClick={() => setPm(c.k)}>{c.l}</button>)}
+                </div>
+                {pm !== "hoga" && (
+                  <div className="t2-chips sm t2-period">
+                    {PRICE_WINDOWS.map((w) => <button key={w.d} className={pw === w.d ? "on" : ""} onClick={() => setPw(w.d)}>{w.l}</button>)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <div className="t2-zoom">
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() - 1)} aria-label="확대">+</button>
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>

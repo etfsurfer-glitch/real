@@ -141,7 +141,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-mapwrap { flex: 1; position: relative; min-width: 0; }
 .t2-map { position: absolute; inset: 0; }
 .t2-maperr { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--c-muted); font-size: 14px; background: #eef2f7; z-index: 5; }
-.t2-layers { position: absolute; top: 12px; left: 12px; z-index: 10; display: flex; background: #fff; border-radius: 12px; padding: 4px; box-shadow: var(--sh-md); gap: 2px; }
+/* 지도 위 상단 줄: 레이어 탭 + 해당 레이어 필터 바가 한 줄로 이어짐 */
+.t2-maptop { position: absolute; top: 12px; left: 12px; right: 60px; z-index: 10; display: flex; align-items: stretch; gap: 8px; }
+.t2-layers { display: flex; align-items: center; flex-shrink: 0; background: #fff; border-radius: 12px; padding: 4px; box-shadow: var(--sh-md); gap: 2px; }
 .t2-layers button { border: 0; background: none; padding: 8px 14px; border-radius: 9px; font-size: 14px; font-weight: 700; color: var(--c-text-soft); }
 .t2-layers button.on { background: var(--c-primary); color: #fff; }
 .t2-zoom { position: absolute; right: 12px; top: 12px; z-index: 10; display: flex; flex-direction: column; background: #fff; border-radius: 10px; box-shadow: var(--sh-md); overflow: hidden; }
@@ -196,7 +198,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .phone .t2-logo { font-size: 18px; }
 .phone .t2-logo span { font-size: 10px; }
 .phone .t2-search { flex: 1; }
-.phone .t2-layers { left: 8px; right: 8px; top: 8px; }
+.phone .t2-maptop { left: 8px; right: 8px; top: 8px; flex-direction: column; gap: 6px; }
+.phone .t2-layers { width: 100%; }
 .phone .t2-layers button { flex: 1; padding: 8px 4px; font-size: 13.5px; }
 .phone .t2-zoom { top: 60px; right: 8px; }
 .t2-sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 20; background: #fff; border-radius: 16px 16px 0 0; box-shadow: 0 -6px 24px rgba(20, 40, 80, .14); display: flex; flex-direction: column; transition: height .2s; }
@@ -310,8 +313,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-est { color: #5b7390; }
 .t2-est small { font-size: 10px; color: #a0b0c2; margin-left: 1px; }
 
-/* 지도 위 필터 바(매물찾기·시세분석) — 레이어 탭 아래 한 줄, 좁으면 가로 스크롤 */
-.t2-fbar { position: absolute; top: 60px; left: 12px; right: 60px; z-index: 10; display: flex; align-items: center; gap: 6px; background: #fff; border-radius: 12px; padding: 6px 8px; box-shadow: var(--sh-md); flex-wrap: wrap; }
+/* 지도 위 필터 바(매물찾기·시세분석) — 레이어 탭 옆에 이어서, 좁으면 줄바꿈(폰은 가로 스크롤) */
+.t2-fbar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: #fff; border-radius: 12px; padding: 6px 8px; box-shadow: var(--sh-md); flex-wrap: wrap; }
 .t2-fbar::-webkit-scrollbar { display: none; }
 .t2-fbar .t2-chips { margin: 0; flex-wrap: nowrap; }
 .t2-fbar.price .t2-period { border-left: 1px solid var(--c-border-soft); padding-left: 8px; }
@@ -334,8 +337,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-bub.on { outline: 3px solid var(--c-gold); }
 .t2-rows li.t2-click { cursor: pointer; }
 .t2-rows li.t2-click:hover { background: #f7f9fc; }
-.phone .t2-fbar { top: 54px; left: 8px; right: 8px; padding: 5px 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.phone .t2-fbar { width: 100%; flex: none; padding: 5px 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .phone .t2-fbar .t2-ddm { position: fixed; left: 8px; right: 8px; top: 104px; }
 .phone .t2-zoom { top: 104px; }
 .phone .t2-hint { top: 104px; }
-.t2-hint { top: 110px; }
+.t2-hint { top: 68px; }
