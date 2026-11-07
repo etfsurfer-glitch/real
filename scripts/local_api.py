@@ -2006,6 +2006,54 @@ def complex_seo(complex_no: str):
     }
 
 
+DONG_EST_DB: Path = DB_PATH.parent / "dong_estimates.sqlite"
+
+
+def _attach_dong_estimates(est_keys: list[tuple[dict, str]]) -> None:
+    """등기 전 거래 행에 추정 동을 붙인다. 파일이 없거나 실패하면 조용히 넘어간다(본 기능 무영향)."""
+    if not DONG_EST_DB.exists():
+        return
+    try:
+        e = sqlite3.connect(f"file:{DONG_EST_DB}?mode=ro", uri=True, timeout=2)
+        try:
+            by_key = {k: item for item, k in est_keys}
+            keys = list(by_key)
+            for i in range(0, len(keys), 900):
+                chunk = keys[i:i + 900]
+                q = ("SELECT deal_key, pred_dong, conf FROM dong_est WHERE shown=1 AND deal_key IN (%s)"
+                     % ",".join("?" * len(chunk)))
+                for k, dong, conf in e.execute(q, chunk):
+                    item = by_key.get(k)
+                    if item is not None and dong:
+                        item["dong_est"] = dong
+                        item["dong_est_conf"] = round(float(conf or 0), 2)
+        finally:
+            e.close()
+    except Exception:
+        return
+
+
+@app.get("/admin/dong-est/stats")
+def admin_dong_est_stats(_admin: dict = Depends(admin_user)):
+    """동 추정 운영 현황 — 모델 버전·상태별 건수·등기 대조 정확도·최근 일별 로그."""
+    if not DONG_EST_DB.exists():
+        return {"ok": False, "reason": "no estimates db"}
+    e = sqlite3.connect(f"file:{DONG_EST_DB}?mode=ro", uri=True, timeout=2)
+    try:
+        models = [dict(zip(("ver", "trained_at", "n_deals", "n_rows", "oof_acc", "oof_acc_th", "oof_cov_th", "thresh", "active", "note"), r))
+                  for r in e.execute("SELECT ver, trained_at, n_deals, n_rows, oof_acc, oof_acc_th, oof_cov_th, thresh, active, note FROM dong_model ORDER BY ver")]
+        status = [dict(trade_type=r[0], status=r[1], n=r[2], shown=r[3] or 0)
+                  for r in e.execute("SELECT trade_type, status, count(*), sum(shown) FROM dong_est GROUP BY 1,2 ORDER BY 1,2")]
+        r = e.execute("SELECT count(*), sum(correct), sum(shown_before_reg), sum(CASE WHEN shown_before_reg=1 THEN correct END) "
+                      "FROM dong_est WHERE status='confirmed' AND pre_reg=1").fetchone()
+        confirmed = {"n": r[0] or 0, "correct": r[1] or 0, "shown": r[2] or 0, "shown_correct": r[3] or 0}
+        daily = [dict(zip(("day", "trade_type", "n_new", "n_final", "n_shown", "n_confirmed", "n_correct", "n_conf_shown", "n_conf_shown_correct"), r))
+                 for r in e.execute("SELECT * FROM dong_daily_log ORDER BY day DESC, trade_type LIMIT 90")]
+        return {"ok": True, "models": models, "status": status, "confirmed": confirmed, "daily": daily}
+    finally:
+        e.close()
+
+
 @app.get("/complex/{complex_no}/transactions")
 def complex_transactions(complex_no: str, months: int = 24, limit: int = 500):
     """단지별 실거래 이력. 매매(transactions + offi_transactions) /
@@ -2040,7 +2088,7 @@ def complex_transactions(complex_no: str, months: int = 24, limit: int = 500):
             sale_parts.append(
                 "SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, build_year, 'apt' AS asset, "
                 "json_extract(raw,'$.aptDong') AS dong, "
-                "(TRIM(COALESCE(json_extract(raw,'$.rgstDate'),''))<>'') AS registered "
+                "(TRIM(COALESCE(json_extract(raw,'$.rgstDate'),''))<>'') AS registered, 'A1:'||deal_id AS ek "
                 "FROM transactions WHERE matched_complex_no = ? AND deal_ymd >= date('now','+9 hours', ?) AND is_cancelled = 0"
             )
             sale_params.extend([complex_no, cutoff])
@@ -2048,19 +2096,23 @@ def complex_transactions(complex_no: str, months: int = 24, limit: int = 500):
             # 오피스텔 매매 API엔 동/등기 필드 없음 → NULL.
             sale_parts.append(
                 "SELECT deal_ymd, deal_amount, excl_use_ar, floor, dealing_gbn, build_year, 'offi' AS asset, "
-                "NULL AS dong, 0 AS registered "
+                "NULL AS dong, 0 AS registered, NULL AS ek "
                 "FROM offi_transactions WHERE matched_complex_no = ? AND deal_ymd >= date('now','+9 hours', ?) AND is_cancelled = 0"
             )
             sale_params.extend([complex_no, cutoff])
+        est_keys: list[tuple[dict, str]] = []   # (행, 추정 조회 키) — 등기 전 거래만
         if sale_parts:
             sql = " UNION ALL ".join(sale_parts) + " ORDER BY deal_ymd DESC LIMIT ?"
             for row in c.execute(sql, [*sale_params, limit]):
-                out["sale"].append({
+                item = {
                     "deal_ymd": row[0], "deal_amount": row[1],
                     "excl_use_ar": row[2], "floor": row[3],
                     "dealing_gbn": row[4], "build_year": row[5], "asset": row[6],
                     "dong": row[7], "registered": bool(row[8]),
-                })
+                }
+                out["sale"].append(item)
+                if row[9] and not (row[7] or "").strip():
+                    est_keys.append((item, row[9]))
 
         # 전세 + 월세는 rentals/offi_rentals를 한 번에 뽑고 monthly_rent로 나눔
         rent_parts: list[str] = []
@@ -2068,14 +2120,14 @@ def complex_transactions(complex_no: str, months: int = 24, limit: int = 500):
         if "rentals" in existing:
             rent_parts.append(
                 "SELECT deal_ymd, deposit, monthly_rent, excl_use_ar, floor, build_year, "
-                "contract_type, contract_term, use_rr_right, pre_deposit, pre_monthly_rent, 'apt' AS asset "
+                "contract_type, contract_term, use_rr_right, pre_deposit, pre_monthly_rent, 'apt' AS asset, rental_id "
                 "FROM rentals WHERE matched_complex_no = ? AND deal_ymd >= date('now','+9 hours', ?)"
             )
             rent_params.extend([complex_no, cutoff])
         if "offi_rentals" in existing:
             rent_parts.append(
                 "SELECT deal_ymd, deposit, monthly_rent, excl_use_ar, floor, build_year, "
-                "contract_type, contract_term, use_rr_right, pre_deposit, pre_monthly_rent, 'offi' AS asset "
+                "contract_type, contract_term, use_rr_right, pre_deposit, pre_monthly_rent, 'offi' AS asset, NULL "
                 "FROM offi_rentals WHERE matched_complex_no = ? AND deal_ymd >= date('now','+9 hours', ?)"
             )
             rent_params.extend([complex_no, cutoff])
@@ -2092,8 +2144,17 @@ def complex_transactions(complex_no: str, months: int = 24, limit: int = 500):
                 }
                 if (row[2] or 0) > 0:
                     out["wolse"].append(item)
+                    if row[12]:
+                        est_keys.append((item, f"B2:{row[12]}"))
                 else:
                     out["jeonse"].append(item)
+                    if row[12]:
+                        est_keys.append((item, f"B1:{row[12]}"))
+
+    # 등기 전 동 추정(dong_estimates.sqlite, scripts/dong_estimate.py 가 매일 채움). 규칙·문턱을
+    # 통과한(shown=1) 것만 "101동(추정)"으로 붙인다. 등기가 올라오면 dong 이 생겨 추정은 붙지 않는다.
+    if est_keys:
+        _attach_dong_estimates(est_keys)
 
         # 분양권/입주권 전매 (silv_transactions). 해제건 제외(시세 오염 방지).
         if "silv_transactions" in existing:
@@ -10541,68 +10602,152 @@ def _sgg_centroids():
 @app.get("/stats/tx-map/agg")
 def tx_map_agg(level: str = "gu", asset: str = "apt", trade: str = "A1",
                sw_lat: float = 0, sw_lng: float = 0, ne_lat: float = 0, ne_lng: float = 0,
-               window_days: int = 120, min_n: int = 3):
-    """실거래 지도 줌아웃 집계 — 구(sgg)/동(dong)별 '평당가 변동률'(최근 window vs 이전 window)
-    + 중심좌표. 변동률 색칠 버블용(빨강=하락, 파랑=상승). asset=apt|offi, trade=A1(매매) MVP.
-    · gu: t.sgg_cd로 그룹(전국). 좌표는 사전캐시. bounds 주면 그 안의 구만.
-    · dong: bounds(뷰포트)로 단지 좁혀 cx.cortar_no[:10]로 그룹."""
+               window_days: int = 120, min_n: int = 3, metric: str = "tx"):
+    """실거래 지도 줌아웃 집계 — 구(sgg)/동(dong)별 버블(중심좌표 포함). 지도 시세분석 레이어의 네 칩.
+    metric:
+    · tx   평당가 변동률 — 계약일 기준 최근 window vs 그 전 window. 가격 평균은 신고 지연에 둔감해 창을 오늘까지 둔다.
+    · vol  거래량 변동 — **신고 마감(계약 후 30일) 지난 계약만** 최근 window vs 그 전 window, 30일 내 계약은
+           pending(신고 진행 중)으로 따로. 실측(2026-08~09 계약 아파트 매매 67,006건): 계약 후 7일 50%·14일 70%·
+           21일 82%·30일 91%·45일 97% 신고 → 마지막 30일을 그대로 세면 거래량이 약 30% 모자라 보인다.
+    · gap  매매−전세 평당 갭·전세가율 — 최근 window 거래 평균(84㎡ 환산 금액 함께).
+    · hoga 매물 호가 변동 — 오늘 스냅샷 vs window(≤60일) 전 스냅샷, 같은 단지·평형 셀만 비교(믹스 변화 배제).
+    · gu: 전국 sgg 그룹, 좌표는 사전캐시, bounds 주면 그 안만. dong: bounds 로 단지 좁혀 cortar[:10] 그룹.
+    asset=apt|offi, trade=A1(매매)."""
     if level not in ("gu", "dong"):
         raise HTTPException(400, "level must be gu|dong")
     if asset not in ("apt", "offi") or trade != "A1":
-        raise HTTPException(400, "MVP는 asset=apt|offi, trade=A1(매매)만 지원")
+        raise HTTPException(400, "asset=apt|offi, trade=A1(매매)만 지원")
+    if metric not in ("tx", "vol", "gap", "hoga"):
+        raise HTTPException(400, "metric must be tx|vol|gap|hoga")
     window_days = min(max(int(window_days), 30), 365)
+    if metric == "hoga":
+        window_days = min(window_days, 60)       # complex_daily_agg 보관 92일 안에서 안전한 창
+    LAG = 30                                     # 실거래 신고 기한(계약 후 30일)
     table = "transactions" if asset == "apt" else "offi_transactions"
-    r0 = f"date('now','+9 hours','-{window_days} days')"           # 최근 창 시작
-    p0 = f"date('now','+9 hours','-{2 * window_days} days')"       # 이전 창 시작
-    ppy = "t.deal_amount/NULLIF(t.excl_use_ar,0)*3.3"             # 평당가(크기 보정)
-    rec = f"CASE WHEN t.deal_ymd>={r0} THEN {ppy} END"
-    pri = f"CASE WHEN t.deal_ymd>={p0} AND t.deal_ymd<{r0} THEN {ppy} END"
-    _ck = f"txagg:{level}:{asset}:{window_days}:{sw_lat:.2f}:{sw_lng:.2f}:{ne_lat:.2f}:{ne_lng:.2f}:{min_n}"
+    rtable = "rentals" if asset == "apt" else "offi_rentals"
+    _ck = (f"txagg:{metric}:{level}:{asset}:{window_days}:{sw_lat:.2f}:{sw_lng:.2f}:{ne_lat:.2f}:{ne_lng:.2f}:{min_n}")
     _hit = _cache_get(_ck)
     if _hit is not None:
         return _hit
+    _eff = _eff_sgg_sql("t")                     # 인천 개편: 옛코드 → 현행 구
+    cen = _sgg_centroids()
+    in_box = bool(ne_lat)
 
-    def mk(code, name, lat, lng, rec_v, pri_v, recn):
-        return {"code": code, "name": name or code, "lat": lat, "lng": lng,
-                "change": round((rec_v / pri_v - 1) * 100, 1), "ppy": int(rec_v), "n": recn}
-
-    items = []
-    with _open_db() as d:
+    def q(tbl: str, cols: str, where: str, params: list) -> tuple[str, list]:
+        """레벨별 그룹 쿼리: k(코드), lat, lng, name, {cols}. gu 는 좌표·이름을 사전캐시에서 붙인다."""
         if level == "gu":
-            _eff = _eff_sgg_sql("t")   # 인천 개편: 옛코드 → 현행 구
-            rows = d.execute(
-                f"SELECT ({_eff}) sgg5, AVG({rec}) rec, AVG({pri}) pri, "
-                f"  SUM(CASE WHEN t.deal_ymd>={r0} THEN 1 ELSE 0 END) recn "
-                f"FROM {table} t "
-                f"WHERE t.is_cancelled=0 AND t.matched_complex_no IS NOT NULL "
-                f"  AND t.excl_use_ar>0 AND t.deal_ymd>={p0} "
-                f"GROUP BY sgg5").fetchall()
-            cen = _sgg_centroids()
-            for sgg, rec_v, pri_v, recn in rows:
+            return (f"SELECT ({_eff}) k, NULL, NULL, NULL, {cols} FROM {tbl} t WHERE {where} GROUP BY k", params)
+        return (f"SELECT substr(cx.cortar_no,1,10) k, AVG(cx.latitude), AVG(cx.longitude), "
+                f"  (SELECT cortar_name FROM regions WHERE cortar_no=substr(cx.cortar_no,1,10)), {cols} "
+                f"FROM {tbl} t JOIN complexes cx ON cx.complex_no=t.matched_complex_no "
+                f"WHERE {where} AND cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ? GROUP BY k",
+                [*params, sw_lat, ne_lat, sw_lng, ne_lng])
+
+    def place(k, lat, lng, nm) -> dict | None:
+        if level == "gu":
+            c = cen.get((k or "")[:5])
+            if not c or not c[0]:
+                return None
+            lat, lng, nm = c
+            if in_box and not (sw_lat <= lat <= ne_lat and sw_lng <= lng <= ne_lng):
+                return None
+            k = k[:5]
+        if not lat:
+            return None
+        return {"code": k, "name": nm or k, "lat": lat, "lng": lng}
+
+    ppy = "t.deal_amount/NULLIF(t.excl_use_ar,0)*3.3"       # 평당가(크기 보정)
+    base = f"t.is_cancelled=0 AND t.matched_complex_no IS NOT NULL AND t.excl_use_ar>0"
+    r0 = f"date('now','+9 hours','-{window_days} days')"
+    p0 = f"date('now','+9 hours','-{2 * window_days} days')"
+    items: list[dict] = []
+    extra: dict = {}
+    with _open_db() as d:
+        if metric == "tx":
+            rec = f"CASE WHEN t.deal_ymd>={r0} THEN {ppy} END"
+            pri = f"CASE WHEN t.deal_ymd>={p0} AND t.deal_ymd<{r0} THEN {ppy} END"
+            sql, pr = q(table, f"AVG({rec}), AVG({pri}), SUM(CASE WHEN t.deal_ymd>={r0} THEN 1 ELSE 0 END)",
+                        f"{base} AND t.deal_ymd>={p0}", [])
+            for k, lat, lng, nm, rec_v, pri_v, recn in d.execute(sql, pr):
                 if not rec_v or not pri_v or recn < min_n:
                     continue
-                c = cen.get((sgg or "")[:5])
-                if not c or not c[0]:
+                it = place(k, lat, lng, nm)
+                if it:
+                    it.update(change=round((rec_v / pri_v - 1) * 100, 1), ppy=int(rec_v), n=recn)
+                    items.append(it)
+        elif metric == "vol":
+            e0 = f"date('now','+9 hours','-{LAG} days')"                      # 신고 마감 지난 계약의 끝
+            rv = f"date('now','+9 hours','-{LAG + window_days} days')"
+            pv = f"date('now','+9 hours','-{LAG + 2 * window_days} days')"
+            sql, pr = q(table,
+                        f"SUM(CASE WHEN t.deal_ymd>={rv} AND t.deal_ymd<{e0} THEN 1 ELSE 0 END), "
+                        f"SUM(CASE WHEN t.deal_ymd>={pv} AND t.deal_ymd<{rv} THEN 1 ELSE 0 END), "
+                        f"SUM(CASE WHEN t.deal_ymd>={e0} THEN 1 ELSE 0 END)",
+                        f"t.is_cancelled=0 AND t.matched_complex_no IS NOT NULL AND t.deal_ymd>={pv}", [])
+            for k, lat, lng, nm, recn, prin, pend in d.execute(sql, pr):
+                recn, prin, pend = recn or 0, prin or 0, pend or 0
+                if max(recn, prin) < min_n:
                     continue
-                lat, lng, name = c
-                if ne_lat and not (sw_lat <= lat <= ne_lat and sw_lng <= lng <= ne_lng):
+                it = place(k, lat, lng, nm)
+                if it:
+                    it.update(n=recn, n_prev=prin, pending=pend,
+                              change=round((recn / prin - 1) * 100, 1) if prin else None)
+                    items.append(it)
+            extra = {"lag_days": LAG}
+        elif metric == "gap":
+            sql, pr = q(table, f"AVG({ppy}), COUNT(*)", f"{base} AND t.deal_ymd>={r0}", [])
+            sale = {k: (lat, lng, nm, v, n) for k, lat, lng, nm, v, n in d.execute(sql, pr) if v}
+            jppy = "t.deposit/NULLIF(t.excl_use_ar,0)*3.3"
+            sql, pr = q(rtable, f"AVG({jppy}), COUNT(*)",
+                        # +monthly_rent: rentals_monthly_idx 로 전세 전체(수백만 행)를 훑지 않게 날짜 인덱스 유도(콜드 8s→1s대)
+                        f"+t.monthly_rent=0 AND t.matched_complex_no IS NOT NULL AND t.excl_use_ar>0 AND t.deposit>0 "
+                        f"AND t.deal_ymd>={r0}", [])
+            for k, lat, lng, nm, jv, jn in d.execute(sql, pr):
+                s = sale.get(k)
+                if not s or not jv or jn < min_n or s[4] < min_n:
                     continue
-                items.append(mk(sgg[:5], name, lat, lng, rec_v, pri_v, recn))
-        else:
-            rows = d.execute(
-                f"SELECT substr(cx.cortar_no,1,10) dcode, AVG(cx.latitude), AVG(cx.longitude), "
-                f"  AVG({rec}) rec, AVG({pri}) pri, "
-                f"  SUM(CASE WHEN t.deal_ymd>={r0} THEN 1 ELSE 0 END) recn, "
-                f"  (SELECT cortar_name FROM regions WHERE cortar_no=substr(cx.cortar_no,1,10)) nm "
-                f"FROM {table} t JOIN complexes cx ON cx.complex_no=t.matched_complex_no "
-                f"WHERE t.is_cancelled=0 AND t.matched_complex_no IS NOT NULL AND t.excl_use_ar>0 "
-                f"  AND t.deal_ymd>={p0} AND cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ? "
-                f"GROUP BY dcode", (sw_lat, ne_lat, sw_lng, ne_lng)).fetchall()
-            for dcode, lat, lng, rec_v, pri_v, recn, nm in rows:
-                if not rec_v or not pri_v or recn < min_n or not lat:
-                    continue
-                items.append(mk(dcode, nm, lat, lng, rec_v, pri_v, recn))
-    res = {"level": level, "asset": asset, "trade": trade, "window_days": window_days,
+                it = place(k, s[0] or lat, s[1] or lng, s[2] or nm)
+                if it:
+                    gap_ppy = s[3] - jv
+                    it.update(ppy=int(s[3]), jppy=int(jv), gap_ppy=int(gap_ppy), gap84=int(gap_ppy * 84 / 3.3058),
+                              rate=round(jv / s[3] * 100, 1), n=s[4], n_jeonse=jn)
+                    items.append(it)
+        else:  # hoga — 매물 호가 스냅샷 비교(같은 단지·평형 셀)
+            d0 = d.execute("SELECT MAX(snapshot_date) FROM complex_daily_agg").fetchone()[0]
+            d1 = d.execute("SELECT MAX(snapshot_date) FROM complex_daily_agg WHERE snapshot_date<=date(?, ?)",
+                           (d0, f"-{window_days} days")).fetchone()[0] if d0 else None
+            if d0 and d1 and d1 < d0:
+                box = (" AND cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ?" if (level == "dong" or in_box) else "")
+                bp = [sw_lat, ne_lat, sw_lng, ne_lng] if box else []
+                rows = d.execute(
+                    f"SELECT substr(cx.cortar_no,1,{5 if level == 'gu' else 10}) k, cx.latitude, cx.longitude, "
+                    f"  a.listing_count, a.price_avg, b.price_avg "
+                    f"FROM complex_daily_agg a "
+                    f"JOIN complex_daily_agg b ON b.snapshot_date=? AND b.complex_no=a.complex_no "
+                    f"  AND b.area_name=a.area_name AND b.trade_type='A1' "
+                    f"JOIN complexes cx ON cx.complex_no=a.complex_no "
+                    f"WHERE a.snapshot_date=? AND a.trade_type='A1' AND a.price_avg>0 AND b.price_avg>0 "
+                    f"  AND a.listing_count>0{box}", [d1, d0, *bp]).fetchall()
+                acc: dict[str, list] = {}
+                for k, lat, lng, n, pa, pb in rows:
+                    r = pa / pb
+                    if not (0.5 <= r <= 2.0):          # 평형 재분류·오타 호가 등 이상치 제외
+                        continue
+                    a = acc.setdefault(k, [0.0, 0, 0, 0.0, 0.0])   # Σw·chg, Σw, cells, Σlat, Σlng
+                    a[0] += (r - 1) * n; a[1] += n; a[2] += 1; a[3] += lat or 0; a[4] += lng or 0
+                for k, (sw, w, cells, sl, sg) in acc.items():
+                    if w < min_n or cells < 2:
+                        continue
+                    nm = None
+                    if level == "dong":
+                        rr = d.execute("SELECT cortar_name FROM regions WHERE cortar_no=?", (k,)).fetchone()
+                        nm = rr[0] if rr else None
+                    it = place(k, sl / cells, sg / cells, nm)
+                    if it:
+                        it.update(change=round(sw / w * 100, 1), n=int(w), cells=cells)
+                        items.append(it)
+            extra = {"snapshot": d0, "baseline": d1}
+    res = {"level": level, "asset": asset, "trade": trade, "metric": metric, "window_days": window_days, **extra,
            "items": sorted(items, key=lambda x: -x["n"])[:500]}
     _cache_put(_ck, res)
     return res
@@ -22857,6 +23002,745 @@ def admin_resolve_verification(vid: int, body: dict, _admin: dict = Depends(admi
         except Exception:
             pass
     return {"ok": True}
+
+
+# ── 등기변동 확인(관리자) — 콕집 전용 등기소 API(/v1/changes/check) 프록시 ─────────
+# 등기소 서버(nfind)에 SSH 터널(koczip-iros-tunnel, 127.0.0.1:18031)로 붙는다. 키·주소는
+# /opt/koczip-iros/credentials.json(또는 KOCZIP_IROS_BASE_URL/KEY). 콕집 키로는 변경조회와 /health만
+# 허용되고 /pin·/cases 같은 관리 경로는 403 — 고유번호는 변경조회가 내부에서 특정한다(409=후보).
+# 등기소는 짧은 연속 요청을 비정상 접속으로 보고 IP를 차단한 적이 있다 → 한 번에 하나만, 3초 간격.
+# 상대 서버도 분당 3회·하루 500회. 성공한 조회는 저쪽 비교기준을 갱신하므로 자동 재시도 금지.
+_IROS_LOCK = _threading.Lock()
+_IROS_LAST = [0.0]
+_IROS_UNIT_RE = _re.compile(r"^[0-9A-Za-z]{1,10}$")
+_IROS_DB = DB_PATH.parent / "iros_checks.sqlite"
+_IROS_MIGRATED = [False]
+
+
+def _iros_unit(v: str | None, label: str) -> str:
+    """동·호: '제101동'·'1001호'처럼 와도 제/동/호를 떼고 숫자·영문만 남긴다."""
+    s = (v or "").strip().replace(" ", "")
+    s = _re.sub(r"^제", "", s)
+    s = _re.sub(r"(동|호)$", "", s)
+    if s and not _IROS_UNIT_RE.match(s):
+        raise HTTPException(422, f"{label}{'은' if label == '동' else '는'} 숫자·영문 1~10자로 입력해 주세요")
+    return s
+
+
+def _iros_cfg() -> tuple[str, str]:
+    base, key = os.getenv("KOCZIP_IROS_BASE_URL", ""), os.getenv("KOCZIP_IROS_API_KEY", "")
+    if not (base and key):
+        try:
+            c = _authjson.loads(Path(os.getenv("KOCZIP_IROS_CREDENTIALS", "/opt/koczip-iros/credentials.json"))
+                                .read_text(encoding="utf-8"))
+            base, key = c.get("base_url", ""), c.get("api_key", "")
+        except Exception:  # noqa: BLE001
+            pass
+    if not (base and key):
+        raise HTTPException(503, "등기조회 서버 연결정보(/opt/koczip-iros/credentials.json)가 없습니다")
+    return base.rstrip("/"), key
+
+
+def _iros_db():
+    db = sqlite3.connect(_IROS_DB, timeout=10)
+    db.row_factory = sqlite3.Row
+    db.execute("""CREATE TABLE IF NOT EXISTS iros_checks (
+        id INTEGER PRIMARY KEY, checked_at TEXT NOT NULL, admin TEXT, address TEXT NOT NULL,
+        dong TEXT, ho TEXT, name TEXT NOT NULL, pin TEXT, property TEXT, http_status INTEGER,
+        changed INTEGER, baseline INTEGER, case_count INTEGER, change_count INTEGER,
+        message TEXT, request_id TEXT, payload TEXT)""")
+    db.execute("CREATE INDEX IF NOT EXISTS iros_checks_target ON iros_checks(address,dong,ho,name,id)")
+    # 시도 로그 — 성공·실패·재시도·로컬 차단까지 전부. 원인 추적용(무엇을 넣었고 등기소가 뭐라 했나).
+    db.execute("""CREATE TABLE IF NOT EXISTS iros_call_log (
+        id INTEGER PRIMARY KEY, at TEXT NOT NULL, admin TEXT, address TEXT, jibun TEXT, dong TEXT, ho TEXT,
+        name TEXT, step TEXT, http_status INTEGER, elapsed REAL, request_id TEXT, error_code TEXT,
+        message TEXT, check_id INTEGER, response TEXT)""")
+    if not _IROS_MIGRATED[0]:
+        for t, col in (("iros_call_log", "uid"), ("iros_call_log", "src"), ("iros_checks", "uid"), ("iros_checks", "src")):
+            try:
+                db.execute(f"ALTER TABLE {t} ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass
+        db.execute("CREATE INDEX IF NOT EXISTS iros_call_log_uid ON iros_call_log(uid,id)")
+        # 회원 알림 대상 — snapshot 은 마지막으로 본 사건 {case_id: {purpose,status,...}}.
+        # 저쪽 비교기준은 누가 조회하든(관리자·다른 회원) 갱신되므로 알림 판정은 이쪽 snapshot 으로만 한다.
+        db.execute("""CREATE TABLE IF NOT EXISTS iros_watches (
+            id INTEGER PRIMARY KEY, uid TEXT NOT NULL, check_id INTEGER, pin TEXT, address TEXT NOT NULL,
+            jibun TEXT, dong TEXT, ho TEXT, name TEXT NOT NULL, label TEXT, created_at TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1, snapshot TEXT, last_checked_at TEXT, last_status INTEGER,
+            last_error TEXT, last_change_at TEXT)""")
+        db.execute("CREATE INDEX IF NOT EXISTS iros_watches_pin ON iros_watches(pin,active)")
+        db.execute("CREATE INDEX IF NOT EXISTS iros_watches_uid ON iros_watches(uid,active)")
+        db.execute("""CREATE TABLE IF NOT EXISTS iros_watch_events (
+            id INTEGER PRIMARY KEY, watch_id INTEGER NOT NULL, at TEXT NOT NULL, kind TEXT, summary TEXT,
+            detail TEXT, pushed INTEGER)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS iros_flags (
+            id INTEGER PRIMARY KEY, uid TEXT NOT NULL, at TEXT NOT NULL, reason TEXT, detail TEXT)""")
+        _IROS_MIGRATED[0] = True
+    return db
+
+
+class _IrosLogged(HTTPException):
+    """시도 단계에서 이미 로그를 남긴 오류."""
+
+
+def _iros_now() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() + 9 * 3600))
+
+
+def _iros_log(**kw) -> int | None:
+    """로그 실패가 조회를 막으면 안 된다 — 예외는 삼킨다."""
+    try:
+        kw.setdefault("at", _iros_now())
+        cols = ",".join(kw)
+        with _iros_db() as db:
+            return db.execute(f"INSERT INTO iros_call_log({cols}) VALUES({','.join('?' * len(kw))})",
+                              tuple(kw.values())).lastrowid
+    except Exception as e:  # noqa: BLE001
+        print(f"[iros] log 실패: {e}", flush=True)
+        return None
+
+
+def _iros_request(method: str, path: str, body: dict | None = None, timeout: int = 95):
+    """(status, payload, headers). 연결 실패는 502."""
+    base, key = _iros_cfg()
+    data = _authjson.dumps(body, ensure_ascii=False).encode() if body is not None else None
+    req = _urlreq.Request(base + path, data=data, method=method,
+                          headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    try:
+        with _urlreq.urlopen(req, timeout=timeout) as r:
+            status, raw, hdr = r.status, r.read(), r.headers
+    except _urlerr.HTTPError as e:
+        status, raw, hdr = e.code, e.read(), e.headers
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"등기조회 서버에 연결하지 못했습니다: {e}")
+    try:
+        payload = _authjson.loads(raw.decode("utf-8") or "{}")
+    except ValueError:
+        payload = {"detail": raw.decode("utf-8", "replace")[:500]}
+    return status, payload, hdr
+
+
+def _iros_err_message(payload: dict) -> str:
+    err, detail = payload.get("error") or {}, payload.get("detail")
+    if err.get("message"):
+        return err["message"]
+    if isinstance(detail, dict):
+        return detail.get("message") or ""
+    return detail if isinstance(detail, str) else ""
+
+
+@app.get("/admin/iros/units")
+def admin_iros_units(bcode: str, jibun: str, _admin: dict = Depends(admin_user)):
+    return _iros_units(bcode, jibun)
+
+
+def _iros_units(bcode: str, jibun: str):
+    """주소위젯의 법정동코드(bcode)+지번 → 건축물대장 전유부 동·호 목록(영속 캐시 EX).
+
+    동·호를 손으로 치면 오타·표기차('제706동'·'B101')로 등기소 404가 난다 → 대장 목록에서 고르게 한다.
+    등기소에 넣는 값은 숫자·영문만이라 대장 표기에서 제/동/호를 뗀다. 상가동·관리동처럼 숫자가
+    아닌 동은 dong="" 로 두고 호만 보낸다.
+    """
+    from collector.ondemand_ledger import _parse_jibun, _cget, _cput, _MISS
+    bcode = (bcode or "").strip()
+    toks = (jibun or "").split()
+    lot = (toks[-2] + toks[-1]) if len(toks) >= 2 and toks[-2] == "산" else (toks[-1] if toks else "")
+    parsed = _parse_jibun(bcode, lot) if _re.fullmatch(r"\d{10}", bcode) else None
+    if not parsed:
+        raise HTTPException(422, "법정동코드·지번을 읽지 못했어요")
+    sgg, plat, bun, ji, bjd = parsed
+    # 전유공용면적(getBrExposPubuseAreaInfo)은 호마다 공용부 줄이 붙어 대단지면 수천 줄이다
+    # (판교풍경채7단지 3,642줄). 전유부(getBrExposInfo)는 한 호에 한 줄(같은 단지 462줄).
+    ck = f"EX{sgg}{bjd}{plat}{bun}{ji}"
+    units = _cget(ck)
+    if units is _MISS:
+        base = {"sigunguCd": sgg, "bjdongCd": bjd, "platGbCd": plat, "bun": bun, "ji": ji, "_type": "xml"}
+        head = _dgk_get("getBrExposInfo", {**base, "numOfRows": "100", "pageNo": "1"}, timeout=20)
+        if head is None:
+            return {"ok": False, "lot": lot, "units": [], "reason": "건축물대장 서버가 응답하지 않아요. 잠시 후 다시 시도하세요"}
+        total = int(head.findtext(".//totalCount") or 0)
+        if total > 5000:
+            return {"ok": False, "lot": lot, "units": [], "reason": f"전유 {total:,}호라 목록 대신 직접 입력해 주세요"}
+        roots = [head]
+        pages = list(range(2, (total + 99) // 100 + 1))
+        if pages:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(4) as ex:
+                roots += list(ex.map(lambda pg: _dgk_get("getBrExposInfo", {**base, "numOfRows": "100",
+                                                                           "pageNo": str(pg)}, timeout=20), pages))
+        if any(r is None for r in roots):
+            return {"ok": False, "lot": lot, "units": [], "reason": "건축물대장 일부를 못 받았어요. 잠시 후 다시 시도하세요"}
+        g = lambda it, t: (it.findtext(t) or "").strip()   # noqa: E731
+        units = [{"dong": g(it, "dongNm"), "ho": g(it, "hoNm"), "bld": g(it, "bldNm"),
+                  "flr": (("지하 " if g(it, "flrGbCdNm") == "지하" else "") + g(it, "flrNo") + "층") if g(it, "flrNo") else ""}
+                 for r in roots for it in r.findall(".//item")]
+        _cput(ck, units)
+    if not units:
+        return {"ok": False, "lot": lot, "units": [], "reason": "건축물대장에 전유부(호)가 없어요 — 단독·일반건물이면 동·호 없이 조회하세요"}
+
+    def norm(v: str) -> str:
+        t = _re.sub(r"(동|호)$", "", _re.sub(r"^제", "", (v or "").replace(" ", "")))
+        return t if _IROS_UNIT_RE.match(t) else ""
+
+    seen, out = set(), []
+    for u in units:
+        d0 = u.get("dong") or ""
+        if d0 and d0.replace(" ", "") == (u.get("bld") or "").replace(" ", ""):
+            d0 = ""                     # 단일동 건물은 대장이 동 자리에 건물명을 넣는다
+        k = (d0, u.get("ho") or "")
+        if not k[1] or k in seen:
+            continue
+        seen.add(k)
+        out.append({"dong_label": k[0], "ho_label": k[1], "dong": norm(k[0]) if k[0] else "",
+                    "ho": norm(k[1]), "ok": bool(norm(k[1])),   # 상가동 등 문자 동은 동 없이 호만 보낸다(409면 후보)
+                    "floor": u.get("flr") or None, "bld": u.get("bld") or None})
+    # 단일동 건물은 대장이 동 자리에 건물명을 넣는다 — 동이 하나뿐이고 숫자가 아니면 동 없음으로 본다
+    dongs = {o["dong_label"] for o in out}
+    if len(dongs) == 1 and next(iter(dongs)) and not norm(next(iter(dongs))):
+        for o in out:
+            o["dong_label"], o["dong"] = "", ""
+            o["ok"] = bool(o["ho"])
+    key = lambda o: (len(o["dong"] or o["dong_label"]), o["dong"] or o["dong_label"], len(o["ho"]), o["ho"])  # noqa: E731
+    out.sort(key=key)
+    return {"ok": True, "lot": lot, "units": out}
+
+
+@app.get("/admin/iros/health")
+def admin_iros_health(_admin: dict = Depends(admin_user)):
+    """터널·등기소 API 생존 확인(조회 할당량 미사용)."""
+    t0 = time.time()
+    status, payload, _ = _iros_request("GET", "/health", timeout=10)
+    return {"status": status, "elapsed": round(time.time() - t0, 2), "data": payload}
+
+
+@app.post("/admin/iros/check")
+def admin_iros_check(body: dict, admin: dict = Depends(admin_user)):
+    """주소+동·호+정확한 이름 → 고유번호 특정 → 최근 2개월 신청사건 → 마지막 정상조회와 비교.
+
+    외부 응답은 {status, elapsed, message, data}로 감싸 200으로 돌려준다(오류도 화면에서 구분).
+    정상 응답(200)만 iros_checks에 남긴다 — 같은 대상을 다시 조회하면 '변경내역 없음'이 되므로
+    변경 결과는 이쪽 기록이 원본이다. 시도는 성패와 무관하게 전부 iros_call_log에 남긴다.
+    """
+    who = admin.get("email")
+    try:
+        out = _iros_check(body, who, uid=admin.get("id"), src="admin")
+        return Response(content=_authjson.dumps(out, ensure_ascii=False), media_type="application/json")
+    except HTTPException as e:  # 입력오류·동시실행·연결실패 — 등기소까지 안 간 것도 남긴다
+        if isinstance(e, _IrosLogged):
+            raise
+        _iros_log(admin=who, uid=admin.get("id"), src="admin", address=(body.get("address") or "")[:300], jibun=(body.get("jibun_address") or "")[:300],
+                  dong=str(body.get("dong") or "")[:20], ho=str(body.get("ho") or "")[:20],
+                  name=(body.get("name") or "")[:100], step="local", http_status=e.status_code,
+                  message=str(e.detail)[:500])
+        raise
+
+
+def _iros_check(body: dict, who: str | None, uid: str | None = None, src: str = "admin") -> dict:
+    address = _re.sub(r"\s*\(.*\)\s*$", "", (body.get("address") or "").strip())  # 위젯 참고항목 제거
+    jibun = _re.sub(r"\s*\(.*\)\s*$", "", (body.get("jibun_address") or "").strip())
+    name = (body.get("name") or "").strip()
+    if len(address) < 5:
+        raise HTTPException(422, "주소를 검색해 선택해 주세요")
+    if not name:
+        raise HTTPException(422, "소유자·등기신청인의 정확한 이름이 필요합니다")
+    dong, ho = _iros_unit(body.get("dong"), "동"), _iros_unit(body.get("ho"), "호")
+    payload = {"address": address, "name": name, "kind": "all"}
+    if dong:
+        payload["dong"] = dong
+    if ho:
+        payload["ho"] = ho
+    if not _IROS_LOCK.acquire(blocking=False):
+        raise HTTPException(429, "다른 조회가 진행 중입니다. 끝난 뒤 다시 눌러 주세요")
+    fallback = None
+    log_ids: list = []
+    try:
+        t0 = time.time()
+        # 등기소 도로명 검색은 신축 단지 등에서 등록된 도로명으로도 0건이 나온다(판교대장로 77 → 404,
+        # 대장동 623 → 정상). 404는 비교기준을 건드리지 않으므로 지번으로 한 번 더 찾는다.
+        for addr in [address] + ([jibun] if len(jibun) >= 5 and jibun != address else []):
+            wait = 3.0 - (time.time() - _IROS_LAST[0])
+            if wait > 0:
+                time.sleep(wait)
+            payload["address"] = addr
+            step = "road" if addr == address else "jibun"
+            t1 = time.time()
+            try:
+                status, data, hdr = _iros_request("POST", "/v1/changes/check", payload)
+            except HTTPException as e:
+                _iros_log(admin=who, uid=uid, src=src, address=addr, jibun=jibun, dong=dong, ho=ho, name=name, step=step,
+                          http_status=e.status_code, elapsed=round(time.time() - t1, 1), message=str(e.detail)[:500])
+                raise _IrosLogged(e.status_code, e.detail) from None  # 이미 기록 — 바깥에서 중복 기록 안 함
+            finally:
+                _IROS_LAST[0] = time.time()
+            err = (data.get("error") or {}) if isinstance(data, dict) else {}
+            log_ids.append(_iros_log(
+                admin=who, uid=uid, src=src, address=addr, jibun=jibun, dong=dong, ho=ho, name=name, step=step, http_status=status,
+                elapsed=round(time.time() - t1, 1), request_id=hdr.get("X-Request-ID") if hdr else None,
+                error_code=err.get("code") or ((data.get("detail") or {}).get("code") if isinstance(data.get("detail"), dict) else None),
+                message=((data.get("message") if status == 200 else _iros_err_message(data)) or "")[:500],
+                response=None if status == 200 else _authjson.dumps(data, ensure_ascii=False)[:4000]))
+            if status != 404:
+                break
+            fallback = "jibun"
+        if status == 404:
+            fallback = None
+        address = payload["address"]
+        elapsed = round(time.time() - t0, 1)
+    finally:
+        _IROS_LAST[0] = time.time()
+        _IROS_LOCK.release()
+    rid = hdr.get("X-Request-ID") if hdr else None
+    out = {"status": status, "elapsed": elapsed, "request_id": rid, "address_used": address, "fallback": fallback,
+           "retry_after": hdr.get("Retry-After") if hdr else None,
+           "message": data.get("message") if status == 200 else _iros_err_message(data), "data": data}
+    if status == 200:
+        prop = data.get("property") or {}
+        with _iros_db() as db:
+            cur = db.execute(
+                "INSERT INTO iros_checks(checked_at,admin,uid,src,address,dong,ho,name,pin,property,http_status,changed,"
+                "baseline,case_count,change_count,message,request_id,payload) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (_iros_now(), who, uid, src, address, dong, ho, name,
+                 data.get("pin"), prop.get("address") if isinstance(prop, dict) else str(prop), status,
+                 None if data.get("changed") is None else int(bool(data.get("changed"))),
+                 int(bool(data.get("baseline_created"))), data.get("case_count"),
+                 len(data.get("changes") or []), data.get("message"), rid,
+                 _authjson.dumps(data, ensure_ascii=False)))
+            out["check_id"] = cur.lastrowid
+            if log_ids and log_ids[-1]:
+                db.execute("UPDATE iros_call_log SET check_id=? WHERE id=?", (cur.lastrowid, log_ids[-1]))
+        try:   # 같은 고유번호를 지켜보는 회원 알림 — 누가 조회했든 새 사건이면 알린다
+            _iros_watch_sync(data.get("pin"), data.get("cases") or [])
+        except Exception as e:  # noqa: BLE001
+            print(f"[iros] watch sync 실패: {e}", flush=True)
+    return out
+
+
+@app.get("/admin/iros/history")
+def admin_iros_history(limit: int = 100, _admin: dict = Depends(admin_user)):
+    """정상 조회 기록(최신순) — 대상별 '다시 확인'과 지난 변경 결과 보기에 쓴다."""
+    with _iros_db() as db:
+        rows = db.execute(
+            "SELECT id,checked_at,admin,address,dong,ho,name,pin,property,changed,baseline,case_count,"
+            "change_count,message FROM iros_checks ORDER BY id DESC LIMIT ?", (min(max(limit, 1), 500),)).fetchall()
+    return {"items": [dict(r) for r in rows]}
+
+
+@app.get("/admin/iros/logs")
+def admin_iros_logs(limit: int = 200, _admin: dict = Depends(admin_user)):
+    """조회 시도 로그(최신순) — 실패·지번 재시도·로컬 차단 포함."""
+    with _iros_db() as db:
+        rows = db.execute("SELECT id,at,admin,uid,src,address,jibun,dong,ho,name,step,http_status,elapsed,request_id,"
+                          "error_code,message,check_id,response FROM iros_call_log ORDER BY id DESC LIMIT ?",
+                          (min(max(limit, 1), 1000),)).fetchall()
+    return {"items": [dict(r) for r in rows]}
+
+
+@app.get("/admin/iros/history/{check_id}")
+def admin_iros_history_one(check_id: int, _admin: dict = Depends(admin_user)):
+    with _iros_db() as db:
+        r = db.execute("SELECT * FROM iros_checks WHERE id=?", (check_id,)).fetchone()
+    if not r:
+        raise HTTPException(404, "기록이 없습니다")
+    d = dict(r)
+    d["payload"] = _authjson.loads(d["payload"] or "{}")
+    return d
+
+
+# ── 등기변동 알림(회원) ──────────────────────────────────────────────────────
+# 회원이 조회하면 최근 2개월 신청사건을 보여 주고, '무료 알림설정'을 누르면 그 고유번호를 지켜본다.
+# 하루 한 번 자동확인(_iros_watch_loop) + 누가 같은 고유번호를 조회하든 그때도 비교(_iros_watch_sync).
+# 판정은 이쪽 snapshot 으로만 — 저쪽 비교기준은 아무 조회에나 갱신돼 알림 근거로 못 쓴다.
+# 오픈 전엔 관리자만(IROS_MEMBER_OPEN=1 이면 로그인 회원 전체).
+_IROS_USER_DAILY = 3        # 회원 하루 조회(관리자는 20)
+_IROS_WATCH_PER_USER = 5
+_IROS_WATCH_CAP = 300       # 자동확인 1건=하루 1콜. 저쪽 하루 500(UTC) 중 조회 몫을 남긴다
+_IROS_DAILY_BUDGET = 450
+_IROS_WATCH_GAP = 30        # 자동확인 간격(초) — 분당 2회, 1회는 회원 조회 몫
+_IROS_MONEY = ("bond_amount", "charge")
+
+
+def iros_member(user: dict = Depends(current_user)) -> dict:
+    if user.get("is_admin") or os.getenv("IROS_MEMBER_OPEN") == "1":
+        return user
+    raise HTTPException(403, "준비 중인 기능입니다.")
+
+
+def _iros_kst_day() -> str:
+    return _iros_now()[:10]
+
+
+def _iros_utc_day_start() -> str:
+    """저쪽 하루 한도는 UTC 자정(한국 09시) 기준 — 그 시각을 KST 문자열로."""
+    t = int(time.time() // 86400) * 86400 + 9 * 3600
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(t))
+
+
+def _iros_mask(name: str) -> str:
+    n = (name or "").strip()
+    return (n[0] + "*" * (len(n) - 1)) if n else ""
+
+
+def _iros_case_key(c: dict) -> str:
+    return str(c.get("case_id") or f"{c.get('receipt_date')}-{c.get('receipt_no')}")
+
+
+def _iros_snap(cases: list) -> dict:
+    return {_iros_case_key(c): {k: c.get(k) for k in ("purpose", "status", "receipt_date", "receipt_no",
+                                                       "registry_office")} for c in cases or []}
+
+
+def _iros_diff(old: dict, cases: list) -> list[dict]:
+    """새 사건·처리상태/등기목적 변경만. 목록에서 빠진 건 2개월 범위를 벗어난 것이라 알리지 않는다."""
+    out = []
+    for c in cases or []:
+        k, prev = _iros_case_key(c), old.get(_iros_case_key(c))
+        if prev is None:
+            out.append({"kind": "new", "purpose": c.get("purpose"), "status": c.get("status"),
+                        "receipt_date": c.get("receipt_date"), "receipt_no": c.get("receipt_no")})
+        else:
+            fields = {f: [prev.get(f), c.get(f)] for f in ("purpose", "status") if (prev.get(f) or "") != (c.get(f) or "")}
+            if fields:
+                out.append({"kind": "updated", "purpose": c.get("purpose"), "receipt_date": c.get("receipt_date"),
+                            "receipt_no": c.get("receipt_no"), "fields": fields})
+    return out
+
+
+def _iros_diff_summary(diff: list[dict]) -> str:
+    news = [d for d in diff if d["kind"] == "new"]
+    upd = [d for d in diff if d["kind"] == "updated"]
+    parts = []
+    if news:
+        parts.append(f"새 등기신청 {len(news)}건({news[0].get('purpose') or '목적 미표시'}"
+                     f"{' 외' if len(news) > 1 else ''})")
+    if upd:
+        f = upd[0]["fields"].get("status") or upd[0]["fields"].get("purpose") or ["", ""]
+        parts.append(f"처리상태 변경 {len(upd)}건({f[0] or '—'}→{f[1] or '—'})")
+    return " · ".join(parts)
+
+
+def _iros_push(uid: str, watch_id: int, label: str, summary: str) -> int:
+    try:
+        r = _send_web_push([uid], "등기 변동 알림", f"{label} — {summary}", url=f"/iros?w={watch_id}",
+                           tag=f"iros-{watch_id}")
+        return int(r.get("sent") or 0)
+    except Exception as e:  # noqa: BLE001
+        print(f"[iros] push 실패: {e}", flush=True)
+        return 0
+
+
+def _iros_watch_sync(pin: str | None, cases: list, only_watch: int | None = None):
+    """이 고유번호를 지켜보는 알림 전부를 지금 사건과 비교 → 바뀌었으면 기록+푸시, snapshot 갱신."""
+    if not pin:
+        return
+    now = _iros_now()
+    with _iros_db() as db:
+        rows = db.execute("SELECT id,uid,label,snapshot FROM iros_watches WHERE pin=? AND active=1"
+                          + (" AND id=?" if only_watch else ""), (pin, only_watch) if only_watch else (pin,)).fetchall()
+        todo = []
+        for w in rows:
+            diff = _iros_diff(_authjson.loads(w["snapshot"] or "{}"), cases)
+            db.execute("UPDATE iros_watches SET snapshot=?, last_checked_at=?, last_status=200, last_error=NULL"
+                       + (", last_change_at=?" if diff else "") + " WHERE id=?",
+                       ((_authjson.dumps(_iros_snap(cases), ensure_ascii=False), now) + ((now,) if diff else ()) + (w["id"],)))
+            if diff:
+                summ = _iros_diff_summary(diff)
+                ev = db.execute("INSERT INTO iros_watch_events(watch_id,at,kind,summary,detail) VALUES(?,?,?,?,?)",
+                                (w["id"], now, "change", summ, _authjson.dumps(diff, ensure_ascii=False))).lastrowid
+                todo.append((w["uid"], w["id"], w["label"] or "", summ, ev))
+    for uid, wid, label, summ, ev in todo:     # 푸시는 DB 잠금 밖에서
+        sent = _iros_push(uid, wid, label, summ)
+        with _iros_db() as db:
+            db.execute("UPDATE iros_watch_events SET pushed=? WHERE id=?", (sent, ev))
+
+
+def _iros_public(data: dict) -> dict:
+    """회원 화면용 — 금액(채권매입액)·담당자는 뺀다. 판정(changed)은 저쪽 기준이라 보여 주지 않는다."""
+    def clean(c):
+        return {k: v for k, v in (c or {}).items() if k not in _IROS_MONEY}
+    prop = data.get("property") or {}
+    return {"pin": data.get("pin"), "query": data.get("query"),
+            "property": {k: prop.get(k) for k in ("pin", "kind", "status", "address", "lot_address",
+                                                   "building_name", "dong", "room")} if isinstance(prop, dict) else {},
+            "checks": data.get("checks"), "case_count": data.get("case_count"),
+            "cases": [clean(c) for c in data.get("cases") or []], "scope": data.get("scope"),
+            "detail": data.get("detail") if isinstance(data.get("detail"), dict) else None}
+
+
+def _iros_flag(uid: str, who: str | None, reason: str, detail: dict):
+    """이상 조회 — 기록 + 텔레그램(같은 회원은 하루 1번). 텔레그램은 국외 서버라 실명·동호를 싣지 않는다."""
+    now = _iros_now()
+    with _iros_db() as db:
+        dup = db.execute("SELECT 1 FROM iros_flags WHERE uid=? AND at>=?", (uid, now[:10])).fetchone()
+        db.execute("INSERT INTO iros_flags(uid,at,reason,detail) VALUES(?,?,?,?)",
+                   (uid, now, reason, _authjson.dumps(detail, ensure_ascii=False)))
+        n7 = db.execute("SELECT COUNT(*) FROM iros_call_log WHERE uid=? AND src='member' AND at>=?",
+                        (uid, time.strftime("%Y-%m-%d", time.gmtime(time.time() + 9 * 3600 - 7 * 86400)))).fetchone()[0]
+    if dup:
+        return
+    try:
+        from scripts.tg_notify import tg_send_async
+        em = (who or "").split("@")[0]
+        tg_send_async(f"⚠️ 등기변동 조회 이상 — 회원 {em[:3]}*** ({uid[:8]})\n"
+                      f"사유: {reason}\n최근 7일 시도 {n7}회 · 오늘 조회 차단\n확인: koczip.com/admin/iros 조회 로그")
+    except Exception:
+        pass
+
+
+_IROS_ABUSE_MSG = ("짧은 기간에 같은 부동산에 여러 이름을 넣거나 이름 불일치가 반복돼 조회를 멈췄어요. "
+                   "등기변동 확인은 본인·가족 등 알고 있는 소유자 이름으로만 이용해 주세요. "
+                   "무작위 대입은 개인정보 침해이며 기록이 남습니다.")
+
+
+def _iros_guard(user: dict, address: str, dong: str, ho: str, name: str):
+    """조회 전 검사: ①오늘 이상 판정이면 차단 ②하루 한도 ③이름 대입 패턴(같은 대상 다른 이름 3개·
+    이름 불일치 3회·한도 초과 후 반복 5회, 최근 7일) → 경고 + 텔레그램 + 오늘 차단."""
+    uid, today = user["id"], _iros_kst_day()
+    week = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 9 * 3600 - 7 * 86400))
+    with _iros_db() as db:
+        if db.execute("SELECT 1 FROM iros_flags WHERE uid=? AND at>=?", (uid, today)).fetchone():
+            raise HTTPException(403, {"code": "abuse", "message": _IROS_ABUSE_MSG})
+        used = db.execute("SELECT COUNT(*) FROM iros_call_log WHERE uid=? AND src='member' AND step='road' AND at>=?",
+                          (uid, today)).fetchone()[0]
+        names = {r[0] for r in db.execute(
+            "SELECT DISTINCT name FROM iros_call_log WHERE uid=? AND src='member' AND step IN ('road','jibun','local')"
+            " AND address=? AND IFNULL(dong,'')=? AND IFNULL(ho,'')=? AND at>=?",
+            (uid, address, dong, ho, week))}
+        mism = db.execute("SELECT COUNT(*) FROM iros_call_log WHERE uid=? AND src='member' AND http_status=422"
+                          " AND step IN ('road','jibun') AND at>=?", (uid, week)).fetchone()[0]
+        over = db.execute("SELECT COUNT(*) FROM iros_call_log WHERE uid=? AND src='member' AND step='local'"
+                          " AND http_status=429 AND at>=?", (uid, today)).fetchone()[0]
+    reason = None
+    if len(names | {name}) >= 3:
+        reason = f"같은 부동산에 서로 다른 이름 {len(names | {name})}개 시도"
+    elif mism >= 3:
+        reason = f"이름 불일치 {mism}회(7일)"
+    elif over >= 5:
+        reason = f"하루 한도 초과 뒤 반복 호출 {over}회"
+    if reason:
+        _iros_flag(uid, user.get("email"), reason, {"address": address, "names": len(names | {name}),
+                                                    "mismatch": mism, "over": over})
+        raise HTTPException(403, {"code": "abuse", "message": _IROS_ABUSE_MSG})
+    limit = 20 if user.get("is_admin") else _IROS_USER_DAILY
+    if used >= limit:
+        raise HTTPException(429, f"등기변동 조회는 하루 {limit}회까지예요. 내일 다시 이용해 주세요. "
+                                 "알림을 설정해 두면 바뀔 때 자동으로 알려 드려요.")
+
+
+@app.get("/iros/units")
+def iros_units(bcode: str, jibun: str, _u: dict = Depends(iros_member)):
+    return _iros_units(bcode, jibun)
+
+
+@app.post("/iros/check")
+def iros_check(body: dict, user: dict = Depends(iros_member)):
+    """회원 조회 — 최근 2개월 신청사건. 시도는 전부 iros_call_log(src='member', uid)에 남는다."""
+    who, uid = user.get("email"), user["id"]
+    try:
+        address = _re.sub(r"\s*\(.*\)\s*$", "", (body.get("address") or "").strip())
+        name = (body.get("name") or "").strip()
+        dong, ho = _iros_unit(body.get("dong"), "동"), _iros_unit(body.get("ho"), "호")
+        if len(address) >= 5 and name:
+            _iros_guard(user, address, dong, ho, name)
+        out = _iros_check(body, who, uid=uid, src="member")
+    except HTTPException as e:
+        if isinstance(e, _IrosLogged):
+            raise
+        det = e.detail if isinstance(e.detail, str) else (e.detail or {}).get("message", "")
+        _iros_log(admin=who, uid=uid, src="member", address=(body.get("address") or "")[:300],
+                  jibun=(body.get("jibun_address") or "")[:300], dong=str(body.get("dong") or "")[:20],
+                  ho=str(body.get("ho") or "")[:20], name=(body.get("name") or "")[:100], step="local",
+                  http_status=e.status_code, error_code=(e.detail or {}).get("code") if isinstance(e.detail, dict) else None,
+                  message=str(det)[:500])
+        raise
+    data = out.get("data") or {}
+    pub = {k: out.get(k) for k in ("status", "elapsed", "address_used", "fallback", "retry_after", "message", "check_id")}
+    pub["data"] = _iros_public(data) if isinstance(data, dict) else {}
+    if out.get("status") == 200 and data.get("pin"):
+        with _iros_db() as db:
+            w = db.execute("SELECT id FROM iros_watches WHERE uid=? AND pin=? AND active=1", (uid, data["pin"])).fetchone()
+        pub["watch_id"] = w["id"] if w else None
+    return pub
+
+
+@app.post("/iros/watch")
+def iros_watch_add(body: dict, user: dict = Depends(iros_member)):
+    """방금 내가 한 정상 조회(check_id)로 알림 등록 — 그 결과가 비교 기준(snapshot)."""
+    uid = user["id"]
+    with _iros_db() as db:
+        ck = db.execute("SELECT * FROM iros_checks WHERE id=? AND uid=?", (int(body.get("check_id") or 0), uid)).fetchone()
+        if not ck or not ck["pin"]:
+            raise HTTPException(404, "조회 기록을 찾지 못했어요. 다시 조회한 뒤 알림을 설정해 주세요.")
+        old = db.execute("SELECT id FROM iros_watches WHERE uid=? AND pin=? AND active=1", (uid, ck["pin"])).fetchone()
+        if old:
+            return {"ok": True, "id": old["id"], "existing": True}
+        mine = db.execute("SELECT COUNT(*) FROM iros_watches WHERE uid=? AND active=1", (uid,)).fetchone()[0]
+        if mine >= _IROS_WATCH_PER_USER and not user.get("is_admin"):
+            raise HTTPException(409, f"알림은 {_IROS_WATCH_PER_USER}건까지 설정할 수 있어요. 안 쓰는 알림을 지운 뒤 다시 시도하세요.")
+        total = db.execute("SELECT COUNT(DISTINCT pin) FROM iros_watches WHERE active=1").fetchone()[0]
+        if total >= _IROS_WATCH_CAP:
+            raise HTTPException(503, "지금은 알림 신청이 많아 잠시 접수를 멈췄어요. 곧 다시 열게요.")
+        payload = _authjson.loads(ck["payload"] or "{}")
+        jibun = db.execute("SELECT jibun FROM iros_call_log WHERE check_id=? ORDER BY id DESC LIMIT 1",
+                           (ck["id"],)).fetchone()
+        label = (ck["property"] or ck["address"]) + "".join(f" {v}{u}" for v, u in ((ck["dong"], "동"), (ck["ho"], "호")) if v)
+        wid = db.execute(
+            "INSERT INTO iros_watches(uid,check_id,pin,address,jibun,dong,ho,name,label,created_at,snapshot,"
+            "last_checked_at,last_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,200)",
+            (uid, ck["id"], ck["pin"], ck["address"], jibun[0] if jibun else None, ck["dong"], ck["ho"], ck["name"],
+             label, _iros_now(), _authjson.dumps(_iros_snap(payload.get("cases") or []), ensure_ascii=False),
+             ck["checked_at"])).lastrowid
+    return {"ok": True, "id": wid}
+
+
+@app.get("/iros/watches")
+def iros_watches(user: dict = Depends(iros_member)):
+    with _iros_db() as db:
+        rows = db.execute("SELECT id,pin,label,name,created_at,last_checked_at,last_status,last_error,last_change_at"
+                          " FROM iros_watches WHERE uid=? AND active=1 ORDER BY id DESC", (user["id"],)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["events"] = [dict(e) for e in db.execute(
+                "SELECT at,summary,detail FROM iros_watch_events WHERE watch_id=? ORDER BY id DESC LIMIT 5", (r["id"],))]
+            for e in d["events"]:
+                e["detail"] = _authjson.loads(e["detail"] or "[]")
+            out.append(d)
+    return {"items": out, "limit": _IROS_WATCH_PER_USER}
+
+
+@app.delete("/iros/watch/{watch_id}")
+def iros_watch_del(watch_id: int, user: dict = Depends(iros_member)):
+    with _iros_db() as db:
+        n = db.execute("UPDATE iros_watches SET active=0 WHERE id=? AND uid=?", (watch_id, user["id"])).rowcount
+    if not n:
+        raise HTTPException(404, "알림을 찾지 못했어요")
+    return {"ok": True}
+
+
+@app.get("/admin/iros/watches")
+def admin_iros_watches(_admin: dict = Depends(admin_user)):
+    """전체 알림 대상·최근 이상 판정 — 운영 확인용."""
+    with _iros_db() as db:
+        w = [dict(r) for r in db.execute(
+            "SELECT id,uid,pin,label,name,created_at,last_checked_at,last_status,last_error,last_change_at"
+            " FROM iros_watches WHERE active=1 ORDER BY id DESC LIMIT 500")]
+        f = [dict(r) for r in db.execute("SELECT * FROM iros_flags ORDER BY id DESC LIMIT 100")]
+        used = db.execute("SELECT COUNT(*) FROM iros_call_log WHERE step IN ('road','jibun') AND at>=?",
+                          (_iros_utc_day_start(),)).fetchone()[0]
+    return {"watches": w, "flags": f, "used_today": used, "budget": _IROS_DAILY_BUDGET}
+
+
+def _iros_watch_run_once() -> int:
+    """오늘(KST) 아직 확인 안 한 알림을 고유번호별 1콜씩. 반환=호출 수."""
+    today = _iros_kst_day()
+    with _iros_db() as db:
+        due = db.execute(
+            "SELECT * FROM iros_watches WHERE active=1 AND (last_checked_at IS NULL OR last_checked_at<?)"
+            " GROUP BY pin ORDER BY last_checked_at", (today,)).fetchall()
+    calls = 0
+    for w in due:
+        with _iros_db() as db:
+            used = db.execute("SELECT COUNT(*) FROM iros_call_log WHERE step IN ('road','jibun') AND at>=?",
+                              (_iros_utc_day_start(),)).fetchone()[0]
+            fresh = db.execute("SELECT 1 FROM iros_watches WHERE id=? AND last_checked_at>=?", (w["id"], today)).fetchone()
+        if used >= _IROS_DAILY_BUDGET:
+            print(f"[iros] 자동확인 중단 — 오늘 {used}콜", flush=True)
+            break
+        if fresh:            # 그새 누가 같은 고유번호를 조회해 이미 비교됨
+            continue
+        wait = _IROS_WATCH_GAP - (time.time() - _IROS_LAST[0])
+        if wait > 0:
+            time.sleep(wait)
+        body = {"address": w["address"], "jibun_address": w["jibun"] or "", "dong": w["dong"] or "",
+                "ho": w["ho"] or "", "name": w["name"]}
+        try:
+            out = _iros_check(body, "watch", uid=w["uid"], src="watch")
+        except HTTPException as e:
+            if e.status_code == 429:      # 회원 조회와 겹침 — 다음 바퀴에
+                time.sleep(20)
+                continue
+            out = {"status": e.status_code, "message": str(e.detail)}
+        calls += 1
+        st = out.get("status")
+        if st == 200:
+            continue                       # _iros_check 안에서 watch sync 완료
+        if st == 401:
+            try:
+                from scripts.tg_notify import tg_send_async
+                tg_send_async("⚠️ 등기변동 자동확인 멈춤 — 등기소 세션 만료(401). nfind 등기소 API 재로그인 필요")
+            except Exception:
+                pass
+            break
+        if st == 429:
+            time.sleep(int((out.get("retry_after") or 60)))
+            continue
+        err = (out.get("message") or "")[:300]
+        with _iros_db() as db:
+            prev = db.execute("SELECT last_status FROM iros_watches WHERE id=?", (w["id"],)).fetchone()
+            db.execute("UPDATE iros_watches SET last_checked_at=?, last_status=?, last_error=? WHERE pin=? AND active=1",
+                       (_iros_now(), st, err, w["pin"]))
+        # 이름이 더 이상 확인 안 되면 소유권이 바뀌었을 수 있다 — 처음 한 번만 알린다
+        if st == 422 and prev and prev[0] == 200:
+            with _iros_db() as db:
+                ws = db.execute("SELECT id,uid,label FROM iros_watches WHERE pin=? AND active=1", (w["pin"],)).fetchall()
+                for x in ws:
+                    db.execute("INSERT INTO iros_watch_events(watch_id,at,kind,summary,detail) VALUES(?,?,?,?,?)",
+                               (x["id"], _iros_now(), "name", "등록한 이름이 더 이상 확인되지 않아요(소유자 변동 가능)", "[]"))
+            for x in ws:
+                _iros_push(x["uid"], x["id"], x["label"] or "", "등록한 이름이 더 이상 확인되지 않아요(소유자 변동 가능)")
+    return calls
+
+
+def _iros_watch_loop():
+    """10분마다 깨서 10~20시(KST)면 오늘 분 자동확인. 워커 1개라 프로세스 안 스레드로 충분."""
+    time.sleep(120)
+    while True:
+        try:
+            h = int(_iros_now()[11:13])
+            if 10 <= h < 20:
+                n = _iros_watch_run_once()
+                if n:
+                    print(f"[iros] 자동확인 {n}콜", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[iros] 자동확인 오류: {e}", flush=True)
+        time.sleep(600)
+
+
+def _iros_session_monitor():
+    """등기소 로그인 감시 — /health(조회 한도 미사용)의 logged_in 이 연속 2번(약 20분) False 면 텔레그램,
+    다시 True 가 되면 복구 알림. 저쪽이 자동 재로그인을 하므로 한 번 풀린 건 기다려 본다."""
+    bad, alerted = 0, False
+    time.sleep(300)
+    while True:
+        li, why = False, ""
+        try:
+            st, j, _ = _iros_request("GET", "/health", timeout=10)
+            li = j.get("logged_in") if st == 200 and isinstance(j, dict) else False
+            why = "로그아웃 상태" if st == 200 else f"HTTP {st}"
+        except HTTPException as e:      # 터널·서버 다운
+            why = str(e.detail)[:120]
+        except Exception as e:  # noqa: BLE001
+            why = str(e)[:120]
+        bad = 0 if li else bad + 1
+        try:
+            from scripts.tg_notify import tg_send_async
+            if bad >= 2 and not alerted:
+                alerted = True
+                tg_send_async(f"⚠️ 등기소 로그인 풀림({why}) — 등기변동 확인·자동알림 멈춤. "
+                              "자동 재로그인이 안 되고 있어요. nfind lawapi 확인 또는 POST /session/login")
+            elif li and alerted:
+                alerted = False
+                tg_send_async("✅ 등기소 로그인 복구 — 등기변동 확인 정상")
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(600)
+
+
+@app.on_event("startup")
+def _iros_watch_start():
+    _threading.Thread(target=_iros_watch_loop, daemon=True, name="iros-watch").start()
+    _threading.Thread(target=_iros_session_monitor, daemon=True, name="iros-session").start()
 
 
 @app.get("/me/points")

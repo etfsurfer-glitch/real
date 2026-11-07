@@ -116,6 +116,10 @@ step "step 9a-4: geocode_broker_dong (사무소 법정동)" $PY -u scripts/geoco
 step "step 9b: build_realtor_dong (우리동네)" $PY -u scripts/build_realtor_dong.py; rdong_exit=$?
 step "step 10: rematch_all_realprice"      $PY -u scripts/rematch_all_realprice.py --tables apt rent offi offi_rent --concurrency 4; rematch_exit=$?
 
+# 10b) 등기 전 거래 동(棟) 추정 — 매칭(step 10) 뒤. 메인 DB 는 읽기만, 결과는 data/dong_estimates.sqlite.
+#      새 거래 예비 추정 → 계약 +45일 최종 고정 → 등기 올라오면 정답 대조(로그) → 일요일 재학습(개선 시 승격).
+step "step 10b: dong_estimate (등기 전 동 추정)" nice -n 10 $PY -u scripts/dong_estimate.py --daily; dongest_exit=$?
+
 # 11) 롤업 (매칭 후, 캐시 전)
 step "step 11: build_tx_rollups"           $PY -u scripts/build_tx_rollups.py; rollup_exit=$?
 

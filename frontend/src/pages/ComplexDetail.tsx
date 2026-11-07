@@ -70,6 +70,8 @@ type Sale = {
   asset: "apt" | "offi";
   dong: string | null;          // 동 (아파트 매매만, 등기완료 시 공개)
   registered: boolean;          // 등기완료 여부
+  dong_est?: string | null;     // 등기 전 추정 동(매물 단서 기반, 확신도 문턱 통과분만) — 등기되면 dong 으로 대체
+  dong_est_conf?: number | null;
 };
 
 // 동 표기 정규화: "171" → "171동", "102동" → 그대로, "라" → "라동"
@@ -77,6 +79,13 @@ function dongLabel(dong: string | null): string {
   if (!dong) return "";
   const d = dong.trim();
   return d.endsWith("동") ? d : `${d}동`;
+}
+
+// 동 칸: 등기된 실제 동이 있으면 그것, 없고 추정이 있으면 "101동(추정)". 등기가 올라오면 (추정)이 사라진다.
+function DongCell({ dong, est }: { dong: string | null; est?: string | null }) {
+  if (dong) return <>{` · ${dongLabel(dong)}`}</>;
+  if (est) return <> · <span className="txf-est" title="계약 전후 내려간 매물의 층·가격 단서로 추정한 동 · 등기 후 실제 동으로 바뀜">{dongLabel(est)}<small>(추정)</small></span></>;
+  return null;
 }
 
 type Rent = {
@@ -92,6 +101,8 @@ type Rent = {
   pre_deposit: number | null;
   pre_monthly_rent: number | null;
   asset: "apt" | "offi";
+  dong_est?: string | null;     // 추정 동(전월세는 등기 동이 없어 추정만. 갱신은 단일동 단지만)
+  dong_est_conf?: number | null;
 };
 
 type Silv = {
@@ -1214,7 +1225,7 @@ function SaleSection({ rows }: { rows: SaleRow[] }) {
                   <i className="txf-dot" style={{ background: colorOf(areaKey(r.excl_use_ar)) }} />
                   {fmtArea(r.excl_use_ar)}
                   {r.floor != null && ` · ${r.floor}층`}
-                  {r.dong && ` · ${dongLabel(r.dong)}`}
+                  <DongCell dong={r.dong} est={r.dong_est} />
                 </span>
               </div>
             ))}
@@ -1324,6 +1335,7 @@ function RentSection({ rows, kind }: { rows: Rent[]; kind: "jeonse" | "wolse" })
                     <i className="txf-dot" style={{ background: colorOf(areaKey(r.excl_use_ar)) }} />
                     {fmtArea(r.excl_use_ar)}
                     {r.floor != null && ` · ${r.floor}층`}
+                    <DongCell dong={null} est={r.dong_est} />
                   </span>
                 </div>
               );

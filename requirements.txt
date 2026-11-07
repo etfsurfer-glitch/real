@@ -13,3 +13,6 @@ google-genai>=0.3
 
 beautifulsoup4>=4.12
 lxml>=5.0
+
+# 등기 전 동 추정 랭커(collector/dong_estimate.py). 모델 pickle 호환을 위해 버전 고정.
+scikit-learn==1.6.1

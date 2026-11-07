@@ -4672,6 +4672,8 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .txf-badges { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .txf-b { font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
   line-height: 1.6; white-space: nowrap; }
+.txf-est { color: #5b7390; }
+.txf-est small { font-size: 10px; color: #a0b0c2; margin-left: 1px; }
 .txf-meta { margin-left: auto; font-size: 12px; color: #8296ab; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 4px; }
 .txf-dot { width: 7px; height: 7px; border-radius: 99px; display: inline-block; flex-shrink: 0; }
