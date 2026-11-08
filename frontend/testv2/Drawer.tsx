@@ -34,8 +34,11 @@ export function Skel() {
   return <div className="t2-skel"><i /><i /><i /></div>;
 }
 
-export function ComplexDrawer({ cx, onClose }: { cx: DrawerCx; onClose: () => void }) {
-  const [tab, setTab] = useState<"deals" | "tx" | "realtor" | "info">("deals");
+export type DrawerTab = "deals" | "tx" | "realtor" | "info";
+
+// initialTab: 지도 레이어에 맞춰 시작 탭을 정한다(매물찾기→급매, 시세분석→실거래, 중개사랭킹→중개사). 단지가 바뀌면 다시 적용.
+export function ComplexDrawer({ cx, onClose, initialTab = "deals" }: { cx: DrawerCx; onClose: () => void; initialTab?: DrawerTab }) {
+  const [tab, setTab] = useState<DrawerTab>(initialTab);
   const [info, setInfo] = useState<Info | null>(null);
   const [agg, setAgg] = useState<AggRow[] | null>(null);
   const [areas, setAreas] = useState<Area[]>([]);
@@ -46,6 +49,7 @@ export function ComplexDrawer({ cx, onClose }: { cx: DrawerCx; onClose: () => vo
 
   useEffect(() => {
     const no = cx.complex_no;
+    setTab(initialTab);
     setInfo(null); setAgg(null); setAreas([]); setDeals(null); setTx(null); setRk(null);
     q({ table: "complexes", select: "*", filters: [{ op: "eq", col: "complex_no", val: no }], limit: 1, single: true })
       .then(setInfo).catch(() => {});

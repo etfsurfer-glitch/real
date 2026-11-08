@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadKakao, wonShort, geocodeRegion } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
-import { ComplexDrawer, Skel } from "./Drawer";
+import { ComplexDrawer, Skel, type DrawerTab } from "./Drawer";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -96,6 +96,8 @@ export default function App() {
   const init = useMemo(readUrl, []);
   const phone = useIsPhone();
   const [layer, setLayer] = useState<Layer>(init.layer);
+  // 단지를 누르면 서랍은 지금 보고 있는 레이어의 탭으로 연다
+  const drawerTab: DrawerTab = layer === "price" ? "tx" : layer === "realtor" ? "realtor" : "deals";
   const [view, setView] = useState<View | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
   const [sel, setSel] = useState<Cx | null>(null);
@@ -333,13 +335,13 @@ export default function App() {
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>
           </div>
           {!phone && <a className="t2-fab" href={`${SITE}/request`} target="_blank" rel="noreferrer">콕집에 요청하기</a>}
-          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} onClose={() => setSel(null)} /></aside>}
+          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} /></aside>}
           {phone && (
             <section className={"t2-sheet " + sheet}>
               <button className="t2-grab" aria-label="목록 크기 바꾸기"
                 onClick={() => setSheet(sheet === "peek" ? "half" : sheet === "half" ? "full" : "peek")}><i /></button>
               <div className="t2-sheet-in">
-                {sel ? <ComplexDrawer cx={sel} onClose={() => setSel(null)} /> : panel}
+                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} /> : panel}
               </div>
             </section>
           )}
