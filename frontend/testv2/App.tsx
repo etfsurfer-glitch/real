@@ -320,11 +320,11 @@ export default function App() {
             {layer === "deals" && <DealFilterBar flt={flt} onChange={setFlt} />}
             {layer === "price" && (
               <div className="t2-fbar price">
-                <div className="t2-chips">
+                <div className="t2-fseg">
                   {METRICS.map((c) => <button key={c.k} className={pm === c.k ? "on" : ""} onClick={() => setPm(c.k)}>{c.l}</button>)}
                 </div>
                 {pm !== "hoga" && (
-                  <div className="t2-chips sm t2-period">
+                  <div className="t2-fseg t2-period">
                     {PRICE_WINDOWS.map((w) => <button key={w.d} className={pw === w.d ? "on" : ""} onClick={() => setPw(w.d)}>{w.l}</button>)}
                   </div>
                 )}
@@ -423,6 +423,13 @@ function TopBar({ phone, onPick }: { phone: boolean; onPick: (c: Cx) => void }) 
 }
 
 // ── 매물찾기 필터 바(지도 위) ────────────────────────
+// 유형 드롭다운 이름: 전부면 '전체', 둘까지는 이름 나열, 그 이상은 '아파트 외 2'
+function typeLabel(ts: string[]) {
+  const ls = CX_TYPES.filter((t) => ts.includes(t.k)).map((t) => t.l);
+  if (ls.length === CX_TYPES.length) return "유형 전체";
+  return ls.length <= 2 ? ls.join("·") : `${ls[0]} 외 ${ls.length - 1}`;
+}
+
 function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void }) {
   const [open, setOpen] = useState<string | null>(null);
   const set = (patch: Partial<Flt>) => onChange({ ...flt, ...patch });
@@ -440,11 +447,13 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
   const opt = (o: { l: string }, on: boolean, f: () => void) => <button key={o.l} className={on ? "on" : ""} onClick={f}>{o.l}</button>;
   return (
     <div className="t2-fbar" onMouseLeave={() => setOpen(null)}>
-      <div className="t2-ftypes">
-        {CX_TYPES.map((t) => (
-          <button key={t.k} className={flt.types.includes(t.k) ? "on" : ""} onClick={() => toggleType(t.k)}>{t.l}</button>
-        ))}
-      </div>
+      <Dd id="types" open={open} setOpen={setOpen} label={typeLabel(flt.types)} active={flt.types.join() !== FLT0.types.join()}>
+        <span className="t2-ddm-in" onClick={(e) => e.stopPropagation()}>
+          {CX_TYPES.map((t) => (
+            <button key={t.k} className={flt.types.includes(t.k) ? "on chk" : "chk"} onClick={() => toggleType(t.k)}><i />{t.l}</button>
+          ))}
+        </span>
+      </Dd>
       <Dd id="trade" open={open} setOpen={setOpen} label={TRADES.find((t) => t.k === flt.trade)!.l} active>
         {TRADES.map((t) => opt(t, flt.trade === t.k, () => set({ trade: t.k })))}
       </Dd>

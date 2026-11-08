@@ -1,5 +1,6 @@
 // 단지 서랍 — 기본정보(대장·평형·호가) · 급매(필터·네이버/콕/콕집요청 버튼) · 실거래(매매·전세·월세 그래프+표) · 중개사.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type React from "react";
 import { ComposedChart, Scatter, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { wonShort } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
@@ -32,10 +33,17 @@ type DealRow = {
 
 // 드롭다운 칩: 버튼 하나 + 눌렀을 때만 메뉴. 지도 필터 바와 서랍 필터가 같이 쓴다.
 export function Dd({ id, open, setOpen, label, active, children }: { id: string; open: string | null; setOpen: (v: string | null) => void; label: string; active: boolean; children: ReactNode }) {
+  // 메뉴는 버튼 자리에서 fixed 로 띄운다 — 바·서랍의 overflow 에 잘리지 않게
+  const [pos, setPos] = useState({ l: 0, t: 0 });
+  const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setPos({ l: Math.max(8, Math.min(r.left, window.innerWidth - 200)), t: r.bottom + 4 });
+    setOpen(open === id ? null : id);
+  };
   return (
     <span className="t2-dd">
-      <button className={"t2-fdd" + (active ? " on" : "")} aria-expanded={open === id} onClick={() => setOpen(open === id ? null : id)}>{label}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
-      {open === id && <span className="t2-ddm" onClick={() => setOpen(null)}>{children}</span>}
+      <button className={"t2-fdd" + (active ? " on" : "")} aria-expanded={open === id} onClick={toggle}>{label}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+      {open === id && <span className="t2-ddm" style={{ "--dd-l": `${pos.l}px`, "--dd-t": `${pos.t}px` } as React.CSSProperties} onClick={() => setOpen(null)}>{children}</span>}
     </span>
   );
 }
