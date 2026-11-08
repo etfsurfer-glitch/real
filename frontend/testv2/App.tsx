@@ -309,7 +309,9 @@ export default function App() {
         for (const c of items) {
           const on = c.complex_no === selNo;
           const price = c.minp ? wonShort(c.minp) + (flt.trade === "B2" && c.minr ? `/${Math.round(c.minr / 1e4)}` : "") : "-";
-          put(c.lat, c.lng, `<div class="t2-pin lst${c.disc ? " deal" : ""}${c.sp ? " sp" : ""}${on ? " on" : ""}"><b>${esc(shortName(c.name))}</b><i>${price}</i><em>${c.n}건${c.u && c.u < c.n ? `·실${c.u}` : ""}${c.disc ? ` · 급매 ${pct(c.disc, 0)}` : ""}${c.sp ? ` · ${spl} ${c.sp}` : ""}</em></div>`,
+          // 1줄 = 단지 이름·가격, 2줄 = 실매물 · 급매(빨간 칩으로 강조) · 특수조건. 광고 건수는 안 보여 준다.
+          const l2 = [c.u ? `실 ${c.u}` : "", c.disc ? `<strong class="dl">급매 ${pct(c.disc, 0)}</strong>` : "", c.sp ? `${spl} ${c.sp}` : ""].filter(Boolean).join("<s>·</s>");
+          put(c.lat, c.lng, `<div class="t2-pin lst${c.disc ? " deal" : ""}${c.sp ? " sp" : ""}${on ? " on" : ""}"><span class="l1"><b>${esc(shortName(c.name))}</b><i>${price}</i></span>${l2 ? `<em>${l2}</em>` : ""}</div>`,
             () => pickComplex(c, false), on ? 50 : c.disc || c.sp ? 6 : 5);
         }
         for (const c of kokCx) {

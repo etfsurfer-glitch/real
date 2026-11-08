@@ -472,3 +472,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-dr-b.jb { padding-top: 6px; }
 .t2-dr-b.jb .t2-facts { margin: 0 0 12px; }
 .t2-list .dc.up { color: var(--c-up); }
+
+/* 매물찾기 핀: 1줄 이름·가격, 2줄 실매물·급매(칩)·특수조건 */
+.t2-pin.lst { flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px 4px; }
+.t2-pin.lst .l1 { display: flex; gap: 5px; align-items: center; }
+.t2-pin.lst em { display: flex; gap: 4px; align-items: center; line-height: 1.2; }
+.t2-pin.lst em s { text-decoration: none; opacity: .6; }
+.t2-pin.lst em .dl { color: #fff; background: var(--c-up); border-radius: 4px; padding: 0 5px; font-weight: 800; font-size: 10.5px; line-height: 15px; }
+.t2-pin.lst.on em .dl { background: #fff; color: var(--c-up); }
+.t2-pin.lst.deal:not(.on) em { color: var(--c-text); }
