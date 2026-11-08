@@ -441,33 +441,49 @@ export default function App() {
       add(new k.maps.CustomOverlay({ position: new k.maps.LatLng(lat, lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: z }));
     };
     // 지도 위 표식: 동그란 아이콘 + 글자(흰 테두리). 떠 있는 카드가 아니라 지도 자체의 명소 표시처럼.
-    const poi = (cls: string, color: string, icon: string, name: string, sub: string) =>
-      `<div class="t2-poi ${cls}" style="--pc:${color}"><i>${icon}</i><b>${esc(name)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>`;
-    // 단지 → 역·학교 얕은 점선 + 가운데 거리 글자
-    const link = (lat: number, lng: number, color: string, m: number) => {
+    // 단지를 고르면 단지에서 점선이 뻗어 나가고, 선이 닿는 순서로 표식이 통통 튀어 나온다(--d = 지연).
+    const DRAW = 450, GAP = 160;
+    let seq = 0;
+    const poi = (cls: string, color: string, icon: string, name: string, sub: string, delay: number) =>
+      `<div class="t2-poi ${cls}" style="--pc:${color};--d:${delay}ms"><i>${icon}</i><b>${esc(name)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>`;
+    // 단지 → 역·학교: 얕은 점선을 단지에서부터 그려 나가고(DRAW ms), 다 닿으면 가운데 거리 글자
+    const link = (lat: number, lng: number, color: string, m: number, delay: number) => {
       if (!origin) return;
-      add(new k.maps.Polyline({ path: [new k.maps.LatLng(origin.lat, origin.lng), new k.maps.LatLng(lat, lng)],
-        strokeWeight: 1.5, strokeColor: color, strokeOpacity: 0.55, strokeStyle: "dot", zIndex: 1 }));
-      put((origin.lat + lat) / 2, (origin.lng + lng) / 2, `<div class="t2-dist" style="--pc:${color}">${m >= 1000 ? (m / 1000).toFixed(1) + "km" : m + "m"}</div>`, 2);
+      const o = origin;
+      const pl = new k.maps.Polyline({ path: [new k.maps.LatLng(o.lat, o.lng), new k.maps.LatLng(o.lat, o.lng)],
+        strokeWeight: 1.5, strokeColor: color, strokeOpacity: 0.55, strokeStyle: "dot", zIndex: 1 });
+      add(pl);
+      let t0 = 0;
+      const step = (now: number) => {
+        if (off) return;
+        if (!t0) t0 = now;
+        const p = Math.min(1, (now - t0) / DRAW), e = 1 - (1 - p) * (1 - p);
+        pl.setPath([new k.maps.LatLng(o.lat, o.lng), new k.maps.LatLng(o.lat + (lat - o.lat) * e, o.lng + (lng - o.lng) * e)]);
+        if (p < 1) requestAnimationFrame(step);
+        else put((o.lat + lat) / 2, (o.lng + lng) / 2, `<div class="t2-dist" style="--pc:${color}">${m >= 1000 ? (m / 1000).toFixed(1) + "km" : m + "m"}</div>`, 2);
+      };
+      setTimeout(() => requestAnimationFrame(step), delay);
+    };
+    // 표식 하나 = 선 + 아이콘(선이 닿을 때쯤 등장)
+    const mark = (lat: number, lng: number, cls: string, color: string, icon: string, name: string, sub: string, m: number) => {
+      const d = seq++ * GAP;
+      put(lat, lng, poi(cls, color, icon, name, sub, d + DRAW - 120));
+      link(lat, lng, color, m, d);
     };
     let origin: { lat: number; lng: number } | null = null;
     const pend: (() => void)[] = [];
     const ready = (fn: () => void) => (origin ? fn() : pend.push(fn));
-    // 단지 자리: 아파트·오피스텔 아이콘(요약의 asset_type)
+    // 단지 좌표(요약) — 단지 자체는 핀이 있으니 따로 표식을 두지 않는다
     getJson(`/complex/${selNo}/summary`).then((s) => {
       if (off || !s?.latitude) return;
       origin = { lat: s.latitude, lng: s.longitude };
-      const offi = /오피스텔/.test(String(s.asset_type || ""));
-      put(origin.lat, origin.lng, `<div class="t2-poi cx" style="--pc:${offi ? "#6d28d9" : "#0c4aa0"}"><i>${offi ? ICO.offi : ICO.apt}</i></div>`, 4);
       pend.splice(0).forEach((f) => f());
     }).catch(() => {});
     getJson(`/complex/${selNo}/subway-nearby?radius_km=1.5&limit=3`).then((j) => {
       if (off) return;
       for (const s of j.items || []) {
         const line = String(s.lines || "").split("·")[0].trim();
-        const color = lineColor(line);
-        put(s.lat, s.lng, poi("st", color, ICO.train, s.station, `${line.replace(/수도권\s+도시철도\s*/, "")} · 도보 ${s.walk_min}분`));
-        ready(() => link(s.lat, s.lng, color, s.distance_m));
+        ready(() => mark(s.lat, s.lng, "st", lineColor(line), ICO.train, s.station, `${line.replace(/수도권\s+도시철도\s*/, "")} · 도보 ${s.walk_min}분`, s.distance_m));
       }
     }).catch(() => {});
     getJson(`/complex/${selNo}/school-map`).then((j) => {
@@ -480,8 +496,7 @@ export default function App() {
           strokeWeight: 2, strokeColor: "#1f9d63", strokeOpacity: 0.8, strokeStyle: "shortdash", fillColor: "#1f9d63", fillOpacity: 0.07, zIndex: 0 }));
       }
       for (const sc of j.assigned || []) {
-        put(sc.lat, sc.lng, poi("sc", "#1f9d63", ICO.school, String(sc.name).replace("등학교", ""), `${j.src === "near" ? "인근" : "배정"} · 도보 ${sc.walk_min}분`));
-        ready(() => link(sc.lat, sc.lng, "#1f9d63", sc.distance_m));
+        ready(() => mark(sc.lat, sc.lng, "sc", "#1f9d63", ICO.school, String(sc.name).replace("등학교", ""), `${j.src === "near" ? "인근" : "배정"} · 도보 ${sc.walk_min}분`, sc.distance_m));
       }
     }).catch(() => {});
     return () => { off = true; };

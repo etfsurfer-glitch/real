@@ -483,11 +483,33 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-dr-b.jb .t2-facts { margin: 0 0 12px; }
 .t2-list .dc.up { color: var(--c-up); }
 
-/* 매물찾기 핀: 1줄 이름·가격, 2줄 실매물·급매(칩)·특수조건 */
-.t2-pin.lst { flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px 4px; }
-.t2-pin.lst .l1 { display: flex; gap: 5px; align-items: center; }
-.t2-pin.lst em { display: flex; gap: 4px; align-items: center; line-height: 1.2; }
+/* 매물찾기 단지 핀 — 지도 명소 표시와 같은 말투: 이름은 흰 테두리 글자, 가격은 색 채운 작은 꼬리표(꼬리가 단지 자리), 그 아래 실매물·급매 */
+.t2-pin.lst { background: none; border: 0; box-shadow: none; padding: 0; margin-bottom: 7px; flex-direction: column; align-items: center; gap: 2px; }
+.t2-pin.lst::after { display: none; }
+.t2-pin.lst .l1 { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.t2-pin.lst b { font-size: 12px; font-weight: 800; color: #1d2733; line-height: 1.15; paint-order: stroke fill; -webkit-text-stroke: 3px #fff; }
+.t2-pin.lst i { position: relative; background: var(--c-primary); color: #fff; font-size: 13px; font-weight: 800; line-height: 18px; padding: 2px 9px; border-radius: 7px; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .15s; }
+.t2-pin.lst i::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -5px; border: 5px solid transparent; border-top-color: var(--c-primary); border-bottom: 0; }
+.t2-pin.lst.deal i { background: var(--c-up); } .t2-pin.lst.deal i::after { border-top-color: var(--c-up); }
+.t2-pin.lst.sp i { background: #6d28d9; } .t2-pin.lst.sp i::after { border-top-color: #6d28d9; }
+.t2-pin.lst.deal.sp i { background: var(--c-up); } .t2-pin.lst.deal.sp i::after { border-top-color: var(--c-up); }
+.t2-pin.lst.on { background: none; }
+.t2-pin.lst.on b { color: #0b2a5c; }
+.t2-pin.lst.on i { background: #0b2a5c; transform: scale(1.1); box-shadow: 0 0 0 3px rgba(11, 42, 92, .25), 0 2px 6px rgba(0, 0, 0, .35); }
+.t2-pin.lst.on i::after { border-top-color: #0b2a5c; }
+.t2-pin.lst:hover i { transform: scale(1.06); }
+.t2-pin.lst em { position: absolute; top: 100%; margin-top: 9px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; align-items: center; line-height: 1.2;
+  font-style: normal; font-size: 10.5px; font-weight: 600; color: #5b6573; white-space: nowrap; paint-order: stroke fill; -webkit-text-stroke: 3px #fff; }
+.t2-pin.lst.on em { color: #0b2a5c; opacity: 1; }
 .t2-pin.lst em s { text-decoration: none; opacity: .6; }
-.t2-pin.lst em .dl { color: #fff; background: var(--c-up); border-radius: 4px; padding: 0 5px; font-weight: 800; font-size: 10.5px; line-height: 15px; }
-.t2-pin.lst.on em .dl { background: #fff; color: var(--c-up); }
-.t2-pin.lst.deal:not(.on) em { color: var(--c-text); }
+.t2-pin.lst em .dl { -webkit-text-stroke: 0; color: #fff; background: var(--c-up); border-radius: 4px; padding: 0 5px; font-weight: 800; font-size: 10.5px; line-height: 15px; }
+
+/* 단지를 고르면 역·학교 표식이 선이 닿는 순서로 튀어 나온다 */
+.t2-poi i { animation: t2pop .45s cubic-bezier(.2, 1.5, .4, 1) var(--d, 0ms) both; }
+.t2-poi i::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 2px solid var(--pc); opacity: 0; animation: t2ring .9s ease-out calc(var(--d, 0ms) + .15s) 1; }
+.t2-poi b, .t2-poi span { animation: t2fade .3s ease-out calc(var(--d, 0ms) + .2s) both; }
+.t2-dist { animation: t2fade .3s ease-out both; }
+@keyframes t2pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes t2ring { from { transform: scale(.7); opacity: .9; } to { transform: scale(2.6); opacity: 0; } }
+@keyframes t2fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .t2-poi i, .t2-poi i::after, .t2-poi b, .t2-poi span, .t2-dist { animation: none; opacity: 1; } .t2-poi i::after { display: none; } }
