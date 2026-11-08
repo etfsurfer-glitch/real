@@ -4,7 +4,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadKakao, wonShort, geocodeRegion } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
-import { ComplexDrawer, Skel, Dd, type DrawerTab } from "./Drawer";
+import { ComplexDrawer, JibunDrawer, Skel, Dd, SPECIAL_KINDS, type DrawerTab, type Jibun } from "./Drawer";
+import { useSession, authHeaders, LoginBox } from "./Request";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -24,12 +25,21 @@ type Agg = {
   change?: number | null; ppy?: number; n_prev?: number; pending?: number;
   jppy?: number; gap_ppy?: number; gap84?: number; rate?: number; n_jeonse?: number; cells?: number;
 };
-type PriceMetric = "tx" | "hoga" | "vol" | "gap";
+type PriceMetric = "tx" | "hoga" | "vol" | "gap" | "rh";   // rh=신고가 단지
+// 시세분석 유형. 아파트·오피스텔은 동·구 버블(/stats/tx-map/agg), 빌라·상가·단독은 지번 핀(/stats/tx-map)
+type PAsset = "apt" | "offi" | "villa" | "nrg" | "house";
+const PASSETS: { k: PAsset; l: string }[] = [{ k: "apt", l: "아파트" }, { k: "offi", l: "오피스텔" }, { k: "villa", l: "빌라" }, { k: "nrg", l: "상가" }, { k: "house", l: "단독" }];
+const isJibun = (a: PAsset) => a === "villa" || a === "nrg" || a === "house";
+// 신고가 한 줄(/stats/tx-record-high) + 좌표(/complexes/coords)
+type RH = { complex_no: string; complex_name: string; region_name: string; area_key: number; record_price: number; record_date: string; prev_high: number | null;
+  premium: number; floor: number; n: number; lat: number; lng: number };
+// 지번 핀(/stats/tx-map items)
+type JPin = { lat: number; lng: number; name: string; ref: string; n: number; last: number; latest: string; ppy: number; avg: number; built: string | null };
 // 매물찾기 필터(지도 위 필터 바). 값은 /map/listings 파라미터와 1:1.
 type Trade = "A1" | "B1" | "B2";
 type Flt = { types: string[]; trade: Trade; pmin: number; pmax: number; amin: number; amax: number; afrom: number; ato: number; hmin: number; hmax: number;
-  only: boolean; disc: number };   // only=급매만, disc=급매 할인 문턱
-const FLT0: Flt = { types: ["APT", "ABYG", "JGC"], trade: "A1", pmin: 0, pmax: 0, amin: 0, amax: 0, afrom: 0, ato: 0, hmin: 0, hmax: 0, only: false, disc: 0.03 };
+  only: boolean; disc: number; sp: string };   // only=급매만, disc=급매 할인 문턱, sp=특수조건(owner|tenant|loan|"")
+const FLT0: Flt = { types: ["APT", "ABYG", "JGC"], trade: "A1", pmin: 0, pmax: 0, amin: 0, amax: 0, afrom: 0, ato: 0, hmin: 0, hmax: 0, only: false, disc: 0.03, sp: "" };
 const CX_TYPES: { k: string; l: string }[] = [
   { k: "APT", l: "아파트" }, { k: "ABYG", l: "아파트분양권" }, { k: "JGC", l: "재건축" }, { k: "OPST", l: "오피스텔" }, { k: "OBYG", l: "오피스텔분양권" },
 ];
@@ -88,7 +98,7 @@ function useIsPhone() {
 function readUrl() {
   const p = new URLSearchParams(location.search);
   const layer = (["deals", "price", "realtor"].includes(p.get("layer") || "") ? p.get("layer") : "deals") as Layer;
-  const pm = (["tx", "hoga", "vol", "gap"].includes(p.get("m") || "") ? p.get("m") : "tx") as PriceMetric;
+  const pm = (["tx", "hoga", "vol", "gap", "rh"].includes(p.get("m") || "") ? p.get("m") : "tx") as PriceMetric;
   const lat = parseFloat(p.get("lat") || ""), lng = parseFloat(p.get("lng") || ""), lv = parseInt(p.get("lv") || "");
   return { layer, pm, lat: isNaN(lat) ? 37.5045 : lat, lng: isNaN(lng) ? 127.1095 : lng, lv: isNaN(lv) ? 5 : lv, cx: p.get("cx") };
 }
@@ -108,7 +118,14 @@ export default function App() {
   const [aggMeta, setAggMeta] = useState<{ snapshot?: string; baseline?: string }>({});
   const [pm, setPm] = useState<PriceMetric>(init.pm);
   const [pw, setPw] = useState<number>(90);
-  const [pa, setPa] = useState<"apt" | "offi">("apt");   // 시세분석 유형(아파트·오피스텔)
+  const [pa, setPa] = useState<PAsset>("apt");   // 시세분석 유형
+  const [rhs, setRhs] = useState<RH[]>([]);          // 신고가 단지(지도 안)
+  const [jpins, setJpins] = useState<JPin[]>([]);     // 빌라·상가·단독 지번 핀(지도 안)
+  const [selJ, setSelJ] = useState<Jibun | null>(null);   // 고른 지번
+  // 관심단지 — 운영 /me/favorites (로그인 필요). 로그인 전엔 하트를 누르면 로그인 안내.
+  const session = useSession();
+  const [favs, setFavs] = useState<{ complex_no: string; complex_name: string }[] | null>(null);
+  const [askLogin, setAskLogin] = useState(false);
   const [flt, setFlt] = useState<Flt>(FLT0);
   const [rkDong, setRkDong] = useState<{ code: string; name: string } | null>(null);
   const [mapErr, setMapErr] = useState("");
@@ -150,15 +167,46 @@ export default function App() {
   useEffect(() => {
     const m = mapRef.current;
     if (m) setTimeout(() => m.relayout(), 50);
-  }, [phone, sel, sheet]);
+  }, [phone, sel, selJ, sheet]);
+
+  useEffect(() => {
+    if (!session) { setFavs(null); return; }
+    fetch(`${API}/me/favorites`, { headers: authHeaders(session) }).then((r) => (r.ok ? r.json() : { items: [] })).then((j) => setFavs(j.items || [])).catch(() => setFavs([]));
+  }, [session]);
+  useEffect(() => { if (session) setAskLogin(false); }, [session]);
+  const toggleFav = useCallback(async (c: Cx) => {
+    if (!session) { setAskLogin(true); return; }
+    const has = (favs || []).some((f) => f.complex_no === c.complex_no);
+    setFavs((o) => has ? (o || []).filter((f) => f.complex_no !== c.complex_no) : [...(o || []), { complex_no: c.complex_no, complex_name: c.name }]);
+    const r = await fetch(`${API}/me/favorites${has ? `/${c.complex_no}` : ""}`, { method: has ? "DELETE" : "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(session) }, body: has ? undefined : JSON.stringify({ complex_no: c.complex_no, complex_name: c.name }) }).catch(() => null);
+    if (!r || !r.ok) {   // 실패(20개 초과 등)면 되돌리고 서버 상태로
+      fetch(`${API}/me/favorites`, { headers: authHeaders(session) }).then((x) => x.json()).then((j) => setFavs(j.items || [])).catch(() => {});
+      if (r) { const j = await r.json().catch(() => ({})); if (typeof j.detail === "string") setHint(j.detail); }
+    }
+  }, [session, favs]);
+  // 관심단지 목록에서 고르면 좌표를 받아 지도를 옮긴다
+  const goComplex = useCallback((no: string, name: string) => {
+    getJson(`/complexes/coords?ids=${no}`).then((j) => {
+      const h = j.items?.[0]; if (!h) return;
+      const m = mapRef.current;
+      if (m) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(h.lat, h.lng)); }
+      pickComplex({ complex_no: no, name, lat: h.lat, lng: h.lng }, false);
+    }).catch(() => {});
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  const goTo = useCallback((lat: number, lng: number, lv = 4) => {
+    const m = mapRef.current; if (!m) return;
+    m.setLevel(lv); m.setCenter(new window.kakao.maps.LatLng(lat, lng));
+  }, []);
 
   // 주소창 = 공유 링크
   useEffect(() => {
     if (!view) return;
     const p = new URLSearchParams({ layer, lat: view.lat.toFixed(5), lng: view.lng.toFixed(5), lv: String(view.level) });
+    if (layer === "price" && pm !== "tx") p.set("m", pm);
     if (sel) p.set("cx", sel.complex_no);
     history.replaceState(null, "", "?" + p.toString());
-  }, [layer, view, sel]);
+  }, [layer, view, sel, pm]);
 
   // 지도 가운데 → 동·구
   useEffect(() => {
@@ -219,25 +267,44 @@ export default function App() {
       const b2 = `swlat=${view.swLat}&swlng=${view.swLng}&nelat=${view.neLat}&nelng=${view.neLng}`;
       const qd = flt.trade === "B2" ? Promise.resolve({ items: [] })
         : getJson(`/stats/quick-deals-map?${b2}&min_discount=${flt.only ? flt.disc : 0.03}&trade_type=${flt.trade}`).catch(() => ({ items: [] }));
-      Promise.all([getJson(`/map/listings?${b2}&${fltQs(flt)}`), qd]).then(([ml, jd]) => {
+      // 특수조건(주인전세·세안고·대출승계): 구(축소 시 시도) 단위로 받아 단지별 건수 → 그 단지만 남기고 핀에 표시
+      const regQ = view.level >= 7 ? `sido=${region?.dong.slice(0, 2) || ""}00000000` : `sigungu=${region?.sgg || ""}`;
+      const sp = flt.sp && region ? getJson(`/stats/special-deals?kind=${flt.sp}&${regQ}&limit=200`).catch(() => ({ items: [] })) : Promise.resolve(null);
+      Promise.all([getJson(`/map/listings?${b2}&${fltQs(flt)}`), qd, sp]).then(([ml, jd, sj]) => {
         if (off) return;
         clear();
-        if (ml.too_wide) { setInView([]); setHint("지도를 조금 더 확대하면 매물이 있는 단지가 보여요"); return; }
+        if (ml.too_wide) {
+          // 축소 상태: 단지를 격자로 묶은 동그라미(/complexes/cluster). 누르면 그 자리로 3단계 확대.
+          setInView([]); setHint("");
+          getJson(`/complexes/cluster?${b2}&cols=7&rows=6`).then((cj) => {
+            if (off) return;
+            for (const c of cj.cells || []) {
+              const sz = c.count >= 300 ? " xl" : c.count >= 100 ? " lg" : c.count >= 30 ? " md" : "";
+              put(c.lat, c.lng, `<div class="t2-cl${sz}"><b>${c.count.toLocaleString()}</b><span>단지</span></div>`,
+                () => map.setLevel(Math.max(3, map.getLevel() - 3), { anchor: new k.maps.LatLng(c.lat, c.lng) }), 1, 0.5);
+            }
+          }).catch(() => {});
+          return;
+        }
         const disc = new Map<string, number>();
         for (const d of jd.items || []) disc.set(d.complex_no, Math.min(disc.get(d.complex_no) ?? 0, d.discount));
-        let items: (Cx & { n: number; u: number; minp: number | null; minr: number | null; disc?: number })[] = (ml.items || []).map((m: any) => ({
+        const spn = new Map<string, number>();
+        for (const d of sj?.items || []) spn.set(d.complex_no, (spn.get(d.complex_no) || 0) + 1);
+        let items: (Cx & { n: number; u: number; minp: number | null; minr: number | null; disc?: number; sp?: number })[] = (ml.items || []).map((m: any) => ({
           complex_no: m.complex_no, name: m.name, lat: m.lat, lng: m.lng, households: m.households, listings: m.n,
-          n: m.n, u: Math.round(m.units || 0), minp: m.min_price, minr: m.min_rent, disc: disc.get(m.complex_no),
+          n: m.n, u: Math.round(m.units || 0), minp: m.min_price, minr: m.min_rent, disc: disc.get(m.complex_no), sp: spn.get(m.complex_no),
         }));
         if (flt.only) items = items.filter((c) => c.disc);   // 급매만: 급매가 있는 단지만 남긴다
+        if (flt.sp) items = items.filter((c) => c.sp);       // 특수조건: 해당 매물이 있는 단지만
         const kokCx: Cx[] = [];
         setInView(items);
-        setHint(items.length ? "" : flt.only ? "이 범위엔 조건에 맞는 급매 단지가 없어요" : "이 조건에 맞는 매물이 이 범위엔 없어요");
+        const spl = SPECIAL_KINDS.find((x) => x.k === flt.sp)?.l;
+        setHint(items.length ? "" : flt.sp ? `이 범위엔 ${spl} 매물이 있는 단지가 없어요` : flt.only ? "이 범위엔 조건에 맞는 급매 단지가 없어요" : "이 조건에 맞는 매물이 이 범위엔 없어요");
         for (const c of items) {
           const on = c.complex_no === selNo;
           const price = c.minp ? wonShort(c.minp) + (flt.trade === "B2" && c.minr ? `/${Math.round(c.minr / 1e4)}` : "") : "-";
-          put(c.lat, c.lng, `<div class="t2-pin lst${c.disc ? " deal" : ""}${on ? " on" : ""}"><b>${esc(shortName(c.name))}</b><i>${price}</i><em>${c.n}건${c.u && c.u < c.n ? `·실${c.u}` : ""}${c.disc ? ` · 급매 ${pct(c.disc, 0)}` : ""}</em></div>`,
-            () => pickComplex(c, false), on ? 50 : c.disc ? 6 : 5);
+          put(c.lat, c.lng, `<div class="t2-pin lst${c.disc ? " deal" : ""}${c.sp ? " sp" : ""}${on ? " on" : ""}"><b>${esc(shortName(c.name))}</b><i>${price}</i><em>${c.n}건${c.u && c.u < c.n ? `·실${c.u}` : ""}${c.disc ? ` · 급매 ${pct(c.disc, 0)}` : ""}${c.sp ? ` · ${spl} ${c.sp}` : ""}</em></div>`,
+            () => pickComplex(c, false), on ? 50 : c.disc || c.sp ? 6 : 5);
         }
         for (const c of kokCx) {
           put(c.lat, c.lng, `<div class="t2-pin kok"><b>${esc(shortName(c.name))}</b><i>콕집</i></div>`, () => pickComplex(c, false), 6);
@@ -246,10 +313,59 @@ export default function App() {
           put(sel.lat, sel.lng, `<div class="t2-pin plain on"><b>${esc(shortName(sel.name))}</b></div>`, undefined, 50);
         }
       }).catch(() => {});
+    } else if (layer === "price" && isJibun(pa)) {
+      // 빌라·상가·단독: 구 단위 지번 핀(/stats/tx-map, 시군구 필수). 너무 축소하면 핀 폭주라 확대를 안내.
+      clear(); setAgg([]); setRhs([]);
+      const maxLv = pa === "villa" ? 4 : 5;   // 빌라는 지번이 촘촘해 한 단계 더 확대해야 보인다
+      if (view.level > maxLv) { setJpins([]); setHint(`${PASSETS.find((a) => a.k === pa)?.l} 실거래는 지도를 조금 더 확대하면 보여요`); return; }
+      if (!region) return;
+      setAggLoading(true);
+      getJson(`/stats/tx-map?asset=${pa}&trade=A1&sigungu=${region.sgg}&months=${Math.round(pw / 30)}&limit=1500`).then((d) => {
+        if (off) return;
+        clear(); setAggLoading(false);
+        const inb = (d.items || []).filter((p: JPin) => p.lat >= view.swLat && p.lat <= view.neLat && p.lng >= view.swLng && p.lng <= view.neLng);
+        setJpins(inb);
+        setHint(inb.length ? "" : `${region.sggName} 안 이 범위엔 최근 ${Math.round(pw / 30)}개월 거래가 없어요`);
+        for (const p of inb) {
+          const on = selJ?.ref === p.ref;
+          put(p.lat, p.lng, `<div class="t2-pin jb${on ? " on" : ""}"><b>${esc(shortName(p.name))}</b><i>${wonShort(p.last)}</i><em>${p.n}건${p.built ? ` · ${p.built}년` : ""}</em></div>`,
+            () => { setSel(null); setSelJ({ asset: pa as Jibun["asset"], ref: p.ref, name: p.name, sigungu: region.sgg, lat: p.lat, lng: p.lng }); }, on ? 50 : 5);
+        }
+      }).catch(() => { if (!off) { setJpins([]); setAggLoading(false); } });
+    } else if (layer === "price" && pm === "rh") {
+      // 신고가: 기간 안 신고가를 찍은 단지(/stats/tx-record-high) + 좌표(/complexes/coords, 60개씩) → 지도 안만
+      clear(); setAgg([]); setJpins([]); setAggLoading(true);
+      const regQ = view.level >= 8 ? `sido=${region?.dong.slice(0, 2) || ""}00000000` : `sigungu=${region?.sgg || ""}`;
+      if (!region) return;
+      getJson(`/stats/tx-record-high?days=${pw}&trade=A1&asset=${pa}&${regQ}&order=recent&limit=400`).then(async (d) => {
+        // 단지당 한 줄(가장 최근), 평형 수는 n 으로
+        const byCx = new Map<string, RH>();
+        for (const r of d.items || []) {
+          const o = byCx.get(r.complex_no);
+          if (o) { o.n += 1; if (r.premium > o.premium) o.premium = r.premium; }
+          else byCx.set(r.complex_no, { ...r, n: 1, lat: 0, lng: 0 });
+        }
+        const ids = [...byCx.keys()];
+        const chunks: string[][] = []; for (let i = 0; i < ids.length; i += 60) chunks.push(ids.slice(i, i + 60));
+        const cs = await Promise.all(chunks.map((c) => getJson(`/complexes/coords?ids=${c.join(",")}`).catch(() => ({ items: [] }))));
+        for (const c of cs) for (const x of c.items || []) { const o = byCx.get(x.complex_no); if (o) { o.lat = x.lat; o.lng = x.lng; } }
+        if (off) return;
+        clear(); setAggLoading(false);
+        const inb = [...byCx.values()].filter((r) => r.lat && r.lat >= view.swLat && r.lat <= view.neLat && r.lng >= view.swLng && r.lng <= view.neLng)
+          .sort((a, b) => b.record_date.localeCompare(a.record_date));
+        setRhs(inb);
+        setHint(inb.length ? "" : `이 범위엔 최근 ${Math.round(pw / 30)}개월 신고가 단지가 없어요`);
+        for (const r of inb) {
+          const on = r.complex_no === selNo;
+          put(r.lat, r.lng, `<div class="t2-pin rh${on ? " on" : ""}"><b>${esc(shortName(r.complex_name))}</b><i>${wonShort(r.record_price)}</i><em>${pct(r.premium, 0)}${r.n > 1 ? ` · ${r.n}평형` : ""}</em></div>`,
+            () => pickComplex({ complex_no: r.complex_no, name: r.complex_name, lat: r.lat, lng: r.lng }, false), on ? 50 : 5);
+        }
+      }).catch(() => { if (!off) { setRhs([]); setAggLoading(false); } });
     } else {
       // 시세분석·중개사랭킹: 동(확대)·구(축소) 버블 — /stats/tx-map/agg. 시세분석은 칩(metric)·기간(window)에 따라
       // 같은 버블에 실거래가 변동률·호가 변동·거래량·갭을 바꿔 칠한다.
       const isPrice = layer === "price";
+      setRhs([]); setJpins([]); if (isPrice) setHint("");
       // 시세분석은 단지까지 내려간다(확대 ≤4). 중개사랭킹은 동이 최소 단위.
       const lv = view.level >= 7 ? "gu" : (isPrice && view.level <= 4) ? "cx" : "dong";
       const qs = new URLSearchParams({ level: lv, asset: isPrice ? pa : "apt", trade: "A1",
@@ -283,7 +399,11 @@ export default function App() {
       }).catch(() => { if (!off) { setAgg([]); setAggLoading(false); } });
     }
     return () => { off = true; };
-  }, [layer, view, selNo, rkDong, region?.dong, pickComplex, pm, pw, pa, flt]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layer, view, selNo, selJ?.ref, rkDong, region?.dong, region?.sgg, pickComplex, pm, pw, pa, flt]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 레이어·유형을 바꾸면 지번 서랍은 닫는다
+  useEffect(() => { setSelJ(null); }, [layer, pa]);
+  useEffect(() => { if (!isJibun(pa) && pm !== "rh") setHint((h) => (h.includes("실거래는") || h.includes("신고가") ? "" : h)); }, [pa, pm]);
 
   // 단지를 열면 그 단지의 가까운 역(1.5km·3곳)과 배정 초등학교·학구 경계를 지도에 같이 그린다. 닫으면 지운다.
   const cxOvs = useRef<any[]>([]);
@@ -323,7 +443,10 @@ export default function App() {
   const panel = (
     <>
       {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} />}
-      {layer === "price" && <PricePanel region={region} agg={agg} level={view?.level ?? 5} metric={pm} onMetric={setPm}
+      {layer === "price" && isJibun(pa) && <JibunPanel asset={pa} pins={jpins} region={region} win={pw} onWin={setPw} loading={aggLoading} zoomedOut={(view?.level ?? 5) > (pa === "villa" ? 4 : 5)}
+        onPick={(p) => { setSel(null); setSelJ({ asset: pa as Jibun["asset"], ref: p.ref, name: p.name, sigungu: region?.sgg || "", lat: p.lat, lng: p.lng }); goTo(p.lat, p.lng, 3); }} />}
+      {layer === "price" && !isJibun(pa) && pm === "rh" && <RecordHighPanel rows={rhs} region={region} win={pw} onWin={setPw} loading={aggLoading} onMetric={setPm} onPick={pickComplex} />}
+      {layer === "price" && !isJibun(pa) && pm !== "rh" && <PricePanel region={region} agg={agg} level={view?.level ?? 5} metric={pm} onMetric={setPm}
         win={pw} onWin={setPw} loading={aggLoading} meta={aggMeta} onPick={pickComplex} />}
       {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} />}
     </>
@@ -331,7 +454,7 @@ export default function App() {
 
   return (
     <div className={"t2" + (phone ? " phone" : " desk")}>
-      <TopBar phone={phone} onPick={(c) => {
+      <TopBar phone={phone} favs={favs} session={!!session} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)} onPick={(c) => {
         const m = mapRef.current;
         if (m && c.lat) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(c.lat, c.lng)); }
         pickComplex(c, false);
@@ -343,7 +466,7 @@ export default function App() {
           {mapErr && <div className="t2-maperr">{mapErr}</div>}
           {hint && !mapErr && <div className="t2-hint">{hint}</div>}
           {/* 레이어 탭 + 그 레이어의 필터가 한 줄로 이어진다(폰은 두 줄) */}
-          <div className={"t2-maptop" + (!phone && sel ? " narrow" : "")}>
+          <div className={"t2-maptop" + (!phone && (sel || selJ) ? " narrow" : "")}>
             <div className="t2-layers" role="tablist">
               {LAYERS.map((l) => (
                 <button key={l.key} role="tab" aria-selected={layer === l.key} className={layer === l.key ? "on" : ""}
@@ -354,12 +477,14 @@ export default function App() {
             {layer === "price" && (
               <div className="t2-fbar price">
                 <div className="t2-fseg">
-                  {([["apt", "아파트"], ["offi", "오피스텔"]] as const).map(([k, l]) => <button key={k} className={pa === k ? "on" : ""} onClick={() => setPa(k)}>{l}</button>)}
+                  {PASSETS.map((a) => <button key={a.k} className={pa === a.k ? "on" : ""} onClick={() => setPa(a.k)}>{a.l}</button>)}
                 </div>
-                <div className="t2-fseg t2-period">
-                  {METRICS.map((c) => <button key={c.k} className={pm === c.k ? "on" : ""} onClick={() => setPm(c.k)}>{c.l}</button>)}
-                </div>
-                {pm !== "hoga" && (
+                {!isJibun(pa) && (
+                  <div className="t2-fseg t2-period">
+                    {METRICS.map((c) => <button key={c.k} className={pm === c.k ? "on" : ""} onClick={() => setPm(c.k)}>{c.l}</button>)}
+                  </div>
+                )}
+                {(pm !== "hoga" || isJibun(pa)) && (
                   <div className="t2-fseg t2-period">
                     {PRICE_WINDOWS.map((w) => <button key={w.d} className={pw === w.d ? "on" : ""} onClick={() => setPw(w.d)}>{w.l}</button>)}
                   </div>
@@ -367,18 +492,30 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className={"t2-zoom" + (!phone && sel ? " narrow" : "")}>
+          <div className={"t2-zoom" + (!phone && (sel || selJ) ? " narrow" : "")}>
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() - 1)} aria-label="확대">+</button>
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>
           </div>
-          {!phone && <a className={"t2-fab" + (sel ? " narrow" : "")} href={`${SITE}/request`} target="_blank" rel="noreferrer">콕집에 요청하기</a>}
-          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} /></aside>}
+          {!phone && <a className={"t2-fab" + (sel || selJ ? " narrow" : "")} href={`${SITE}/request`} target="_blank" rel="noreferrer">콕집에 요청하기</a>}
+          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)}
+            fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} /></aside>}
+          {!phone && !sel && selJ && <aside className="t2-drawer"><JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /></aside>}
+          {askLogin && (
+            <div className="t2-modal" role="dialog" aria-modal="true" onClick={() => setAskLogin(false)}>
+              <div className="t2-modal-in sm" onClick={(e) => e.stopPropagation()}>
+                <div className="t2-ph"><h2>로그인</h2><button className="t2-x" onClick={() => setAskLogin(false)} aria-label="닫기">×</button></div>
+                <LoginBox why="관심단지는 로그인한 계정에 저장돼요(최대 20곳). 콕집 계정 그대로 쓰세요." />
+              </div>
+            </div>
+          )}
           {phone && (
             <section className={"t2-sheet " + sheet}>
               <button className="t2-grab" aria-label="목록 크기 바꾸기"
                 onClick={() => setSheet(sheet === "peek" ? "half" : sheet === "half" ? "full" : "peek")}><i /></button>
               <div className="t2-sheet-in">
-                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} /> : panel}
+                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)}
+                  fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} />
+                  : selJ ? <JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /> : panel}
               </div>
             </section>
           )}
@@ -395,6 +532,8 @@ export default function App() {
             <div className="t2-more" onClick={() => setMore(false)}>
               <a href={`${SITE}/buy-calculator`} target="_blank" rel="noreferrer">도구 · 매수 계산기</a>
               <a href={`${SITE}/jeonse-check`} target="_blank" rel="noreferrer">도구 · 전세 안전 점검</a>
+              {favs && favs.length > 0 && favs.map((f) => <button key={f.complex_no} onClick={() => goComplex(f.complex_no, f.complex_name)}>관심단지 · {f.complex_name}</button>)}
+              {!session && <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>}
               <a href={`${SITE}/settings`} target="_blank" rel="noreferrer">내 정보</a>
               <a href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사라운지</a>
             </div>
@@ -406,10 +545,20 @@ export default function App() {
 }
 
 // ── 상단 바 ─────────────────────────────────────────
-function TopBar({ phone, onPick }: { phone: boolean; onPick: (c: Cx) => void }) {
+function TopBar({ phone, onPick, favs, session, onGo, onAddr, onLogin }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
+  session: boolean; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<any[]>([]);
   const [tools, setTools] = useState(false);
+  const [favOpen, setFavOpen] = useState(false);
+  const [addrErr, setAddrErr] = useState("");
+  // 주소·장소: 카카오 지오코더(주소 → 실패 시 장소 키워드). 단지 이름 결과 아래에 한 줄로 붙는다.
+  const goAddr = async () => {
+    const kw = q.trim(); if (!kw) return;
+    const pos = await geocodeRegion(kw);
+    if (!pos) { setAddrErr(`'${kw}' 주소나 장소를 찾지 못했어요`); setTimeout(() => setAddrErr(""), 2500); return; }
+    setQ(""); setHits([]); onAddr(pos.lat, pos.lng);
+  };
   useEffect(() => {
     const kw = q.trim();
     if (kw.length < 2) { setHits([]); return; }
@@ -428,12 +577,14 @@ function TopBar({ phone, onPick }: { phone: boolean; onPick: (c: Cx) => void }) 
     <header className="t2-top">
       <a className="t2-logo" href="/">콕집<span>지도 시험판</span></a>
       <div className="t2-search">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="단지 이름으로 찾기" aria-label="단지 검색" />
-        {hits.length > 0 && (
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="단지 이름 · 주소 · 역 이름으로 찾기" aria-label="단지·주소 검색"
+          onKeyDown={(e) => { if (e.key === "Enter") { if (hits.length) choose(hits[0]); else goAddr(); } if (e.key === "Escape") { setQ(""); setHits([]); } }} />
+        {(hits.length > 0 || q.trim().length >= 2) && (
           <ul className="t2-hits">
             {hits.map((h) => (
               <li key={h.complex_no}><button onClick={() => choose(h)}><b>{h.complex_name}</b><span>{h.region} · {h.type_name}</span></button></li>
             ))}
+            {q.trim().length >= 2 && <li className="addr"><button onClick={goAddr}><b>'{q.trim()}' 주소·장소로 지도 이동</b><span>{addrErr || "도로명·지번 주소, 역·학교·건물 이름"}</span></button></li>}
           </ul>
         )}
       </div>
@@ -448,6 +599,17 @@ function TopBar({ phone, onPick }: { phone: boolean; onPick: (c: Cx) => void }) 
                 <a href={`${SITE}/buy-calculator`} target="_blank" rel="noreferrer">매수 계산기</a>
                 <a href={`${SITE}/jeonse-check`} target="_blank" rel="noreferrer">전세 안전 점검</a>
                 <a href={`${SITE}/ai`} target="_blank" rel="noreferrer">AI 질문</a>
+              </span>
+            )}
+          </span>
+          <span className="t2-dd" onMouseLeave={() => setFavOpen(false)}>
+            <button className={"t2-favbtn" + (favs?.length ? " has" : "")} onClick={() => setFavOpen(!favOpen)} aria-expanded={favOpen}>관심단지{favs?.length ? ` ${favs.length}` : ""}</button>
+            {favOpen && (
+              <span className="t2-ddm favs">
+                {!session ? <button onClick={() => { setFavOpen(false); onLogin(); }}>로그인하고 관심단지 담기</button>
+                  : !favs?.length ? <span className="t2-ddm-note">단지 서랍의 하트를 누르면 여기에 모여요(최대 20곳)</span>
+                  : favs.map((f) => <button key={f.complex_no} onClick={() => { setFavOpen(false); onGo(f.complex_no, f.complex_name); }}>{f.complex_name}</button>)}
+                {session && <a href={`${SITE}/my/favorites`} target="_blank" rel="noreferrer">관심단지 대시보드 ↗</a>}
               </span>
             )}
           </span>
@@ -506,6 +668,12 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
         {HH_OPTS.map((o) => opt(o, flt.hmin === o.a && flt.hmax === o.b, () => set({ hmin: o.a, hmax: o.b })))}
       </Dd>
       <button className={"t2-ftog" + (flt.only ? " on" : "")} onClick={() => set({ only: !flt.only })}>급매만</button>
+      {flt.trade === "A1" && (
+        <Dd id="sp" open={open} setOpen={setOpen} label={SPECIAL_KINDS.find((x) => x.k === flt.sp)?.l || "특수조건"} active={!!flt.sp}>
+          {opt({ l: "전체" }, !flt.sp, () => set({ sp: "" }))}
+          {SPECIAL_KINDS.map((x) => opt({ l: `${x.l} — ${x.h}` }, flt.sp === x.k, () => set({ sp: x.k })))}
+        </Dd>
+      )}
       {flt.only && (
         <Dd id="disc" open={open} setOpen={setOpen} label={`${Math.round(flt.disc * 100)}% 이상`} active={flt.disc > 0.03}>
           {[0.03, 0.05, 0.1].map((v) => opt({ l: `${Math.round(v * 100)}% 이상` }, flt.disc === v, () => set({ disc: v })))}
@@ -596,7 +764,85 @@ const METRICS: { k: PriceMetric; l: string; h: string }[] = [
   { k: "hoga", l: "호가추이", h: "매물 호가 변동" },
   { k: "vol", l: "거래량", h: "거래량 변동" },
   { k: "gap", l: "갭·전세가율", h: "매매−전세 갭" },
+  { k: "rh", l: "신고가", h: "신고가 단지" },
 ];
+
+// ── 시세분석 · 신고가 단지 목록(지도 안) ─────────────────────
+function RecordHighPanel({ rows, region, win, onWin, loading, onMetric, onPick }: { rows: RH[]; region: Region | null; win: number; onWin: (d: number) => void; loading: boolean;
+  onMetric: (m: PriceMetric) => void; onPick: (c: Cx) => void }) {
+  const [sort, setSort] = useState<"recent" | "premium" | "price">("recent");
+  const xs = useMemo(() => [...rows].sort(sort === "premium" ? (a, b) => b.premium - a.premium : sort === "price" ? (a, b) => b.record_price - a.record_price
+    : (a, b) => b.record_date.localeCompare(a.record_date)), [rows, sort]);
+  return (
+    <div className="t2-pad">
+      <div className="t2-chips">
+        {METRICS.map((c) => <button key={c.k} className={c.k === "rh" ? "on" : ""} onClick={() => onMetric(c.k)}>{c.l}</button>)}
+      </div>
+      <div className="t2-ph">
+        <h2>신고가 단지 <small>지도 안 {rows.length}</small></h2>
+        <div className="t2-chips sm t2-period" role="radiogroup" aria-label="기간">
+          {PRICE_WINDOWS.map((w) => <button key={w.d} role="radio" aria-checked={win === w.d} className={win === w.d ? "on" : ""} onClick={() => onWin(w.d)}>{w.l}</button>)}
+        </div>
+      </div>
+      <p className="t2-note">최근 {win}일 안에 같은 평형의 이전 최고가를 넘긴 매매(중개거래). 해제 거래 제외. 숫자는 이전 최고가 대비 상승률.</p>
+      <div className="t2-chips sm">
+        {([["recent", "최근순"], ["premium", "상승률순"], ["price", "가격순"]] as const).map(([k, l]) => <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{l}</button>)}
+      </div>
+      {loading && rows.length === 0 ? <Skel /> : xs.length === 0 ? <div className="t2-empty">이 범위엔 신고가 단지가 없어요. 지도를 옮기거나 기간을 늘려 보세요.</div> : (
+        <ul className="t2-list">
+          {xs.map((r) => (
+            <li key={r.complex_no}>
+              <button onClick={() => onPick({ complex_no: r.complex_no, name: r.complex_name, lat: r.lat, lng: r.lng })}>
+                <span className="nm"><b>{r.complex_name}</b><em>{areaLabel(r.area_key)} · {r.floor}층 · {r.record_date.slice(2).replace(/-/g, ".")}{r.n > 1 ? ` · ${r.n}평형` : ""}</em></span>
+                <span className="pr"><b>{wonShort(r.record_price)}</b><em>이전 {r.prev_high ? wonShort(r.prev_high) : "-"}</em></span>
+                <span className="dc up">{pct(r.premium)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <a className="t2-stat-link" href={`${SITE}/tx-stats/record-high`} target="_blank" rel="noreferrer">{region ? `${region.sggName} ` : ""}신고가 통계 전체 보기 ↗</a>
+    </div>
+  );
+}
+
+// ── 시세분석 · 빌라/상가/단독 지번 목록(지도 안) ─────────────────────
+const JB_NAME: Record<string, string> = { villa: "빌라", nrg: "상가", house: "단독·다가구" };
+function JibunPanel({ asset, pins, region, win, onWin, loading, zoomedOut, onPick }: { asset: PAsset; pins: JPin[]; region: Region | null; win: number; onWin: (d: number) => void;
+  loading: boolean; zoomedOut: boolean; onPick: (p: JPin) => void }) {
+  const [sort, setSort] = useState<"recent" | "n" | "price">("recent");
+  const xs = useMemo(() => [...pins].sort(sort === "n" ? (a, b) => b.n - a.n : sort === "price" ? (a, b) => b.last - a.last : (a, b) => b.latest.localeCompare(a.latest)).slice(0, 80), [pins, sort]);
+  return (
+    <div className="t2-pad">
+      <div className="t2-ph">
+        <h2>{JB_NAME[asset]} 실거래 <small>지도 안 {pins.length}</small></h2>
+        <div className="t2-chips sm t2-period" role="radiogroup" aria-label="기간">
+          {PRICE_WINDOWS.map((w) => <button key={w.d} role="radio" aria-checked={win === w.d} className={win === w.d ? "on" : ""} onClick={() => onWin(w.d)}>{w.l}</button>)}
+        </div>
+      </div>
+      <p className="t2-note">{region?.sggName ? `${region.sggName} ` : ""}국토부 매매 실거래를 지번 단위로 묶었어요. {asset === "nrg" ? "상가·사무실은 매매만(임대 실거래 원천이 없음)." : asset === "house" ? "단독·다가구는 임대 실거래에 지번이 없어 매매만." : "핀을 누르면 건축물대장과 거래 내역이 열려요."}</p>
+      {zoomedOut ? <div className="t2-empty">지도를 조금 더 확대하면 지번 핀이 보여요(동 단위).</div>
+        : loading && pins.length === 0 ? <Skel /> : xs.length === 0 ? <div className="t2-empty">이 범위엔 최근 {Math.round(win / 30)}개월 거래가 없어요.</div> : (
+        <>
+          <div className="t2-chips sm">
+            {([["recent", "최근순"], ["n", "거래 많은 순"], ["price", "가격순"]] as const).map(([k, l]) => <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{l}</button>)}
+          </div>
+          <ul className="t2-list">
+            {xs.map((p) => (
+              <li key={p.ref}>
+                <button onClick={() => onPick(p)}>
+                  <span className="nm"><b>{p.name}</b><em>{p.n}건 · 최근 {p.latest.slice(2).replace(/-/g, ".")}{p.built ? ` · ${p.built}년` : ""}</em></span>
+                  <span className="pr"><b>{wonShort(p.last)}</b><em>평균 {wonShort(p.avg)}{p.ppy ? ` · ${Math.round(p.ppy / 1e4).toLocaleString()}만/평` : ""}</em></span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <a className="t2-stat-link" href={`${SITE}/tx-map`} target="_blank" rel="noreferrer">실거래 지도 전체 보기 ↗</a>
+    </div>
+  );
+}
 
 function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading, meta, onPick }: {
   region: Region | null; agg: Agg[]; level: number; metric: PriceMetric; onMetric: (m: PriceMetric) => void;

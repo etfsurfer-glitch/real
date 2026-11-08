@@ -115,8 +115,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* 랭킹 */
 .t2-rank { list-style: none; margin: 0; padding: 0; }
 .t2-rank li + li { border-top: 1px solid var(--c-border-soft); }
-.t2-rank a { display: grid; grid-template-columns: 26px 1fr 64px 52px; gap: 8px; align-items: center; padding: 9px 2px; border-radius: var(--r-sm); }
-.t2-rank a:hover { background: var(--c-primary-tint); }
+.t2-rank a:not(.t2-telbtn) { display: grid; grid-template-columns: 26px 1fr 64px 52px; gap: 8px; align-items: center; padding: 9px 2px; border-radius: var(--r-sm); }
+.t2-rank a:not(.t2-telbtn):hover { background: var(--c-primary-tint); }
 .t2-rank .n { width: 24px; height: 24px; border-radius: 50%; background: #eef2f7; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--c-text-soft); }
 .t2-rank li:nth-child(-n+3) .n { background: var(--c-primary); color: #fff; }
 .t2-rank li.top1 .n { background: var(--c-gold); }
@@ -272,6 +272,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-reqbtn.sm { padding: 5px 8px; font-size: 11.5px; }
 .t2-rank.withreq li { display: flex; align-items: center; gap: 6px; }
 .t2-rank.withreq li > a { flex: 1; min-width: 0; }
+.t2-rank.withreq li > a.t2-telbtn { flex: 0 0 auto; }
 .t2-seg small { font-size: 11px; opacity: .7; }
 .t2-chart { margin: 4px 0 8px; }
 .t2-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -405,3 +406,69 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-poi b { font-size: 11.5px; }
 .t2-poi span { font-size: 10px; color: var(--c-muted); }
 .t2-poi.sc { border-left-color: #1f9d63; }
+
+/* ── 나머지 운영 데이터 이식: 신고가·특수조건·빌라/상가/단독·클러스터·관심단지·리뷰·주소검색 ── */
+.t2-pin.rh { border-color: var(--c-gold); background: #fffaf0; }
+.t2-pin.rh::after { border-top-color: var(--c-gold); }
+.t2-pin.rh i { color: var(--c-gold); }
+.t2-pin.rh.on { background: var(--c-gold); }
+.t2-pin.jb { border-color: #0f766e; }
+.t2-pin.jb::after { border-top-color: #0f766e; }
+.t2-pin.jb i { color: #0f766e; }
+.t2-pin.jb.on { background: #0f766e; }
+.t2-pin.sp { border-color: #6d28d9; background: #f7f3ff; }
+.t2-pin.sp::after { border-top-color: #6d28d9; }
+.t2-pin.sp i { color: #6d28d9; }
+.t2-pin.sp.on { background: #6d28d9; }
+.t2-pin.deal.sp { border-color: var(--c-up); }
+/* 축소 시 단지 묶음 동그라미 */
+.t2-cl { width: 44px; height: 44px; border-radius: 50%; background: rgba(18,104,211,.82); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  line-height: 1.1; box-shadow: 0 0 0 6px rgba(18,104,211,.18); cursor: pointer; }
+.t2-cl b { font-size: 13px; }
+.t2-cl span { font-size: 9px; opacity: .9; }
+.t2-cl.md { width: 54px; height: 54px; } .t2-cl.md b { font-size: 14px; }
+.t2-cl.lg { width: 64px; height: 64px; background: rgba(18,104,211,.9); } .t2-cl.lg b { font-size: 15px; }
+.t2-cl.xl { width: 76px; height: 76px; background: rgba(12,74,160,.92); } .t2-cl.xl b { font-size: 17px; }
+.t2-cl:hover { transform: scale(1.06); }
+/* 관심단지 하트(서랍 머리) */
+.t2-fav { border: 0; background: #f1f4f8; width: 32px; height: 32px; border-radius: 50%; color: var(--c-text-soft); display: inline-flex; align-items: center; justify-content: center; margin-right: 6px; }
+.t2-fav:hover { background: #fde8e8; color: var(--c-up); }
+.t2-fav.on { color: var(--c-up); background: #fde8e8; }
+.t2-favbtn.has { color: var(--c-up); }
+.t2-ddm.favs { min-width: 220px; max-height: 60vh; overflow-y: auto; }
+.t2-ddm.favs button { border: 0; background: none; text-align: left; padding: 9px 12px; border-radius: var(--r-sm); font-weight: 600; font-size: 14px; }
+.t2-ddm.favs button:hover { background: var(--c-primary-tint); }
+.t2-ddm.favs a { border-top: 1px solid var(--c-border-soft); margin-top: 4px; font-size: 13px; color: var(--c-primary); }
+.t2-ddm-note { padding: 10px 12px; font-size: 12.5px; color: var(--c-muted); line-height: 1.5; max-width: 240px; }
+.t2-more button { border: 0; background: none; text-align: left; padding: 12px 14px; font-size: 14px; font-weight: 600; border-radius: var(--r-sm); }
+/* 검색: 주소·장소 행 */
+.t2-hits li.addr { border-top: 1px solid var(--c-border-soft); margin-top: 4px; padding-top: 4px; }
+.t2-hits li.addr b { color: var(--c-primary); font-size: 13.5px; }
+/* 특수조건 매물 블록(급매 탭 아래) */
+.t2-sp { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--c-border); }
+.t2-sp .t2-ph { margin-bottom: 8px; }
+.t2-tag.sp { background: #efe6fd; color: #6d28d9; font-size: 11px; padding: 2px 6px; }
+.t2-tag.res { background: #e6f6ee; color: #1f7a4d; }
+.t2-dl-desc { font-size: 12.5px; color: var(--c-text-soft); margin: 6px 0 0; line-height: 1.5; word-break: break-all; }
+.t2-lnk { border: 0; background: none; color: var(--c-primary); font-size: 12px; font-weight: 600; padding: 0 0 0 4px; }
+/* 리뷰 */
+.t2-stars { display: inline-flex; gap: 1px; vertical-align: -1px; }
+.t2-stars i { width: 11px; height: 11px; background: #d9dee6; clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+.t2-stars i.on { background: var(--c-gold); }
+.t2-revavg { font-size: 13px; font-weight: 700; color: var(--c-text-soft); display: inline-flex; align-items: center; gap: 4px; }
+.t2-revs { list-style: none; margin: 0; padding: 0; }
+.t2-revs li { padding: 12px 0; border-bottom: 1px solid var(--c-border-soft); }
+.t2-rev-h { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.t2-rev-h b { font-weight: 700; }
+.t2-rev-h small { margin-left: auto; color: var(--c-muted); font-size: 11.5px; }
+.t2-revs p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
+.t2-revw { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; gap: 8px; }
+.t2-revw textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--c-border); border-radius: var(--r-sm); padding: 10px; font: inherit; font-size: 13.5px; resize: vertical; }
+.t2-rate { display: inline-flex; gap: 2px; }
+.t2-rate button { width: 22px; height: 22px; border: 0; background: #d9dee6; padding: 0; clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+.t2-rate button.on { background: var(--c-gold); }
+.t2-rvsum { font-weight: 600; color: var(--c-text-soft); font-size: 11.5px; margin-left: 6px; display: inline-flex; align-items: center; gap: 3px; }
+.t2-modal-in.sm { max-width: 360px; }
+.t2-dr-b.jb { padding-top: 6px; }
+.t2-dr-b.jb .t2-facts { margin: 0 0 12px; }
+.t2-list .dc.up { color: var(--c-up); }

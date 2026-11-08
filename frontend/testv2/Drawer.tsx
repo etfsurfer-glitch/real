@@ -5,7 +5,7 @@ import type React from "react";
 import { ComposedChart, Scatter, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { wonShort } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
-import { RequestModal, type ReqTarget } from "./Request";
+import { RequestModal, useSession, authHeaders, LoginBox, type ReqTarget } from "./Request";
 
 export const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -66,11 +66,13 @@ export function Skel() {
   return <div className="t2-skel"><i /><i /><i /></div>;
 }
 
-export type DrawerTab = "deals" | "tx" | "hoga" | "nearby" | "realtor" | "info";
+export type DrawerTab = "deals" | "tx" | "hoga" | "nearby" | "realtor" | "review" | "info";
 
 // initialTab: 지도 레이어에 맞춰 시작 탭을 정한다(매물찾기→급매, 시세분석→실거래, 중개사랭킹→중개사). 단지가 바뀌면 다시 적용.
 // onPick: 인근단지·같은 건물에서 다른 단지를 고르면 지도가 그 단지로 옮겨 간다.
-export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals" }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab }) {
+// fav: 관심단지 여부(null=로그인 전), onFav: 하트 누름(로그인 전이면 App 이 로그인 안내를 띄운다)
+export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab;
+  fav?: boolean | null; onFav?: () => void }) {
   const [tab, setTab] = useState<DrawerTab>(initialTab);
   const [info, setInfo] = useState<Info | null>(null);
   const [sum, setSum] = useState<Summary | null>(null);
@@ -128,6 +130,9 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals" }: { c
           <h2>{name}</h2>
           <p>{[info?.real_estate_type_name, raw.cortarAddress, info?.road_address].filter(Boolean).join(" · ")}</p>
         </div>
+        {onFav && <button className={"t2-fav" + (fav ? " on" : "")} onClick={onFav} aria-label={fav ? "관심단지 해제" : "관심단지 담기"} title={fav ? "관심단지 해제" : "관심단지 담기"}>
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 21s-7.5-4.6-9.5-9.3C1.1 8.3 3.3 4.5 7 4.5c2 0 3.5 1.1 5 3 1.5-1.9 3-3 5-3 3.7 0 5.9 3.8 4.5 7.2C19.5 16.4 12 21 12 21z" fill={fav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" /></svg>
+        </button>}
         <button className="t2-x" onClick={onClose} aria-label="닫기">×</button>
       </div>
       {/* 역·학교: 운영 단지 페이지의 위치 칩 */}
@@ -148,12 +153,12 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals" }: { c
         </dd></div>
       </dl>
       <div className="t2-tabs" role="tablist">
-        {([["deals", `급매${deals ? ` ${deals.length}` : ""}`], ["tx", "실거래"], ["hoga", "호가추이"], ["nearby", "인근단지"], ["realtor", "중개사"], ["info", "단지정보"]] as const).map(([k, l]) => (
+        {([["deals", `급매${deals ? ` ${deals.length}` : ""}`], ["tx", "실거래"], ["hoga", "호가추이"], ["nearby", "인근단지"], ["realtor", "중개사"], ["review", "리뷰"], ["info", "단지정보"]] as const).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
       <div className="t2-dr-b">
-        {tab === "deals" && <DealsTab deals={deals} exclOf={exclOf} onRequest={(d) => setReq({
+        {tab === "deals" && <DealsTab no={cx.complex_no} deals={deals} exclOf={exclOf} onRequest={(d) => setReq({
           realtor_id: d.realtor_id, realtor_name: d.realtor_name, complex: regionName,
           listing: { article_no: d.article_no, area_name: d.area_name, excl: exclOf.get(d.area_name) ?? null,
             floor_info: d.floor_info, price_text: d.price_text } })} />}
@@ -162,6 +167,7 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals" }: { c
         {tab === "nearby" && <NearbyTab no={cx.complex_no} areas={areas} onPick={onPick} />}
         {tab === "realtor" && <RealtorTab rk={rk} total={cnt.A1 + cnt.B1 + cnt.B2 || cx.listings || 0}
           onRequest={(r) => setReq({ realtor_id: r.realtor_id, realtor_name: r.realtor_name, complex: regionName })} />}
+        {tab === "review" && <ReviewTab no={cx.complex_no} />}
         {tab === "info" && <InfoTab no={cx.complex_no} asset={asset} info={info} raw={raw} agg={agg} areas={areas} sum={sum} onPick={onPick} />}
       </div>
       <a className="t2-dr-link" href={`${SITE}/complex/${cx.complex_no}`} target="_blank" rel="noreferrer">단지 페이지 전체 보기 ↗</a>
@@ -180,7 +186,7 @@ function floorBand(f: string): "저" | "중" | "고" | "" {
 }
 
 const SORTS = { disc: "할인 큰 순", price: "가격 낮은 순", recent: "최근 확인 순" } as const;
-function DealsTab({ deals, exclOf, onRequest }: { deals: DealRow[] | null; exclOf: Map<string, number>; onRequest: (d: DealRow) => void }) {
+function DealsTab({ no, deals, exclOf, onRequest }: { no: string; deals: DealRow[] | null; exclOf: Map<string, number>; onRequest: (d: DealRow) => void }) {
   const [type, setType] = useState("");
   const [size, setSize] = useState("");
   const [floor, setFloor] = useState("");
@@ -261,6 +267,100 @@ function DealsTab({ deals, exclOf, onRequest }: { deals: DealRow[] | null; exclO
         </ul>
       )}
       {!more && rows.length > 20 && <button className="t2-more-btn" onClick={() => setMore(true)}>{rows.length}건 모두 보기</button>}
+      <SpecialBlock no={no} />
+    </>
+  );
+}
+
+// ── 특수조건 매물(주인전세·세안고·대출승계) — 운영 /stats/special-deals 를 단지 단위로 ─────────────────────
+export const SPECIAL_KINDS: { k: string; l: string; h: string }[] = [
+  { k: "owner", l: "주인전세", h: "집주인이 전세로 남는 매매" }, { k: "tenant", l: "세안고", h: "세입자 승계 조건" }, { k: "loan", l: "대출승계", h: "기존 대출 승계" },
+];
+type SpRow = { article_no: string; complex_no: string; complex_name: string; area_name: string; area1_m2: number; price: number; floor_info: string; direction?: string;
+  realtor_name: string; desc: string; confirm_ymd: string; matched: string; region_name: string; naver_url: string; kind: string };
+function SpecialBlock({ no }: { no: string }) {
+  const [rows, setRows] = useState<SpRow[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => {
+    setRows(null);
+    Promise.all(SPECIAL_KINDS.map((k) => getJson(`/stats/special-deals?kind=${k.k}&complex_no=${no}&limit=50`).then((j) => (j.items || []).map((r: any) => ({ ...r, kind: k.k }))).catch(() => [])))
+      .then((xs) => setRows(xs.flat()));
+  }, [no]);
+  if (rows == null || rows.length === 0) return null;
+  const lbl = (k: string) => SPECIAL_KINDS.find((x) => x.k === k)?.l || k;
+  return (
+    <div className="t2-sp">
+      <div className="t2-ph"><h3>특수조건 매물 <small>{rows.length}</small></h3><small>매물 설명에 주인전세·세안고·대출승계가 적힌 매매</small></div>
+      <ul className="t2-deals">
+        {rows.map((r) => (
+          <li key={r.article_no}>
+            <div className="t2-dl-top">
+              <b className="pr">{wonShort(r.price)}</b>
+              <span className="t2-tag sp">{lbl(r.kind)}</span>
+              <span className="t2-dl-btns">{r.naver_url && <a className="t2-nbtn" href={r.naver_url} target="_blank" rel="noreferrer" title="네이버 매물 바로가기" aria-label="네이버 매물 바로가기">N</a>}</span>
+            </div>
+            <div className="t2-dl-mid">{r.area1_m2 ? areaLabel(r.area1_m2) : ""} · {r.area_name}타입 · {r.floor_info}층{r.direction ? ` · ${r.direction}` : ""}</div>
+            <p className="t2-dl-desc">{open === r.article_no ? r.desc : r.desc.length > 60 ? r.desc.slice(0, 60) + "…" : r.desc}
+              {r.desc.length > 60 && <button className="t2-lnk" onClick={() => setOpen(open === r.article_no ? null : r.article_no)}>{open === r.article_no ? "접기" : "더보기"}</button>}</p>
+            <div className="t2-dl-bot"><span>{r.realtor_name} · 확인 {ymd8(r.confirm_ymd)}</span></div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ── 리뷰: 단지 리뷰 읽기(공개) + 쓰기(로그인) — 운영 /complex/{no}/reviews ─────────────────────
+type Review = { id: number; author_name: string; rating: number; body: string; resident?: boolean; created_at: string; is_admin?: boolean };
+function Stars({ v }: { v: number }) {
+  return <span className="t2-stars" aria-label={`${v}점`}>{[1, 2, 3, 4, 5].map((i) => <i key={i} className={i <= Math.round(v) ? "on" : ""} />)}</span>;
+}
+function ReviewTab({ no }: { no: string }) {
+  const session = useSession();
+  const [d, setD] = useState<{ count: number; avg_rating: number | null; resident_count: number; items: Review[] } | null>(null);
+  const [rating, setRating] = useState(5);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const load = () => getJson(`/complex/${no}/reviews`).then(setD).catch(() => setD({ count: 0, avg_rating: null, resident_count: 0, items: [] }));
+  useEffect(() => { setD(null); setBody(""); setErr(""); load(); }, [no]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const send = async () => {
+    if (!session || body.trim().length < 5) return;
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`${API}/complex/${no}/reviews`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(session) },
+        body: JSON.stringify({ rating, body: body.trim() }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "등록하지 못했어요");
+      setBody(""); await load();
+    } catch (e: any) { setErr(e.message || "등록하지 못했어요"); } finally { setBusy(false); }
+  };
+  if (d == null) return <Skel />;
+  return (
+    <>
+      <div className="t2-dr-flt"><div className="t2-ph"><h3>단지 리뷰 <small>{d.count}</small></h3>
+        {d.avg_rating != null && <span className="t2-revavg"><Stars v={d.avg_rating} /> {d.avg_rating.toFixed(1)}{d.resident_count ? ` · 거주자 ${d.resident_count}` : ""}</span>}</div></div>
+      {d.items.length === 0 ? <p className="t2-empty">아직 리뷰가 없어요. 첫 리뷰를 남겨 보세요.</p> : (
+        <ul className="t2-revs">
+          {d.items.map((r) => (
+            <li key={r.id}>
+              <div className="t2-rev-h"><b>{r.author_name}</b>{r.resident && <span className="t2-tag res">거주자</span>}{r.is_admin && <span className="t2-tag">콕집</span>}<Stars v={r.rating} /><small>{ymdDot(r.created_at)}</small></div>
+              <p>{r.body}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="t2-revw">
+        {!session ? <LoginBox why="리뷰를 쓰려면 로그인이 필요해요. 별명으로만 표시돼요." /> : (
+          <>
+            <div className="t2-ph"><h3>리뷰 쓰기</h3>
+              <span className="t2-rate">{[1, 2, 3, 4, 5].map((i) => <button key={i} className={i <= rating ? "on" : ""} onClick={() => setRating(i)} aria-label={`${i}점`} />)}</span></div>
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} maxLength={1000} placeholder="살아 본 느낌, 교통·소음·관리 등 다른 분께 도움이 될 얘기를 적어 주세요(5자 이상)" />
+            {err && <p className="t2-err">{err}</p>}
+            <button className="t2-cta1" disabled={busy || body.trim().length < 5} onClick={send}>{busy ? "등록 중…" : "리뷰 등록"}</button>
+          </>
+        )}
+      </div>
     </>
   );
 }
@@ -528,6 +628,16 @@ function NearbyTab({ no, areas, onPick }: { no: string; areas: Area[]; onPick?: 
 // ── 중개사 랭킹 ───────────────────────────────────────
 function RealtorTab({ rk, total, onRequest }: { rk: any[] | null; total: number; onRequest: (r: any) => void }) {
   const [all, setAll] = useState(false);
+  // 중개사 리뷰 요약(평점·개수) — 보이는 줄만 불러온다(운영 /realtor/{id}/reviews)
+  const [rv, setRv] = useState<Record<string, { avg_rating: number | null; total_count: number }>>({});
+  const ids = (rk || []).slice(0, all ? 50 : 10).map((r) => r.realtor_id).filter((id) => !(id in rv));
+  useEffect(() => {
+    if (!ids.length) return;
+    let off = false;
+    Promise.all(ids.map((id) => getJson(`/realtor/${encodeURIComponent(id)}/reviews`).then((j) => [id, j.summary || { avg_rating: null, total_count: 0 }]).catch(() => [id, { avg_rating: null, total_count: 0 }])))
+      .then((xs) => { if (!off) setRv((o) => ({ ...o, ...Object.fromEntries(xs) })); });
+    return () => { off = true; };
+  }, [ids.join()]);   // eslint-disable-line react-hooks/exhaustive-deps
   if (rk == null) return <Skel />;
   const max = Math.max(1, ...rk.map((r) => r.count));
   const shown = all ? rk : rk.slice(0, 10);
@@ -542,7 +652,7 @@ function RealtorTab({ rk, total, onRequest }: { rk: any[] | null; total: number;
             <li key={r.realtor_id} className={i === 0 ? "top1" : ""}>
               <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id)}`} target="_blank" rel="noreferrer">
                 <span className="n">{i + 1}</span>
-                <span className="o"><b>{r.realtor_name}</b><em>매매 {r.n_sale} · 전세 {r.n_jeonse} · 월세 {r.n_wolse}</em>{meta(r) && <em>{meta(r)}</em>}</span>
+                <span className="o"><b>{r.realtor_name}{rv[r.realtor_id]?.total_count ? <small className="t2-rvsum"><Stars v={rv[r.realtor_id].avg_rating || 0} /> {(rv[r.realtor_id].avg_rating || 0).toFixed(1)} ({rv[r.realtor_id].total_count})</small> : null}</b><em>매매 {r.n_sale} · 전세 {r.n_jeonse} · 월세 {r.n_wolse}</em>{meta(r) && <em>{meta(r)}</em>}</span>
                 <span className="bm"><i style={{ width: `${(r.count / max) * 100}%` }} /></span>
                 <span className="c">{r.count}<small>{total ? Math.round((r.count / total) * 100) : 0}%</small></span>
               </a>
@@ -643,5 +753,73 @@ function InfoTab({ no, asset, info, raw, agg, areas, sum, onPick }: { no: string
         </>
       )}
     </>
+  );
+}
+
+// ── 빌라·상가·단독 지번 서랍 — 운영 /stats/tx-map/detail(건축물대장 + 실거래) ─────────────────────
+export type Jibun = { asset: "villa" | "nrg" | "house"; ref: string; name: string; sigungu: string; lat: number; lng: number };
+const JB_LABEL: Record<string, string> = { villa: "빌라", nrg: "상가", house: "단독·다가구" };
+const fmtArea = (v: number | null | undefined) => (v == null ? "-" : `${Math.round(v * 10) / 10}㎡`);
+export function JibunDrawer({ j, months, onClose }: { j: Jibun; months: number; onClose: () => void }) {
+  const [d, setD] = useState<any | null>(null);
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    setD(null); setAll(false);
+    getJson(`/stats/tx-map/detail?asset=${j.asset}&trade=A1&ref=${encodeURIComponent(j.ref)}&sigungu=${j.sigungu}&months=${months}&limit=300`).then(setD).catch(() => setD({}));
+  }, [j.asset, j.ref, j.sigungu, months]);
+  const b = d?.building, L: Ledger & { bld_nm?: string; hhld_cnt?: number; parking?: number } = d?.ledger || {};
+  const deals: any[] = d?.deals || [];
+  const shown = all ? deals : deals.slice(0, 25);
+  const [umd, jibun] = j.ref.split("|");
+  const cols = j.asset === "villa" ? ["계약일", "가격", "전용", "대지권", "층", "유형", "거래"]
+    : j.asset === "nrg" ? ["계약일", "가격", "면적", "대지", "층", "용도", "건물", "거래"] : ["계약일", "가격", "연면적", "대지", "유형", "거래"];
+  const cell = (r: any) => j.asset === "villa" ? [ymdDot(r.date), wonShort(r.price), fmtArea(r.area), fmtArea(r.land), r.floor ?? "-", r.htype || "-", r.dealing || "-"]
+    : j.asset === "nrg" ? [ymdDot(r.date), wonShort(r.price), fmtArea(r.area), fmtArea(r.land), r.floor ?? "-", r.use || "-", r.btype || "-", r.dealing || "-"]
+    : [ymdDot(r.date), wonShort(r.price), fmtArea(r.area), fmtArea(r.land), r.htype || "-", r.dealing || "-"];
+  return (
+    <div className="t2-dr">
+      <div className="t2-dr-h">
+        <div className="t2-dr-ttl">
+          <h2>{b?.name || L.bld_nm || j.name}</h2>
+          <p>{[JB_LABEL[j.asset], `${umd} ${jibun}`, b?.purpose || L.main_purps, (b?.built || L.use_apr_day) ? `${String(b?.built || L.use_apr_day).slice(0, 4)}년` : ""].filter(Boolean).join(" · ")}</p>
+        </div>
+        <button className="t2-x" onClick={onClose} aria-label="닫기">×</button>
+      </div>
+      {d == null ? <Skel /> : (
+        <div className="t2-dr-b jb">
+          <dl className="t2-facts">
+            <div><dt>거래</dt><dd>{deals.length}<small> 건 · {months}개월</small></dd></div>
+            <div><dt>최고</dt><dd>{d.stat?.max ? wonShort(d.stat.max) : "-"}</dd></div>
+            <div><dt>최저</dt><dd>{d.stat?.min ? wonShort(d.stat.min) : "-"}</dd></div>
+          </dl>
+          {d.ledger && (
+            <>
+              <div className="t2-ph"><h3>건축물대장</h3><small>국토부 건축HUB 표제부</small></div>
+              <table className="t2-kv">
+                <tbody>
+                  {L.main_purps && <tr><th>용도</th><td>{L.main_purps}{L.etc_purps ? ` · ${L.etc_purps}` : ""}</td></tr>}
+                  {(L.structure || L.roof) && <tr><th>구조/지붕</th><td>{[L.structure, L.roof].filter(Boolean).join(" / ")}</td></tr>}
+                  {(L.grnd_flr || L.ugrnd_flr) && <tr><th>층수/높이</th><td>지상 {L.grnd_flr ?? "-"} · 지하 {L.ugrnd_flr ?? 0}{L.heit ? ` · ${L.heit}m` : ""}</td></tr>}
+                  {L.hhld_cnt != null && <tr><th>세대</th><td>{L.hhld_cnt}세대{L.n_dong ? ` · ${L.n_dong}개동` : ""}</td></tr>}
+                  {(L.arch_area || L.tot_area) && <tr><th>건축/연면적</th><td>{fmtArea(L.arch_area)} / {fmtArea(L.tot_area)}{L.plat_area ? ` · 대지 ${fmtArea(L.plat_area)}` : ""}</td></tr>}
+                  {(L.bc_rat || L.vl_rat) && <tr><th>건폐/용적</th><td>{L.bc_rat ?? "-"}% / {L.vl_rat ?? "-"}%</td></tr>}
+                  {(L.elvt != null || L.parking != null) && <tr><th>승강기/주차</th><td>{L.elvt ?? 0}대 / {L.parking ?? "-"}대</td></tr>}
+                  {(L.pms_day || L.use_apr_day) && <tr><th>허가·착공·승인</th><td>{[ymd8(L.pms_day), ymd8(L.stcns_day), ymd8(L.use_apr_day)].join(" → ")}</td></tr>}
+                </tbody>
+              </table>
+            </>
+          )}
+          <div className="t2-ph"><h3>실거래 <small>매매</small></h3><small>국토부 · 계약일 기준</small></div>
+          {deals.length === 0 ? <p className="t2-empty">이 기간 거래가 없어요.</p> : (
+            <table className="t2-tbl">
+              <thead><tr>{cols.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+              <tbody>{shown.map((r, i) => <tr key={i}>{cell(r).map((v, k) => <td key={k}>{v}</td>)}</tr>)}</tbody>
+            </table>
+          )}
+          {!all && deals.length > 25 && <button className="t2-more-btn" onClick={() => setAll(true)}>{deals.length}건 모두 보기</button>}
+          <p className="t2-foot">지번 단위라 같은 번지의 여러 건물이 섞일 수 있어요. 상가는 임대 실거래 원천이 없어 매매만.</p>
+        </div>
+      )}
+    </div>
   );
 }
