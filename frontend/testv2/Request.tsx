@@ -27,6 +27,13 @@ export const login = (provider: "kakao" | "google") => auth?.auth.signInWithOAut
   },
 });
 
+export const logout = () => auth?.auth.signOut();
+// 세션에서 보여 줄 내 이름(카카오/구글 프로필 이름 → 이메일 앞부분)
+export const sessionName = (s: Session | null) => {
+  const m: any = s?.user?.user_metadata || {};
+  return String(m.nickname || m.name || m.full_name || s?.user?.email?.split("@")[0] || "회원");
+};
+
 // 로그인 세션 — 요청 모달·관심단지·리뷰 쓰기가 같이 쓴다
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);

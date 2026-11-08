@@ -5,10 +5,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadKakao, wonShort, geocodeRegion } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
 import { ComplexDrawer, JibunDrawer, Skel, Dd, SPECIAL_KINDS, type DrawerTab, type Jibun } from "./Drawer";
-import { useSession, authHeaders, LoginBox } from "./Request";
+import { useSession, authHeaders, LoginBox, logout, sessionName } from "./Request";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
+
+// 지도 표식 아이콘(lucide 선 아이콘, 흰 선)
+const svg = (d: string) => `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ICO = {
+  apt: svg('<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>'),
+  offi: svg('<rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/>'),
+  school: svg('<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>'),
+  train: svg('<path d="M8 3.1V7a4 4 0 0 0 8 0V3.1"/><path d="m9 15-1-1"/><path d="m15 15 1-1"/><path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z"/><path d="m8 19-2 3"/><path d="m16 19 2 3"/>'),
+};
+// 수도권 노선 색(공식 노선색). 모르는 노선은 파랑.
+const LINE_COLORS: Record<string, string> = {
+  "1호선": "#0052a4", "2호선": "#00a84d", "3호선": "#ef7c1c", "4호선": "#00a5de", "5호선": "#996cac", "6호선": "#cd7c2f", "7호선": "#747f00", "8호선": "#e6186c", "9호선": "#bdb092",
+  "신분당선": "#d4003b", "경의중앙선": "#77c4a3", "수인분당선": "#f5a200", "분당선": "#f5a200", "공항철도": "#0090d2", "경춘선": "#0c8e72", "우이신설선": "#b0ce18", "신림선": "#6789ca", "서해선": "#81a914", "경강선": "#003da5", "김포골드라인": "#a17800", "에버라인": "#6fb245", "의정부경전철": "#fda600", "GTX-A": "#9a6292",
+};
+const lineColor = (line: string) => { const key = Object.keys(LINE_COLORS).find((k) => line.includes(k)); return key ? LINE_COLORS[key] : "#1268d3"; };
 
 type Layer = "deals" | "price" | "realtor";
 type View = { swLat: number; swLng: number; neLat: number; neLng: number; lat: number; lng: number; level: number };
@@ -421,13 +436,39 @@ export default function App() {
     if (!selNo || !map || !k) return;
     let off = false;
     const add = (o: any) => { o.setMap(map); cxOvs.current.push(o); };
-    const put = (lat: number, lng: number, html: string) => {
+    const put = (lat: number, lng: number, html: string, z = 3) => {
       const el = document.createElement("div"); el.innerHTML = html;
-      add(new k.maps.CustomOverlay({ position: new k.maps.LatLng(lat, lng), content: el, yAnchor: 0.5, zIndex: 3 }));
+      add(new k.maps.CustomOverlay({ position: new k.maps.LatLng(lat, lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: z }));
     };
+    // 지도 위 표식: 동그란 아이콘 + 글자(흰 테두리). 떠 있는 카드가 아니라 지도 자체의 명소 표시처럼.
+    const poi = (cls: string, color: string, icon: string, name: string, sub: string) =>
+      `<div class="t2-poi ${cls}" style="--pc:${color}"><i>${icon}</i><b>${esc(name)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>`;
+    // 단지 → 역·학교 얕은 점선 + 가운데 거리 글자
+    const link = (lat: number, lng: number, color: string, m: number) => {
+      if (!origin) return;
+      add(new k.maps.Polyline({ path: [new k.maps.LatLng(origin.lat, origin.lng), new k.maps.LatLng(lat, lng)],
+        strokeWeight: 1.5, strokeColor: color, strokeOpacity: 0.55, strokeStyle: "dot", zIndex: 1 }));
+      put((origin.lat + lat) / 2, (origin.lng + lng) / 2, `<div class="t2-dist" style="--pc:${color}">${m >= 1000 ? (m / 1000).toFixed(1) + "km" : m + "m"}</div>`, 2);
+    };
+    let origin: { lat: number; lng: number } | null = null;
+    const pend: (() => void)[] = [];
+    const ready = (fn: () => void) => (origin ? fn() : pend.push(fn));
+    // 단지 자리: 아파트·오피스텔 아이콘(요약의 asset_type)
+    getJson(`/complex/${selNo}/summary`).then((s) => {
+      if (off || !s?.latitude) return;
+      origin = { lat: s.latitude, lng: s.longitude };
+      const offi = /오피스텔/.test(String(s.asset_type || ""));
+      put(origin.lat, origin.lng, `<div class="t2-poi cx" style="--pc:${offi ? "#6d28d9" : "#0c4aa0"}"><i>${offi ? ICO.offi : ICO.apt}</i></div>`, 4);
+      pend.splice(0).forEach((f) => f());
+    }).catch(() => {});
     getJson(`/complex/${selNo}/subway-nearby?radius_km=1.5&limit=3`).then((j) => {
       if (off) return;
-      for (const s of j.items || []) put(s.lat, s.lng, `<div class="t2-poi st"><b>${esc(s.station)}</b><span>${esc(String(s.lines || "").split("·")[0])} · 도보 ${s.walk_min}분</span></div>`);
+      for (const s of j.items || []) {
+        const line = String(s.lines || "").split("·")[0].trim();
+        const color = lineColor(line);
+        put(s.lat, s.lng, poi("st", color, ICO.train, s.station, `${line.replace(/수도권\s+도시철도\s*/, "")} · 도보 ${s.walk_min}분`));
+        ready(() => link(s.lat, s.lng, color, s.distance_m));
+      }
     }).catch(() => {});
     getJson(`/complex/${selNo}/school-map`).then((j) => {
       if (off) return;
@@ -438,7 +479,10 @@ export default function App() {
         add(new k.maps.Polygon({ path: ring.map(([lng, lat]: number[]) => new k.maps.LatLng(lat, lng)),
           strokeWeight: 2, strokeColor: "#1f9d63", strokeOpacity: 0.8, strokeStyle: "shortdash", fillColor: "#1f9d63", fillOpacity: 0.07, zIndex: 0 }));
       }
-      for (const sc of j.assigned || []) put(sc.lat, sc.lng, `<div class="t2-poi sc"><b>${esc(String(sc.name).replace("등학교", ""))}</b><span>${j.src === "near" ? "인근" : "배정"} · 도보 ${sc.walk_min}분</span></div>`);
+      for (const sc of j.assigned || []) {
+        put(sc.lat, sc.lng, poi("sc", "#1f9d63", ICO.school, String(sc.name).replace("등학교", ""), `${j.src === "near" ? "인근" : "배정"} · 도보 ${sc.walk_min}분`));
+        ready(() => link(sc.lat, sc.lng, "#1f9d63", sc.distance_m));
+      }
     }).catch(() => {});
     return () => { off = true; };
   }, [selNo]);
@@ -462,7 +506,7 @@ export default function App() {
 
   return (
     <div className={"t2" + (phone ? " phone" : " desk")}>
-      <TopBar phone={phone} favs={favs} session={!!session} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)} onPick={(c) => {
+      <TopBar phone={phone} favs={favs} session={!!session} user={session ? sessionName(session) : null} onLogout={() => logout()} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)} onPick={(c) => {
         const m = mapRef.current;
         if (m && c.lat) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(c.lat, c.lng)); }
         pickComplex(c, false);
@@ -541,7 +585,8 @@ export default function App() {
               <a href={`${SITE}/buy-calculator`} target="_blank" rel="noreferrer">도구 · 매수 계산기</a>
               <a href={`${SITE}/jeonse-check`} target="_blank" rel="noreferrer">도구 · 전세 안전 점검</a>
               {favs && favs.length > 0 && favs.map((f) => <button key={f.complex_no} onClick={() => goComplex(f.complex_no, f.complex_name)}>관심단지 · {f.complex_name}</button>)}
-              {!session && <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>}
+              {!session ? <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>
+                : <button onClick={() => logout()}>{sessionName(session)} · 로그아웃</button>}
               <a href={`${SITE}/settings`} target="_blank" rel="noreferrer">내 정보</a>
               <a href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사라운지</a>
             </div>
@@ -553,8 +598,8 @@ export default function App() {
 }
 
 // ── 상단 바 ─────────────────────────────────────────
-function TopBar({ phone, onPick, favs, session, onGo, onAddr, onLogin }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
-  session: boolean; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void }) {
+function TopBar({ phone, onPick, favs, session, user, onLogout, onGo, onAddr, onLogin }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
+  session: boolean; user: string | null; onLogout: () => void; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<any[]>([]);
   const [tools, setTools] = useState(false);
@@ -622,6 +667,9 @@ function TopBar({ phone, onPick, favs, session, onGo, onAddr, onLogin }: { phone
             )}
           </span>
           <a className="lounge" href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사라운지</a>
+          {session
+            ? <button className="t2-loginbtn on" onClick={onLogout} title="로그아웃"><span>{user}</span>로그아웃</button>
+            : <button className="t2-loginbtn" onClick={onLogin}>로그인</button>}
         </nav>
       )}
     </header>
