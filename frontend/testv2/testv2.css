@@ -513,3 +513,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @keyframes t2ring { from { transform: scale(.7); opacity: .9; } to { transform: scale(2.6); opacity: 0; } }
 @keyframes t2fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .t2-poi i, .t2-poi i::after, .t2-poi b, .t2-poi span, .t2-dist { animation: none; opacity: 1; } .t2-poi i::after { display: none; } }
+
+/* 지도 확대·축소 단추는 지도 왼쪽 아래(카카오 축척 표시 위). 휴대폰은 시트 바로 위 왼쪽, 시트를 끝까지 올리면 숨김 */
+.t2-zoom, .t2-zoom.narrow { top: auto; right: auto; left: 12px; bottom: 40px; }
+.phone .t2-zoom { top: auto; left: 8px; bottom: calc(52% + 10px); }
+.phone .t2-zoom.sh-peek { bottom: 130px; }
+.phone .t2-zoom.sh-full { display: none; }

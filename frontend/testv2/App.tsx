@@ -559,7 +559,7 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className={"t2-zoom" + (!phone && (sel || selJ) ? " narrow" : "")}>
+          <div className={"t2-zoom" + (phone ? " sh-" + sheet : "")}>
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() - 1)} aria-label="확대">+</button>
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>
           </div>
