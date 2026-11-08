@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadKakao, wonShort, geocodeRegion } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
-import { ComplexDrawer, Skel, type DrawerTab } from "./Drawer";
+import { ComplexDrawer, Skel, Dd, type DrawerTab } from "./Drawer";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -422,15 +422,6 @@ function TopBar({ phone, onPick }: { phone: boolean; onPick: (c: Cx) => void }) 
 }
 
 // ── 매물찾기 필터 바(지도 위) ────────────────────────
-function Dd({ id, open, setOpen, label, active, children }: { id: string; open: string | null; setOpen: (v: string | null) => void; label: string; active: boolean; children: React.ReactNode }) {
-  return (
-    <span className="t2-dd">
-      <button className={"t2-fdd" + (active ? " on" : "")} aria-expanded={open === id} onClick={() => setOpen(open === id ? null : id)}>{label} ▾</button>
-      {open === id && <span className="t2-ddm" onClick={() => setOpen(null)}>{children}</span>}
-    </span>
-  );
-}
-
 function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void }) {
   const [open, setOpen] = useState<string | null>(null);
   const set = (patch: Partial<Flt>) => onChange({ ...flt, ...patch });

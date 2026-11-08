@@ -236,9 +236,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-facts dd small { font-weight: 500; color: var(--c-muted); }
 .t2-facts div:last-child { grid-column: span 3; }
 .t2-tabs button { font-size: 13.5px; }
-.t2-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 8px; margin-bottom: 8px; }
-.t2-filters label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--c-muted); font-weight: 600; }
-.t2-filters select { font: inherit; font-size: 13px; color: var(--c-text); padding: 6px 6px; border: 1px solid var(--c-border); border-radius: 8px; background: #fff; }
+/* 서랍 탭 안 필터 줄 — 스크롤해도 위에 고정. 드롭다운 칩은 지도 필터 바와 같은 부품(Dd) */
+.t2-dr-b { padding-top: 0; }
+.t2-dr-b > :first-child:not(.t2-dr-flt) { margin-top: 14px; }
+.t2-dr-flt { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 -16px 10px; padding: 12px 16px 10px; background: #fff; border-bottom: 1px solid var(--c-border-soft); }
+.t2-dr-flt.col { flex-direction: column; align-items: stretch; gap: 0; }
+.t2-dr-flt .t2-seg { margin-bottom: 0; }
+.t2-dr-flt .t2-chips.sm { margin-top: 8px; }
+.t2-dr-flt .t2-ph { width: 100%; }
+.t2-dr-flt + .t2-note { margin-top: 0; }
 .t2-deals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .t2-deals li { border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 10px 12px; background: #fff; }
 .t2-deals li.kok { border-color: var(--c-primary); box-shadow: 0 0 0 1px var(--c-primary) inset; }
@@ -292,7 +298,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-done p { font-size: 13.5px; color: var(--c-text-soft); }
 .t2-done a { color: var(--c-primary); font-weight: 700; }
 .phone .t2-facts { margin: 0 12px 8px; }
-.phone .t2-filters { grid-template-columns: repeat(2, 1fr); }
 .t2-note.warn { color: var(--c-warn, #e08a1e); margin-top: -6px; }
 .t2-direct { display: inline-block; background: #f59e0b; color: #fff; font-size: 10.5px; font-weight: 800; border-radius: 4px; padding: 0 4px; margin: 0 4px; line-height: 16px; vertical-align: 1px; }
 .t2-muted { color: var(--c-faint); font-size: 11.5px; }
@@ -321,13 +326,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-ftypes { display: flex; gap: 4px; flex-shrink: 0; padding-right: 6px; border-right: 1px solid var(--c-border-soft); }
 .t2-ftypes button { border: 1px solid var(--c-border); background: #fff; border-radius: 999px; padding: 5px 11px; font-size: 12.5px; font-weight: 600; white-space: nowrap; color: var(--c-text-soft); }
 .t2-ftypes button.on { background: #e8f1fd; border-color: #bcd4f5; color: var(--c-primary); }
-.t2-fbar .t2-dd { position: relative; flex-shrink: 0; }
+.t2-dd { position: relative; flex-shrink: 0; }
 .t2-fdd { border: 1px solid var(--c-border); background: #fff; border-radius: 8px; padding: 5px 10px; font-size: 12.5px; font-weight: 600; white-space: nowrap; color: var(--c-text); }
 .t2-fdd.on { border-color: var(--c-primary); color: var(--c-primary); background: #f3f8ff; }
-.t2-fbar .t2-ddm { position: absolute; left: 0; top: 34px; min-width: 150px; background: #fff; border-radius: 10px; box-shadow: var(--sh-lg); padding: 4px; display: flex; flex-direction: column; z-index: 20; }
-.t2-fbar .t2-ddm button { border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
-.t2-fbar .t2-ddm button:hover { background: #f3f6fa; }
-.t2-fbar .t2-ddm button.on { color: var(--c-primary); font-weight: 700; }
+.t2-dd .t2-ddm { position: absolute; left: 0; top: 34px; min-width: 150px; background: #fff; border-radius: 10px; box-shadow: var(--sh-lg); padding: 4px; display: flex; flex-direction: column; z-index: 20; }
+.t2-dd .t2-ddm button { border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.t2-dd .t2-ddm button:hover { background: #f3f6fa; }
+.t2-dd .t2-ddm button.on { color: var(--c-primary); font-weight: 700; }
 .t2-freset { border: 0; background: none; color: var(--c-muted); font-size: 12px; text-decoration: underline; flex-shrink: 0; }
 .t2-pin.lst em { font-style: normal; font-size: 10.5px; color: var(--c-muted); }
 .t2-pin.on em { color: #fff; opacity: .9; }
@@ -339,6 +344,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-rows li.t2-click:hover { background: #f7f9fc; }
 .phone .t2-fbar { width: 100%; flex: none; padding: 5px 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .phone .t2-fbar .t2-ddm { position: fixed; left: 8px; right: 8px; top: 104px; }
+.t2-dr-flt .t2-dd:nth-last-child(-n+2) .t2-ddm { left: auto; right: 0; }
 .phone .t2-zoom { top: 104px; }
 .phone .t2-hint { top: 104px; }
 .t2-hint { top: 68px; }

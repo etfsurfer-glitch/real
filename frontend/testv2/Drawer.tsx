@@ -1,5 +1,5 @@
 // 단지 서랍 — 기본정보(대장·평형·호가) · 급매(필터·네이버/콕/콕집요청 버튼) · 실거래(매매·전세·월세 그래프+표) · 중개사.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ComposedChart, Scatter, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { wonShort } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
@@ -29,6 +29,16 @@ type DealRow = {
   // 콕집 직접 등록 매물 표시용 — 원천이 생기면 서버가 채운다(지금은 없음)
   koczip?: boolean; source?: string; kok_url?: string;
 };
+
+// 드롭다운 칩: 버튼 하나 + 눌렀을 때만 메뉴. 지도 필터 바와 서랍 필터가 같이 쓴다.
+export function Dd({ id, open, setOpen, label, active, children }: { id: string; open: string | null; setOpen: (v: string | null) => void; label: string; active: boolean; children: ReactNode }) {
+  return (
+    <span className="t2-dd">
+      <button className={"t2-fdd" + (active ? " on" : "")} aria-expanded={open === id} onClick={() => setOpen(open === id ? null : id)}>{label} ▾</button>
+      {open === id && <span className="t2-ddm" onClick={() => setOpen(null)}>{children}</span>}
+    </span>
+  );
+}
 
 export function Skel() {
   return <div className="t2-skel"><i /><i /><i /></div>;
@@ -128,13 +138,16 @@ function floorBand(f: string): "저" | "중" | "고" | "" {
   return n / t <= 1 / 3 ? "저" : n / t <= 2 / 3 ? "중" : "고";
 }
 
+const SORTS = { disc: "할인 큰 순", price: "가격 낮은 순", recent: "최근 확인 순" } as const;
 function DealsTab({ deals, exclOf, onRequest }: { deals: DealRow[] | null; exclOf: Map<string, number>; onRequest: (d: DealRow) => void }) {
   const [type, setType] = useState("");
   const [size, setSize] = useState("");
   const [floor, setFloor] = useState("");
   const [minDisc, setMinDisc] = useState(0.03);
-  const [sort, setSort] = useState<"disc" | "price" | "recent">("disc");
+  const [sort, setSort] = useState<keyof typeof SORTS>("disc");
   const [more, setMore] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
+  const opt = (l: string, on: boolean, f: () => void) => <button key={l} className={on ? "on" : ""} onClick={f}>{l}</button>;
 
   const sizeOf = (d: DealRow) => { const e = exclOf.get(d.area_name); return e ? String(Math.round(e)) : ""; };
   const types = useMemo(() => [...new Set((deals || []).map((d) => d.area_name))].sort((a, b) => parseFloat(a) - parseFloat(b)), [deals]);
@@ -153,34 +166,27 @@ function DealsTab({ deals, exclOf, onRequest }: { deals: DealRow[] | null; exclO
   const shown = more ? rows : rows.slice(0, 20);
   return (
     <>
-      <div className="t2-filters">
-        <label>전용면적
-          <select value={size} onChange={(e) => setSize(e.target.value)}>
-            <option value="">전체</option>
-            {sizes.map((s) => <option key={s} value={s}>{areaLabel(+s)}</option>)}
-          </select>
-        </label>
-        <label>타입
-          <select value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="">전체</option>
-            {types.map((t) => <option key={t} value={t}>{t}{exclOf.get(t) ? ` (${areaLabel(exclOf.get(t)!)})` : ""}</option>)}
-          </select>
-        </label>
-        <label>층
-          <select value={floor} onChange={(e) => setFloor(e.target.value)}>
-            <option value="">전체</option><option value="저">저층</option><option value="중">중층</option><option value="고">고층</option>
-          </select>
-        </label>
-        <label>할인율
-          <select value={minDisc} onChange={(e) => setMinDisc(+e.target.value)}>
-            <option value={0.03}>3% 이상</option><option value={0.05}>5% 이상</option><option value={0.1}>10% 이상</option>
-          </select>
-        </label>
-        <label>정렬
-          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-            <option value="disc">할인 큰 순</option><option value="price">가격 낮은 순</option><option value="recent">최근 확인 순</option>
-          </select>
-        </label>
+      <div className="t2-dr-flt" onMouseLeave={() => setOpen(null)}>
+        <Dd id="size" open={open} setOpen={setOpen} label={size ? areaLabel(+size) : "전용면적"} active={!!size}>
+          {opt("전체", !size, () => setSize(""))}
+          {sizes.map((x) => opt(areaLabel(+x), size === x, () => setSize(x)))}
+        </Dd>
+        <Dd id="type" open={open} setOpen={setOpen} label={type || "타입"} active={!!type}>
+          {opt("전체", !type, () => setType(""))}
+          {types.map((t) => opt(`${t}${exclOf.get(t) ? ` (${areaLabel(exclOf.get(t)!)})` : ""}`, type === t, () => setType(t)))}
+        </Dd>
+        <Dd id="floor" open={open} setOpen={setOpen} label={floor ? `${floor}층` : "층"} active={!!floor}>
+          {opt("전체", !floor, () => setFloor(""))}
+          {(["저", "중", "고"] as const).map((f) => opt(`${f}층`, floor === f, () => setFloor(f)))}
+        </Dd>
+        <Dd id="disc" open={open} setOpen={setOpen} label={`${Math.round(minDisc * 100)}% 이상`} active={minDisc > 0.03}>
+          {[0.03, 0.05, 0.1].map((v) => opt(`${Math.round(v * 100)}% 이상`, minDisc === v, () => setMinDisc(v)))}
+        </Dd>
+        <Dd id="sort" open={open} setOpen={setOpen} label={SORTS[sort]} active={sort !== "disc"}>
+          {(Object.keys(SORTS) as (keyof typeof SORTS)[]).map((k) => opt(SORTS[k], sort === k, () => setSort(k)))}
+        </Dd>
+        {(size || type || floor || minDisc !== 0.03 || sort !== "disc") &&
+          <button className="t2-freset" onClick={() => { setSize(""); setType(""); setFloor(""); setMinDisc(0.03); setSort("disc"); }}>초기화</button>}
       </div>
       <p className="t2-note">{rows.length}건 · 할인율은 같은 평형 최근 실거래 평균 대비</p>
       {rows.length === 0 ? <p className="t2-empty">조건에 맞는 급매가 없어요. 필터를 넓혀 보세요.</p> : (
@@ -266,18 +272,20 @@ function TxTab({ tx }: { tx: { sale: any[]; jeonse: any[]; wolse: any[] } | null
     : kind === "jeonse" ? wonShort(t.deposit) : `${wonShort(t.deposit)} / ${Math.round(t.monthly_rent / 1e4)}만`;
   return (
     <>
-      <div className="t2-seg">
-        {([["sale", "매매"], ["jeonse", "전세"], ["wolse", "월세"]] as [Kind, string][]).map(([k, l]) => (
-          <button key={k} className={kind === k ? "on" : ""} onClick={() => setKind(k)}>{l} <small>{tx[k].length}</small></button>
-        ))}
-      </div>
-      {sizes.length > 0 && (
-        <div className="t2-chips sm">
-          {sizes.map(([s, n]) => (
-            <button key={s} className={size === s ? "on" : ""} onClick={() => setSize(s)}>{areaLabel(+s)} <small>{n}</small></button>
+      <div className="t2-dr-flt col">
+        <div className="t2-seg">
+          {([["sale", "매매"], ["jeonse", "전세"], ["wolse", "월세"]] as [Kind, string][]).map(([k, l]) => (
+            <button key={k} className={kind === k ? "on" : ""} onClick={() => setKind(k)}>{l} <small>{tx[k].length}</small></button>
           ))}
         </div>
-      )}
+        {sizes.length > 0 && (
+          <div className="t2-chips sm">
+            {sizes.map(([s, n]) => (
+              <button key={s} className={size === s ? "on" : ""} onClick={() => setSize(s)}>{areaLabel(+s)} <small>{n}</small></button>
+            ))}
+          </div>
+        )}
+      </div>
       {rows.length === 0 ? <p className="t2-empty">최근 3년 {kind === "sale" ? "매매" : kind === "jeonse" ? "전세" : "월세"} 실거래가 없어요.</p> : (
         <>
           <div className="t2-chart">
@@ -337,7 +345,7 @@ function RealtorTab({ rk, total, onRequest }: { rk: any[] | null; total: number;
   const shown = all ? rk : rk.slice(0, 10);
   return (
     <>
-      <div className="t2-ph"><h3>이 단지 중개사 랭킹</h3><small>기준: 이 단지 매물 수</small></div>
+      <div className="t2-dr-flt"><div className="t2-ph"><h3>이 단지 중개사 랭킹</h3><small>기준: 이 단지 매물 수</small></div></div>
       {rk.length === 0 ? <p className="t2-empty">이 단지에 매물을 올린 중개사가 없어요.</p> : (
         <ol className="t2-rank withreq">
           {shown.map((r, i) => (
