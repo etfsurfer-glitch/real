@@ -209,7 +209,8 @@ function DealsTab({ no, deals, exclOf, onRequest }: { no: string; deals: DealRow
   }, [deals, type, size, floor, minDisc, sort, exclOf]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (deals == null) return <Skel />;
-  if (deals.length === 0) return <p className="t2-empty">지금 이 단지엔 급매가 없어요.</p>;
+  // 급매가 없어도 특수조건 매물(주인전세·세안고·대출승계)은 보여 준다
+  if (deals.length === 0) return <><p className="t2-empty">지금 이 단지엔 급매가 없어요.</p><SpecialBlock no={no} /></>;
   const shown = more ? rows : rows.slice(0, 20);
   return (
     <>

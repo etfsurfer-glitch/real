@@ -197,7 +197,9 @@ export default function App() {
   const goTo = useCallback((lat: number, lng: number, lv = 4) => {
     const m = mapRef.current; if (!m) return;
     m.setLevel(lv); m.setCenter(new window.kakao.maps.LatLng(lat, lng));
-  }, []);
+    // 휴대폰은 아래 시트가 지도 절반을 덮으니 목표 지점을 위쪽 절반 가운데로
+    if (phone) m.panBy(0, Math.round(window.innerHeight * 0.24));
+  }, [phone]);
 
   // 주소창 = 공유 링크
   useEffect(() => {
@@ -276,7 +278,11 @@ export default function App() {
         if (ml.too_wide) {
           // 축소 상태: 단지를 격자로 묶은 동그라미(/complexes/cluster). 누르면 그 자리로 3단계 확대.
           setInView([]); setHint("");
-          getJson(`/complexes/cluster?${b2}&cols=7&rows=6`).then((cj) => {
+          // 격자는 지도 픽셀 크기에 맞춰(약 150px 한 칸) — 휴대폰 폭에서 동그라미가 겹치지 않게
+          const el = map.getNode?.() as HTMLElement | undefined;
+          const mw = el?.clientWidth || window.innerWidth, mh = el?.clientHeight || window.innerHeight;
+          const cols = Math.max(3, Math.min(8, Math.round(mw / 150))), rows = Math.max(3, Math.min(8, Math.round(mh / 150)));
+          getJson(`/complexes/cluster?${b2}&cols=${cols}&rows=${rows}`).then((cj) => {
             if (off) return;
             for (const c of cj.cells || []) {
               const sz = c.count >= 300 ? " xl" : c.count >= 100 ? " lg" : c.count >= 30 ? " md" : "";
