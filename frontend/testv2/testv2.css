@@ -364,3 +364,44 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .phone .t2-zoom { top: 100px; }
 .phone .t2-hint { top: 100px; }
 .t2-hint { top: 60px; }
+
+/* ── 운영 데이터 이식: 요약·배지·호가추이·인근단지·대장·역/학교 ── */
+.t2-loc { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 0 16px 8px; font-size: 12.5px; font-weight: 600; }
+.t2-loc span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.t2-loc small { font-weight: 500; color: var(--c-muted); }
+.t2-loc i { font-style: normal; font-size: 10px; font-weight: 800; color: #fff; border-radius: 4px; padding: 1px 4px; }
+.t2-loc i.st { background: #1268d3; }
+.t2-loc i.sc { background: #1f9d63; }
+.t2-facts.in { margin: 0 0 10px; }
+.t2-facts dd small.up { color: var(--c-up); }
+.t2-facts dd small.down { color: var(--c-down); }
+.t2-tabs button { font-size: 13px; padding: 11px 2px; }
+.t2-tag { display: inline-block; font-size: 10px; font-weight: 800; border-radius: 4px; padding: 1px 4px; margin-right: 4px; vertical-align: 1px; line-height: 1.4; }
+.t2-tag.rh { background: #fde8e8; color: #c62828; }
+.t2-tag.reg { background: #eef2f7; color: var(--c-text-soft); }
+.t2-tag.silv { background: #efe6fd; color: #6d28d9; }
+.t2-tag.rr { background: #e8f1fd; color: var(--c-primary); margin-left: 4px; margin-right: 0; }
+.t2-rise { display: block; font-size: 10.5px; font-weight: 700; color: var(--c-muted); }
+.t2-rise.up { color: var(--c-up); }
+.t2-rise.down { color: var(--c-down); }
+.t2-telbtn { flex-shrink: 0; border: 1px solid var(--c-border); background: #fff; color: var(--c-text); font-weight: 700; font-size: 12.5px; padding: 6px 10px; border-radius: 8px; }
+.t2-telbtn.sm { padding: 4px 7px; font-size: 11.5px; }
+.t2-dl-bot .rt em { font-style: normal; font-weight: 500; color: var(--c-muted); }
+.t2-nb { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.t2-nb li { border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 9px 11px; background: #fff; }
+.t2-nb li.t2-click:hover { background: #f7f9fc; }
+.t2-nb-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.t2-nb-top b { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t2-nb-dist { font-size: 11.5px; color: var(--c-muted); white-space: nowrap; }
+.t2-nb-mid { font-size: 12px; color: var(--c-text-soft); margin-top: 2px; }
+.t2-nb-bot { margin-top: 4px; font-size: 13px; }
+.t2-nb-bot b { font-size: 14px; }
+.t2-nb-bot small { color: var(--c-muted); }
+.t2-ftog { border: 0; background: none; padding: 6px 9px; font-size: 13.5px; font-weight: 600; color: var(--c-text-soft); white-space: nowrap; border-radius: 6px; margin-left: 4px; }
+.t2-ftog:hover { background: #f3f6fa; }
+.t2-ftog.on { color: var(--c-down); font-weight: 800; }
+/* 지도 위 역·학교 표지(단지 열었을 때만) */
+.t2-poi { display: flex; flex-direction: column; align-items: center; background: #fff; border-radius: 8px; padding: 3px 8px; box-shadow: var(--sh-md); border-left: 3px solid #1268d3; white-space: nowrap; line-height: 1.25; }
+.t2-poi b { font-size: 11.5px; }
+.t2-poi span { font-size: 10px; color: var(--c-muted); }
+.t2-poi.sc { border-left-color: #1f9d63; }

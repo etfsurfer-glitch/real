@@ -27,8 +27,9 @@ type Agg = {
 type PriceMetric = "tx" | "hoga" | "vol" | "gap";
 // 매물찾기 필터(지도 위 필터 바). 값은 /map/listings 파라미터와 1:1.
 type Trade = "A1" | "B1" | "B2";
-type Flt = { types: string[]; trade: Trade; pmin: number; pmax: number; amin: number; amax: number; afrom: number; ato: number; hmin: number; hmax: number };
-const FLT0: Flt = { types: ["APT", "ABYG", "JGC"], trade: "A1", pmin: 0, pmax: 0, amin: 0, amax: 0, afrom: 0, ato: 0, hmin: 0, hmax: 0 };
+type Flt = { types: string[]; trade: Trade; pmin: number; pmax: number; amin: number; amax: number; afrom: number; ato: number; hmin: number; hmax: number;
+  only: boolean; disc: number };   // only=급매만, disc=급매 할인 문턱
+const FLT0: Flt = { types: ["APT", "ABYG", "JGC"], trade: "A1", pmin: 0, pmax: 0, amin: 0, amax: 0, afrom: 0, ato: 0, hmin: 0, hmax: 0, only: false, disc: 0.03 };
 const CX_TYPES: { k: string; l: string }[] = [
   { k: "APT", l: "아파트" }, { k: "ABYG", l: "아파트분양권" }, { k: "JGC", l: "재건축" }, { k: "OPST", l: "오피스텔" }, { k: "OBYG", l: "오피스텔분양권" },
 ];
@@ -107,6 +108,7 @@ export default function App() {
   const [aggMeta, setAggMeta] = useState<{ snapshot?: string; baseline?: string }>({});
   const [pm, setPm] = useState<PriceMetric>(init.pm);
   const [pw, setPw] = useState<number>(90);
+  const [pa, setPa] = useState<"apt" | "offi">("apt");   // 시세분석 유형(아파트·오피스텔)
   const [flt, setFlt] = useState<Flt>(FLT0);
   const [rkDong, setRkDong] = useState<{ code: string; name: string } | null>(null);
   const [mapErr, setMapErr] = useState("");
@@ -216,24 +218,25 @@ export default function App() {
       // 콕집 매물(직접 등록)은 아직 원천이 없어 비어 있다 — 생기면 kokCx 에 합친다.
       const b2 = `swlat=${view.swLat}&swlng=${view.swLng}&nelat=${view.neLat}&nelng=${view.neLng}`;
       const qd = flt.trade === "B2" ? Promise.resolve({ items: [] })
-        : getJson(`/stats/quick-deals-map?${b2}&min_discount=0.03&trade_type=${flt.trade}`).catch(() => ({ items: [] }));
+        : getJson(`/stats/quick-deals-map?${b2}&min_discount=${flt.only ? flt.disc : 0.03}&trade_type=${flt.trade}`).catch(() => ({ items: [] }));
       Promise.all([getJson(`/map/listings?${b2}&${fltQs(flt)}`), qd]).then(([ml, jd]) => {
         if (off) return;
         clear();
         if (ml.too_wide) { setInView([]); setHint("지도를 조금 더 확대하면 매물이 있는 단지가 보여요"); return; }
         const disc = new Map<string, number>();
         for (const d of jd.items || []) disc.set(d.complex_no, Math.min(disc.get(d.complex_no) ?? 0, d.discount));
-        const items: (Cx & { n: number; minp: number | null; minr: number | null; disc?: number })[] = (ml.items || []).map((m: any) => ({
+        let items: (Cx & { n: number; u: number; minp: number | null; minr: number | null; disc?: number })[] = (ml.items || []).map((m: any) => ({
           complex_no: m.complex_no, name: m.name, lat: m.lat, lng: m.lng, households: m.households, listings: m.n,
-          n: m.n, minp: m.min_price, minr: m.min_rent, disc: disc.get(m.complex_no),
+          n: m.n, u: Math.round(m.units || 0), minp: m.min_price, minr: m.min_rent, disc: disc.get(m.complex_no),
         }));
+        if (flt.only) items = items.filter((c) => c.disc);   // 급매만: 급매가 있는 단지만 남긴다
         const kokCx: Cx[] = [];
         setInView(items);
-        setHint(items.length ? "" : "이 조건에 맞는 매물이 이 범위엔 없어요");
+        setHint(items.length ? "" : flt.only ? "이 범위엔 조건에 맞는 급매 단지가 없어요" : "이 조건에 맞는 매물이 이 범위엔 없어요");
         for (const c of items) {
           const on = c.complex_no === selNo;
           const price = c.minp ? wonShort(c.minp) + (flt.trade === "B2" && c.minr ? `/${Math.round(c.minr / 1e4)}` : "") : "-";
-          put(c.lat, c.lng, `<div class="t2-pin lst${c.disc ? " deal" : ""}${on ? " on" : ""}"><b>${esc(shortName(c.name))}</b><i>${price}</i><em>${c.n}건${c.disc ? ` · 급매 ${pct(c.disc, 0)}` : ""}</em></div>`,
+          put(c.lat, c.lng, `<div class="t2-pin lst${c.disc ? " deal" : ""}${on ? " on" : ""}"><b>${esc(shortName(c.name))}</b><i>${price}</i><em>${c.n}건${c.u && c.u < c.n ? `·실${c.u}` : ""}${c.disc ? ` · 급매 ${pct(c.disc, 0)}` : ""}</em></div>`,
             () => pickComplex(c, false), on ? 50 : c.disc ? 6 : 5);
         }
         for (const c of kokCx) {
@@ -249,7 +252,7 @@ export default function App() {
       const isPrice = layer === "price";
       // 시세분석은 단지까지 내려간다(확대 ≤4). 중개사랭킹은 동이 최소 단위.
       const lv = view.level >= 7 ? "gu" : (isPrice && view.level <= 4) ? "cx" : "dong";
-      const qs = new URLSearchParams({ level: lv, asset: "apt", trade: "A1",
+      const qs = new URLSearchParams({ level: lv, asset: isPrice ? pa : "apt", trade: "A1",
         metric: isPrice ? pm : "tx", window_days: String(isPrice ? pw : 120),
         sw_lat: String(view.swLat), sw_lng: String(view.swLng), ne_lat: String(view.neLat), ne_lng: String(view.neLng),
         min_n: lv === "gu" ? "8" : lv === "cx" ? "2" : "3" });
@@ -280,7 +283,37 @@ export default function App() {
       }).catch(() => { if (!off) { setAgg([]); setAggLoading(false); } });
     }
     return () => { off = true; };
-  }, [layer, view, selNo, rkDong, region?.dong, pickComplex, pm, pw, flt]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layer, view, selNo, rkDong, region?.dong, pickComplex, pm, pw, pa, flt]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 단지를 열면 그 단지의 가까운 역(1.5km·3곳)과 배정 초등학교·학구 경계를 지도에 같이 그린다. 닫으면 지운다.
+  const cxOvs = useRef<any[]>([]);
+  useEffect(() => {
+    const map = mapRef.current, k = window.kakao;
+    cxOvs.current.forEach((o) => o.setMap(null)); cxOvs.current = [];
+    if (!selNo || !map || !k) return;
+    let off = false;
+    const add = (o: any) => { o.setMap(map); cxOvs.current.push(o); };
+    const put = (lat: number, lng: number, html: string) => {
+      const el = document.createElement("div"); el.innerHTML = html;
+      add(new k.maps.CustomOverlay({ position: new k.maps.LatLng(lat, lng), content: el, yAnchor: 0.5, zIndex: 3 }));
+    };
+    getJson(`/complex/${selNo}/subway-nearby?radius_km=1.5&limit=3`).then((j) => {
+      if (off) return;
+      for (const s of j.items || []) put(s.lat, s.lng, `<div class="t2-poi st"><b>${esc(s.station)}</b><span>${esc(String(s.lines || "").split("·")[0])} · 도보 ${s.walk_min}분</span></div>`);
+    }).catch(() => {});
+    getJson(`/complex/${selNo}/school-map`).then((j) => {
+      if (off) return;
+      for (const z of j.zones || []) {
+        // GeoJSON 폴리곤(링 목록) 또는 링 하나 — 바깥 링만 그린다
+        const ring: number[][] = typeof z?.[0]?.[0] === "number" ? z : z?.[0];
+        if (!ring?.length) continue;
+        add(new k.maps.Polygon({ path: ring.map(([lng, lat]: number[]) => new k.maps.LatLng(lat, lng)),
+          strokeWeight: 2, strokeColor: "#1f9d63", strokeOpacity: 0.8, strokeStyle: "shortdash", fillColor: "#1f9d63", fillOpacity: 0.07, zIndex: 0 }));
+      }
+      for (const sc of j.assigned || []) put(sc.lat, sc.lng, `<div class="t2-poi sc"><b>${esc(String(sc.name).replace("등학교", ""))}</b><span>${j.src === "near" ? "인근" : "배정"} · 도보 ${sc.walk_min}분</span></div>`);
+    }).catch(() => {});
+    return () => { off = true; };
+  }, [selNo]);
 
   useEffect(() => { if (layer !== "deals") setHint(""); }, [layer]);
 
@@ -321,6 +354,9 @@ export default function App() {
             {layer === "price" && (
               <div className="t2-fbar price">
                 <div className="t2-fseg">
+                  {([["apt", "아파트"], ["offi", "오피스텔"]] as const).map(([k, l]) => <button key={k} className={pa === k ? "on" : ""} onClick={() => setPa(k)}>{l}</button>)}
+                </div>
+                <div className="t2-fseg t2-period">
                   {METRICS.map((c) => <button key={c.k} className={pm === c.k ? "on" : ""} onClick={() => setPm(c.k)}>{c.l}</button>)}
                 </div>
                 {pm !== "hoga" && (
@@ -336,13 +372,13 @@ export default function App() {
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>
           </div>
           {!phone && <a className={"t2-fab" + (sel ? " narrow" : "")} href={`${SITE}/request`} target="_blank" rel="noreferrer">콕집에 요청하기</a>}
-          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} /></aside>}
+          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} /></aside>}
           {phone && (
             <section className={"t2-sheet " + sheet}>
               <button className="t2-grab" aria-label="목록 크기 바꾸기"
                 onClick={() => setSheet(sheet === "peek" ? "half" : sheet === "half" ? "full" : "peek")}><i /></button>
               <div className="t2-sheet-in">
-                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} /> : panel}
+                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} /> : panel}
               </div>
             </section>
           )}
@@ -469,6 +505,12 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
       <Dd id="hh" open={open} setOpen={setOpen} label={hhL && hhL !== "전체" ? hhL : "세대수"} active={!!flt.hmin || !!flt.hmax}>
         {HH_OPTS.map((o) => opt(o, flt.hmin === o.a && flt.hmax === o.b, () => set({ hmin: o.a, hmax: o.b })))}
       </Dd>
+      <button className={"t2-ftog" + (flt.only ? " on" : "")} onClick={() => set({ only: !flt.only })}>급매만</button>
+      {flt.only && (
+        <Dd id="disc" open={open} setOpen={setOpen} label={`${Math.round(flt.disc * 100)}% 이상`} active={flt.disc > 0.03}>
+          {[0.03, 0.05, 0.1].map((v) => opt({ l: `${Math.round(v * 100)}% 이상` }, flt.disc === v, () => set({ disc: v })))}
+        </Dd>
+      )}
       {dirty && <button className="t2-freset" onClick={() => onChange(FLT0)}>초기화</button>}
     </div>
   );
