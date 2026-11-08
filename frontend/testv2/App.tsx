@@ -183,11 +183,12 @@ export default function App() {
     }
   }, [phone]);
 
-  // 공유 링크로 들어온 단지
+  // 공유 링크로 들어온 단지 — 한 번만 연다(닫은 뒤 지도가 움직여도 다시 열리지 않게)
+  const linkCx = useRef(init.cx);
   useEffect(() => {
-    if (!init.cx || sel) return;
-    const hit = inView.find((c) => c.complex_no === init.cx);
-    if (hit) setSel(hit);
+    if (!linkCx.current || sel) return;
+    const hit = inView.find((c) => c.complex_no === linkCx.current);
+    if (hit) { linkCx.current = ""; setSel(hit); }
   }, [inView]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 레이어별 지도 표시 ────────────────────────────────
@@ -309,7 +310,7 @@ export default function App() {
           {mapErr && <div className="t2-maperr">{mapErr}</div>}
           {hint && !mapErr && <div className="t2-hint">{hint}</div>}
           {/* 레이어 탭 + 그 레이어의 필터가 한 줄로 이어진다(폰은 두 줄) */}
-          <div className="t2-maptop">
+          <div className={"t2-maptop" + (!phone && sel ? " narrow" : "")}>
             <div className="t2-layers" role="tablist">
               {LAYERS.map((l) => (
                 <button key={l.key} role="tab" aria-selected={layer === l.key} className={layer === l.key ? "on" : ""}
@@ -330,11 +331,11 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className="t2-zoom">
+          <div className={"t2-zoom" + (!phone && sel ? " narrow" : "")}>
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() - 1)} aria-label="확대">+</button>
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>
           </div>
-          {!phone && <a className="t2-fab" href={`${SITE}/request`} target="_blank" rel="noreferrer">콕집에 요청하기</a>}
+          {!phone && <a className={"t2-fab" + (sel ? " narrow" : "")} href={`${SITE}/request`} target="_blank" rel="noreferrer">콕집에 요청하기</a>}
           {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} /></aside>}
           {phone && (
             <section className={"t2-sheet " + sheet}>
@@ -441,7 +442,7 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
     <div className="t2-fbar" onMouseLeave={() => setOpen(null)}>
       <div className="t2-ftypes">
         {CX_TYPES.map((t) => (
-          <button key={t.k} className={flt.types.includes(t.k) ? "on" : ""} onClick={() => toggleType(t.k)}>{flt.types.includes(t.k) ? "✓ " : ""}{t.l}</button>
+          <button key={t.k} className={flt.types.includes(t.k) ? "on" : ""} onClick={() => toggleType(t.k)}>{t.l}</button>
         ))}
       </div>
       <Dd id="trade" open={open} setOpen={setOpen} label={TRADES.find((t) => t.k === flt.trade)!.l} active>

@@ -138,12 +138,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @keyframes t2sk { to { background-position: -200% 0; } }
 
 /* 지도 */
-.t2-mapwrap { flex: 1; position: relative; min-width: 0; }
+.t2-mapwrap { flex: 1; position: relative; min-width: 0; --dr-w: 460px; }
 .t2-map { position: absolute; inset: 0; }
 .t2-maperr { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--c-muted); font-size: 14px; background: #eef2f7; z-index: 5; }
 /* 지도 위 상단 줄: 레이어 탭 + 해당 레이어 필터 바가 한 줄로 이어짐 */
-.t2-maptop { position: absolute; top: 12px; left: 12px; right: 60px; z-index: 10; display: flex; align-items: stretch; gap: 8px; }
-.t2-layers { display: flex; align-items: center; flex-shrink: 0; background: #fff; border-radius: 12px; padding: 4px; box-shadow: var(--sh-md); gap: 2px; }
+.t2-maptop { position: absolute; top: 12px; left: 12px; right: 60px; z-index: 10; display: flex; align-items: stretch; background: #fff; border-radius: 12px; padding: 4px; box-shadow: var(--sh-md); }
+.t2-layers { display: flex; align-items: center; flex-shrink: 0; gap: 2px; }
+/* 서랍이 열리면 지도 위 바·버튼은 서랍 앞에서 끝난다 */
+.t2-maptop.narrow, .t2-zoom.narrow { right: calc(var(--dr-w) + 12px); }
+.t2-fab.narrow { right: calc(var(--dr-w) + 16px); }
 .t2-layers button { border: 0; background: none; padding: 8px 14px; border-radius: 9px; font-size: 14px; font-weight: 700; color: var(--c-text-soft); }
 .t2-layers button.on { background: var(--c-primary); color: #fff; }
 .t2-zoom { position: absolute; right: 12px; top: 12px; z-index: 10; display: flex; flex-direction: column; background: #fff; border-radius: 10px; box-shadow: var(--sh-md); overflow: hidden; }
@@ -181,15 +184,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-dong.gu { border-color: var(--c-primary-soft); }
 
 /* 단지 서랍 */
-.t2-dr { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+/* 서랍 전체가 스크롤. 단지 이름·개요는 같이 올라가고, 탭 줄과 그 아래 필터 줄만 위에 붙는다 */
+.t2-dr { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow-y: auto; }
 .t2-dr-h { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 16px 8px; }
 .t2-dr-h h2 { margin: 0; font-size: 19px; }
 .t2-dr-h p { margin: 4px 0 0; font-size: 13px; color: var(--c-muted); }
 .t2-x { border: 0; background: #f1f4f8; width: 32px; height: 32px; border-radius: 50%; font-size: 20px; line-height: 1; }
-.t2-tabs { display: flex; border-bottom: 1px solid var(--c-border); padding: 0 8px; }
+.t2-tabs { display: flex; border-bottom: 1px solid var(--c-border); padding: 0 8px; position: sticky; top: 0; z-index: 6; background: #fff; height: 44px; box-sizing: border-box; flex-shrink: 0; }
 .t2-tabs button { flex: 1; border: 0; background: none; padding: 11px 4px; font-size: 14px; font-weight: 700; color: var(--c-muted); border-bottom: 2.5px solid transparent; }
 .t2-tabs button.on { color: var(--c-primary); border-bottom-color: var(--c-primary); }
-.t2-dr-b { flex: 1; overflow-y: auto; padding: 14px 16px; min-height: 0; }
+.t2-dr-b { flex: 1; padding: 14px 16px; }
 .t2-dr-b .t2-ph { margin-bottom: 6px; }
 .t2-dr-link { display: block; text-align: center; padding: 13px; border-top: 1px solid var(--c-border); font-weight: 700; color: var(--c-primary); font-size: 14px; }
 
@@ -198,7 +202,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .phone .t2-logo { font-size: 18px; }
 .phone .t2-logo span { font-size: 10px; }
 .phone .t2-search { flex: 1; }
-.phone .t2-maptop { left: 8px; right: 8px; top: 8px; flex-direction: column; gap: 6px; }
+.phone .t2-maptop { left: 8px; right: 8px; top: 8px; flex-direction: column; gap: 4px; }
 .phone .t2-layers { width: 100%; }
 .phone .t2-layers button { flex: 1; padding: 8px 4px; font-size: 13.5px; }
 .phone .t2-zoom { top: 60px; right: 8px; }
@@ -239,7 +243,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* 서랍 탭 안 필터 줄 — 스크롤해도 위에 고정. 드롭다운 칩은 지도 필터 바와 같은 부품(Dd) */
 .t2-dr-b { padding-top: 0; }
 .t2-dr-b > :first-child:not(.t2-dr-flt) { margin-top: 14px; }
-.t2-dr-flt { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 -16px 10px; padding: 12px 16px 10px; background: #fff; border-bottom: 1px solid var(--c-border-soft); }
+.t2-dr-flt { position: sticky; top: 44px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 -16px 10px; padding: 12px 16px 10px; background: #fff; border-bottom: 1px solid var(--c-border-soft); }
 .t2-dr-flt.col { flex-direction: column; align-items: stretch; gap: 0; }
 .t2-dr-flt .t2-seg { margin-bottom: 0; }
 .t2-dr-flt .t2-chips.sm { margin-top: 8px; }
@@ -319,15 +323,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-est small { font-size: 10px; color: #a0b0c2; margin-left: 1px; }
 
 /* 지도 위 필터 바(매물찾기·시세분석) — 레이어 탭 옆에 이어서, 좁으면 줄바꿈(폰은 가로 스크롤) */
-.t2-fbar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: #fff; border-radius: 12px; padding: 6px 8px; box-shadow: var(--sh-md); flex-wrap: wrap; }
+.t2-fbar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: 8px; padding: 2px 4px 2px 10px; border-left: 1px solid var(--c-border-soft); flex-wrap: wrap; }
 .t2-fbar::-webkit-scrollbar { display: none; }
 .t2-fbar .t2-chips { margin: 0; flex-wrap: nowrap; }
 .t2-fbar.price .t2-period { border-left: 1px solid var(--c-border-soft); padding-left: 8px; }
-.t2-ftypes { display: flex; gap: 4px; flex-shrink: 0; padding-right: 6px; border-right: 1px solid var(--c-border-soft); }
+.t2-ftypes { display: flex; gap: 4px; flex-shrink: 0; padding-right: 8px; margin-right: 2px; border-right: 1px solid var(--c-border-soft); }
 .t2-ftypes button { border: 1px solid var(--c-border); background: #fff; border-radius: 999px; padding: 5px 11px; font-size: 12.5px; font-weight: 600; white-space: nowrap; color: var(--c-text-soft); }
 .t2-ftypes button.on { background: #e8f1fd; border-color: #bcd4f5; color: var(--c-primary); }
 .t2-dd { position: relative; flex-shrink: 0; }
-.t2-fdd { border: 1px solid var(--c-border); background: #fff; border-radius: 8px; padding: 5px 10px; font-size: 12.5px; font-weight: 600; white-space: nowrap; color: var(--c-text); }
+.t2-fdd { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--c-border); background: #fff; border-radius: 8px; padding: 5px 7px 5px 10px; font-size: 12.5px; font-weight: 600; white-space: nowrap; color: var(--c-text); }
+.t2-fdd svg { width: 13px; height: 13px; opacity: .55; }
+.t2-fdd.on svg { opacity: 1; }
 .t2-fdd.on { border-color: var(--c-primary); color: var(--c-primary); background: #f3f8ff; }
 .t2-dd .t2-ddm { position: absolute; left: 0; top: 34px; min-width: 150px; background: #fff; border-radius: 10px; box-shadow: var(--sh-lg); padding: 4px; display: flex; flex-direction: column; z-index: 20; }
 .t2-dd .t2-ddm button { border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
@@ -342,7 +348,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-bub.on { outline: 3px solid var(--c-gold); }
 .t2-rows li.t2-click { cursor: pointer; }
 .t2-rows li.t2-click:hover { background: #f7f9fc; }
-.phone .t2-fbar { width: 100%; flex: none; padding: 5px 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.phone .t2-fbar { width: 100%; flex: none; margin: 0; padding: 6px 2px 2px; border-left: 0; border-top: 1px solid var(--c-border-soft); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .phone .t2-fbar .t2-ddm { position: fixed; left: 8px; right: 8px; top: 104px; }
 .t2-dr-flt .t2-dd:nth-last-child(-n+2) .t2-ddm { left: auto; right: 0; }
 .phone .t2-zoom { top: 104px; }
