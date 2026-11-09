@@ -4,9 +4,9 @@ import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useSearchP
 import { SubNav } from "./components/SubNav";
 import {
   Sparkles, LayoutDashboard, BadgePercent,
-  TrendingUp, BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
+  BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, MessagesSquare, Building2, Database, Bell, Activity, Calculator, SlidersHorizontal, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins, Settings as SettingsIcon, Gift, MapPin as MapPinIcon } from "lucide-react";
+  ChevronDown, Home as HomeIcon, Building2, Database, Bell, Activity, Calculator, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins, Settings as SettingsIcon, Gift, MapPin as MapPinIcon } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginGoogle, isInAppBrowser, authClient } from "./auth";
@@ -51,6 +51,7 @@ import AdminSns from "./pages/AdminSns";
 import AdminResident from "./pages/AdminResident";
 import AdminRealtorRequests from "./pages/AdminRealtorRequests";
 import AdminDataSources from "./pages/AdminDataSources";
+import AdminIros from "./pages/AdminIros";
 import AdminPush from "./pages/AdminPush";
 import AdminTodayStats from "./pages/AdminTodayStats";
 import AdminBotStats from "./pages/AdminBotStats";
@@ -114,7 +115,7 @@ import NicknameModal from "./components/NicknameModal";
 import PointsToast from "./components/PointsToast";
 import InAppBrowserBanner from "./components/InAppBrowserBanner";
 import RealtorPromoBanner from "./components/RealtorPromoBanner";
-import { TxStatsLayout, TxTopPrice, TxTopVolume, TxLowPrice, TX_GROUPS } from "./pages/TxStats";
+import { TxStatsLayout, TxTopPrice, TxTopVolume, TxLowPrice } from "./pages/TxStats";
 import { CHANGES_TABS } from "./pages/Changes";
 import ListingCounts from "./pages/ListingCounts";
 import ComplexFinder from "./pages/ComplexFinder";
@@ -137,55 +138,65 @@ import { installExitGuard } from "./lib/exitGuard";
 type NavChild = { to: string; label: string; heading?: boolean; small?: boolean };
 type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean; children?: NavChild[] };
 
-// 실거래 하위는 TxStats.tsx 의 TX_GROUPS(단일 원본)에서 그대로 가져와 그룹 소제목과 함께 펼친다.
-const TX_CHILDREN: NavChild[] = TX_GROUPS.flatMap((g) => [
-  { to: `#${g.title}`, label: g.title, heading: true as const },
-  // 항목 + (있으면) 작은 글씨 하위링크(예: 지역별 거래량 → 일별~연도별)
-  ...g.items.flatMap((it) => [
-    { to: it.to, label: it.label },
-    ...(it.subs ?? []).map((sb) => ({ ...sb, small: true as const })),
-  ]),
-]);
-
-// 상단 메뉴 순서 = 실측 이용량순(2026-07 로그) + TODAY는 균형상 맨 앞(사용자 지정).
-// 홈은 로고, AI는 플로팅 버튼이 항시 보조.
+// 상단 메뉴 = 절충안(2026-11-09, design/map_ui/절충안) 5개 묶음 + 중개사라운지.
+//   ① 급매·집찾기  ② 등기·전세안심  ③ 실거래·시세분석(4묶음)  ④ 콕집AI·매물의뢰  ⑤ 중개사·커뮤니티
+// TODAY 는 메뉴에서 빠지고 홈(/)과 /today 주소는 그대로 둔다. 홈은 로고, AI는 플로팅 버튼이 항시 보조.
+// 묶음 이름은 지도 시험판(testv2)의 레이어·버튼 이름과 같게 유지한다(매물찾기·시세분석·중개사·안심·통계·매물의뢰).
 const NAV_ITEMS: NavItem[] = [
-  { to: "/today", label: "TODAY", icon: LayoutDashboard, children: [
-    { to: "/today", label: "우리동네" },
-    { to: "/today/find", label: "우리단지찾기" },
-    { to: "/today/old/deals", label: "전국실거래" },
-    { to: "/today/old/listings", label: "전국급매" },
-    { to: "/today/old/stats", label: "오늘 매물 통계" },
-  ] },
-  { to: "/quick-deals", label: "급매찾기", icon: BadgePercent },
-  // AI 상담사는 '무엇을 요청할지 모를 때' 먼저 물어보는 입구 — 콕집요청과 같은 흐름이라
-  // 상단 메뉴에서 뺀 /ai 를 여기에 하위로 둔다(플로팅 AiFab 은 그대로 유지).
-  { to: "/request", label: "콕집요청", icon: Sparkles, children: [
-    { to: "/request", label: "요청 보내기" },
-    { to: "/ai", label: "AI 상담사" },
-    { to: "/me/requests", label: "내 요청 보기" },
-  ] },
-  { to: "/finder", label: "맞춤단지", icon: SlidersHorizontal, children: [
+  { to: "/quick-deals", label: "급매·집찾기", icon: BadgePercent, children: [
+    { to: "/quick-deals", label: "급매찾기" },
+    // '조건별 매물' = 세안고·주인전세·매도인 대출. 매물호가 맨 아래에 숨어 있던 걸 전면으로(공동대표 안).
+    { to: "/special-deals", label: "조건별 매물 (세안고·주인전세·대출)" },
     { to: "/finder", label: "맞춤단지" },
+    { to: "/today/find", label: "우리단지찾기" },
     { to: "/finder/compare", label: "단지비교" },
     { to: "/finder/region-compare", label: "지역비교" },
   ] },
-  // 주인전세는 ChangesLayout(공용 지역필터) 밖의 독립 페이지라 CHANGES_TABS 자체는 건드리지 않고
-  // 드롭다운에만 덧붙인다 — 레이아웃 안 SubNav의 활성표시가 어긋나지 않게.
-  { to: "/changes", label: "매물호가", icon: TrendingUp,
-    children: [...CHANGES_TABS, { to: "/special-deals", label: "주인(대출·전세·세안고)" }] },
-  { to: "/tx-stats", label: "실거래", icon: BarChart3, children: TX_CHILDREN },
-  { to: "/realtors", label: "중개사무소랭킹", icon: Award, children: [
-    { to: "/realtors/dong", label: "우리동네 중개사" },
-    { to: "/realtors/national", label: "매물보유순위(전국)" },
-    { to: "/realtors/region", label: "매물보유순위(지역별)" },
-    { to: "/realtors/tenure", label: "업력순위" },
-    { to: "/realtors/staff", label: "직원수순위" },
+  // 등기변동 알림·등기분석은 회원 오픈(한도·원가 결정) 뒤 여기에 붙는다. 지금은 두 도구만.
+  { to: "/jeonse-check", label: "등기·전세안심", icon: ShieldAlert, children: [
+    { to: "/jeonse-check", label: "깡통전세지수" },
+    { to: "/buy-calculator", label: "매수계산기" },
   ] },
-  // AI 분석은 상단 메뉴에서 제외 — 전 페이지 플로팅 AI 버튼(AiFab)이 진입점 (2026-07-12)
-  { to: "/buy-calculator", label: "아파트매수계산기", icon: Calculator },
-  { to: "/jeonse-check", label: "깡통전세지수", icon: ShieldAlert },
-  { to: "/forum", label: "토론장", icon: MessagesSquare },
+  { to: "/tx-stats", label: "실거래·시세분석", icon: BarChart3, children: [
+    { to: "#실거래가", label: "실거래가", heading: true },
+    { to: "/tx-stats/top-price", label: "실거래 최고가" },
+    { to: "/tx-stats/record-high", label: "단지별 신고가" },
+    { to: "/tx-stats/pyeong-price", label: "평당가" },
+    { to: "/tx-stats/price-change", label: "가격 변동률" },
+    { to: "/tx-stats/timemachine", label: "부동산타임머신" },
+    { to: "/tx-stats/map", label: "실거래 지도" },
+    { to: "/tx-stats/cancelled", label: "취소거래" },
+    { to: "#매물호가추이", label: "매물호가추이", heading: true },
+    ...CHANGES_TABS,
+    { to: "#시장흐름", label: "시장흐름", heading: true },
+    { to: "/tx-stats/region-pulse", label: "기간별 거래량" },
+    { to: "/tx-stats/volume/daily", label: "일별", small: true },
+    { to: "/tx-stats/volume/weekly", label: "주간", small: true },
+    { to: "/tx-stats/volume/monthly", label: "월별", small: true },
+    { to: "/tx-stats/volume/quarterly", label: "분기별", small: true },
+    { to: "/tx-stats/volume/yearly", label: "연도별", small: true },
+    { to: "/tx-stats/top-volume", label: "단지별 거래량" },
+    { to: "/tx-stats/turnover", label: "거래회전율" },
+    { to: "#투자분석", label: "투자분석", heading: true },
+    { to: "/tx-stats/gap", label: "갭투자" },
+    { to: "/tx-stats/yield", label: "월세수익률" },
+    { to: "/tx-stats/low-price", label: "시세차이 저가" },
+    { to: "/tx-stats/presale", label: "분양권" },
+  ] },
+  // AI 상담사는 '무엇을 요청할지 모를 때' 먼저 물어보는 입구. 플로팅 AiFab 은 그대로 유지.
+  { to: "/request", label: "콕집AI·매물의뢰", icon: Sparkles, children: [
+    { to: "/request", label: "중개사에게 매물의뢰" },
+    { to: "/ai", label: "AI 상담사" },
+    { to: "/me/requests", label: "내 요청 보기" },
+  ] },
+  { to: "/realtors", label: "중개사·커뮤니티", icon: Award, children: [
+    { to: "/realtors/dong", label: "우리동네 중개사" },
+    { to: "/realtors/national", label: "우수중개사 랭킹" },
+    { to: "/realtors/region", label: "지역별", small: true },
+    { to: "/realtors/tenure", label: "업력순", small: true },
+    { to: "/realtors/staff", label: "직원수순", small: true },
+    { to: "/forum", label: "토론장" },
+  ] },
   // 하위메뉴 없음 — 라운지 안에 좌측 메뉴 레일이 생겨 상단에서 또 고르게 할 이유가 없다
   { to: "/lounge", label: "중개사라운지", icon: Building2 },
 ];
@@ -517,6 +528,9 @@ function AppShell() {
         <Route path="/admin/data-sources" element={<RequireAdmin><AdminDataSources /></RequireAdmin>} />
         <Route path="/admin/push" element={<RequireAdmin><AdminPush /></RequireAdmin>} />
         <Route path="/admin/audit" element={<RequireAdmin><AuditRealtor /></RequireAdmin>} />
+        <Route path="/admin/iros" element={<RequireAdmin><AdminIros /></RequireAdmin>} />
+        {/* 회원용 등기변동 알림 — 오픈 전 관리자만. 오픈 시 RequireAdmin→로그인 회원 + 서버 IROS_MEMBER_OPEN=1 */}
+        <Route path="/iros" element={<RequireAdmin><AdminIros mode="member" /></RequireAdmin>} />
         <Route path="/admin/cardnews" element={<RequireAdmin><CardNews /></RequireAdmin>} />
         <Route path="/admin/cardnews-v2" element={<RequireAdmin><CardNewsV2 /></RequireAdmin>} />
         <Route path="/admin/sns-radar" element={<RequireAdmin><SnsRadar /></RequireAdmin>} />
@@ -609,6 +623,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/requests", label: "콕집요청", icon: Sparkles },
   { to: "/admin/realtor-requests", label: "중개사 라운지", icon: Building2 },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck },
+  { to: "/admin/iros", label: "등기변동 확인", icon: ScrollText },
   { to: "/admin/academy", label: "개업 입지·수익", icon: MapPinIcon },
   { to: "/biz/wcontracts", label: "계약서 작성", icon: ClipboardList },
   { to: "/admin/contract-basis", label: "계약 기준정보", icon: ClipboardCheck },

@@ -108,7 +108,7 @@ export default function SpecialDeals() {
   return (
     <div ref={shareRef} className="share-target">
       <Link to="/changes" className="back">← 매물호가</Link>
-      <h2 style={{ margin: "0 0 4px" }}>주인 — 대출·전세·세안고</h2>
+      <h2 style={{ margin: "0 0 4px" }}>조건별 매물 — 세안고·주인전세·매도인 대출</h2>
       <div className="muted" style={{ marginBottom: 14 }}>
         중개사가 매물 설명란에 적어 광고하는 특수조건 매매를 모았습니다. 설명 문구를 분류한
         것이라 실제 조건은 반드시 중개사무소에 확인하세요.

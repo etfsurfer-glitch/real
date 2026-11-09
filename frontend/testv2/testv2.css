@@ -658,8 +658,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* 휴대폰: 창이 화면 전체, 표는 가로 스크롤 */
 .t2-win.phone .t2-win-h { height: auto; flex-wrap: wrap; padding: 0 4px; }
 .t2-win.phone .t2-win-h h2 { display: none; }
-.t2-win.phone .t2-win-tabs { flex: 1; height: 44px; }
-.t2-win.phone .t2-win-tabs button { flex: 1; padding: 0 4px; font-size: 14px; }
+.t2-win.phone .t2-win-tabs { flex: 1; height: 44px; overflow-x: auto; scrollbar-width: none; }
+.t2-win.phone .t2-win-tabs::-webkit-scrollbar { display: none; }
+.t2-win.phone .t2-win-tabs button { flex: none; padding: 0 10px; font-size: 14px; white-space: nowrap; }
 .t2-win.phone .t2-win-region { width: 100%; margin: 0; border-left: 0; border-top: 1px solid var(--c-border-soft); height: 38px; padding-left: 4px; }
 .t2-win.phone .t2-win-in { padding: 10px 12px 40px; overflow-x: hidden; }
 .t2-win.phone .t2-tbl { display: block; overflow-x: auto; }
