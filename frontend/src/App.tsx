@@ -6,7 +6,7 @@ import {
   Sparkles, LayoutDashboard, BadgePercent,
   BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, Building2, Database, Bell, Activity, Calculator, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Coins, Settings as SettingsIcon, Gift, MapPin as MapPinIcon } from "lucide-react";
+  ChevronDown, Home as HomeIcon, Building2, Database, Bell, Activity, Calculator, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Megaphone, Coins, Settings as SettingsIcon, Gift, MapPin as MapPinIcon } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginGoogle, isInAppBrowser, authClient } from "./auth";
@@ -52,6 +52,7 @@ import AdminResident from "./pages/AdminResident";
 import AdminRealtorRequests from "./pages/AdminRealtorRequests";
 import AdminDataSources from "./pages/AdminDataSources";
 import AdminIros from "./pages/AdminIros";
+import AdminMapAds from "./pages/AdminMapAds";
 import AdminPush from "./pages/AdminPush";
 import AdminTodayStats from "./pages/AdminTodayStats";
 import AdminBotStats from "./pages/AdminBotStats";
@@ -529,6 +530,7 @@ function AppShell() {
         <Route path="/admin/push" element={<RequireAdmin><AdminPush /></RequireAdmin>} />
         <Route path="/admin/audit" element={<RequireAdmin><AuditRealtor /></RequireAdmin>} />
         <Route path="/admin/iros" element={<RequireAdmin><AdminIros /></RequireAdmin>} />
+        <Route path="/admin/map-ads" element={<RequireAdmin><AdminMapAds /></RequireAdmin>} />
         {/* 회원용 등기변동 알림 — 오픈 전 관리자만. 오픈 시 RequireAdmin→로그인 회원 + 서버 IROS_MEMBER_OPEN=1 */}
         <Route path="/iros" element={<RequireAdmin><AdminIros mode="member" /></RequireAdmin>} />
         <Route path="/admin/cardnews" element={<RequireAdmin><CardNews /></RequireAdmin>} />
@@ -624,6 +626,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/realtor-requests", label: "중개사 라운지", icon: Building2 },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck },
   { to: "/admin/iros", label: "등기변동 확인", icon: ScrollText },
+  { to: "/admin/map-ads", label: "지도 광고 관리", icon: Megaphone },
   { to: "/admin/academy", label: "개업 입지·수익", icon: MapPinIcon },
   { to: "/biz/wcontracts", label: "계약서 작성", icon: ClipboardList },
   { to: "/admin/contract-basis", label: "계약 기준정보", icon: ClipboardCheck },

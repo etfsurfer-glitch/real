@@ -5,13 +5,15 @@ import { API, getJson } from "./Drawer";
 export type Ad = { id: number; slot: string; scope: string; code: string; title: string; sub: string; url: string; image_url: string;
   complex_no: string; realtor_id: string; lat: number | null; lng: number | null; advertiser: string };
 export type AdSlots = { pin: Ad[]; realtor_top: Ad[]; deals_top: Ad[]; stats_band: Ad[]; info_life: Ad[] };
+export type AdSettings = { visitors: string; pageviews: string; complex_views: string; note: string };
 export const NO_ADS: AdSlots = { pin: [], realtor_top: [], deals_top: [], stats_band: [], info_life: [] };
+let _settings: AdSettings = { visitors: "", pageviews: "", complex_views: "", note: "" };   // 관리자가 넣은 광고 안내 지표(/map/ads 응답에 같이 옴)
 
 export function useAds(sgg: string | undefined, dong: string | undefined): AdSlots {
   const [ads, setAds] = useState<AdSlots>(NO_ADS);
   useEffect(() => {
     let off = false;
-    getJson(`/map/ads?sigungu=${(sgg || "").slice(0, 5)}&dong=${dong || ""}`).then((j) => { if (!off) setAds({ ...NO_ADS, ...(j.slots || {}) }); }).catch(() => { if (!off) setAds(NO_ADS); });
+    getJson(`/map/ads?sigungu=${(sgg || "").slice(0, 5)}&dong=${dong || ""}`).then((j) => { if (j.settings) _settings = j.settings; if (!off) setAds({ ...NO_ADS, ...(j.slots || {}) }); }).catch(() => { if (!off) setAds(NO_ADS); });
     return () => { off = true; };
   }, [sgg, dong]);
   return ads;
@@ -67,12 +69,24 @@ export function AdInfoModal({ onClose }: { onClose: () => void }) {
         <div className="t2-ph"><h2>광고 안내</h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
         <div className="t2-adinfo">
           <p className="t2-safe-lead">콕집 지도는 매물·실거래·중개사 자료를 보러 오는 사람에게 광고를 보여 줘요. 광고는 모두 <b>'광고' 표시</b>를 달고, 급매 순위·중개사 랭킹과 섞지 않아요.</p>
-          <div className="t2-kpis">
-            <div><span>하루 방문</span><b>약 370명</b><small>최근 2주 평균 · 봇 제외</small></div>
-            <div><span>하루 페이지뷰</span><b>약 22,000</b><small>지도·통계·단지 화면</small></div>
-            <div><span>하루 단지 조회</span><b>약 12,000</b><small>단지 서랍·핀</small></div>
+          {(_settings.visitors || _settings.pageviews || _settings.complex_views) && (
+            <div className="t2-kpis">
+              {_settings.visitors && <div><span>하루 방문</span><b>{_settings.visitors}</b>{_settings.note && <small>{_settings.note}</small>}</div>}
+              {_settings.pageviews && <div><span>하루 페이지뷰</span><b>{_settings.pageviews}</b><small>지도·통계·단지 화면</small></div>}
+              {_settings.complex_views && <div><span>하루 단지 조회</span><b>{_settings.complex_views}</b><small>단지 서랍·핀</small></div>}
+            </div>
+          )}
+          <h3 className="t2-sh" style={{ display: "block" }}>이렇게 보여요</h3>
+          <div className="t2-adex">
+            <div className="t2-adex-i"><small>광고 핀 · 지도 위</small>
+              <div className="t2-pin2 ad" style={{ margin: "6px auto 10px", display: "inline-flex" }}><span className="hd">광고 · 2027년 입주</span><b>OO 분양 현장</b><em>OO건설</em></div></div>
+            <div className="t2-adex-i"><small>중개사 상단 노출 · 랭킹 위</small>
+              <div className="t2-adrow"><span className="t2-adtag">광고</span><span className="t"><b>OO 공인중개사사무소</b><em>잠실 전문 · 매매·전세 상담</em></span><small>OO부동산</small></div></div>
+            <div className="t2-adex-i"><small>급매 목록 첫 칸</small>
+              <div className="t2-adrow"><span className="t2-adtag">광고</span><span className="t"><b>OO아파트 분양 안내</b><em>34평 9억대 · 견본주택 운영 중</em></span><small>OO건설</small></div></div>
+            <div className="t2-adex-i"><small>통계 창 띠 · 생활 광고</small>
+              <div className="t2-adband" style={{ margin: 0 }}><span className="t2-adtag">광고</span><span className="t"><b>OO인테리어 송파점</b><em>34평 리모델링 견적 무료</em></span><small>OO인테리어</small></div></div>
           </div>
-          <p className="t2-snote">2026년 11월 9일 기준. 접속이 늘면 가격을 다시 정해요. 광고주에게는 월 1회 노출·클릭 집계를 보내 드려요.</p>
           <table className="t2-tbl t2-adprice">
             <thead><tr><th>상품</th><th>자리</th><th>맞는 광고주</th><th className="num">가격(월, 부가세 별도)</th></tr></thead>
             <tbody>
@@ -88,8 +102,8 @@ export function AdInfoModal({ onClose }: { onClose: () => void }) {
             <li>게재 뒤 광고주가 원하면 7일 안에 소재를 한 번 바꿀 수 있어요.</li>
           </ul>
           <div className="t2-adcta">
-            <a className="t2-cta1" href={AD_MAIL}>메일로 광고문의</a>
-            <a className="t2-cta1 ghost" href={CS_URL} target="_blank" rel="noreferrer">카카오톡 고객센터로 문의</a>
+            <a className="t2-cta1 kakao" href={CS_URL} target="_blank" rel="noreferrer">카카오톡 문의</a>
+            <a className="t2-cta1 ghost" href={AD_MAIL}>메일 문의</a>
           </div>
           <p className="t2-snote">런투온라인 · 대표 황인찬 · runtoonline@gmail.com · 070-7954-4114</p>
         </div>

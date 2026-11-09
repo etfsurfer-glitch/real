@@ -10624,6 +10624,20 @@ def _ensure_map_ads(c) -> None:
         created_at TEXT DEFAULT (datetime('now','+9 hours')))""")
 
 
+def _ensure_ad_settings(c) -> None:
+    c.execute("CREATE TABLE IF NOT EXISTS map_ad_settings(key TEXT PRIMARY KEY, value TEXT)")
+
+
+# 광고 안내에 보이는 지표(하루 방문·페이지뷰·단지 조회)는 관리자가 손으로 넣는다(자동 집계값을 그대로 내보내지 않는다).
+_AD_SETTING_KEYS = ("visitors", "pageviews", "complex_views", "note")
+
+
+def _ad_settings(c) -> dict:
+    _ensure_ad_settings(c)
+    d = {r[0]: r[1] for r in c.execute("SELECT key, value FROM map_ad_settings")}
+    return {k: d.get(k, "") for k in _AD_SETTING_KEYS}
+
+
 def _ad_row(r) -> dict:
     return {k: r[k] for k in ("id", "slot", "scope", "code", "title", "sub", "url", "image_url", "complex_no", "realtor_id",
                               "lat", "lng", "starts", "ends", "active", "advertiser", "note", "clicks", "created_at")}
@@ -10651,7 +10665,9 @@ def map_ads(sigungu: str = "", dong: str = ""):
     for r in rows:
         if r["slot"] in out:
             out[r["slot"]].append(_ad_row(r))
-    res = {"sigungu": sg, "dong": dg, "slots": out}
+    with _reviews_db() as c:
+        st = _ad_settings(c)
+    res = {"sigungu": sg, "dong": dg, "slots": out, "settings": st}
     _ADS_CACHE[ck] = (_time.monotonic(), res)
     return res
 
@@ -10669,7 +10685,20 @@ def map_ad_click(ad_id: int):
 def admin_map_ads(_admin: dict = Depends(admin_user)):
     with _reviews_db() as c:
         _ensure_map_ads(c)
-        return {"items": [_ad_row(r) for r in c.execute("SELECT * FROM map_ads ORDER BY id DESC")]}
+        return {"items": [_ad_row(r) for r in c.execute("SELECT * FROM map_ads ORDER BY id DESC")], "settings": _ad_settings(c)}
+
+
+@app.post("/admin/map-ads/settings")
+def admin_map_ads_settings(body: dict, _admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        _ensure_ad_settings(c)
+        for k in _AD_SETTING_KEYS:
+            if k in body:
+                c.execute("INSERT OR REPLACE INTO map_ad_settings(key, value) VALUES(?,?)", (k, str(body.get(k) or "")))
+        c.commit()
+        st = _ad_settings(c)
+    _ADS_CACHE.clear()
+    return st
 
 
 @app.post("/admin/map-ads")
