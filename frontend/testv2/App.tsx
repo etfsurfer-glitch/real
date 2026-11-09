@@ -8,6 +8,7 @@ import { ComplexDrawer, JibunDrawer, Skel, Dd, SPECIAL_KINDS, type DrawerTab, ty
 import { useSession, authHeaders, LoginBox, logout, sessionName } from "./Request";
 import { StatsWindow, statsKeyOf, type StatsKey } from "./Stats";
 import { SafeWindow, type SafeTab } from "./Safe";
+import { AskWindow, askTabOf, type AskTab } from "./Ask";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -115,14 +116,14 @@ function useIsPhone() {
   return m;
 }
 
-// 공유 링크: ?layer=&lat=&lng=&lv=&cx=&stats=묶음.항목&safe=탭
+// 공유 링크: ?layer=&lat=&lng=&lv=&cx=&stats=묶음.항목&safe=탭&ask=탭
 function readUrl() {
   const p = new URLSearchParams(location.search);
   const layer = (["deals", "price", "realtor"].includes(p.get("layer") || "") ? p.get("layer") : "deals") as Layer;
   const pm = (["tx", "hoga", "vol", "gap", "rh"].includes(p.get("m") || "") ? p.get("m") : "tx") as PriceMetric;
   const lat = parseFloat(p.get("lat") || ""), lng = parseFloat(p.get("lng") || ""), lv = parseInt(p.get("lv") || "");
   const safe = (["alert", "ledger", "jeonse", "calc"].includes(p.get("safe") || "") ? p.get("safe") : null) as SafeTab | null;
-  return { layer, pm, lat: isNaN(lat) ? 37.5045 : lat, lng: isNaN(lng) ? 127.1095 : lng, lv: isNaN(lv) ? 5 : lv, cx: p.get("cx"), stats: statsKeyOf(p.get("stats")), safe };
+  return { layer, pm, lat: isNaN(lat) ? 37.5045 : lat, lng: isNaN(lng) ? 127.1095 : lng, lv: isNaN(lv) ? 5 : lv, cx: p.get("cx"), stats: statsKeyOf(p.get("stats")), safe, ask: askTabOf(p.get("ask")) };
 }
 
 export default function App() {
@@ -162,6 +163,8 @@ export default function App() {
   // 지도 위 창: 통계(옛 실거래·매물호가·거래량·투자 통계를 다시 만든 것) · 안심(등기·전세안심) · 매물의뢰 갈래
   const [stats, setStats] = useState<StatsKey | null>(init.stats);
   const [safe, setSafe] = useState<SafeTab | null>(init.safe);
+  const [ask, setAsk] = useState<AskTab | null>(init.ask);
+  const openAsk = (t: AskTab) => { setStats(null); setSafe(null); setReqOpen(false); setAsk(t); };
   const [reqOpen, setReqOpen] = useState(false);
   const mapEl = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -240,8 +243,9 @@ export default function App() {
     if (sel) p.set("cx", sel.complex_no);
     if (stats) p.set("stats", `${stats.g}.${stats.i}`);
     if (safe) p.set("safe", safe);
+    if (ask) p.set("ask", ask);
     history.replaceState(null, "", "?" + p.toString());
-  }, [layer, view, sel, pm, stats, safe]);
+  }, [layer, view, sel, pm, stats, safe, ask]);
 
   // 지도 가운데 → 동·구
   useEffect(() => {
@@ -646,7 +650,7 @@ export default function App() {
   return (
     <div className={"t2" + (phone ? " phone" : " desk")}>
       <TopBar phone={phone} favs={favs} session={!!session} user={session ? sessionName(session) : null} onLogout={() => logout()} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)}
-        statsOn={!!stats} safeOn={!!safe} onStats={() => { setSafe(null); setStats((s) => (s ? null : { g: "price", i: "top" })); }} onSafe={() => { setStats(null); setSafe((s) => (s ? null : "alert")); }} onPick={(c) => {
+        statsOn={!!stats} safeOn={!!safe} onStats={() => { setSafe(null); setAsk(null); setStats((s) => (s ? null : { g: "price", i: "top" })); }} onSafe={() => { setStats(null); setAsk(null); setSafe((s) => (s ? null : "alert")); }} onPick={(c) => {
         const m = mapRef.current;
         if (m && c.lat) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(c.lat, c.lng)); }
         pickComplex(c, false);
@@ -689,9 +693,9 @@ export default function App() {
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>
           </div>
           {/* 매물의뢰 — 절충안의 떠 있는 버튼. 세 갈래: 중개사에게 매물의뢰 · AI 상담사 · 내 요청 보기 */}
-          {!phone && !stats && !safe && (
+          {!phone && !stats && !safe && !ask && (
             <div className={"t2-fabwrap" + (sel || selJ ? " narrow" : "")}>
-              {reqOpen && <ReqMenu onClose={() => setReqOpen(false)} />}
+              {reqOpen && <ReqMenu onClose={() => setReqOpen(false)} onPick={openAsk} />}
               <button className="t2-fab" onClick={() => setReqOpen(!reqOpen)} aria-expanded={reqOpen}>매물의뢰</button>
             </div>
           )}
@@ -702,6 +706,13 @@ export default function App() {
             onSafe={() => { setStats(null); setSafe("jeonse"); }} />}
           {safe && <SafeWindow tab={safe} onTab={setSafe} phone={phone} onClose={() => setSafe(null)} session={session}
             at={selJ ? { lat: selJ.lat, lng: selJ.lng, name: selJ.name } : null} onLogin={() => setAskLogin(true)} />}
+          {ask && <AskWindow tab={ask} onTab={setAsk} phone={phone} onClose={() => setAsk(null)} session={session}
+            region={{ sido: region ? region.dong.slice(0, 2) + "00000000" : "", sgg: region?.sgg || "", dong: region?.dong || "" }}
+            onGo={(path, text) => {
+              const m = /^\/complex\/(\d+)/.exec(path);
+              if (m) { setAsk(null); goComplex(m[1], text || ""); }
+              else window.open(SITE + path, "_blank", "noreferrer");
+            }} />}
           {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)}
             fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} /></aside>}
           {!phone && !sel && selJ && <aside className="t2-drawer"><JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /></aside>}
@@ -728,12 +739,12 @@ export default function App() {
       </div>
       {phone && (
         <nav className="t2-tabbar">
-          <button className={!stats && !safe ? "on" : ""} onClick={() => { setStats(null); setSafe(null); setReqOpen(false); }}>지도</button>
-          <button className={stats ? "on" : ""} onClick={() => { setSafe(null); setReqOpen(false); setStats({ g: "price", i: "top" }); }}>통계</button>
-          <button className="req" onClick={() => setReqOpen(!reqOpen)}>의뢰</button>
-          <button className={safe ? "on" : ""} onClick={() => { setStats(null); setReqOpen(false); setSafe("alert"); }}>안심</button>
+          <button className={!stats && !safe && !ask ? "on" : ""} onClick={() => { setStats(null); setSafe(null); setAsk(null); setReqOpen(false); }}>지도</button>
+          <button className={stats ? "on" : ""} onClick={() => { setSafe(null); setAsk(null); setReqOpen(false); setStats({ g: "price", i: "top" }); }}>통계</button>
+          <button className={"req" + (ask ? " on" : "")} onClick={() => setReqOpen(!reqOpen)}>의뢰</button>
+          <button className={safe ? "on" : ""} onClick={() => { setStats(null); setAsk(null); setReqOpen(false); setSafe("alert"); }}>안심</button>
           <button onClick={() => setMore(!more)}>더보기</button>
-          {reqOpen && <div className="t2-more req" onClick={() => setReqOpen(false)}><ReqMenu onClose={() => setReqOpen(false)} /></div>}
+          {reqOpen && <div className="t2-more req" onClick={() => setReqOpen(false)}><ReqMenu onClose={() => setReqOpen(false)} onPick={openAsk} /></div>}
           {more && (
             <div className="t2-more" onClick={() => setMore(false)}>
               {favs && favs.length > 0 && favs.map((f) => <button key={f.complex_no} onClick={() => goComplex(f.complex_no, f.complex_name)}>관심단지 · {f.complex_name}</button>)}
@@ -750,8 +761,8 @@ export default function App() {
 }
 
 // ── 매물의뢰 갈래 메뉴 ───────────────────────────────
-// 요청 보내기·AI 상담사는 운영 화면으로 간다(지도 안으로 옮기는 건 다음 단계). 단지·사무소에서 여는 요청은 서랍의 RequestModal.
-function ReqMenu({ onClose }: { onClose: () => void }) {
+// 세 갈래 모두 지도 위 매물의뢰 창(Ask.tsx)에서 열린다. 단지·사무소에서 여는 한 곳 지정 요청은 서랍의 RequestModal.
+function ReqMenu({ onClose, onPick }: { onClose: () => void; onPick: (t: AskTab) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
@@ -760,9 +771,9 @@ function ReqMenu({ onClose }: { onClose: () => void }) {
   }, [onClose]);
   return (
     <div className="t2-reqmenu" ref={ref}>
-      <a href={`${SITE}/request`} target="_blank" rel="noreferrer"><b>중개사에게 매물의뢰</b><span>지역·예산·조건을 적으면 동네 중개사가 매물을 찾아 제안해요</span></a>
-      <a href={`${SITE}/ai`} target="_blank" rel="noreferrer"><b>AI 상담사</b><span>"강남 30평대 급매 찾아줘"처럼 말로 물어보기</span></a>
-      <a href={`${SITE}/me/requests`} target="_blank" rel="noreferrer"><b>내 요청 보기</b><span>보낸 의뢰와 중개사 제안 확인</span></a>
+      <button onClick={() => onPick("req")}><b>중개사에게 매물의뢰</b><span>지역·예산·조건을 적으면 동네 중개사가 매물을 찾아 제안해요</span></button>
+      <button onClick={() => onPick("ai")}><b>AI 상담사</b><span>"강남 30평대 급매 찾아줘"처럼 말로 물어보기</span></button>
+      <button onClick={() => onPick("mine")}><b>내 요청 보기</b><span>보낸 의뢰와 중개사 제안 확인</span></button>
     </div>
   );
 }

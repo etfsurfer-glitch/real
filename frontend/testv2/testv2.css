@@ -742,3 +742,80 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-win.phone .t2-safe-inputs { grid-template-columns: 1fr; }
 .t2-win.phone .t2-safe-steps { flex-direction: column; }
 .t2-win.phone .t2-safe-steps > div + div { border-left: 0; border-top: 1px solid var(--c-border-soft); padding-left: 0; }
+
+/* ── 매물의뢰 창(중개사에게 매물의뢰 · AI 상담사 · 내 요청) ── */
+.t2-reqmenu button { border: 0; background: none; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: var(--r-sm); font: inherit; color: var(--c-text); }
+.t2-reqmenu button:hover { background: var(--c-primary-tint); }
+.t2-reqmenu button b { font-size: 14px; }
+.t2-reqmenu button span { font-size: 12px; color: var(--c-muted); line-height: 1.4; }
+.t2-lnk { border: 0; background: none; padding: 0; font: inherit; color: var(--c-primary); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+.t2-ask-sec { margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--c-border-soft); }
+.t2-ask-sec h3 { margin: 0 0 10px; font-size: 15.5px; font-weight: 800; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.t2-ask-sec h3 i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; background: var(--c-primary); color: #fff; display: inline-grid; place-items: center; font-size: 12px; align-self: center; flex-shrink: 0; }
+.t2-ask-sec h3 small { font-size: 12.5px; color: var(--c-muted); font-weight: 500; }
+.t2-ask-region { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 4px 0; border-top: 1px solid var(--c-border-soft); border-bottom: 1px solid var(--c-border-soft); }
+.t2-ask-region .t2-dd + .t2-dd { margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--c-border); }
+.t2-ask-picked { margin-left: auto; font-size: 13.5px; font-weight: 800; color: var(--c-primary); padding: 0 6px; }
+.t2-ask .t2-fld textarea { border-radius: var(--r-sm); }
+.t2-ask .t2-calc-row { margin: 4px 0; }
+.t2-ask-cands tr.pick { cursor: pointer; }
+.t2-ask-cands tr.pick:hover td { background: #f7f9fc; }
+.t2-ask-cands tr.on td { background: var(--c-primary-tint); }
+.t2-ask-cands td.chk { width: 28px; }
+.t2-ask-sum th { width: 84px; text-align: left; font-weight: 600; color: var(--c-muted); font-size: 12.5px; padding: 7px 4px; border-bottom: 1px solid var(--c-border-soft); vertical-align: top; }
+.t2-ask-ok { margin: 10px 0 0; font-size: 13.5px; font-weight: 700; color: var(--c-down); }
+.t2-ask .t2-login { margin-top: 10px; }
+.t2-ask .t2-cta1 { margin-top: 4px; border-radius: var(--r-sm); }
+.t2-phone { margin-top: 10px; }
+.t2-phone p { margin: 0 0 8px; font-size: 13.5px; line-height: 1.55; color: var(--c-text-soft); }
+.t2-phone p.ok { color: var(--c-down); font-weight: 700; }
+.t2-phone .row { display: flex; gap: 6px; margin-bottom: 8px; }
+.t2-phone input { flex: 1; height: 40px; border: 1px solid var(--c-border); border-radius: var(--r-sm); padding: 0 12px; font: inherit; font-size: 16px; font-weight: 700; outline: none; min-width: 0; }
+.t2-phone input:focus { border-color: var(--c-primary); }
+.t2-phone input[readonly] { background: #f7f9fc; color: var(--c-text-soft); }
+.t2-phone .row button { height: 40px; border: 0; background: var(--c-primary); color: #fff; font-weight: 700; padding: 0 14px; border-radius: var(--r-sm); white-space: nowrap; }
+.t2-phone .row button:disabled { opacity: .45; }
+.t2-phone .row button.ghost { background: #f1f4f8; color: var(--c-text); }
+.t2-phone .lnk { border: 0; background: none; padding: 0; font-size: 12.5px; color: var(--c-muted); text-decoration: underline; }
+/* AI 상담사: 기록은 위에서 흐르고 입력은 바닥에 붙는다 */
+.t2-win-b.flex { display: flex; flex-direction: column; overflow: hidden; }
+.t2-ai { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.t2-ai-log { flex: 1; min-height: 0; overflow-y: auto; }
+.t2-ai-hello { padding-top: 8px; }
+.t2-ai-ex { display: flex; flex-wrap: wrap; gap: 4px 2px; margin: 6px 0; }
+.t2-ai-ex button { border: 0; background: none; padding: 7px 10px; font-size: 13.5px; font-weight: 600; color: var(--c-primary); border-radius: 6px; }
+.t2-ai-ex button:hover { background: var(--c-primary-tint); }
+.t2-ai-ex.small { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--c-border-soft); }
+.t2-ai-ex.small button { font-size: 12.5px; padding: 5px 8px; }
+.t2-ai-turn { padding: 14px 0 6px; border-top: 1px solid var(--c-border-soft); }
+.t2-ai-turn:first-child { border-top: 0; }
+.t2-ai-q { margin: 0 0 8px; font-size: 15px; font-weight: 800; }
+.t2-ai-a { position: relative; padding-left: 44px; font-size: 14px; line-height: 1.65; }
+.t2-ai-a .who { position: absolute; left: 0; top: 2px; font-size: 12px; font-weight: 800; color: var(--c-primary); }
+.t2-ai-a p { margin: 0 0 8px; }
+.t2-ai-a ul { margin: 0 0 8px; padding-left: 18px; }
+.t2-ai-a li { margin: 2px 0; }
+.t2-ai-wait { margin: 0; color: var(--c-text-soft); font-weight: 600; }
+.t2-ai-wait small { color: var(--c-muted); font-weight: 500; }
+.t2-ai-req { margin: 6px 0 0; padding: 8px 0 0; border-top: 1px solid var(--c-border-soft); font-size: 13.5px; color: var(--c-text-soft); }
+.t2-ai-in { flex-shrink: 0; border-top: 1px solid var(--c-border); background: #fff; }
+.t2-ai-in .t2-win-in { padding: 10px 20px 12px; }
+.t2-ai-in .row { display: flex; gap: 6px; }
+.t2-ai-in input { flex: 1; height: 42px; border: 1px solid var(--c-border); border-radius: var(--r-sm); padding: 0 12px; font: inherit; font-size: 15px; outline: none; background: #f7f9fc; min-width: 0; }
+.t2-ai-in input:focus { border-color: var(--c-primary); background: #fff; }
+.t2-ai-in .row button { height: 42px; border: 0; background: var(--c-primary); color: #fff; font-weight: 800; padding: 0 16px; border-radius: var(--r-sm); }
+.t2-ai-in .row button:disabled { opacity: .45; }
+.t2-ai-in .t2-snote { margin: 6px 0 0; }
+/* 내 요청 */
+.t2-myreq { padding: 4px 0 10px; border-bottom: 1px solid var(--c-border-soft); margin-bottom: 8px; }
+.t2-myreq .t2-sh { margin: 8px 0 4px; }
+.t2-myreq-memo { margin: 4px 0 8px; font-size: 14px; line-height: 1.6; }
+.t2-offers td { vertical-align: top; }
+.t2-offer-l { padding: 2px 0; }
+.t2-offer-l em { font-style: normal; font-weight: 800; color: var(--c-up); margin-left: 4px; }
+.t2-offer-l small { color: var(--c-muted); }
+.t2-win.phone .t2-ask-region .t2-dd + .t2-dd { margin-left: 2px; padding-left: 2px; }
+.t2-win.phone .t2-ask-picked { width: 100%; margin: 4px 0 2px; }
+.t2-win.phone .t2-ai-a { padding-left: 0; padding-top: 18px; }
+.t2-win.phone .t2-ai-in .t2-win-in { padding: 8px 12px 10px; }
+.t2-win.phone .t2-ask-sum th { width: 64px; }

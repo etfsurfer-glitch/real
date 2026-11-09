@@ -66,7 +66,7 @@ function useQ<T>(url: string | null) {
 }
 
 // 지역 목록(시·도 → 시·군·구 → 읍·면·동). 코드는 10자리.
-function useRegionLists(r: RegionSel) {
+export function useRegionLists(r: RegionSel) {
   const [sidos, setSidos] = useState<Opt[]>([]);
   const [sggs, setSggs] = useState<Opt[]>([]);
   const [dongs, setDongs] = useState<Opt[]>([]);
@@ -82,13 +82,13 @@ const rq = (r: RegionSel, depth: "dong" | "sgg" | "sido" = "dong") => {
   if (r.sido) return `&sido=${r.sido}`;
   return "";
 };
-const regionLabel = (r: RegionSel, L: ReturnType<typeof useRegionLists>) => {
+export const regionLabel = (r: RegionSel, L: ReturnType<typeof useRegionLists>) => {
   const a = L.sidos.find((x) => x.code === r.sido)?.name, b = L.sggs.find((x) => x.code === r.sgg)?.name, c = L.dongs.find((x) => x.code === r.dong)?.name;
   return [a, b, c].filter(Boolean).join(" ") || "전국";
 };
 
 // 글자 세그먼트(평평한 줄). 운영 '필터 순서 표준'(거래→지역→유형→면적→기간→세부→정렬)을 따른다.
-function Seg<T extends string | number>({ opts, value, onChange }: { opts: { k: T; l: string }[]; value: T; onChange: (v: T) => void }) {
+export function Seg<T extends string | number>({ opts, value, onChange }: { opts: { k: T; l: string }[]; value: T; onChange: (v: T) => void }) {
   return <div className="t2-fseg">{opts.map((o) => <button key={String(o.k)} className={o.k === value ? "on" : ""} onClick={() => onChange(o.k)}>{o.l}</button>)}</div>;
 }
 // 드롭다운(긴 목록용). open 상태는 바 단위로 하나만.
