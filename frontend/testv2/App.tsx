@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadKakao, wonShort, geocodeRegion } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
 import { ComplexDrawer, JibunDrawer, Skel, Dd, SPECIAL_KINDS, type DrawerTab, type Jibun } from "./Drawer";
-import { useSession, authHeaders, LoginBox, logout, sessionName } from "./Request";
+import { useSession, authHeaders, LoginBox, MeModal, logout, sessionName } from "./Request";
 import { StatsWindow, statsKeyOf, type StatsKey } from "./Stats";
 import { SafeWindow, type SafeTab } from "./Safe";
 import { AskWindow, askTabOf, type AskTab } from "./Ask";
@@ -186,6 +186,7 @@ export default function App() {
   const [ask, setAsk] = useState<AskTab | null>(init.ask);
   // 관심단지 대시보드(?fav=1) · 중개사무소 상세(?rt=아이디) — 운영 페이지 대신 지도 안 창
   const [fav, setFav] = useState<boolean>(init.fav);
+  const [meOpen, setMeOpen] = useState(false);   // 내 정보(닉네임·휴대폰 인증·로그아웃) 작은 창
   const [rt, setRt] = useState<string | null>(init.rt);
   const closeWins = () => { setStats(null); setSafe(null); setAsk(null); setFav(false); setRt(null); setReqOpen(false); };
   const openAsk = (t: AskTab) => { closeWins(); setAsk(t); };
@@ -687,19 +688,20 @@ export default function App() {
   // ── 화면 ─────────────────────────────────────────
   const panel = (
     <>
-      {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} />}
+      {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} onRequest={() => openAsk("req")} />}
       {layer === "price" && isJibun(pa) && <JibunPanel asset={pa} pins={jpins} region={region} win={pw} onWin={setPw} loading={aggLoading} zoomedOut={(view?.level ?? 5) > (pa === "villa" ? 4 : 5)}
         onPick={(p) => { setSel(null); setSelJ({ asset: pa as Jibun["asset"], ref: p.ref, name: p.name, sigungu: region?.sgg || "", lat: p.lat, lng: p.lng }); goTo(p.lat, p.lng, 3); }} />}
-      {layer === "price" && !isJibun(pa) && pm === "rh" && <RecordHighPanel rows={rhs} region={region} win={pw} onWin={setPw} loading={aggLoading} onMetric={setPm} onPick={pickComplex} />}
+      {layer === "price" && !isJibun(pa) && pm === "rh" && <RecordHighPanel rows={rhs} region={region} win={pw} onWin={setPw} loading={aggLoading} onMetric={setPm} onPick={pickComplex} onStats={() => { closeWins(); setStats({ g: "price", i: "rh" }); }} />}
       {layer === "price" && !isJibun(pa) && pm !== "rh" && <PricePanel region={region} agg={agg} level={view?.level ?? 5} metric={pm} onMetric={setPm}
-        win={pw} onWin={setPw} loading={aggLoading} meta={aggMeta} onPick={pickComplex} />}
+        win={pw} onWin={setPw} loading={aggLoading} meta={aggMeta} onPick={pickComplex}
+        onStats={() => { closeWins(); setStats(pm === "hoga" ? { g: "hoga", i: "sum" } : pm === "vol" ? { g: "flow", i: "vol" } : pm === "gap" ? { g: "invest", i: "gap" } : { g: "price", i: "top" }); }} />}
       {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} onRows={setRkRows} onPick={pickRealtor} onDong={pickDong} onRealtor={openRt} />}
     </>
   );
 
   return (
     <div className={"t2" + (phone ? " phone" : " desk")}>
-      <TopBar phone={phone} favs={favs} session={!!session} user={session ? sessionName(session) : null} onLogout={() => logout()} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)}
+      <TopBar phone={phone} favs={favs} session={!!session} user={session ? sessionName(session) : null} onMe={() => setMeOpen(true)} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)}
         statsOn={!!stats} safeOn={!!safe} onStats={() => { const was = !!stats; closeWins(); if (!was) setStats({ g: "price", i: "top" }); }} onSafe={() => { const was = !!safe; closeWins(); if (!was) setSafe("alert"); }} onFavDash={openFav} onPick={(c) => {
         const m = mapRef.current;
         if (m && c.lat) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(c.lat, c.lng)); }
@@ -763,15 +765,26 @@ export default function App() {
               if (m) { setAsk(null); goComplex(m[1], text || ""); }
               else if (/^\/realtor\//.test(path)) openRt(decodeURIComponent(path.split("/")[2] || "").split("?")[0]);
               else if (path.startsWith("/my/favorites")) openFav();
-              else window.open(SITE + path, "_blank", "noreferrer");
+              else if (path.startsWith("/special-deals")) { closeWins(); setLayer("deals"); setFlt((f) => ({ ...f, trade: "A1", sp: "owner" })); }
+              else if (path.startsWith("/quick-deals") || path.startsWith("/today")) { closeWins(); setLayer("deals"); }
+              else if (path.startsWith("/tx-map")) { closeWins(); setLayer("price"); setPm("tx"); }
+              else if (path.startsWith("/tx-stats/record-high")) { closeWins(); setStats({ g: "price", i: "rh" }); }
+              else if (path.startsWith("/tx-stats") || path.startsWith("/changes") || path.startsWith("/overview")) { closeWins(); setStats({ g: "price", i: "top" }); }
+              else if (path.startsWith("/jeonse-check")) { closeWins(); setSafe("jeonse"); }
+              else if (path.startsWith("/buy-calculator")) { closeWins(); setSafe("calc"); }
+              else if (path.startsWith("/realtors")) { closeWins(); setLayer("realtor"); }
+              else if (path.startsWith("/ai")) openAsk("ai");
+              else if (path.startsWith("/settings")) setMeOpen(true);
+              else window.open(SITE + path, "_blank", "noreferrer");   // 중개사라운지·약관 등 지도 밖 문서만
             }} />}
           {fav && <FavWindow phone={phone} session={session} onClose={() => setFav(false)} onRemoved={(no) => setFavs((o) => (o || []).filter((f) => f.complex_no !== no))}
             onGo={(no, name, tab) => { setFav(false); goComplex(no, name, tab); }} />}
-          {rt && <RealtorWindow id={rt} phone={phone} session={session} onClose={() => setRt(null)} onLogin={() => setAskLogin(true)}
+          {rt && <RealtorWindow id={rt} phone={phone} session={session} onClose={() => setRt(null)} onMe={() => setMeOpen(true)}
             onGo={(no, name) => { setRt(null); goComplex(no, name); }} />}
-          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt}
+          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")}
             fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} /></aside>}
           {!phone && !sel && selJ && <aside className="t2-drawer"><JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /></aside>}
+          {meOpen && session && <MeModal session={session} onClose={() => setMeOpen(false)} onLogout={() => logout()} />}
           {askLogin && (
             <div className="t2-modal" role="dialog" aria-modal="true" onClick={() => setAskLogin(false)}>
               <div className="t2-modal-in sm" onClick={(e) => e.stopPropagation()}>
@@ -785,7 +798,7 @@ export default function App() {
               <button className="t2-grab" aria-label="목록 크기 바꾸기"
                 onClick={() => setSheet(sheet === "peek" ? "half" : sheet === "half" ? "full" : "peek")}><i /></button>
               <div className="t2-sheet-in">
-                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt}
+                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")}
                   fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} />
                   : selJ ? <JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /> : panel}
               </div>
@@ -806,8 +819,7 @@ export default function App() {
               {favs && favs.length > 0 && favs.map((f) => <button key={f.complex_no} onClick={() => goComplex(f.complex_no, f.complex_name)}>관심단지 · {f.complex_name}</button>)}
               {session && <button onClick={openFav}>관심단지 대시보드</button>}
               {!session ? <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>
-                : <button onClick={() => logout()}>{sessionName(session)} · 로그아웃</button>}
-              <a href={`${SITE}/settings`} target="_blank" rel="noreferrer">내 정보</a>
+                : <button onClick={() => setMeOpen(true)}>{sessionName(session)} · 내 정보</button>}
               <a href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사라운지</a>
             </div>
           )}
@@ -836,8 +848,8 @@ function ReqMenu({ onClose, onPick }: { onClose: () => void; onPick: (t: AskTab)
 }
 
 // ── 상단 바 ─────────────────────────────────────────
-function TopBar({ phone, onPick, favs, session, user, onLogout, onGo, onAddr, onLogin, statsOn, safeOn, onStats, onSafe, onFavDash }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
-  session: boolean; user: string | null; onLogout: () => void; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void;
+function TopBar({ phone, onPick, favs, session, user, onMe, onGo, onAddr, onLogin, statsOn, safeOn, onStats, onSafe, onFavDash }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
+  session: boolean; user: string | null; onMe: () => void; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void;
   statsOn: boolean; safeOn: boolean; onStats: () => void; onSafe: () => void; onFavDash: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<any[]>([]);
@@ -897,7 +909,7 @@ function TopBar({ phone, onPick, favs, session, user, onLogout, onGo, onAddr, on
           </span>
           <a className="lounge" href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사라운지</a>
           {session
-            ? <button className="t2-loginbtn on" onClick={onLogout} title="로그아웃"><span>{user}</span>로그아웃</button>
+            ? <button className="t2-loginbtn on" onClick={onMe} title="내 정보"><span>{user}</span>내 정보</button>
             : <button className="t2-loginbtn" onClick={onLogin}>로그인</button>}
         </nav>
       )}
@@ -1014,7 +1026,7 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
 }
 
 // ── 매물찾기: 위 2/3 급매, 아래 1/3 콕집 매물 ─────────────────
-function DealsPanel({ region, inView, onPick, zoomedOut }: { region: Region | null; inView: Cx[]; onPick: (c: Cx) => void; zoomedOut: boolean }) {
+function DealsPanel({ region, inView, onPick, zoomedOut, onRequest }: { region: Region | null; inView: Cx[]; onPick: (c: Cx) => void; zoomedOut: boolean; onRequest: () => void }) {
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const [onlyView, setOnlyView] = useState(true);
   useEffect(() => {
@@ -1066,7 +1078,7 @@ function DealsPanel({ region, inView, onPick, zoomedOut }: { region: Region | nu
         <div className="t2-ph"><h2><span className="t2-kz">콕집</span> 콕집 매물</h2></div>
         <p className="t2-empty sm">콕집에 직접 등록된 매물이 여기에 먼저 보여요. 아직 이 지역엔 없어요.</p>
         <div className="t2-cta">
-          <a href={`${SITE}/request`} target="_blank" rel="noreferrer">이 동네 매물 요청하기</a>
+          <button onClick={onRequest}>이 동네 매물 요청하기</button>
           <a className="ghost" href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사 · 매물 올리기</a>
         </div>
       </section>
@@ -1097,7 +1109,7 @@ const METRICS: { k: PriceMetric; l: string; h: string }[] = [
 ];
 
 // ── 시세분석 · 신고가 단지 목록(지도 안) ─────────────────────
-function RecordHighPanel({ rows, region, win, onWin, loading, onMetric, onPick }: { rows: RH[]; region: Region | null; win: number; onWin: (d: number) => void; loading: boolean;
+function RecordHighPanel({ rows, region, win, onWin, loading, onMetric, onPick, onStats }: { rows: RH[]; region: Region | null; win: number; onWin: (d: number) => void; loading: boolean; onStats: () => void;
   onMetric: (m: PriceMetric) => void; onPick: (c: Cx) => void }) {
   const [sort, setSort] = useState<"recent" | "premium" | "price">("recent");
   const xs = useMemo(() => [...rows].sort(sort === "premium" ? (a, b) => b.premium - a.premium : sort === "price" ? (a, b) => b.record_price - a.record_price
@@ -1130,7 +1142,7 @@ function RecordHighPanel({ rows, region, win, onWin, loading, onMetric, onPick }
           ))}
         </ul>
       )}
-      <a className="t2-stat-link" href={`${SITE}/tx-stats/record-high`} target="_blank" rel="noreferrer">{region ? `${region.sggName} ` : ""}신고가 통계 전체 보기 ↗</a>
+      <button className="t2-stat-link" onClick={onStats}>{region ? `${region.sggName} ` : ""}신고가 통계 전체 보기</button>
     </div>
   );
 }
@@ -1168,14 +1180,13 @@ function JibunPanel({ asset, pins, region, win, onWin, loading, zoomedOut, onPic
           </ul>
         </>
       )}
-      <a className="t2-stat-link" href={`${SITE}/tx-map`} target="_blank" rel="noreferrer">실거래 지도 전체 보기 ↗</a>
     </div>
   );
 }
 
-function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading, meta, onPick }: {
+function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading, meta, onPick, onStats }: {
   region: Region | null; agg: Agg[]; level: number; metric: PriceMetric; onMetric: (m: PriceMetric) => void;
-  win: number; onWin: (d: number) => void; loading: boolean; meta: { snapshot?: string; baseline?: string }; onPick: (c: Cx) => void;
+  win: number; onWin: (d: number) => void; loading: boolean; meta: { snapshot?: string; baseline?: string }; onPick: (c: Cx) => void; onStats: () => void;
 }) {
   const isCx = level <= 4;
   const unit = level >= 7 ? "구별" : isCx ? "단지별" : "동별";
@@ -1231,9 +1242,7 @@ function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading,
           })}
         </ul>
       )}
-      <a className="t2-stat-link" href={`${SITE}/tx-stats`} target="_blank" rel="noreferrer">
-        {region ? `${region.sggName} ` : "이 지역 "}통계 전체 보기 (표·그래프) ↗
-      </a>
+      <button className="t2-stat-link" onClick={onStats}>{region ? `${region.sggName} ` : "이 지역 "}통계 전체 보기 (표·그래프)</button>
     </div>
   );
 }

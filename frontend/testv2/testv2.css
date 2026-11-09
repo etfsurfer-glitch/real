@@ -913,3 +913,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-ddm-col small { font-size: 11px; font-weight: 700; color: var(--c-muted); padding: 6px 12px 2px; }
 .t2.phone .t2-ddm-in.cols { flex-direction: column; }
 .t2.phone .t2-ddm-col + .t2-ddm-col { border-left: 0; border-top: 1px solid var(--c-border-soft); padding-left: 0; margin-left: 0; padding-top: 4px; margin-top: 4px; }
+/* 운영 링크를 대신하는 버튼들 — 모양은 전과 같게 */
+.t2-cta button { flex: 1; border: 0; font: inherit; text-align: center; font-size: 13px; font-weight: 700; padding: 10px 8px; border-radius: var(--r-md); background: var(--c-primary); color: #fff; }
+button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+.t2-cta1.ghost { background: #f1f4f8; color: var(--c-text); margin-top: 14px; }
+.t2-me-sec { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--c-border-soft); }
+.t2-me-sec h3 { margin: 0 0 6px; font-size: 14px; font-weight: 800; display: flex; flex-direction: column; gap: 2px; }
+.t2-me-sec h3 small { font-size: 11.5px; color: var(--c-muted); font-weight: 500; }
+.t2-me-sec .row { display: flex; gap: 6px; }
+.t2-me-sec input { flex: 1; height: 40px; border: 1px solid var(--c-border); border-radius: var(--r-sm); padding: 0 12px; font: inherit; font-size: 15px; font-weight: 700; outline: none; min-width: 0; }
+.t2-me-sec input:focus { border-color: var(--c-primary); }
+.t2-me-sec .row button { height: 40px; border: 0; background: var(--c-primary); color: #fff; font-weight: 700; padding: 0 14px; border-radius: var(--r-sm); white-space: nowrap; }
+.t2-me-sec .row button:disabled { opacity: .45; }
+.t2-me-sec p.ok { margin: 6px 0 0; font-size: 13px; font-weight: 700; color: var(--c-down); }
+.t2-me-sec .t2-phone { margin-top: 0; }

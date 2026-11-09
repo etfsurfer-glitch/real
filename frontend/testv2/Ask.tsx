@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { Dd, getJson, API } from "./Drawer";
 import { useRegionLists, regionLabel, Seg, type RegionSel } from "./Stats";
-import { LoginBox, authHeaders, login, sessionName } from "./Request";
+import { LoginBox, PhoneBlock, authHeaders, login, sessionName } from "./Request";
 import { visitorHeader } from "../src/lib/visitor";
 
 const SITE = "https://koczip.com";
@@ -20,59 +20,6 @@ const errText = (d: any, status: number) => {
   if (det && typeof det === "object" && "message" in det) return String(det.message);
   return `오류 ${status}`;
 };
-
-// ── 휴대폰 인증(한 번) ───────────────────────────────
-function PhoneBlock({ session, onDone }: { session: Session; onDone: () => void }) {
-  const [phone, setPhone] = useState("");
-  const [code, setCode] = useState("");
-  const [sent, setSent] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [devCode, setDevCode] = useState("");
-  const H = { "Content-Type": "application/json", ...authHeaders(session) };
-  const send = async () => {
-    if (busy) return; setBusy(true); setMsg(""); setDevCode("");
-    try {
-      const r = await fetch(`${API}/me/phone/send-code`, { method: "POST", headers: H, body: JSON.stringify({ phone }) });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(errText(d, r.status));
-      setSent(true); setCode(""); if (d.dev_code) setDevCode(String(d.dev_code));
-    } catch (e: any) { setMsg(e.message || "보내지 못했어요"); } finally { setBusy(false); }
-  };
-  const verify = async () => {
-    if (busy) return; setBusy(true); setMsg("");
-    try {
-      const r = await fetch(`${API}/me/phone/verify`, { method: "POST", headers: H, body: JSON.stringify({ code }) });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(errText(d, r.status));
-      onDone();
-    } catch (e: any) { setMsg(e.message || "확인하지 못했어요"); } finally { setBusy(false); }
-  };
-  return (
-    <div className="t2-phone">
-      <p>중개사무소가 제안을 남기면 알려 드릴 번호예요. 본인 명의 휴대폰으로 한 번만 인증해요. 번호는 중개사무소에 넘어가지 않아요.</p>
-      <div className="row">
-        <input inputMode="numeric" maxLength={11} placeholder="휴대폰 번호(숫자만)" value={phone} readOnly={sent}
-          onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ""))} onKeyDown={(e) => { if (e.key === "Enter" && !sent) send(); }} />
-        {!sent ? <button disabled={busy || phone.length < 10} onClick={send}>{busy ? "발송 중…" : "인증번호 받기"}</button>
-          : <button className="ghost" onClick={() => { setSent(false); setCode(""); setMsg(""); }}>번호 변경</button>}
-      </div>
-      {sent && (
-        <>
-          <p className="ok">{phone.replace(/(\d{3})(\d{3,4})(\d{4})/, "$1-$2-$3")} 로 인증번호를 보냈어요. 5분 안에 넣어 주세요.</p>
-          <div className="row">
-            <input inputMode="numeric" maxLength={6} autoComplete="one-time-code" placeholder="인증번호 6자리" value={code} autoFocus
-              onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))} onKeyDown={(e) => { if (e.key === "Enter") verify(); }} />
-            <button disabled={busy || code.length < 6} onClick={verify}>{busy ? "확인 중…" : "인증 완료"}</button>
-          </div>
-          <button className="lnk" disabled={busy} onClick={send}>문자가 안 왔나요? 다시 보내기</button>
-        </>
-      )}
-      {devCode && <p className="t2-snote">개발 모드 인증번호 {devCode}</p>}
-      {msg && <p className="t2-err">{msg}</p>}
-    </div>
-  );
-}
 
 // ── 중개사에게 매물의뢰 ───────────────────────────────
 type Cand = { realtor_id: string; name: string; address: string | null; representative: string | null; listings: number; matched: boolean };
@@ -170,7 +117,7 @@ function ReqTab({ session, region, prefillQ, onSent }: { session: Session | null
           <p>중개사무소가 매물과 연락처를 제안으로 남기면 알려 드려요. 보통 하루 안에 와요. 확인하고 마음에 드는 곳에만 전화하면 돼요. 내 이름·전화번호는 전달되지 않았어요.</p>
         </div>
         <table className="t2-tbl"><tbody>{done.offices.map((o, i) => <tr key={i}><td>{o.name}</td></tr>)}</tbody></table>
-        {done.proposals_url && <p className="t2-snote" style={{ marginTop: 10 }}>제안이 오면 문자로 알려 드려요. 이 주소로 로그인 없이 다시 볼 수 있어요. <a className="t2-lnk" href={done.proposals_url} target="_blank" rel="noreferrer">{done.proposals_url}</a></p>}
+        <p className="t2-snote" style={{ marginTop: 10 }}>제안이 오면 문자로 알려 드려요. 여기서는 아래 내 요청에서, 문자의 주소로는 로그인 없이 볼 수 있어요.</p>
         <button className="t2-cta1" style={{ marginTop: 14 }} onClick={onSent}>내 요청에서 진행 상황 보기</button>
       </div>
     );

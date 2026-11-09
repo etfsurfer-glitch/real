@@ -26,8 +26,8 @@ const CATS: [string, string, string][] = [["전체", "", "total"], ["단지형",
 const tel = (s: string | null | undefined) => { const f = (s || "").split(/\s+/)[0].replace(/[^\d]/g, ""); return f.length >= 7 ? f : null; };
 const ymd = (s: string) => (s && s.length === 8 ? `${s.slice(4, 6)}.${s.slice(6, 8)}` : s);
 
-export function RealtorWindow({ id, onClose, phone, session, onGo, onLogin }: {
-  id: string; onClose: () => void; phone: boolean; session: Session | null; onGo: (no: string, name: string) => void; onLogin: () => void;
+export function RealtorWindow({ id, onClose, phone, session, onGo, onMe }: {
+  id: string; onClose: () => void; phone: boolean; session: Session | null; onGo: (no: string, name: string) => void; onMe: () => void;
 }) {
   const [d, setD] = useState<Detail | null | undefined>(undefined);
   const [rv, setRv] = useState<{ summary: { avg_rating: number | null; verified_count: number; total_count: number }; items: Review[] } | null>(null);
@@ -163,7 +163,7 @@ export function RealtorWindow({ id, onClose, phone, session, onGo, onLogin }: {
               {!session ? <div style={{ maxWidth: 420, marginTop: 10 }}><LoginBox why="리뷰를 남기려면 로그인이 필요해요." /></div> : (
                 <div className="t2-revform">
                   <textarea rows={3} maxLength={1000} placeholder="이 사무소와 거래하거나 상담한 경험을 적어 주세요." value={body} onChange={(e) => setBody(e.target.value)} />
-                  {perr && <p className="t2-err">{perr}{perr.includes("닉네임") && <> <button className="t2-lnk" onClick={onLogin}>내 정보</button></>}</p>}
+                  {perr && <p className="t2-err">{perr}{perr.includes("닉네임") && <> <button className="t2-lnk" onClick={onMe}>내 정보에서 정하기</button></>}</p>}
                   <button className="t2-cta1" disabled={posting || !body.trim()} onClick={post}>{posting ? "남기는 중…" : "리뷰 남기기"}</button>
                 </div>
               )}

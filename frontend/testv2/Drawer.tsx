@@ -8,13 +8,15 @@ import { areaLabel } from "../src/lib/area";
 import { RequestModal, useSession, authHeaders, LoginBox, type ReqTarget } from "./Request";
 
 export const API = "https://api.koczip.com";
-const SITE = "https://koczip.com";
 export const getJson = (u: string) => fetch(API + u).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
 const q = (body: object) => fetch(API + "/q", { method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body) }).then((r) => r.json()).then((j) => j.data);
 const pct = (r: number | null | undefined, d = 1) => (r == null ? "-" : `${r > 0 ? "+" : ""}${(r * 100).toFixed(d)}%`);
 const ymdDot = (s: string | null | undefined) => (s ? s.slice(2, 10).replace(/-/g, ".") : "-");
 const ymd8 = (s: string | null | undefined) => (s && s.length >= 8 ? `${s.slice(0, 4)}.${s.slice(4, 6)}.${s.slice(6, 8)}` : "-");
+
+// 동 표기: 원장이 "7405동"처럼 이미 "동"을 붙여 줄 때가 있어 두 번 붙지 않게
+const dongL = (d: string | number) => { const t = String(d).trim(); return t.endsWith("동") ? t : `${t}동`; };
 
 export type DrawerCx = { complex_no: string; name: string; lat: number; lng: number; households?: number; listings?: number };
 
@@ -79,7 +81,7 @@ export type DrawerTab = "deals" | "tx" | "hoga" | "nearby" | "realtor" | "review
 // initialTab: 지도 레이어에 맞춰 시작 탭을 정한다(매물찾기→급매, 시세분석→실거래, 중개사랭킹→중개사). 단지가 바뀌면 다시 적용.
 // onPick: 인근단지·같은 건물에서 다른 단지를 고르면 지도가 그 단지로 옮겨 간다.
 // fav: 관심단지 여부(null=로그인 전), onFav: 하트 누름(로그인 전이면 App 이 로그인 안내를 띄운다)
-export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav, onRealtor }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab; onRealtor?: (id: string) => void;
+export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav, onRealtor, onMine }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab; onRealtor?: (id: string) => void; onMine?: () => void;
   fav?: boolean | null; onFav?: () => void }) {
   const [tab, setTab] = useState<DrawerTab>(initialTab);
   useEffect(() => { setTab(initialTab); }, [initialTab]);   // 같은 단지에서 팝업 버튼으로 다른 탭을 고를 때
@@ -179,8 +181,7 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
         {tab === "review" && <ReviewTab no={cx.complex_no} />}
         {tab === "info" && <InfoTab no={cx.complex_no} asset={asset} info={info} raw={raw} agg={agg} areas={areas} sum={sum} onPick={onPick} />}
       </div>
-      <a className="t2-dr-link" href={`${SITE}/complex/${cx.complex_no}`} target="_blank" rel="noreferrer">단지 페이지 전체 보기 ↗</a>
-      {req && <RequestModal target={req} onClose={() => setReq(null)} />}
+      {req && <RequestModal target={req} onClose={() => setReq(null)} onMine={onMine} />}
     </div>
   );
 }
@@ -475,7 +476,7 @@ function TxTab({ tx }: { tx: { sale: any[]; jeonse: any[]; wolse: any[] } | null
                   return (
                     <div className="t2-tip">
                       <b>{p.y}{unit}</b>{p.direct && <span className="t2-direct">직거래</span>}{p.silv && <span className="t2-tag silv">{p.silv}</span>}{p.rh && <span className="t2-tag rh">신고가</span>}
-                      <div>{new Date(p.x).toISOString().slice(0, 10)}{p.floor != null ? ` · ${p.floor}층` : ""}{p.dong ? ` · ${p.dong}동` : p.est ? ` · ${p.est}동(추정)` : kind === "sale" && !p.silv ? " · 동 미공개(등기 전)" : ""}</div>
+                      <div>{new Date(p.x).toISOString().slice(0, 10)}{p.floor != null ? ` · ${p.floor}층` : ""}{p.dong ? ` · ${dongL(p.dong)}` : p.est ? ` · ${dongL(p.est)}(추정)` : kind === "sale" && !p.silv ? " · 동 미공개(등기 전)" : ""}</div>
                     </div>);
                 }} />
                 <Scatter data={ptsBroker} dataKey="y" fill={kind === "sale" ? "#d23b3b" : kind === "jeonse" ? "#1268d3" : "#1f9d63"} fillOpacity={0.45} isAnimationActive={false} />
@@ -500,8 +501,8 @@ function TxTab({ tx }: { tx: { sale: any[]; jeonse: any[]; wolse: any[] } | null
                     <td>{t.deal_ymd.slice(2).replace(/-/g, ".")}</td>
                     <td>{areaLabel(t.excl_use_ar)}</td>
                     <td>{t.silv ? <span className="t2-tag silv">{t.silv}</span>
-                      : t.dong ? `${t.dong}동`
-                      : t.dong_est ? <span className="t2-est" title="계약 전후 내려간 매물의 층·가격 단서로 추정한 동. 매매는 등기가 끝나면 실제 동으로 바뀌어요">{t.dong_est}동<small>(추정)</small></span>
+                      : t.dong ? dongL(t.dong)
+                      : t.dong_est ? <span className="t2-est" title="계약 전후 내려간 매물의 층·가격 단서로 추정한 동. 매매는 등기가 끝나면 실제 동으로 바뀌어요">{dongL(t.dong_est)}<small>(추정)</small></span>
                       : <span className="t2-muted" title={kind === "sale" ? "동은 등기가 끝나면 공개돼요" : "전월세는 동이 공개되지 않아요. 단서가 충분한 거래만 추정해요"}>{kind === "sale" ? "등기 전" : "-"}</span>}</td>
                     <td>{t.floor}</td>
                     <td className="num">{t.dealing_gbn === "직거래" && <span className="t2-direct">직</span>}{rhSet.has(t) && <span className="t2-tag rh">신고가</span>}{t.registered && <span className="t2-tag reg" title="등기 완료">등기</span>}{fmt(t)}
@@ -660,7 +661,7 @@ function RealtorTab({ rk, total, onRequest, onRealtor }: { rk: any[] | null; tot
         <ol className="t2-rank withreq">
           {shown.map((r, i) => (
             <li key={r.realtor_id} className={i === 0 ? "top1" : ""}>
-              <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id)}`} target="_blank" rel="noreferrer" onClick={onRealtor ? (e) => { e.preventDefault(); onRealtor(r.realtor_id); } : undefined}>
+              <a href={`?rt=${encodeURIComponent(r.realtor_id)}`} onClick={(e) => { e.preventDefault(); onRealtor?.(r.realtor_id); }}>
                 <span className="n">{i + 1}</span>
                 <span className="o"><b>{r.realtor_name}{rv[r.realtor_id]?.total_count ? <small className="t2-rvsum"><Stars v={rv[r.realtor_id].avg_rating || 0} /> {(rv[r.realtor_id].avg_rating || 0).toFixed(1)} ({rv[r.realtor_id].total_count})</small> : null}</b><em>매매 {r.n_sale} · 전세 {r.n_jeonse} · 월세 {r.n_wolse}</em>{meta(r) && <em>{meta(r)}</em>}</span>
                 <span className="bm"><i style={{ width: `${(r.count / max) * 100}%` }} /></span>

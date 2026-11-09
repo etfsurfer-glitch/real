@@ -1,11 +1,11 @@
 // 콕집요청(한 사무소 지정) — 운영 POST /requests 를 pick_mode=choose 로 부른다.
 // 로그인은 운영과 같은 Supabase Auth. 전화 인증·제3자 제공 동의는 서버가 다시 확인한다.
 import { useEffect, useState } from "react";
+import { API as _API } from "./Drawer";
 import { createClient, type Session } from "@supabase/supabase-js";
 import { areaLabel } from "../src/lib/area";
 
 const API = "https://api.koczip.com";
-const SITE = "https://koczip.com";
 const URL_ = import.meta.env.VITE_SUPABASE_URL;
 const ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const auth = URL_ && ANON
@@ -57,7 +57,117 @@ export function LoginBox({ why }: { why: string }) {
   );
 }
 
-export function RequestModal({ target, onClose }: { target: ReqTarget; onClose: () => void }) {
+const errText = (d: any, status: number) => {
+  const det = d?.detail;
+  if (typeof det === "string") return det;
+  if (det && typeof det === "object" && "message" in det) return String(det.message);
+  return `오류 ${status}`;
+};
+
+// ── 휴대폰 인증(한 번) — 매물의뢰·콕집요청·내 정보가 같이 쓴다 ───────────────────
+export function PhoneBlock({ session, onDone }: { session: Session; onDone: () => void }) {
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [devCode, setDevCode] = useState("");
+  const H = { "Content-Type": "application/json", ...authHeaders(session) };
+  const send = async () => {
+    if (busy) return; setBusy(true); setMsg(""); setDevCode("");
+    try {
+      const r = await fetch(`${_API}/me/phone/send-code`, { method: "POST", headers: H, body: JSON.stringify({ phone }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(errText(d, r.status));
+      setSent(true); setCode(""); if (d.dev_code) setDevCode(String(d.dev_code));
+    } catch (e: any) { setMsg(e.message || "보내지 못했어요"); } finally { setBusy(false); }
+  };
+  const verify = async () => {
+    if (busy) return; setBusy(true); setMsg("");
+    try {
+      const r = await fetch(`${_API}/me/phone/verify`, { method: "POST", headers: H, body: JSON.stringify({ code }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(errText(d, r.status));
+      onDone();
+    } catch (e: any) { setMsg(e.message || "확인하지 못했어요"); } finally { setBusy(false); }
+  };
+  return (
+    <div className="t2-phone">
+      <p>중개사무소가 제안을 남기면 알려 드릴 번호예요. 본인 명의 휴대폰으로 한 번만 인증해요. 번호는 중개사무소에 넘어가지 않아요.</p>
+      <div className="row">
+        <input inputMode="numeric" maxLength={11} placeholder="휴대폰 번호(숫자만)" value={phone} readOnly={sent}
+          onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ""))} onKeyDown={(e) => { if (e.key === "Enter" && !sent) send(); }} />
+        {!sent ? <button disabled={busy || phone.length < 10} onClick={send}>{busy ? "발송 중…" : "인증번호 받기"}</button>
+          : <button className="ghost" onClick={() => { setSent(false); setCode(""); setMsg(""); }}>번호 변경</button>}
+      </div>
+      {sent && (
+        <>
+          <p className="ok">{phone.replace(/(\d{3})(\d{3,4})(\d{4})/, "$1-$2-$3")} 로 인증번호를 보냈어요. 5분 안에 넣어 주세요.</p>
+          <div className="row">
+            <input inputMode="numeric" maxLength={6} autoComplete="one-time-code" placeholder="인증번호 6자리" value={code} autoFocus
+              onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))} onKeyDown={(e) => { if (e.key === "Enter") verify(); }} />
+            <button disabled={busy || code.length < 6} onClick={verify}>{busy ? "확인 중…" : "인증 완료"}</button>
+          </div>
+          <button className="lnk" disabled={busy} onClick={send}>문자가 안 왔나요? 다시 보내기</button>
+        </>
+      )}
+      {devCode && <p className="t2-snote">개발 모드 인증번호 {devCode}</p>}
+      {msg && <p className="t2-err">{msg}</p>}
+    </div>
+  );
+}
+
+// ── 내 정보(작은 창): 닉네임 · 휴대폰 인증 · 로그아웃 — 운영 설정 페이지 대신 지도 안에서 ──
+export function MeModal({ session, onClose, onLogout }: { session: Session; onClose: () => void; onLogout: () => void }) {
+  const [me, setMe] = useState<{ phone_verified?: boolean; nickname?: string | null; member_no?: number | null } | null>(null);
+  const [nick, setNick] = useState("");
+  const [chk, setChk] = useState<{ available: boolean; reason?: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const load = () => fetch(`${_API}/me`, { headers: authHeaders(session) }).then((x) => (x.ok ? x.json() : null)).then((j) => { setMe(j); setNick(j?.nickname || ""); }).catch(() => setMe(null));
+  useEffect(() => { load(); }, [session]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const n = nick.trim(); setChk(null);
+    if (!n || n === (me?.nickname || "")) return;
+    const t = setTimeout(() => fetch(`${_API}/me/nickname/check?name=${encodeURIComponent(n)}`, { headers: authHeaders(session) }).then((x) => x.json()).then(setChk).catch(() => {}), 350);
+    return () => clearTimeout(t);
+  }, [nick]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const save = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const x = await fetch(`${_API}/me/nickname`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(session) }, body: JSON.stringify({ nickname: nick.trim() }) });
+      const j = await x.json().catch(() => ({}));
+      if (!x.ok) throw new Error(errText(j, x.status));
+      setMsg(j.awarded ? `닉네임을 정했어요. 첫 설정 ${j.awarded}p 적립.` : "닉네임을 바꿨어요."); load();
+    } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+  };
+  const changed = nick.trim() && nick.trim() !== (me?.nickname || "");
+  return (
+    <div className="t2-modal" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="t2-modal-in" onClick={(e) => e.stopPropagation()}>
+        <div className="t2-ph"><h2>내 정보</h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
+        <p className="t2-to"><b>{sessionName(session)}</b> · {session.user?.email || ""}{me?.member_no ? ` · 회원번호 ${me.member_no}` : ""}</p>
+        <div className="t2-me-sec">
+          <h3>닉네임 <small>글·리뷰·AI 호칭에 써요. 한글·영문·숫자·_ 2~12자</small></h3>
+          <div className="row">
+            <input value={nick} maxLength={12} placeholder={me?.nickname || "닉네임"} onChange={(e) => setNick(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && changed && chk?.available) save(); }} />
+            <button disabled={busy || !changed || (chk != null && !chk.available)} onClick={save}>{busy ? "저장 중…" : me?.nickname ? "바꾸기" : "정하기"}</button>
+          </div>
+          {chk && changed && <p className={chk.available ? "ok" : "t2-err"}>{chk.available ? "쓸 수 있어요" : chk.reason || "쓸 수 없는 닉네임이에요"}</p>}
+          {msg && <p className="ok">{msg}</p>}
+        </div>
+        <div className="t2-me-sec">
+          <h3>휴대폰 인증</h3>
+          {me == null ? <p className="t2-snote">불러오는 중…</p> : me.phone_verified ? <p className="ok">인증 완료. 제안 도착 알림을 받을 수 있어요.</p>
+            : <PhoneBlock session={session} onDone={() => { setMe({ ...me, phone_verified: true }); }} />}
+        </div>
+        <button className="t2-cta1 ghost" onClick={() => { onLogout(); onClose(); }}>로그아웃</button>
+      </div>
+    </div>
+  );
+}
+
+export function RequestModal({ target, onClose, onMine }: { target: ReqTarget; onClose: () => void; onMine?: () => void }) {
   const session = useSession();
   const [me, setMe] = useState<{ phone_verified?: boolean; nickname?: string } | null>(null);
   const [memo, setMemo] = useState(() => target.listing
@@ -117,15 +227,12 @@ export function RequestModal({ target, onClose }: { target: ReqTarget; onClose: 
           <div className="t2-done">
             <b>요청을 보냈어요.</b>
             <p>사무소가 매물을 제안하면 알림으로 알려 드려요. 내 번호는 넘어가지 않아요.</p>
-            {done.proposals_url && <a href={done.proposals_url} target="_blank" rel="noreferrer">받은 제안 보기 ↗</a>}
+            {onMine ? <button className="t2-cta1" style={{ marginTop: 10 }} onClick={() => { onClose(); onMine(); }}>받은 제안 보기</button> : <p>받은 제안은 매물의뢰 창의 내 요청에서 볼 수 있어요.</p>}
           </div>
         ) : !session ? (
           <LoginBox why="요청을 보내려면 로그인이 필요해요." />
         ) : me && !me.phone_verified ? (
-          <div className="t2-login">
-            <p>요청을 보내려면 휴대폰 인증이 한 번 필요해요. 인증은 콕집에서 하고 다시 와 주세요.</p>
-            <a className="t2-cta1" href={`${SITE}/request`} target="_blank" rel="noreferrer">콕집에서 휴대폰 인증하기 ↗</a>
-          </div>
+          <PhoneBlock session={session} onDone={() => setMe({ ...me, phone_verified: true })} />
         ) : (
           <>
             <label className="t2-fld">요청 내용
