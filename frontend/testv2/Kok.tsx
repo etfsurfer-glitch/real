@@ -296,6 +296,12 @@ type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: nu
   acquire?: { acq_tax: number | null; edu_tax: number | null; special_tax: number | null; broker_fee: number | null; broker_rate?: number; total: number | null } | null;
   price_per_py?: number | null };
 const man = (v?: number | null) => (v == null ? "-" : `${Math.round(v / 1e4).toLocaleString()}만`);
+// 계절 평균 — 월별 공시 합계로 봄(3~5)·여름(6~8)·가을(9~11)·겨울(12~2)을 직접 낸다. 자료가 없는 계절은 비운다.
+const SEASONS: { k: string; l: string; m: number[] }[] = [{ k: "spring", l: "봄", m: [3, 4, 5] }, { k: "summer", l: "여름", m: [6, 7, 8] }, { k: "autumn", l: "가을", m: [9, 10, 11] }, { k: "winter", l: "겨울", m: [12, 1, 2] }];
+const seasonAvg = (months: { ym: string; total: number | null }[]) => SEASONS.map((sn) => {
+  const xs = months.filter((x) => x.total != null && sn.m.includes(parseInt(x.ym.slice(4, 6), 10))).map((x) => x.total as number);
+  return { ...sn, avg: xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null, n: xs.length };
+});
 const eokS = (v?: number | null) => (v == null ? "-" : v >= 1e8 ? `${(v / 1e8).toFixed(v % 1e8 ? 1 : 0)}억` : `${Math.round(v / 1e4).toLocaleString()}만`);
 const tel = (s?: string | null) => { const f = (s || "").split(/\s+/)[0].replace(/[^\d]/g, ""); return f.length >= 7 ? f : null; };
 
@@ -342,11 +348,9 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
           {d.mgmt_history && d.mgmt_history.months.length > 0 && (
             <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>공동주택관리정보시스템(K-apt) 공시 · 최근 {d.mgmt_history.months.length}개월</small></h3>
               <div className="t2-kpis small four">
-                <div><span>월평균</span><b>{man(d.mgmt_history.avg)}</b></div>
-                <div><span>여름</span><b>{man(d.mgmt_history.summer)}</b></div>
-                <div><span>겨울</span><b>{man(d.mgmt_history.winter)}</b></div>
-                <div><span>공용 평균</span><b>{man(d.mgmt_history.avg_common)}</b></div>
+                {seasonAvg(d.mgmt_history.months).map((sn) => <div key={sn.k}><span>{sn.l}{sn.n ? ` ${sn.n}개월` : ""}</span><b>{man(sn.avg)}</b></div>)}
               </div>
+              <p className="t2-snote" style={{ margin: "0 0 6px" }}>연평균 {man(d.mgmt_history.avg)} · 공용 관리비 평균 {man(d.mgmt_history.avg_common)}</p>
               <table className="t2-tbl t2-kl-mo"><thead><tr><th>월</th><th className="num">합계</th><th className="num">공용</th><th className="num">난방</th><th className="num">기타</th></tr></thead>
                 <tbody>{d.mgmt_history.months.map((m) => <tr key={m.ym}><td>{m.ym.slice(2, 4)}.{m.ym.slice(4, 6)}</td><td className="num"><b>{man(m.total)}</b></td><td className="num">{man(m.common)}</td><td className="num">{man(m.heat)}</td><td className="num">{man(m.etc)}</td></tr>)}</tbody></table></div>
           )}
