@@ -10603,13 +10603,63 @@ def _sgg_centroids():
     return _SGG_CENTROID
 
 
+@app.get("/map/deals-agg")
+def map_deals_agg(swlat: float, swlng: float, nelat: float, nelng: float, level: str = "dong", trade: str = "A1"):
+    """지도 축소 시 동(level=dong)·구(gu) 묶음 — 묶음마다 급매 매물 건수(quick_deals_cx 사전집계, 3% 문턱)와
+    그 거래 유형 매물이 있는 단지 수, 묶음 중심(단지 좌표 평균). 10분 캐시."""
+    if not (swlat < nelat and swlng < nelng):
+        raise HTTPException(400, "bad bounds")
+    if level not in ("dong", "gu") or trade not in ("A1", "B1", "B2"):
+        raise HTTPException(400, "level=dong|gu, trade=A1|B1|B2")
+    pre = 10 if level == "dong" else 5
+    ck = f"dealsagg:{level}:{trade}:{swlat:.3f}:{swlng:.3f}:{nelat:.3f}:{nelng:.3f}"
+    hit = _cache_get(ck)
+    if hit is not None:
+        return hit
+    with _open_db() as c:
+        cx = {r[0]: (r[1], r[2], r[3]) for r in c.execute(
+            f"SELECT substr(cx.cortar_no,1,{pre}) k, COUNT(*), AVG(cx.latitude), AVG(cx.longitude) FROM complexes cx "
+            f"WHERE cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ? AND cx.cortar_no IS NOT NULL "
+            f"AND EXISTS(SELECT 1 FROM listings_current l WHERE l.complex_no=cx.complex_no AND l.trade_type=?) GROUP BY k",
+            (swlat, nelat, swlng, nelng, trade))}
+        qd = {r[0]: (r[1], r[2]) for r in c.execute(
+            f"SELECT substr(cortar_no,1,{pre}) k, SUM(n_deals), COUNT(*) FROM quick_deals_cx "
+            f"WHERE trade=? AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ? GROUP BY k",
+            ("A1" if trade == "B2" else trade, swlat, nelat, swlng, nelng))} if _table_exists(c, "quick_deals_cx") else {}
+        names = {r[0]: r[1] for r in c.execute(
+            f"SELECT substr(cortar_no,1,{pre}), cortar_name FROM regions WHERE cortar_type=?", ("sec" if level == "dong" else "dvsn",))}
+    items = []
+    for k, (n, la, lo) in cx.items():
+        if not la:
+            continue
+        d = qd.get(k, (0, 0))
+        items.append({"code": k, "name": names.get(k) or k, "lat": la, "lng": lo, "n_cx": n, "n_deals": int(d[0] or 0), "n_deal_cx": d[1]})
+    items.sort(key=lambda x: -x["n_cx"])
+    out = {"level": level, "trade": trade, "items": items}
+    _cache_put(ck, out)
+    return out
+
+
+def _table_exists(c, name: str) -> bool:
+    return bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
+
+
 @app.get("/map/listings")
 def map_listings(swlat: float, swlng: float, nelat: float, nelng: float,
                  types: str = "APT,ABYG,JGC", trade: str = "A1",
                  price_min: int = 0, price_max: int = 0, area_min: float = 0, area_max: float = 0,
                  approve_from: int = 0, approve_to: int = 0, hh_min: int = 0, hh_max: int = 0,
+                 rooms: str = "", baths: str = "", floor: str = "", dirs: str = "", walk_max: int = 0,
+                 verify: str = "", confirm_days: int = 0, price_down: int = 0, loan: str = "", tags: str = "",
+                 bld_min: int = 0, park_min: float = 0, far_max: int = 0,
                  limit: int = 500):
     """지도 매물찾기 — bbox 안 단지별 매물 요약(필터 적용). 지도 시험판 필터 바용.
+    추가 필터(2026-11-09): rooms 방 수(1,2,3,4 쉼표, 4=네 개 이상; 네이버 태그 방N개) · baths 욕실 수(1,2,3) ·
+    floor 층(low 저층·mid 중층·high 고층·top 탑층, floor_info '저/15'·'3/15' 둘 다) · dirs 방향(남향,남동향… 쉼표) ·
+    walk_max 역까지 도보 N분 이하(complex_subway) · verify owner(집주인 확인)|doc(확인매물 전부) ·
+    confirm_days 최근 N일 안 확인 · price_down 1=가격 내린 매물만 · loan none(융자금 없는)|low(융자금 적은) ·
+    tags 시설 태그(테라스,마당,필로티,복층,엘리베이터,주차가능,세대당1대,확장형 — 하나라도) ·
+    bld_min 동수 이상 · park_min 세대당 주차 이상 · far_max 용적률 이하.
     types: 단지 유형(APT 아파트·ABYG 아파트분양권·JGC 재건축·OPST 오피스텔·OBYG 오피스텔분양권) 쉼표.
     trade: A1 매매·B1 전세·B2 월세. price_*: 매매가/보증금(원), area_*: 전용 ㎡, approve_*: 사용승인 연도,
     hh_*: 세대수. 단지는 매물이 1건 이상 맞는 곳만, 매물수 내림차순. 너무 넓으면 too_wide(줌인 유도)."""
@@ -10642,6 +10692,56 @@ def map_listings(swlat: float, swlng: float, nelat: float, nelng: float,
             cw.append("cx.total_household_count>=?"); cp.append(hh_min)
         if hh_max:
             cw.append("cx.total_household_count<=?"); cp.append(hh_max)
+        # ── 매물 조건(listings_current) ──
+        tagor = lambda names: "(" + " OR ".join("l.tag_list_json LIKE ?" for _ in names) + ")"
+        if rooms:
+            rl = [{"1": "방한개", "2": "방두개", "3": "방세개", "4": "방네개이상"}[x] for x in rooms.split(",") if x in ("1", "2", "3", "4")]
+            if rl:
+                lw.append(tagor(rl)); lp.extend(f'%"{t}"%' for t in rl)
+        if baths:
+            bl = [{"1": "화장실한개", "2": "화장실두개", "3": "화장실세개"}[x] for x in baths.split(",") if x in ("1", "2", "3")]
+            if bl:
+                lw.append(tagor(bl)); lp.extend(f'%"{t}"%' for t in bl)
+        if floor:
+            fs = [x for x in floor.split(",") if x in ("low", "mid", "high", "top")]
+            f1 = "substr(l.floor_info,1,instr(l.floor_info,'/')-1)"
+            ft = "CAST(substr(l.floor_info,instr(l.floor_info,'/')+1) AS INT)"
+            fn = f"({f1} GLOB '[0-9]*')"
+            cond = {"low": f"({f1}='저' OR ({fn} AND CAST({f1} AS INT)<=3))",
+                    "mid": f"({f1}='중' OR ({fn} AND CAST({f1} AS INT)>3 AND CAST({f1} AS INT)<{ft}-2))",
+                    "high": f"({f1}='고' OR ({fn} AND CAST({f1} AS INT)>={ft}-2))",
+                    "top": f"(({fn} AND CAST({f1} AS INT)={ft}) OR l.tag_list_json LIKE '%\"탑층\"%')"}
+            if fs:
+                lw.append("(" + " OR ".join(cond[x] for x in fs) + ")")
+        if dirs:
+            dl = [x for x in dirs.split(",") if x in ("남향", "남동향", "남서향", "동향", "서향", "북향", "북동향", "북서향")]
+            if dl:
+                lw.append(f"l.direction IN ({','.join('?' * len(dl))})"); lp.extend(dl)
+        if verify == "owner":
+            lw.append("l.verification_type='OWNER'")
+        elif verify == "doc":
+            lw.append("COALESCE(l.verification_type,'') NOT IN ('', 'NONE')")
+        if confirm_days:
+            lw.append("l.article_confirm_ymd>=strftime('%Y%m%d', date('now','+9 hours', ?))"); lp.append(f"-{int(confirm_days)} days")
+        if price_down:
+            lw.append("l.price_change_state='DECREASE'")
+        if loan == "none":
+            lw.append("l.tag_list_json LIKE '%\"융자금없는\"%'")
+        elif loan == "low":
+            lw.append("(l.tag_list_json LIKE '%\"융자금없는\"%' OR l.tag_list_json LIKE '%\"융자금적은\"%')")
+        if tags:
+            tl2 = [x for x in tags.split(",") if x in ("테라스", "마당", "필로티", "복층", "엘리베이터", "주차가능", "세대당1대", "확장형", "올수리")]
+            if tl2:
+                lw.append(tagor(tl2)); lp.extend(f'%"{t}"%' for t in tl2)
+        # ── 단지 조건(complexes·complex_subway) ──
+        if bld_min:
+            cw.append("cx.total_building_count>=?"); cp.append(bld_min)
+        if park_min:
+            cw.append("cx.parking_per_household>=?"); cp.append(park_min)
+        if far_max:
+            cw.append("cx.batl_ratio>0 AND cx.batl_ratio<=?"); cp.append(far_max)
+        if walk_max:
+            cw.append("EXISTS(SELECT 1 FROM complex_subway s WHERE s.complex_no=cx.complex_no AND s.walk_min<=?)"); cp.append(walk_max)
         rows = c.execute(
             f"SELECT cx.complex_no, cx.complex_name, cx.latitude, cx.longitude, cx.real_estate_type, "
             f"  cx.total_household_count, substr(cx.use_approve_ymd,1,4), COUNT(l.article_no), "

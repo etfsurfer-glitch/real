@@ -9,6 +9,8 @@ import { useSession, authHeaders, LoginBox, logout, sessionName } from "./Reques
 import { StatsWindow, statsKeyOf, type StatsKey } from "./Stats";
 import { SafeWindow, type SafeTab } from "./Safe";
 import { AskWindow, askTabOf, type AskTab } from "./Ask";
+import { FavWindow } from "./Fav";
+import { RealtorWindow } from "./Realtor";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -56,8 +58,22 @@ type JPin = { lat: number; lng: number; name: string; ref: string; n: number; la
 // 매물찾기 필터(지도 위 필터 바). 값은 /map/listings 파라미터와 1:1.
 type Trade = "A1" | "B1" | "B2";
 type Flt = { types: string[]; trade: Trade; pmin: number; pmax: number; amin: number; amax: number; afrom: number; ato: number; hmin: number; hmax: number;
-  only: boolean; disc: number; sp: string };   // only=급매만, disc=급매 할인 문턱, sp=특수조건(owner|tenant|loan|"")
-const FLT0: Flt = { types: ["APT", "ABYG", "JGC"], trade: "A1", pmin: 0, pmax: 0, amin: 0, amax: 0, afrom: 0, ato: 0, hmin: 0, hmax: 0, only: false, disc: 0.03, sp: "" };
+  only: boolean; disc: number; sp: string;   // only=급매만, disc=급매 할인 문턱, sp=특수조건(owner|tenant|loan|"")
+  // 2026-11-09 추가: 단지정보(동수·세대당 주차·용적률) · 역세권(도보 분) · 매물보기 조건(확인·최근 확인·가격 내림) · 방/욕실 · 층/방향 · 계약조건(융자금) · 시설(태그)
+  bld: number; park: number; far: number; walk: number; verify: string; confirm: number; down: boolean;
+  rooms: string[]; baths: string[]; floor: string[]; dirs: string[]; loan: string; tags: string[] };
+const FLT0: Flt = { types: ["APT", "ABYG", "JGC"], trade: "A1", pmin: 0, pmax: 0, amin: 0, amax: 0, afrom: 0, ato: 0, hmin: 0, hmax: 0, only: false, disc: 0.03, sp: "",
+  bld: 0, park: 0, far: 0, walk: 0, verify: "", confirm: 0, down: false, rooms: [], baths: [], floor: [], dirs: [], loan: "", tags: [] };
+const ROOM_OPTS = [{ k: "1", l: "방 1개" }, { k: "2", l: "방 2개" }, { k: "3", l: "방 3개" }, { k: "4", l: "방 4개 이상" }];
+const BATH_OPTS = [{ k: "1", l: "욕실 1개" }, { k: "2", l: "욕실 2개" }, { k: "3", l: "욕실 3개 이상" }];
+const FLOOR_OPTS = [{ k: "low", l: "저층" }, { k: "mid", l: "중층" }, { k: "high", l: "고층" }, { k: "top", l: "탑층" }];
+const DIR_OPTS = ["남향", "남동향", "남서향", "동향", "서향", "북향", "북동향", "북서향"].map((d) => ({ k: d, l: d }));
+const TAG_OPTS = ["테라스", "마당", "필로티", "복층", "엘리베이터", "주차가능", "세대당1대", "확장형", "올수리"].map((d) => ({ k: d, l: d === "세대당1대" ? "세대당 주차 1대" : d }));
+const BLD_OPTS = [{ l: "전체", v: 0 }, { l: "5개 동 이상", v: 5 }, { l: "10개 동 이상", v: 10 }, { l: "20개 동 이상", v: 20 }];
+const PARK_OPTS = [{ l: "전체", v: 0 }, { l: "세대당 1대 이상", v: 1 }, { l: "세대당 1.5대 이상", v: 1.5 }, { l: "세대당 2대 이상", v: 2 }];
+const FAR_OPTS = [{ l: "전체", v: 0 }, { l: "200% 이하", v: 200 }, { l: "250% 이하", v: 250 }, { l: "300% 이하", v: 300 }];
+const WALK_OPTS = [{ l: "전체", v: 0 }, { l: "도보 5분 이내", v: 5 }, { l: "도보 10분 이내", v: 10 }, { l: "도보 15분 이내", v: 15 }];
+const CONFIRM_OPTS = [{ l: "전체", v: 0 }, { l: "오늘 확인", v: 1 }, { l: "최근 7일 확인", v: 7 }, { l: "최근 30일 확인", v: 30 }];
 const CX_TYPES: { k: string; l: string }[] = [
   { k: "APT", l: "아파트" }, { k: "ABYG", l: "아파트분양권" }, { k: "JGC", l: "재건축" }, { k: "OPST", l: "오피스텔" }, { k: "OBYG", l: "오피스텔분양권" },
 ];
@@ -81,7 +97,9 @@ const HH_OPTS: { l: string; a: number; b: number }[] = [
   { l: "1,000세대 이상", a: 1000, b: 0 }, { l: "2,000세대 이상", a: 2000, b: 0 },
 ];
 const fltQs = (f: Flt) => new URLSearchParams({ types: f.types.join(","), trade: f.trade, price_min: String(f.pmin), price_max: String(f.pmax),
-  area_min: String(f.amin), area_max: String(f.amax), approve_from: String(f.afrom), approve_to: String(f.ato), hh_min: String(f.hmin), hh_max: String(f.hmax) });
+  area_min: String(f.amin), area_max: String(f.amax), approve_from: String(f.afrom), approve_to: String(f.ato), hh_min: String(f.hmin), hh_max: String(f.hmax),
+  bld_min: String(f.bld), park_min: String(f.park), far_max: String(f.far), walk_max: String(f.walk), verify: f.verify, confirm_days: String(f.confirm), price_down: f.down ? "1" : "0",
+  rooms: f.rooms.join(","), baths: f.baths.join(","), floor: f.floor.join(","), dirs: f.dirs.join(","), loan: f.loan, tags: f.tags.join(",") });
 // 기간 — 실거래 신고는 계약 후 30일 안에 해야 하고(실측 30일 내 91%·14일 70%), 동 단위 표본은 분기(90일)쯤
 // 모여야 유의미하다. 기본 3개월, 더 넓게는 6·12개월. 호가는 스냅샷 보관 때문에 60일 고정.
 const PRICE_WINDOWS: { d: number; l: string }[] = [{ d: 90, l: "3개월" }, { d: 180, l: "6개월" }, { d: 365, l: "12개월" }];
@@ -123,7 +141,7 @@ function readUrl() {
   const pm = (["tx", "hoga", "vol", "gap", "rh"].includes(p.get("m") || "") ? p.get("m") : "tx") as PriceMetric;
   const lat = parseFloat(p.get("lat") || ""), lng = parseFloat(p.get("lng") || ""), lv = parseInt(p.get("lv") || "");
   const safe = (["alert", "ledger", "jeonse", "calc"].includes(p.get("safe") || "") ? p.get("safe") : null) as SafeTab | null;
-  return { layer, pm, lat: isNaN(lat) ? 37.5045 : lat, lng: isNaN(lng) ? 127.1095 : lng, lv: isNaN(lv) ? 5 : lv, cx: p.get("cx"), stats: statsKeyOf(p.get("stats")), safe, ask: askTabOf(p.get("ask")) };
+  return { layer, pm, lat: isNaN(lat) ? 37.5045 : lat, lng: isNaN(lng) ? 127.1095 : lng, lv: isNaN(lv) ? 5 : lv, cx: p.get("cx"), stats: statsKeyOf(p.get("stats")), safe, ask: askTabOf(p.get("ask")), fav: p.get("fav") === "1", rt: p.get("rt") || null };
 }
 
 export default function App() {
@@ -166,7 +184,13 @@ export default function App() {
   const [stats, setStats] = useState<StatsKey | null>(init.stats);
   const [safe, setSafe] = useState<SafeTab | null>(init.safe);
   const [ask, setAsk] = useState<AskTab | null>(init.ask);
-  const openAsk = (t: AskTab) => { setStats(null); setSafe(null); setReqOpen(false); setAsk(t); };
+  // 관심단지 대시보드(?fav=1) · 중개사무소 상세(?rt=아이디) — 운영 페이지 대신 지도 안 창
+  const [fav, setFav] = useState<boolean>(init.fav);
+  const [rt, setRt] = useState<string | null>(init.rt);
+  const closeWins = () => { setStats(null); setSafe(null); setAsk(null); setFav(false); setRt(null); setReqOpen(false); };
+  const openAsk = (t: AskTab) => { closeWins(); setAsk(t); };
+  const openFav = () => { closeWins(); setFav(true); };
+  const openRt = (id: string) => { if (!id) return; closeWins(); setRt(id); };
   const [reqOpen, setReqOpen] = useState(false);
   const mapEl = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -222,12 +246,12 @@ export default function App() {
     }
   }, [session, favs]);
   // 관심단지 목록에서 고르면 좌표를 받아 지도를 옮긴다
-  const goComplex = useCallback((no: string, name: string) => {
+  const goComplex = useCallback((no: string, name: string, tab?: DrawerTab) => {
     getJson(`/complexes/coords?ids=${no}`).then((j) => {
       const h = j.items?.[0]; if (!h) return;
       const m = mapRef.current;
       if (m) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(h.lat, h.lng)); }
-      pickComplex({ complex_no: no, name, lat: h.lat, lng: h.lng }, false);
+      pickComplex({ complex_no: no, name, lat: h.lat, lng: h.lng }, false, tab);
     }).catch(() => {});
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   const goTo = useCallback((lat: number, lng: number, lv = 4) => {
@@ -246,8 +270,10 @@ export default function App() {
     if (stats) p.set("stats", `${stats.g}.${stats.i}`);
     if (safe) p.set("safe", safe);
     if (ask) p.set("ask", ask);
+    if (fav) p.set("fav", "1");
+    if (rt) p.set("rt", rt);
     history.replaceState(null, "", "?" + p.toString());
-  }, [layer, view, sel, pm, stats, safe, ask]);
+  }, [layer, view, sel, pm, stats, safe, ask, fav, rt]);
 
   // 지도 가운데 → 동·구
   useEffect(() => {
@@ -317,26 +343,23 @@ export default function App() {
       // 특수조건(주인전세·세안고·대출승계): 구(축소 시 시도) 단위로 받아 단지별 건수 → 그 단지만 남기고 핀에 표시
       const regQ = view.level >= 7 ? `sido=${region?.dong.slice(0, 2) || ""}00000000` : `sigungu=${region?.sgg || ""}`;
       const sp = flt.sp && region ? getJson(`/stats/special-deals?kind=${flt.sp}&${regQ}&limit=200`).catch(() => ({ items: [] })) : Promise.resolve(null);
+      // 축소하면 단지 핀 대신 동(6~7단계)·구(8단계~) 묶음: 이름 + 급매 매물 건수 + 매물 있는 단지 수. 누르면 그 자리로 확대.
+      const drawAgg = (lv: "dong" | "gu") => {
+        setInView([]); setHint("");
+        getJson(`/map/deals-agg?${b2}&level=${lv}&trade=${flt.trade}`).then((aj) => {
+          if (off) return;
+          clear();
+          for (const a of aj.items || []) {
+            put(a.lat, a.lng, `<div class="t2-dagg${a.n_deals ? " has" : ""}"><b>${esc(a.name)}</b><span>급매 <i>${a.n_deals.toLocaleString()}</i></span><span>단지 <i>${a.n_cx.toLocaleString()}</i></span></div>`,
+              () => map.setLevel(Math.max(3, map.getLevel() - (lv === "gu" ? 3 : 2)), { anchor: new k.maps.LatLng(a.lat, a.lng) }), a.n_deals ? 6 : 5, 0.5);
+          }
+        }).catch(() => {});
+      };
+      if (view.level >= 6) { drawAgg(view.level >= 8 ? "gu" : "dong"); return; }
       Promise.all([getJson(`/map/listings?${b2}&${fltQs(flt)}`), qd, sp]).then(([ml, jd, sj]) => {
         if (off) return;
         clear();
-        if (ml.too_wide) {
-          // 축소 상태: 단지를 격자로 묶은 동그라미(/complexes/cluster). 누르면 그 자리로 3단계 확대.
-          setInView([]); setHint("");
-          // 격자는 지도 픽셀 크기에 맞춰(약 150px 한 칸) — 휴대폰 폭에서 동그라미가 겹치지 않게
-          const el = map.getNode?.() as HTMLElement | undefined;
-          const mw = el?.clientWidth || window.innerWidth, mh = el?.clientHeight || window.innerHeight;
-          const cols = Math.max(3, Math.min(8, Math.round(mw / 150))), rows = Math.max(3, Math.min(8, Math.round(mh / 150)));
-          getJson(`/complexes/cluster?${b2}&cols=${cols}&rows=${rows}`).then((cj) => {
-            if (off) return;
-            for (const c of cj.cells || []) {
-              const sz = c.count >= 300 ? " xl" : c.count >= 100 ? " lg" : c.count >= 30 ? " md" : "";
-              put(c.lat, c.lng, `<div class="t2-cl${sz}"><b>${c.count.toLocaleString()}</b><span>단지</span></div>`,
-                () => map.setLevel(Math.max(3, map.getLevel() - 3), { anchor: new k.maps.LatLng(c.lat, c.lng) }), 1, 0.5);
-            }
-          }).catch(() => {});
-          return;
-        }
+        if (ml.too_wide) { drawAgg("gu"); return; }
         // 단지별 가장 큰 할인 매물 1건(평형·호가·실거래 평균 대비) — 핀 머리띠와 팝업 둘째 줄에 쓴다
         type Dq = { discount: number; area_name: string; asking_min: number; avg_real: number; n_real: number };
         const disc = new Map<string, number>();
@@ -621,10 +644,14 @@ export default function App() {
             <div class="t2-rpop-t"><span class="rk${r.rank === 1 ? " gold" : ""}">${r.rank}위</span><b>${esc(r.realtor_name)}</b></div>
             <div class="t2-rpop-k"><span><em>매물</em>${r.listings.toLocaleString()}건${r.total_listings && r.total_listings > r.listings ? ` <small>전체 ${r.total_listings.toLocaleString()}</small>` : ""}</span><span><em>직원</em>${r.staff_count ?? "-"}명</span><span><em>업력</em>${r.tenure_years ? `${r.tenure_years}년` : "-"}${r.established_year ? ` <small>${r.established_year} 개업</small>` : ""}</span></div>
             <div class="t2-rpop-a">${r.representative ? `대표 ${esc(r.representative)} · ` : ""}${esc(String(r.address || "").replace(/\s*\(.*?\)\s*$/, ""))}</div>
-            <div class="t2-rpop-f">${r.phone ? `<a class="t2-telbtn" href="tel:${r.phone.replace(/[^0-9+]/g, "")}">전화 ${esc(r.phone)}</a>` : ""}<a class="t2-lnk" href="${SITE}/realtor/${encodeURIComponent(r.realtor_id)}" target="_blank" rel="noreferrer">사무소 상세 ↗</a></div>
+            <div class="t2-rpop-f">${r.phone ? `<a class="t2-telbtn" href="tel:${r.phone.replace(/[^0-9+]/g, "")}">전화 ${esc(r.phone)}</a>` : ""}<button class="t2-lnk" data-rt="${esc(r.realtor_id)}">사무소 상세</button></div>
           </div>`).join("")}</div></div>`;
       pop.querySelector(".t2-x")?.addEventListener("click", (e) => { e.stopPropagation(); setRkSel(null); });
-      pop.addEventListener("click", (e) => e.stopPropagation());
+      pop.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const b = (e.target as HTMLElement).closest("[data-rt]");
+        if (b) openRt(b.getAttribute("data-rt") || "");
+      });
       add(new k.maps.CustomOverlay({ position: new k.maps.LatLng(top.lat, top.lng), content: pop, xAnchor: 0.5, yAnchor: 1, clickable: true, zIndex: 60 }));
     }
   }, [layer, rkPins, rkSel, rkDong?.name, region?.dongName]);
@@ -666,14 +693,14 @@ export default function App() {
       {layer === "price" && !isJibun(pa) && pm === "rh" && <RecordHighPanel rows={rhs} region={region} win={pw} onWin={setPw} loading={aggLoading} onMetric={setPm} onPick={pickComplex} />}
       {layer === "price" && !isJibun(pa) && pm !== "rh" && <PricePanel region={region} agg={agg} level={view?.level ?? 5} metric={pm} onMetric={setPm}
         win={pw} onWin={setPw} loading={aggLoading} meta={aggMeta} onPick={pickComplex} />}
-      {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} onRows={setRkRows} onPick={pickRealtor} onDong={pickDong} />}
+      {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} onRows={setRkRows} onPick={pickRealtor} onDong={pickDong} onRealtor={openRt} />}
     </>
   );
 
   return (
     <div className={"t2" + (phone ? " phone" : " desk")}>
       <TopBar phone={phone} favs={favs} session={!!session} user={session ? sessionName(session) : null} onLogout={() => logout()} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)}
-        statsOn={!!stats} safeOn={!!safe} onStats={() => { setSafe(null); setAsk(null); setStats((s) => (s ? null : { g: "price", i: "top" })); }} onSafe={() => { setStats(null); setAsk(null); setSafe((s) => (s ? null : "alert")); }} onPick={(c) => {
+        statsOn={!!stats} safeOn={!!safe} onStats={() => { const was = !!stats; closeWins(); if (!was) setStats({ g: "price", i: "top" }); }} onSafe={() => { const was = !!safe; closeWins(); if (!was) setSafe("alert"); }} onFavDash={openFav} onPick={(c) => {
         const m = mapRef.current;
         if (m && c.lat) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(c.lat, c.lng)); }
         pickComplex(c, false);
@@ -716,7 +743,7 @@ export default function App() {
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>
           </div>
           {/* 매물의뢰 — 절충안의 떠 있는 버튼. 세 갈래: 중개사에게 매물의뢰 · AI 상담사 · 내 요청 보기 */}
-          {!phone && !stats && !safe && !ask && (
+          {!phone && !stats && !safe && !ask && !fav && !rt && (
             <div className={"t2-fabwrap" + (sel || selJ ? " narrow" : "")}>
               {reqOpen && <ReqMenu onClose={() => setReqOpen(false)} onPick={openAsk} />}
               <button className="t2-fab" onClick={() => setReqOpen(!reqOpen)} aria-expanded={reqOpen}>매물의뢰</button>
@@ -734,9 +761,15 @@ export default function App() {
             onGo={(path, text) => {
               const m = /^\/complex\/(\d+)/.exec(path);
               if (m) { setAsk(null); goComplex(m[1], text || ""); }
+              else if (/^\/realtor\//.test(path)) openRt(decodeURIComponent(path.split("/")[2] || "").split("?")[0]);
+              else if (path.startsWith("/my/favorites")) openFav();
               else window.open(SITE + path, "_blank", "noreferrer");
             }} />}
-          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)}
+          {fav && <FavWindow phone={phone} session={session} onClose={() => setFav(false)} onRemoved={(no) => setFavs((o) => (o || []).filter((f) => f.complex_no !== no))}
+            onGo={(no, name, tab) => { setFav(false); goComplex(no, name, tab); }} />}
+          {rt && <RealtorWindow id={rt} phone={phone} session={session} onClose={() => setRt(null)} onLogin={() => setAskLogin(true)}
+            onGo={(no, name) => { setRt(null); goComplex(no, name); }} />}
+          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt}
             fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} /></aside>}
           {!phone && !sel && selJ && <aside className="t2-drawer"><JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /></aside>}
           {askLogin && (
@@ -752,7 +785,7 @@ export default function App() {
               <button className="t2-grab" aria-label="목록 크기 바꾸기"
                 onClick={() => setSheet(sheet === "peek" ? "half" : sheet === "half" ? "full" : "peek")}><i /></button>
               <div className="t2-sheet-in">
-                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)}
+                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt}
                   fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} />
                   : selJ ? <JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /> : panel}
               </div>
@@ -762,15 +795,16 @@ export default function App() {
       </div>
       {phone && (
         <nav className="t2-tabbar">
-          <button className={!stats && !safe && !ask ? "on" : ""} onClick={() => { setStats(null); setSafe(null); setAsk(null); setReqOpen(false); }}>지도</button>
-          <button className={stats ? "on" : ""} onClick={() => { setSafe(null); setAsk(null); setReqOpen(false); setStats({ g: "price", i: "top" }); }}>통계</button>
+          <button className={!stats && !safe && !ask && !fav && !rt ? "on" : ""} onClick={closeWins}>지도</button>
+          <button className={stats ? "on" : ""} onClick={() => { closeWins(); setStats({ g: "price", i: "top" }); }}>통계</button>
           <button className={"req" + (ask ? " on" : "")} onClick={() => setReqOpen(!reqOpen)}>의뢰</button>
-          <button className={safe ? "on" : ""} onClick={() => { setStats(null); setAsk(null); setReqOpen(false); setSafe("alert"); }}>안심</button>
+          <button className={safe ? "on" : ""} onClick={() => { closeWins(); setSafe("alert"); }}>안심</button>
           <button onClick={() => setMore(!more)}>더보기</button>
           {reqOpen && <div className="t2-more req" onClick={() => setReqOpen(false)}><ReqMenu onClose={() => setReqOpen(false)} onPick={openAsk} /></div>}
           {more && (
             <div className="t2-more" onClick={() => setMore(false)}>
               {favs && favs.length > 0 && favs.map((f) => <button key={f.complex_no} onClick={() => goComplex(f.complex_no, f.complex_name)}>관심단지 · {f.complex_name}</button>)}
+              {session && <button onClick={openFav}>관심단지 대시보드</button>}
               {!session ? <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>
                 : <button onClick={() => logout()}>{sessionName(session)} · 로그아웃</button>}
               <a href={`${SITE}/settings`} target="_blank" rel="noreferrer">내 정보</a>
@@ -802,9 +836,9 @@ function ReqMenu({ onClose, onPick }: { onClose: () => void; onPick: (t: AskTab)
 }
 
 // ── 상단 바 ─────────────────────────────────────────
-function TopBar({ phone, onPick, favs, session, user, onLogout, onGo, onAddr, onLogin, statsOn, safeOn, onStats, onSafe }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
+function TopBar({ phone, onPick, favs, session, user, onLogout, onGo, onAddr, onLogin, statsOn, safeOn, onStats, onSafe, onFavDash }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
   session: boolean; user: string | null; onLogout: () => void; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void;
-  statsOn: boolean; safeOn: boolean; onStats: () => void; onSafe: () => void }) {
+  statsOn: boolean; safeOn: boolean; onStats: () => void; onSafe: () => void; onFavDash: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<any[]>([]);
   const [favOpen, setFavOpen] = useState(false);
@@ -857,7 +891,7 @@ function TopBar({ phone, onPick, favs, session, user, onLogout, onGo, onAddr, on
                 {!session ? <button onClick={() => { setFavOpen(false); onLogin(); }}>로그인하고 관심단지 담기</button>
                   : !favs?.length ? <span className="t2-ddm-note">단지 서랍의 하트를 누르면 여기에 모여요(최대 20곳)</span>
                   : favs.map((f) => <button key={f.complex_no} onClick={() => { setFavOpen(false); onGo(f.complex_no, f.complex_name); }}>{f.complex_name}</button>)}
-                {session && <a href={`${SITE}/my/favorites`} target="_blank" rel="noreferrer">관심단지 대시보드 ↗</a>}
+                {session && <button className="dash" onClick={() => { setFavOpen(false); onFavDash(); }}>관심단지 대시보드</button>}
               </span>
             )}
           </span>
@@ -894,6 +928,22 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
   const hhL = pick(HH_OPTS, flt.hmin, flt.hmax);
   const dirty = JSON.stringify(flt) !== JSON.stringify(FLT0);
   const opt = (o: { l: string }, on: boolean, f: () => void) => <button key={o.l} className={on ? "on" : ""} onClick={f}>{o.l}</button>;
+  // 여러 개 고르는 항목(방·욕실·층·방향·시설): 체크 모양, 하나도 안 고르면 전체
+  const multi = (o: { k: string; l: string }, cur: string[], f: (v: string[]) => void) => {
+    const on = cur.includes(o.k);
+    return <button key={o.k} className={on ? "on chk" : "chk"} onClick={() => f(on ? cur.filter((x) => x !== o.k) : [...cur, o.k])}><i />{o.l}</button>;
+  };
+  const nOr = (xs: string[], one: (k: string) => string, word: string) => (xs.length === 0 ? "" : xs.length === 1 ? one(xs[0]) : `${word} ${xs.length}`);
+  const cxParts = [hhL && hhL !== "전체" ? hhL : "", flt.bld ? `${flt.bld}동+` : "", flt.park ? `주차 ${flt.park}대+` : "", flt.far ? `용적률 ${flt.far}%-` : ""].filter(Boolean);
+  const cxLabel = cxParts.length === 0 ? "단지정보" : cxParts.length === 1 ? cxParts[0] : `단지정보 ${cxParts.length}`;
+  const condParts = [flt.verify === "owner" ? "집주인 확인" : flt.verify === "doc" ? "확인 매물" : "", flt.confirm ? CONFIRM_OPTS.find((o) => o.v === flt.confirm)!.l : "", flt.down ? "가격 내림" : "", flt.only ? `급매 ${Math.round(flt.disc * 100)}%+` : ""].filter(Boolean);
+  const condLabel = condParts.length === 0 ? "매물보기 조건" : condParts.length === 1 ? condParts[0] : `조건 ${condParts.length}`;
+  const rbParts = [nOr(flt.rooms, (k) => ROOM_OPTS.find((o) => o.k === k)!.l, "방"), nOr(flt.baths, (k) => BATH_OPTS.find((o) => o.k === k)!.l, "욕실")].filter(Boolean);
+  const rbLabel = rbParts.length === 0 ? "방/욕실" : rbParts.join(" · ");
+  const fdParts = [nOr(flt.floor, (k) => FLOOR_OPTS.find((o) => o.k === k)!.l, "층"), nOr(flt.dirs, (k) => k, "방향")].filter(Boolean);
+  const fdLabel = fdParts.length === 0 ? "층/방향" : fdParts.join(" · ");
+  const ctParts = [flt.sp ? SPECIAL_KINDS.find((x) => x.k === flt.sp)?.l || "" : "", flt.loan === "none" ? "융자금 없음" : flt.loan === "low" ? "융자금 적음" : ""].filter(Boolean);
+  const ctLabel = ctParts.length === 0 ? "계약조건" : ctParts.join(" · ");
   return (
     <div className="t2-fbar" onMouseLeave={() => setOpen(null)}>
       <Dd id="types" open={open} setOpen={setOpen} label={typeLabel(flt.types)} active={flt.types.join() !== FLT0.types.join()}>
@@ -915,21 +965,49 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
       <Dd id="appr" open={open} setOpen={setOpen} label={apprL && apprL !== "전체" ? apprL : "사용승인일"} active={!!flt.afrom || !!flt.ato}>
         {APPROVE_OPTS.map((o) => opt(o, flt.afrom === o.a && flt.ato === o.b, () => set({ afrom: o.a, ato: o.b })))}
       </Dd>
-      <Dd id="hh" open={open} setOpen={setOpen} label={hhL && hhL !== "전체" ? hhL : "세대수"} active={!!flt.hmin || !!flt.hmax}>
-        {HH_OPTS.map((o) => opt(o, flt.hmin === o.a && flt.hmax === o.b, () => set({ hmin: o.a, hmax: o.b })))}
+      <Dd id="cx" open={open} setOpen={setOpen} label={cxLabel} active={!!flt.hmin || !!flt.hmax || !!flt.bld || !!flt.park || !!flt.far}>
+        <span className="t2-ddm-in cols" onClick={(e) => e.stopPropagation()}>
+          <span className="t2-ddm-col"><small>세대수</small>{HH_OPTS.map((o) => opt(o, flt.hmin === o.a && flt.hmax === o.b, () => set({ hmin: o.a, hmax: o.b })))}</span>
+          <span className="t2-ddm-col"><small>동수</small>{BLD_OPTS.map((o) => opt(o, flt.bld === o.v, () => set({ bld: o.v })))}</span>
+          <span className="t2-ddm-col"><small>주차</small>{PARK_OPTS.map((o) => opt(o, flt.park === o.v, () => set({ park: o.v })))}</span>
+          <span className="t2-ddm-col"><small>용적률</small>{FAR_OPTS.map((o) => opt(o, flt.far === o.v, () => set({ far: o.v })))}</span>
+        </span>
       </Dd>
-      <button className={"t2-ftog" + (flt.only ? " on" : "")} onClick={() => set({ only: !flt.only })}>급매만</button>
-      {flt.trade === "A1" && (
-        <Dd id="sp" open={open} setOpen={setOpen} label={SPECIAL_KINDS.find((x) => x.k === flt.sp)?.l || "특수조건"} active={!!flt.sp}>
-          {opt({ l: "전체" }, !flt.sp, () => set({ sp: "" }))}
-          {SPECIAL_KINDS.map((x) => opt({ l: `${x.l} — ${x.h}` }, flt.sp === x.k, () => set({ sp: x.k })))}
-        </Dd>
-      )}
-      {flt.only && (
-        <Dd id="disc" open={open} setOpen={setOpen} label={`${Math.round(flt.disc * 100)}% 이상`} active={flt.disc > 0.03}>
-          {[0.03, 0.05, 0.1].map((v) => opt({ l: `${Math.round(v * 100)}% 이상` }, flt.disc === v, () => set({ disc: v })))}
-        </Dd>
-      )}
+      <Dd id="walk" open={open} setOpen={setOpen} label={flt.walk ? `역 ${flt.walk}분` : "역세권"} active={!!flt.walk}>
+        {WALK_OPTS.map((o) => opt(o, flt.walk === o.v, () => set({ walk: o.v })))}
+      </Dd>
+      <Dd id="cond" open={open} setOpen={setOpen} label={condLabel} active={!!flt.verify || !!flt.confirm || flt.down || flt.only}>
+        <span className="t2-ddm-in cols" onClick={(e) => e.stopPropagation()}>
+          <span className="t2-ddm-col"><small>확인</small>
+            {opt({ l: "전체" }, !flt.verify, () => set({ verify: "" }))}{opt({ l: "집주인 확인 매물" }, flt.verify === "owner", () => set({ verify: "owner" }))}{opt({ l: "확인 매물(서류·집주인)" }, flt.verify === "doc", () => set({ verify: "doc" }))}</span>
+          <span className="t2-ddm-col"><small>확인일</small>{CONFIRM_OPTS.map((o) => opt(o, flt.confirm === o.v, () => set({ confirm: o.v })))}</span>
+          <span className="t2-ddm-col"><small>가격</small>
+            <button className={flt.down ? "on chk" : "chk"} onClick={() => set({ down: !flt.down })}><i />가격 내린 매물</button>
+            <button className={flt.only ? "on chk" : "chk"} onClick={() => set({ only: !flt.only })}><i />급매만(실거래 평균 대비)</button>
+            {flt.only && [0.03, 0.05, 0.1].map((v) => opt({ l: `${Math.round(v * 100)}% 이상 싼` }, flt.disc === v, () => set({ disc: v })))}</span>
+        </span>
+      </Dd>
+      <Dd id="rb" open={open} setOpen={setOpen} label={rbLabel} active={flt.rooms.length > 0 || flt.baths.length > 0}>
+        <span className="t2-ddm-in cols" onClick={(e) => e.stopPropagation()}>
+          <span className="t2-ddm-col"><small>방</small>{ROOM_OPTS.map((o) => multi(o, flt.rooms, (v) => set({ rooms: v })))}</span>
+          <span className="t2-ddm-col"><small>욕실</small>{BATH_OPTS.map((o) => multi(o, flt.baths, (v) => set({ baths: v })))}</span>
+        </span>
+      </Dd>
+      <Dd id="fd" open={open} setOpen={setOpen} label={fdLabel} active={flt.floor.length > 0 || flt.dirs.length > 0}>
+        <span className="t2-ddm-in cols" onClick={(e) => e.stopPropagation()}>
+          <span className="t2-ddm-col"><small>층</small>{FLOOR_OPTS.map((o) => multi(o, flt.floor, (v) => set({ floor: v })))}</span>
+          <span className="t2-ddm-col"><small>방향</small>{DIR_OPTS.map((o) => multi(o, flt.dirs, (v) => set({ dirs: v })))}</span>
+        </span>
+      </Dd>
+      <Dd id="ct" open={open} setOpen={setOpen} label={ctLabel} active={!!flt.sp || !!flt.loan}>
+        <span className="t2-ddm-in cols" onClick={(e) => e.stopPropagation()}>
+          {flt.trade === "A1" && <span className="t2-ddm-col"><small>특수조건</small>{opt({ l: "전체" }, !flt.sp, () => set({ sp: "" }))}{SPECIAL_KINDS.map((x) => opt({ l: `${x.l} — ${x.h}` }, flt.sp === x.k, () => set({ sp: x.k })))}</span>}
+          <span className="t2-ddm-col"><small>융자금</small>{opt({ l: "전체" }, !flt.loan, () => set({ loan: "" }))}{opt({ l: "융자금 없는 매물" }, flt.loan === "none", () => set({ loan: "none" }))}{opt({ l: "융자금 없거나 적은 매물" }, flt.loan === "low", () => set({ loan: "low" }))}</span>
+        </span>
+      </Dd>
+      <Dd id="tg" open={open} setOpen={setOpen} label={flt.tags.length ? (flt.tags.length === 1 ? TAG_OPTS.find((t) => t.k === flt.tags[0])!.l : `시설 ${flt.tags.length}`) : "시설"} active={flt.tags.length > 0}>
+        <span className="t2-ddm-in" onClick={(e) => e.stopPropagation()}>{TAG_OPTS.map((o) => multi(o, flt.tags, (v) => set({ tags: v })))}</span>
+      </Dd>
       {dirty && <button className="t2-freset" onClick={() => onChange(FLT0)}>초기화</button>}
     </div>
   );
@@ -1165,8 +1243,8 @@ type Scope = "dong" | "gu" | "sido" | "nat";
 type Opt = { code: string; name: string };
 // 매물 범위 — 운영 우리동네 중개사 페이지와 같은 6종(by-dong·by-sido·national 의 scope=)
 const MSCOPES: [string, string][] = [["complex", "단지형 (아파트·오피)"], ["house", "주택 (빌라·단독)"], ["comm", "상가·사무실"], ["building", "빌딩·건물"], ["land", "토지·공장"], ["all", "전체"]];
-function RealtorPanel({ region, dong, onRows, onPick, onDong }: { region: Region | null; dong: Opt | null;
-  onRows: (rows: (Rk & { rank: number })[]) => void; onPick: (r: Rk) => void; onDong: (d: Opt, path: string) => void }) {
+function RealtorPanel({ region, dong, onRows, onPick, onDong, onRealtor }: { region: Region | null; dong: Opt | null;
+  onRows: (rows: (Rk & { rank: number })[]) => void; onPick: (r: Rk) => void; onDong: (d: Opt, path: string) => void; onRealtor: (id: string) => void }) {
   const [scope, setScope] = useState<Scope>("dong");
   const [mode, setMode] = useState<"dong" | "name">("dong");   // 찾는 방법: 동네로 / 사무소 이름으로(운영 페이지와 동일)
   const [mscope, setMscope] = useState("complex");
@@ -1249,7 +1327,7 @@ function RealtorPanel({ region, dong, onRows, onPick, onDong }: { region: Region
                 <ol className="t2-rank">
                   {qRes.map((r, i) => (
                     <li key={(r.realtor_id || r.realtor_name) + i}>
-                      <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id || "")}`} target="_blank" rel="noreferrer">
+                      <a href={`?rt=${encodeURIComponent(r.realtor_id || "")}`} onClick={(e) => { e.preventDefault(); onRealtor(r.realtor_id || ""); }}>
                         <span className="n">{i + 1}</span>
                         <span className="o"><b>{r.realtor_name || "공인중개사"}</b>
                           <em>{[r.location, r.representative ? `대표 ${r.representative}` : "", r.staff_count ? `직원 ${r.staff_count}명` : "", r.established_year ? `${String(r.established_year).slice(0, 4)}년 개업` : ""].filter(Boolean).join(" · ")}</em></span>
@@ -1306,8 +1384,8 @@ function RealtorPanel({ region, dong, onRows, onPick, onDong }: { region: Region
             <ol className="t2-rank">
               {sorted.map((r, i) => (
                 <li key={r.realtor_id + i} className={i === 0 ? "top1" : ""}>
-                  <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id)}`} target="_blank" rel="noreferrer"
-                    onClick={scope === "dong" ? (e) => { e.preventDefault(); onPick(r); } : undefined}>
+                  <a href={`?rt=${encodeURIComponent(r.realtor_id)}`}
+                    onClick={(e) => { e.preventDefault(); if (scope === "dong") onPick(r); else onRealtor(r.realtor_id); }}>
                     <span className="n">{i + 1}</span>
                     <span className="o"><b>{r.realtor_name}</b>
                       <em>{[r.staff_count ? `직원 ${r.staff_count}명` : "", r.tenure_years ? `업력 ${r.tenure_years}년` :

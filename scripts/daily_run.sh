@@ -126,6 +126,7 @@ step "step 11: build_tx_rollups"           $PY -u scripts/build_tx_rollups.py; r
 # 11b) 특수조건 매매 색인(주인전세·세안고·대출승계) — 매물 설명 기준이라 수집 직후 재생성.
 #      전량 교체라 내려간 매물이 남지 않는다(4초).
 step "step 11b: build_special_deals"       $PY -u scripts/build_special_deals.py; special_exit=$?
+step "step 11d: build_quick_deals_cx (지도 동·구 급매 묶음)" nice -n 10 $PY -u scripts/build_quick_deals_cx.py; qdcx_exit=$?
 
 # 11c) KST/UTC 정합 회귀검사 — SQLite date('now')는 UTC라 업무일자(deal_ymd 등)와
 #      비교하면 매일 00~09시에 하루 밀린다(실측: 최근1일 실거래 684 vs 정상 213).

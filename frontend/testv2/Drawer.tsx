@@ -79,7 +79,7 @@ export type DrawerTab = "deals" | "tx" | "hoga" | "nearby" | "realtor" | "review
 // initialTab: 지도 레이어에 맞춰 시작 탭을 정한다(매물찾기→급매, 시세분석→실거래, 중개사랭킹→중개사). 단지가 바뀌면 다시 적용.
 // onPick: 인근단지·같은 건물에서 다른 단지를 고르면 지도가 그 단지로 옮겨 간다.
 // fav: 관심단지 여부(null=로그인 전), onFav: 하트 누름(로그인 전이면 App 이 로그인 안내를 띄운다)
-export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab;
+export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav, onRealtor }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab; onRealtor?: (id: string) => void;
   fav?: boolean | null; onFav?: () => void }) {
   const [tab, setTab] = useState<DrawerTab>(initialTab);
   useEffect(() => { setTab(initialTab); }, [initialTab]);   // 같은 단지에서 팝업 버튼으로 다른 탭을 고를 때
@@ -175,7 +175,7 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
         {tab === "hoga" && <HogaTab no={cx.complex_no} exclOf={exclOf} />}
         {tab === "nearby" && <NearbyTab no={cx.complex_no} areas={areas} onPick={onPick} />}
         {tab === "realtor" && <RealtorTab rk={rk} total={cnt.A1 + cnt.B1 + cnt.B2 || cx.listings || 0}
-          onRequest={(r) => setReq({ realtor_id: r.realtor_id, realtor_name: r.realtor_name, complex: regionName })} />}
+          onRequest={(r) => setReq({ realtor_id: r.realtor_id, realtor_name: r.realtor_name, complex: regionName })} onRealtor={onRealtor} />}
         {tab === "review" && <ReviewTab no={cx.complex_no} />}
         {tab === "info" && <InfoTab no={cx.complex_no} asset={asset} info={info} raw={raw} agg={agg} areas={areas} sum={sum} onPick={onPick} />}
       </div>
@@ -322,7 +322,7 @@ function SpecialBlock({ no }: { no: string }) {
 
 // ── 리뷰: 단지 리뷰 읽기(공개) + 쓰기(로그인) — 운영 /complex/{no}/reviews ─────────────────────
 type Review = { id: number; author_name: string; rating: number; body: string; resident?: boolean; created_at: string; is_admin?: boolean };
-function Stars({ v }: { v: number }) {
+export function Stars({ v }: { v: number }) {
   return <span className="t2-stars" aria-label={`${v}점`}>{[1, 2, 3, 4, 5].map((i) => <i key={i} className={i <= Math.round(v) ? "on" : ""} />)}</span>;
 }
 function ReviewTab({ no }: { no: string }) {
@@ -636,7 +636,7 @@ function NearbyTab({ no, areas, onPick }: { no: string; areas: Area[]; onPick?: 
 }
 
 // ── 중개사 랭킹 ───────────────────────────────────────
-function RealtorTab({ rk, total, onRequest }: { rk: any[] | null; total: number; onRequest: (r: any) => void }) {
+function RealtorTab({ rk, total, onRequest, onRealtor }: { rk: any[] | null; total: number; onRequest: (r: any) => void; onRealtor?: (id: string) => void }) {
   const [all, setAll] = useState(false);
   // 중개사 리뷰 요약(평점·개수) — 보이는 줄만 불러온다(운영 /realtor/{id}/reviews)
   const [rv, setRv] = useState<Record<string, { avg_rating: number | null; total_count: number }>>({});
@@ -660,7 +660,7 @@ function RealtorTab({ rk, total, onRequest }: { rk: any[] | null; total: number;
         <ol className="t2-rank withreq">
           {shown.map((r, i) => (
             <li key={r.realtor_id} className={i === 0 ? "top1" : ""}>
-              <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id)}`} target="_blank" rel="noreferrer">
+              <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id)}`} target="_blank" rel="noreferrer" onClick={onRealtor ? (e) => { e.preventDefault(); onRealtor(r.realtor_id); } : undefined}>
                 <span className="n">{i + 1}</span>
                 <span className="o"><b>{r.realtor_name}{rv[r.realtor_id]?.total_count ? <small className="t2-rvsum"><Stars v={rv[r.realtor_id].avg_rating || 0} /> {(rv[r.realtor_id].avg_rating || 0).toFixed(1)} ({rv[r.realtor_id].total_count})</small> : null}</b><em>매매 {r.n_sale} · 전세 {r.n_jeonse} · 월세 {r.n_wolse}</em>{meta(r) && <em>{meta(r)}</em>}</span>
                 <span className="bm"><i style={{ width: `${(r.count / max) * 100}%` }} /></span>
