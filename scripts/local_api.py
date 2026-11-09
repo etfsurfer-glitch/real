@@ -10993,7 +10993,8 @@ def kok_realtor_listing_detail(article_no: str):
             "move_in": " ".join(x for x in [ad.get("moveInTypeName") or "", "협의 가능" if ad.get("moveInDiscussionPossibleYN") == "Y" else ""] if x).strip(),
             "rooms": ad.get("roomCount"), "baths": ad.get("bathroomCount"),
             "mgmt_cost": int(ad["monthlyManagementCost"]) if str(ad.get("monthlyManagementCost") or "").isdigit() and int(ad["monthlyManagementCost"]) > 0 else None,
-            "mgmt_info": {"type": cost.get("chargeCodeTypeName") or cost.get("chargeCodeType"), "details": [
+            # 부과방식 코드 → 글자(상세 JSON 에 이름이 없을 때). 코드 순서는 등록 화면의 부과방식 순서와 같다.
+            "mgmt_info": {"type": cost.get("chargeCodeTypeName") or {"01": "정액관리비", "02": "정액관리비(세부내역 미고지)", "03": "기타 부과", "04": "확인 불가"}.get(str(cost.get("chargeCodeType") or ""), cost.get("chargeCodeType")), "details": [
                 {"name": x.get("detailCodeTypeName") or x.get("detailCodeType"), "amount": x.get("amount"), "unable": x.get("amountCodeType") == "02"}
                 for x in (cost.get("fixedFeeDetails") or [])]} if cost else None,
             "direction": fac.get("directionTypeName") or out["direction"], "direction_base": fac.get("directionBaseTypeName") or "",

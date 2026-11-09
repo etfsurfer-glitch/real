@@ -1039,8 +1039,8 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-pin2.nr > b { font-size: 13.5px; }
 .t2-ddm-in.cols .t2-ddm-col button.chk { white-space: nowrap; }
 /* 콕집매물 상세 패널 — 단지 서랍 왼쪽에 하나 더 */
-.t2-drawer.t2-drawer2 { right: 400px; width: 440px; z-index: 19; box-shadow: none; overflow-y: auto; }
-.t2-mapwrap.two { --dr-w: 840px; }
+.t2-drawer.t2-drawer2 { right: 460px; width: 440px; z-index: 19; box-shadow: none; overflow-y: auto; }
+.t2-mapwrap.two { --dr-w: 900px; }
 .t2-kl { padding: 16px 16px 24px; }
 .t2-kl .t2-ph h2 { font-size: 18px; }
 .t2-kl-price { display: flex; align-items: baseline; gap: 10px; margin: 10px 0 4px; }
