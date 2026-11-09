@@ -160,7 +160,7 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
       <dl className="t2-facts">
         <div><dt>준공</dt><dd>{ymd ? `${ymd.slice(0, 4)}.${ymd.slice(4, 6)}` : "-"}{age != null && <small> {age}년차</small>}</dd></div>
         <div><dt>세대</dt><dd>{(info?.total_household_count ?? cx.households)?.toLocaleString() ?? "-"}<small> · {info?.total_building_count ?? "-"}개동</small></dd></div>
-        <div><dt>층수</dt><dd>{info?.low_floor && info?.high_floor ? `${info.low_floor}~${info.high_floor}층` : "-"}</dd></div>
+        <div><dt>층수</dt><dd>{info?.low_floor && info?.high_floor ? (info.low_floor === info.high_floor ? `${info.high_floor}층` : `${info.low_floor}~${info.high_floor}층`) : "-"}</dd></div>
         <div><dt>역대 최고가</dt><dd>{rh ? <>{wonShort(rh.price)}<small> {areaLabel(rh.area_key)} · {ymdDot(rh.date).slice(0, 5)}</small></> : sum ? "-" : "…"}</dd></div>
         <div><dt>최근 실거래</dt><dd>{rt ? <>{wonShort(rt.price)}<small> {areaLabel(rt.area)} · {ymdDot(rt.date).slice(0, 5)}{rt.is_silv ? " 분양권" : ""}</small></> : sum ? "-" : "…"}</dd></div>
         <div><dt>매물</dt><dd>
@@ -687,78 +687,217 @@ function RealtorTab({ rk, total, onRequest, onRealtor, ad }: { rk: any[] | null;
   );
 }
 
-// ── 단지정보: 대장 요약 + 교통·학군 + 건축물대장 + 평형별 세대·호가 + 같은 건물 ─────────────────────
+// ── 단지정보 = 단지 프로필: 숫자를 같은 동 단지 사이의 '자리'로 읽어 준다 ─────────────────────
+// 한 줄 표(주소·세대·건설사…)는 다른 사이트와 다를 게 없어 버리고, 콕집이 가진 비교·환산을 앞세운다.
+// ① 동네에서 어디쯤(세대·층·연식·용적률·건폐율·주차 — 같은 동 같은 유형 단지와 비교 띠)
+// ② 평형 구성(세대 비중 띠 + 평형별 방·욕·현관·매매 호가 범위 띠) ③ 관리(K-apt: ㎡당 월 관리비·인원·CCTV·승강기·충전기)
+// ④ 지어진 과정(허가→착공→승인→오늘→30년, 건축물대장) ⑤ 걸어서(역·초등학교 도보 분 눈금) ⑥ 같은 건물
 type Ledger = { structure?: string; roof?: string; grnd_flr?: number; ugrnd_flr?: number; heit?: number; bc_rat?: number | null; vl_rat?: number | null;
   arch_area?: number; plat_area?: number | null; tot_area?: number; elvt?: number; pms_day?: string; stcns_day?: string; use_apr_day?: string; n_dong?: number; main_purps?: string; etc_purps?: string };
-function InfoTab({ no, asset, info, raw, agg, areas, sum, onPick, ad }: { no: string; asset: string; info: Info | null; raw: any; agg: AggRow[] | null; areas: Area[]; sum: Summary | null; onPick?: (c: DrawerCx) => void; ad?: Ad }) {
+type Metric = { v: number; n: number; med?: number; lo?: number; hi?: number; pct?: number } | null;
+type Profile = {
+  name: string; type_name: string; dong: string; peers_n: number; households?: number; dongs?: number; high_floor?: number; low_floor?: number;
+  approve_ymd: string; age: number | null; batl?: number; btl?: number; parking_total?: number; parking_per?: number; builder: string; heat: string;
+  metrics: { households: Metric; floors: Metric; age: Metric; batl: Metric; btl: Metric; parking: Metric };
+  areas: { pyeong_name: string; supply_area: number | null; exclusive_area: number | null; households: number | null; rooms: number | null; baths: number | null; entrance: string }[];
+  kapt: { name: string; mgr: string; mgr_cnt: number | null; mgr_company: string; guard: string; guard_cnt: number | null; clean: string; clean_cnt: number | null;
+    cctv: number | null; elev: number | null; parking: number | null; parking_ug: number | null; ev: number; welfare: string; education: string; convenient: string;
+    heat: string; marea: number; months: number; per_m2: number | null; source: string } | null;
+};
+const PF_ROWS: { k: keyof Profile["metrics"]; label: string; fmt: (v: number) => string; order: string; note?: string }[] = [
+  { k: "households", label: "세대수", fmt: (v) => `${v.toLocaleString()}세대`, order: "많은 순" },
+  { k: "floors", label: "최고층", fmt: (v) => `${v}층`, order: "높은 순" },
+  { k: "age", label: "연식", fmt: (v) => `${v}년차`, order: "오래된 순" },
+  { k: "batl", label: "용적률", fmt: (v) => `${Math.round(v)}%`, order: "높은 순", note: "낮을수록 동 사이가 트여요" },
+  { k: "btl", label: "건폐율", fmt: (v) => `${Math.round(v)}%`, order: "높은 순", note: "낮을수록 땅에 여백이 많아요" },
+  { k: "parking", label: "세대당 주차", fmt: (v) => `${v.toFixed(2)}대`, order: "넉넉한 순" },
+];
+// 비교 띠: 동네 최소~최대 위에 중앙값 눈금과 내 자리. 내 값이 바깥이면 범위를 내 값까지 늘린다.
+function PfStrip({ m }: { m: NonNullable<Metric> }) {
+  if (m.lo == null || m.hi == null || m.med == null) return null;
+  const lo = Math.min(m.lo, m.v), hi = Math.max(m.hi, m.v);
+  const x = (v: number) => (hi === lo ? 50 : ((v - lo) / (hi - lo)) * 100);
+  return (
+    <div className="t2-pf-strip" aria-hidden="true">
+      <i className="med" style={{ left: `${x(m.med)}%` }} />
+      <b style={{ left: `${x(m.v)}%` }} />
+    </div>
+  );
+}
+function pfRank(m: NonNullable<Metric>): string {
+  if (m.pct == null || !m.n) return "";
+  const above = Math.round((m.n * (100 - m.pct)) / 100);     // 나보다 큰 단지 수
+  return `${above + 1}번째`;
+}
+function InfoTab({ no, asset, agg, areas, sum, onPick, ad }: { no: string; asset: string; info: Info | null; raw: any; agg: AggRow[] | null; areas: Area[]; sum: Summary | null; onPick?: (c: DrawerCx) => void; ad?: Ad }) {
+  const [pf, setPf] = useState<Profile | null | undefined>(undefined);
   const [ledger, setLedger] = useState<Ledger | null | undefined>(undefined);
   const [sibs, setSibs] = useState<any[]>([]);
   useEffect(() => {
-    setLedger(undefined); setSibs([]);
+    setPf(undefined); setLedger(undefined); setSibs([]);
+    getJson(`/complexes/${no}/profile`).then(setPf).catch(() => setPf(null));
     getJson(`/stats/tx-map/detail?asset=${asset}&trade=A1&ref=${no}&months=1`).then((j) => setLedger(j.ledger || null)).catch(() => setLedger(null));
     getJson(`/complexes/${no}/siblings`).then((j) => setSibs(j.items || [])).catch(() => {});
   }, [no, asset]);
-  if (!info) return <Skel />;
-  const by = (name: string, tt: string) => (agg || []).find((r) => r.area_name === name && r.trade_type === tt);
-  const rng = (r?: AggRow) => (!r ? "-" : r.price_min === r.price_max ? wonShort(r.price_min) : `${wonShort(r.price_min)}~${wonShort(r.price_max)}`);
-  const rentRng = (r?: AggRow) => (!r ? "-" : `${wonShort(r.price_min)}~${wonShort(r.price_max)}${r.rent_min && r.rent_max ? ` / ${Math.round(r.rent_min / 1e4)}~${Math.round(r.rent_max / 1e4)}만` : ""}`);
-  const ymd = info.use_approve_ymd || "";
-  const L = ledger;
-  const m2 = (v?: number | null) => (v ? `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}㎡` : "-");
-  return (
-    <>
-      <table className="t2-kv">
-        <tbody>
-          <tr><th>주소</th><td>{[raw.cortarAddress, info.road_address].filter(Boolean).join(" · ") || "-"}</td></tr>
-          <tr><th>사용승인</th><td>{ymd ? ymd8(ymd) : "-"}</td></tr>
-          <tr><th>규모</th><td>{info.total_household_count?.toLocaleString()}세대 · {info.total_building_count}개동 · {info.low_floor}~{info.high_floor}층</td></tr>
-          <tr><th>용적률 / 건폐율</th><td>{info.batl_ratio ? `${Math.round(info.batl_ratio)}% / ${Math.round(info.btl_ratio || 0)}%` : "-"}</td></tr>
-          <tr><th>주차</th><td>{info.parking_possible_count ? `${info.parking_possible_count.toLocaleString()}대 (세대당 ${info.parking_per_household}대)` : "-"}</td></tr>
-          <tr><th>건설사</th><td>{info.construction_company || "-"}</td></tr>
-          <tr><th>관리사무소</th><td>{info.management_office_tel || "-"}</td></tr>
-          {sum?.subway && <tr><th>지하철</th><td>{sum.subway.station} ({sum.subway.lines}) · {sum.subway.distance_m}m · 도보 {sum.subway.walk_min}분</td></tr>}
-          {sum?.school && <tr><th>{sum.school.src === "near" ? "인근 초등학교" : "배정 초등학교"}</th><td>{sum.school.names_all || sum.school.name} · {sum.school.distance_m}m · 도보 {sum.school.walk_min}분</td></tr>}
-        </tbody>
-      </table>
+  if (pf === undefined) return <Skel />;
+  if (pf === null) return <p className="t2-empty">단지 정보를 지금 못 받았어요.</p>;
 
-      <div className="t2-ph" style={{ marginTop: 14 }}><h3>건축물대장</h3><small>표제부 · 국토부 건축HUB</small></div>
-      {L === undefined ? <Skel /> : L === null ? <p className="t2-empty">건축물대장을 못 찾았어요.</p> : (
-        <table className="t2-kv">
-          <tbody>
-            <tr><th>용도</th><td>{[L.main_purps, L.etc_purps].filter(Boolean).join(" · ") || "-"}</td></tr>
-            <tr><th>구조 / 지붕</th><td>{[L.structure, L.roof].filter(Boolean).join(" / ") || "-"}</td></tr>
-            <tr><th>층수 / 높이</th><td>지상 {L.grnd_flr ?? "-"}층{L.ugrnd_flr ? ` · 지하 ${L.ugrnd_flr}층` : ""}{L.heit ? ` · ${L.heit}m` : ""}{L.n_dong ? ` · ${L.n_dong}개 동(대장)` : ""}</td></tr>
-            <tr><th>건축 / 연면적</th><td>{m2(L.arch_area)} / {m2(L.tot_area)}{L.plat_area ? ` · 대지 ${m2(L.plat_area)}` : ""}</td></tr>
-            {(L.bc_rat || L.vl_rat) && <tr><th>건폐율 / 용적률</th><td>{L.bc_rat ?? "-"}% / {L.vl_rat ?? "-"}%</td></tr>}
-            <tr><th>승강기</th><td>{L.elvt ? `${L.elvt}대` : "-"}</td></tr>
-            <tr><th>허가·착공·승인</th><td>{ymd8(L.pms_day)} → {ymd8(L.stcns_day)} → {ymd8(L.use_apr_day)}</td></tr>
-          </tbody>
-        </table>
+  // 평형: 프로필(방·욕·현관 포함) 우선, 없으면 서랍이 이미 받은 평형표
+  const rows = pf.areas.length ? pf.areas : areas.map((a) => ({ pyeong_name: a.pyeong_name, supply_area: a.supply_area, exclusive_area: a.exclusive_area, households: a.household_count, rooms: null, baths: null, entrance: "" }));
+  const hhAll = rows.reduce((s, a) => s + (a.households || 0), 0);
+  const by = (name: string, tt: string) => (agg || []).find((r) => r.area_name === name && r.trade_type === tt);
+  const sale = rows.map((a) => by(a.pyeong_name, "A1")).filter(Boolean) as AggRow[];
+  const sLo = sale.length ? Math.min(...sale.map((r) => r.price_min)) : 0, sHi = sale.length ? Math.max(...sale.map((r) => r.price_max)) : 0;
+  const sx = (v: number) => (sHi === sLo ? 0 : ((v - sLo) / (sHi - sLo)) * 100);
+  const rng = (r?: AggRow) => (!r ? "" : r.price_min === r.price_max ? wonShort(r.price_min) : `${wonShort(r.price_min)}~${wonShort(r.price_max)}`);
+  const big = rows.reduce<typeof rows[number] | null>((b, a) => (!b || (a.households || 0) > (b.households || 0) ? a : b), null);   // 세대가 가장 많은 평형
+  const K = pf.kapt;
+  const kMonth = K?.per_m2 && big?.supply_area ? K.per_m2 * big.supply_area : null;
+  const L = ledger;
+  const m2 = (v?: number | null) => (v ? `${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}㎡` : "-");
+  // 지어진 과정: 허가 → 착공 → 승인 → 오늘 → 30년(재건축 연한) 을 한 줄에
+  const yrs = (s?: string) => (s && s.length >= 8 ? +s.slice(0, 4) + (+s.slice(4, 6) - 1) / 12 : null);
+  const tl = L && L.use_apr_day ? (() => {
+    const ok = yrs(L.use_apr_day)!, now = new Date().getFullYear() + new Date().getMonth() / 12;
+    const pts = [["허가", yrs(L.pms_day)], ["착공", yrs(L.stcns_day)], ["사용승인", ok], ["오늘", now], ["30년", ok + 30]] as [string, number | null][];
+    const vals = pts.map((p) => p[1]).filter((v): v is number => v != null);
+    const lo = Math.min(...vals), hi = Math.max(...vals);
+    const x = (v: number) => (hi === lo ? 0 : ((v - lo) / (hi - lo)) * 100);
+    // 허가·착공처럼 붙어 있는 점은 한 라벨로 합친다(겹쳐 못 읽던 것)
+    const merged: { k: string; v: number; sub: string }[] = [];
+    for (const [k, v] of pts.filter((p) => p[1] != null) as [string, number][]) {
+      const last = merged[merged.length - 1];
+      const sub = k === "오늘" ? `${Math.floor(now - ok)}년차` : `${Math.floor(v)}년`;
+      if (last && !["오늘", "30년"].includes(k) && !["오늘", "30년"].includes(last.k) && Math.abs(x(v) - x(last.v)) < 9) {
+        last.k += `·${k}`; last.sub = Math.floor(last.v) === Math.floor(v) ? last.sub : `${last.sub.replace("년", "")}~${String(Math.floor(v)).slice(2)}년`;
+      } else merged.push({ k, v, sub });
+    }
+    return { pts: merged, x, ok, now };
+  })() : null;
+  const walk = [sum?.subway ? { k: "역", name: sum.subway.station, min: sum.subway.walk_min, sub: sum.subway.lines.split("·")[0] } : null,
+    sum?.school ? { k: "초", name: sum.school.name.replace("등학교", ""), min: sum.school.walk_min, sub: sum.school.src === "near" ? "인근" : "배정" } : null].filter(Boolean) as { k: string; name: string; min: number; sub: string }[];
+  const wMax = Math.max(20, ...walk.map((w) => w.min));
+  const shade = (i: number, n: number) => `rgba(18, 104, 211, ${(0.95 - (0.7 * i) / Math.max(1, n - 1)).toFixed(2)})`;
+
+  return (
+    <div className="t2-pf">
+      {/* ① 동네에서 어디쯤 */}
+      <div className="t2-pf-h"><h3>{pf.dong || "이 동네"}에서 어디쯤</h3><small>같은 동 {pf.type_name} {pf.peers_n}곳과 비교 · 띠는 동네 최소~최대, 가는 선은 중앙값</small></div>
+      {pf.peers_n < 3 && <p className="t2-pf-note">비교할 단지가 적어 자리는 참고만 하세요.</p>}
+      <div className="t2-pf-rows">
+        {PF_ROWS.map(({ k, label, fmt, order, note }) => {
+          const m = pf.metrics[k];
+          if (!m) return null;
+          return (
+            <div className="t2-pf-row" key={k}>
+              <span className="l">{label}</span>
+              <span className="v">{fmt(m.v)}</span>
+              <span className="s"><PfStrip m={m} /></span>
+              <span className="r">{m.n ? <>{order} <b>{pfRank(m)}</b><small> / {m.n + 1}곳 · 중앙값 {m.med != null ? fmt(m.med) : "-"}</small></> : "-"}</span>
+              {note && <span className="n">{note}</span>}
+            </div>
+          );
+        })}
+      </div>
+      <p className="t2-pf-line">
+        {[pf.approve_ymd ? `${pf.approve_ymd.slice(0, 4)}.${pf.approve_ymd.slice(4, 6)} 사용승인` : "", pf.dongs ? `${pf.dongs}개 동` : "", pf.low_floor && pf.high_floor ? (pf.low_floor === pf.high_floor ? `${pf.high_floor}층` : `${pf.low_floor}~${pf.high_floor}층`) : "",
+          pf.parking_total ? `주차 ${pf.parking_total.toLocaleString()}대` : "", pf.heat, pf.builder].filter(Boolean).join(" · ")}
+      </p>
+
+      {/* ② 평형 구성 */}
+      {rows.length > 0 && (
+        <>
+          <div className="t2-pf-h"><h3>평형 구성</h3><small>{hhAll ? `${hhAll.toLocaleString()}세대` : ""}{sale.length ? " · 매매 호가 띠는 오늘 매물의 최저~최고" : ""}</small></div>
+          {hhAll > 0 && (
+            <div className="t2-pf-stack" aria-hidden="true">
+              {rows.map((a, i) => (a.households || 0) > 0 && <i key={a.pyeong_name} style={{ flex: a.households || 0, background: shade(i, rows.length) }} title={`${a.pyeong_name} ${a.households}세대`} />)}
+            </div>
+          )}
+          <div className="t2-pf-areas">
+            {rows.map((a, i) => {
+              const s = by(a.pyeong_name, "A1"), j = by(a.pyeong_name, "B1");
+              const share = hhAll && a.households ? Math.round((a.households / hhAll) * 100) : null;
+              return (
+                <div className="t2-pf-area" key={a.pyeong_name}>
+                  <i className="sw" style={{ background: shade(i, rows.length) }} />
+                  <span className="t"><b>{a.pyeong_name}</b> <small>{areaLabel(a.exclusive_area, { paren: false })}</small></span>
+                  <span className="h">{a.households != null ? <>{a.households.toLocaleString()}세대{share != null && <small> {share}%</small>}</> : "-"}</span>
+                  <span className="d">{[a.rooms ? `방${a.rooms}` : "", a.baths ? `욕${a.baths}` : "", a.entrance].filter(Boolean).join(" · ")}</span>
+                  <span className="p">
+                    {s ? <><i className="bar" style={{ left: `${sx(s.price_min)}%`, width: `${Math.max(1.5, sx(s.price_max) - sx(s.price_min))}%` }} /><em>{rng(s)}<small> {s.listing_count}건</small></em></> : <em className="mut">매매 매물 없음</em>}
+                  </span>
+                  <span className="j">{j ? <>전세 {rng(j)}<small> {j.listing_count}건</small></> : ""}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
-      <div className="t2-ph" style={{ marginTop: 14 }}><h3>평형별 세대·호가</h3><small>오늘 매물 기준 · 괄호는 건수</small></div>
-      <table className="t2-tbl">
-        <thead><tr><th>타입</th><th>전용</th><th className="num">세대</th><th className="num">매매</th><th className="num">전세</th><th className="num">월세</th></tr></thead>
-        <tbody>
-          {areas.map((a) => {
-            const s = by(a.pyeong_name, "A1"), j = by(a.pyeong_name, "B1"), w = by(a.pyeong_name, "B2");
-            return (
-              <tr key={a.pyeong_name}>
-                <td>{a.pyeong_name}</td>
-                <td>{areaLabel(a.exclusive_area)}</td>
-                <td className="num">{a.household_count?.toLocaleString() ?? "-"}</td>
-                <td className="num">{rng(s)}{s ? <small> ({s.listing_count}){s.price_avg ? ` 평균 ${wonShort(s.price_avg)}` : ""}</small> : null}</td>
-                <td className="num">{rng(j)}{j ? <small> ({j.listing_count})</small> : null}</td>
-                <td className="num">{rentRng(w)}{w ? <small> ({w.listing_count})</small> : null}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      {/* ③ 관리 — K-apt */}
+      <div className="t2-pf-h"><h3>관리</h3><small>국토교통부 공동주택관리정보(K-apt) 공개</small></div>
+      {!K ? <p className="t2-pf-note">관리 공개자료는 이 단지가 연결되는 대로 보여요.</p> : (
+        <>
+          <div className="t2-pf-kpi">
+            <div><b>{K.per_m2 ? `${K.per_m2.toLocaleString()}원` : "-"}</b><span>공급 ㎡당 월 관리비<small>{K.months ? ` · ${K.months}개월 평균` : ""}</small></span></div>
+            {kMonth && big && <div><b>{Math.round(kMonth / 1e4).toLocaleString()}만원</b><span>{big.pyeong_name} 한 집 월 환산<small> · 공급 {Math.round(big.supply_area || 0)}㎡</small></span></div>}
+            {K.elev && pf.households ? <div><b>{Math.round(pf.households / K.elev)}세대</b><span>승강기 1대당<small> · {K.elev}대</small></span></div> : null}
+            {K.cctv ? <div><b>{K.cctv.toLocaleString()}대</b><span>CCTV<small>{pf.households ? ` · ${(K.cctv / pf.households * 100).toFixed(0)}대/100세대` : ""}</small></span></div> : null}
+          </div>
+          <dl className="t2-pf-dl">
+            <div><dt>관리</dt><dd>{[K.mgr, K.mgr_company, K.mgr_cnt ? `${K.mgr_cnt}명` : ""].filter(Boolean).join(" · ") || "-"}</dd></div>
+            <div><dt>경비 · 청소</dt><dd>{[K.guard_cnt ? `경비 ${K.guard_cnt}명${K.guard ? `(${K.guard})` : ""}` : "", K.clean_cnt ? `청소 ${K.clean_cnt}명${K.clean ? `(${K.clean})` : ""}` : ""].filter(Boolean).join(" · ") || "-"}</dd></div>
+            <div><dt>주차 · 충전</dt><dd>{[(K.parking || K.parking_ug) ? `${((K.parking || 0) + (K.parking_ug || 0)).toLocaleString()}대${K.parking_ug ? ` (지하 ${K.parking_ug.toLocaleString()})` : ""}` : "", K.ev ? `전기차 충전기 ${K.ev}대` : ""].filter(Boolean).join(" · ") || "-"}</dd></div>
+            {K.welfare && <div><dt>부대시설</dt><dd>{K.welfare}</dd></div>}
+            {(K.education || K.convenient) && <div><dt>주변</dt><dd>{[K.education, K.convenient].filter(Boolean).join(" · ")}</dd></div>}
+          </dl>
+          <p className="t2-pf-src">{K.source}</p>
+        </>
+      )}
+
+      {/* ④ 지어진 과정 + 건축물대장 */}
+      <div className="t2-pf-h"><h3>지어진 과정</h3><small>건축물대장 표제부 · 국토부 건축HUB</small></div>
+      {L === undefined ? <Skel /> : L === null ? <p className="t2-pf-note">건축물대장을 못 찾았어요.</p> : (
+        <>
+          {tl && (
+            <div className="t2-pf-tl" aria-label="허가부터 30년까지">
+              <div className="line"><i className="done" style={{ left: `${tl.x(tl.pts[0].v)}%`, width: `${tl.x(tl.now) - tl.x(tl.pts[0].v)}%` }} /></div>
+              {tl.pts.map(({ k, v, sub }) => (
+                <span key={k} className={"pt" + (k === "오늘" ? " now" : k === "30년" ? " far" : "")} style={{ left: `${tl.x(v)}%` }}>
+                  <i /><b>{k}</b><small>{sub}</small>
+                </span>
+              ))}
+            </div>
+          )}
+          <dl className="t2-pf-dl">
+            <div><dt>용도</dt><dd>{[L.main_purps, L.etc_purps].filter(Boolean).join(" · ") || "-"}</dd></div>
+            <div><dt>구조 · 지붕</dt><dd>{[L.structure, L.roof].filter(Boolean).join(" · ") || "-"}</dd></div>
+            <div><dt>층 · 높이</dt><dd>지상 {L.grnd_flr ?? "-"}{L.ugrnd_flr ? ` · 지하 ${L.ugrnd_flr}` : ""}{L.heit ? ` · ${L.heit}m` : ""}{L.n_dong ? ` · ${L.n_dong}개 동` : ""}{L.elvt ? ` · 승강기 ${L.elvt}대` : ""}</dd></div>
+            <div><dt>면적</dt><dd>건축 {m2(L.arch_area)} · 연면적 {m2(L.tot_area)}{L.plat_area ? ` · 대지 ${m2(L.plat_area)}` : ""}{L.bc_rat || L.vl_rat ? ` · 건폐 ${L.bc_rat ?? "-"}% · 용적 ${L.vl_rat ?? "-"}%` : ""}</dd></div>
+            {!tl && <div><dt>허가 · 착공 · 승인</dt><dd>{[ymd8(L.pms_day), ymd8(L.stcns_day), ymd8(L.use_apr_day)].join(" · ")}</dd></div>}
+          </dl>
+        </>
+      )}
+
+      {/* ⑤ 걸어서 */}
+      {walk.length > 0 && (
+        <>
+          <div className="t2-pf-h"><h3>걸어서</h3><small>도보 분 · 눈금 5분</small></div>
+          <div className="t2-pf-walk">
+            <div className="axis">{[0, 5, 10, 15, 20].filter((t) => t <= wMax).map((t) => <i key={t} style={{ left: `${(t / wMax) * 100}%` }}><small>{t}</small></i>)}</div>
+            {walk.map((w) => (
+              <div className="w" key={w.k}>
+                <i className={"mk " + (w.k === "역" ? "st" : "sc")} style={{ left: `${Math.min(100, (w.min / wMax) * 100)}%` }}>{w.k}</i>
+                <span style={{ left: `${Math.min(100, (w.min / wMax) * 100)}%` }}><b>{w.min}분</b> {w.name}<small> {w.sub}</small></span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {sibs.length > 0 && (
         <>
-          <div className="t2-ph" style={{ marginTop: 14 }}><h3>같은 건물</h3><small>아파트·오피스텔이 한 건물</small></div>
+          <div className="t2-pf-h"><h3>같은 건물</h3><small>아파트·오피스텔이 한 건물</small></div>
           <ul className="t2-nb">
             {sibs.map((s: any) => (
               <li key={s.complex_no} className={onPick ? "t2-click" : ""} onClick={() => onPick?.({ complex_no: s.complex_no, name: s.complex_name, lat: 0, lng: 0, households: s.households })}>
@@ -769,7 +908,7 @@ function InfoTab({ no, asset, info, raw, agg, areas, sum, onPick, ad }: { no: st
         </>
       )}
       {ad && <AdBand ad={ad} />}
-    </>
+    </div>
   );
 }
 

@@ -11128,9 +11128,13 @@ def _kapt_get(service: str, op: str, prm: dict, timeout: int = 12) -> dict | Non
                 with _ur.urlopen(f"{_KAPT_BASE}{_KAPT_SVC[service]}/{op}?{qs}", timeout=timeout) as r:
                     j = _json.loads(r.read().decode("utf-8", "ignore"))
                 _kapt_quota_add(service)
-                if "OpenAPI_ServiceResponse" in j:            # 게이트웨이 오류(키·서비스)
+                if "OpenAPI_ServiceResponse" in j:            # 게이트웨이 오류
                     code = str(((j.get("OpenAPI_ServiceResponse") or {}).get("cmmMsgHeader") or {}).get("returnReasonCode") or "")
-                    _KAPT_SKIP[(service, key)] = now + (1800 if code == "22" else 6 * 3600)
+                    if code in ("04", "05"):                   # 제공기관 서버 HTTP 오류·타임아웃 — 일시적. 키 탓이 아니니 잠깐 뒤 한 번 더
+                        if attempt == 0:
+                            _time.sleep(0.8); continue
+                        return None
+                    _KAPT_SKIP[(service, key)] = now + (1800 if code == "22" else 6 * 3600)   # 22 한도 초과 / 그 외 키·서비스 문제
                     break
                 return (j.get("response") or {}).get("body") or {}
             except Exception as e:  # noqa: BLE001
@@ -11259,6 +11263,9 @@ def _kapt_fetch_month(kapt_code: str, ym: str) -> dict | None:
         return j, _kapt_get(j[0], j[1], {"kaptCode": kapt_code, "searchDate": ym})
     with ThreadPoolExecutor(max_workers=7) as ex:
         res = list(ex.map(one, jobs))
+    if any(b is None for _, b in res):            # 제공기관 쪽 일시 오류로 빠진 항목은 잠깐 쉬고 한 번 더
+        _time.sleep(1.5)
+        res = [(j, b) if b is not None else one(j) for j, b in res]
     items: dict = {}; common = indiv = ltf = 0; got = 0; failed = 0
     def _n(v):
         try:
@@ -21555,6 +21562,80 @@ def complex_siblings(complex_no: str):
         "complex_no": r[0], "complex_name": r[1], "type": r[2],
         "type_name": _RE_TYPE_LABEL.get(r[2], ""), "households": r[3] or 0,
     } for r in rows]}
+
+
+@app.get("/complexes/{complex_no}/profile")
+def complex_profile(complex_no: str):
+    """단지 프로필(지도 시험판 단지정보 탭) — 숫자 하나하나를 같은 동(법정동)·같은 유형 단지 사이의 위치로 읽어 준다.
+
+    peers: 같은 cortar_no·real_estate_type 의 다른 단지. 지표별 {v 내 값, med 중앙값, lo 최소, hi 최대, n 비교 단지 수, pct 내 값보다 작은 비율(0~100)}.
+    areas: 평형별 세대·전용·공급·방/욕·현관(세대 비중은 클라이언트가 계산).
+    kapt: 공동주택관리정보(K-apt) 연결이 돼 있으면 관리 방식·인원·CCTV·승강기·충전기·㎡당 월 관리비. 여기서는 새로 받지 않고 있는 것만 읽는다.
+    """
+    with _open_db() as d:
+        me = d.execute("SELECT complex_name, cortar_no, real_estate_type, total_household_count, total_building_count, high_floor, low_floor, use_approve_ymd, "
+                       "batl_ratio, btl_ratio, parking_possible_count, parking_per_household, construction_company, heat_method_code, dong_name "
+                       "FROM complexes WHERE complex_no=?", (complex_no,)).fetchone()
+        if not me:
+            raise HTTPException(404, "no complex")
+        peers = d.execute("SELECT total_household_count, high_floor, use_approve_ymd, batl_ratio, btl_ratio, parking_per_household, total_building_count "
+                          "FROM complexes WHERE cortar_no=? AND real_estate_type=? AND complex_no<>?", (me[1], me[2], complex_no)).fetchall() if me[1] else []
+        areas = [dict(pyeong_name=r[0], supply_area=r[1], exclusive_area=r[2], households=r[3], rooms=r[4], baths=r[5], entrance=r[6] or "")
+                 for r in d.execute("SELECT pyeong_name, supply_area, exclusive_area, household_count, room_cnt, bath_cnt, entrance_type FROM complex_areas WHERE complex_no=? ORDER BY exclusive_area", (complex_no,))]
+    import datetime as _dt
+    this_year = _dt.date.today().year
+    def _year(ymd):
+        try:
+            return int(str(ymd)[:4]) if ymd and len(str(ymd)) >= 4 else None
+        except ValueError:
+            return None
+    def _stat(v, vals, higher_is="more"):
+        vals = [x for x in vals if x is not None and x > 0]
+        if v is None or v <= 0:
+            return None
+        vals_s = sorted(vals)
+        out = {"v": v, "n": len(vals_s)}
+        if vals_s:
+            out.update(med=vals_s[len(vals_s) // 2], lo=vals_s[0], hi=vals_s[-1], pct=round(100 * sum(1 for x in vals_s if x < v) / len(vals_s)))
+        return out
+    my_year = _year(me[7])
+    metrics = {
+        "households": _stat(me[3], [p[0] for p in peers]),
+        "floors": _stat(me[5], [p[1] for p in peers]),
+        "age": _stat((this_year - my_year) if my_year else None, [(this_year - _year(p[2])) for p in peers if _year(p[2])]),
+        "batl": _stat(me[8], [p[3] for p in peers]),
+        "btl": _stat(me[9], [p[4] for p in peers]),
+        "parking": _stat(me[11], [p[5] for p in peers]),
+    }
+    kapt = None
+    try:
+        with _kapt_db() as c:
+            m = c.execute("SELECT kapt_code FROM kapt_map WHERE complex_no=? AND kapt_code IS NOT NULL", (complex_no,)).fetchone()
+            if m:
+                k = c.execute("SELECT * FROM kapt_complex WHERE kapt_code=?", (m[0],)).fetchone()
+                if k:
+                    dtl = _json.loads(k["dtl"] or "{}"); bas = _json.loads(k["basis"] or "{}")
+                    months = c.execute("SELECT ym, common, indiv, ltf FROM kapt_month WHERE kapt_code=? AND complete=1 ORDER BY ym DESC LIMIT 12", (m[0],)).fetchall()
+                    marea = k["marea"] or 0
+                    per_m2 = (sum((r[1] or 0) + (r[2] or 0) + (r[3] or 0) for r in months) / len(months) / marea) if months and marea else None
+                    def _i(v):
+                        try:
+                            return int(float(v))
+                        except (TypeError, ValueError):
+                            return None
+                    kapt = {"name": k["name"], "mgr": dtl.get("codeMgr") or "", "mgr_cnt": _i(dtl.get("kaptMgrCnt")), "mgr_company": dtl.get("kaptCcompany") or "",
+                            "guard": dtl.get("codeSec") or "", "guard_cnt": _i(dtl.get("kaptdScnt")), "clean": dtl.get("codeClean") or "", "clean_cnt": _i(dtl.get("kaptdClcnt")),
+                            "cctv": _i(dtl.get("kaptdCccnt")), "elev": _i(dtl.get("kaptdEcnt")), "parking": _i(dtl.get("kaptdPcnt")), "parking_ug": _i(dtl.get("kaptdPcntu")),
+                            "ev": (_i(dtl.get("groundElChargerCnt")) or 0) + (_i(dtl.get("undergroundElChargerCnt")) or 0),
+                            "welfare": dtl.get("welfareFacility") or "", "education": dtl.get("educationFacility") or "", "convenient": dtl.get("convenientFacility") or "",
+                            "heat": bas.get("codeHeatNm") or "", "marea": marea, "months": len(months), "per_m2": round(per_m2) if per_m2 else None,
+                            "source": "국토교통부 공동주택관리정보(K-apt) 공개 · 월 관리비는 단지 총액을 관리비 부과면적으로 나눈 값"}
+    except Exception as e:  # noqa: BLE001
+        _log_event("kapt_profile_error", err=str(e)[:200])
+    return {"complex_no": complex_no, "name": me[0], "type": me[2], "type_name": _RE_TYPE_LABEL.get(me[2], ""), "dong": me[14] or "", "peers_n": len(peers),
+            "households": me[3], "dongs": me[4], "high_floor": me[5], "low_floor": me[6], "approve_ymd": me[7] or "", "age": (this_year - my_year) if my_year else None,
+            "batl": me[8], "btl": me[9], "parking_total": me[10], "parking_per": me[11], "builder": me[12] or "", "heat": _HEAT_NAME.get(me[13] or "", ""),
+            "metrics": metrics, "areas": areas, "kapt": kapt}
 
 
 @app.get("/complexes/search")
