@@ -39,7 +39,7 @@ export function KokRow({ it, onOpen }: { it: KokItem; onOpen: (it: KokItem) => v
           <em>{[TRADE_L[it.trade], it.excl_m2 ? areaLabel(it.excl_m2) : it.area_name, it.floor_text, it.direction].filter(Boolean).join(" · ")}</em>
           <small>{it.kind === "owner" ? <><i className="t2-kok-badge own">직거래</i>{it.owner_verified && <i className="t2-kok-badge ok">소유자 확인</i>}</> : <i className="t2-kok-badge rt">{it.realtor_name || "중개사무소"}</i>}</small>
         </span>
-        <span className="p"><b>{it.price_text}</b>{it.kind === "realtor" && it.feature ? <em>{it.feature.slice(0, 18)}</em> : null}</span>
+        <span className="p"><b>{it.price_text}</b></span>
       </button>
     </li>
   );
@@ -284,7 +284,7 @@ function OwnerForm({ session, onDone, onCancel }: { session: Session; onDone: ()
 export const useKokTick = () => useMemo(() => Date.now(), []);
 
 // ── 중개사 연동 매물 상세 — 단지 서랍 옆 패널(PC) / 창(휴대폰) ──
-type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: number | null; description?: string; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
+type RDetail = KokItem & { region?: string; confirm_ymd?: string; kok_since?: string; supply_m2?: number | null; description?: string; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
   mgmt_cost?: number | null; mgmt_info?: { type?: string; details?: { name: string; amount?: number | string | null; unable?: boolean }[] } | null; direction_base?: string;
   finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
   realtor?: { realtor_id: string; name?: string; regno?: string; address?: string; representative?: string; tel?: string; cell?: string };
@@ -334,7 +334,7 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
   const body = (
     <div className="t2-kl">
       <div className="t2-ph"><h2>{d?.name || it.name}{(d?.dong || it.dong) ? ` ${d?.dong || it.dong}동` : ""} <small>{TRADE_L[it.trade]}</small></h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
-      <p className="t2-favmeta"><i className="t2-kok-badge rt">{d?.realtor?.name || it.realtor_name || "중개사무소"}</i>{d?.verification && d.verification !== "NONE" && <i className="t2-kok-badge ok">{d.verification === "OWNER" ? "집주인 확인" : "확인 매물"}</i>}{d?.confirm_ymd && <> 확인 {d.confirm_ymd.slice(0, 4)}.{d.confirm_ymd.slice(4, 6)}.{d.confirm_ymd.slice(6, 8)}</>}</p>
+      <p className="t2-favmeta"><i className="t2-kok-badge rt">{d?.realtor?.name || it.realtor_name || "중개사무소"}</i>{d?.kok_since && <> 콕집 등록 {d.kok_since.replace(/-/g, ".")}</>}</p>
       {err && <p className="t2-sempty">{err}</p>}
       {!d && !err && <Skel />}
       {d && (
@@ -344,7 +344,6 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
               {d.photos.length > 1 && <div className="thumbs">{d.photos.map((p, i) => <img key={p} src={p} alt="" referrerPolicy="no-referrer" className={i === pi ? "on" : ""} onClick={() => setPi(i)} />)}</div>}</div>
           )}
           <div className="t2-kl-price"><b>{d.price_text}</b>{d.finance_price ? <small>융자금 {Math.round(d.finance_price / 1e8 * 10) / 10}억</small> : null}</div>
-          {d.feature && <p className="t2-kok-feat">{d.feature}</p>}
           <table className="t2-tbl t2-kl-tbl"><tbody>
             <tr><th>면적</th><td>{d.excl_m2 ? areaLabel(d.excl_m2) : d.area_name}{d.supply_m2 ? ` · 공급 ${Math.round(d.supply_m2)}㎡` : ""}{d.area_name ? ` · ${d.area_name}타입` : ""}{d.exclusive_rate ? ` · 전용률 ${d.exclusive_rate}%` : ""}</td></tr>
             <tr><th>층 · 방향</th><td>{[d.floor_text, d.direction ? `${d.direction}${d.direction_base ? `(${d.direction_base})` : ""}` : ""].filter(Boolean).join(" · ") || "-"}</td></tr>
@@ -353,14 +352,6 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
             <tr><th>관리비</th><td>{d.mgmt_cost ? `월 약 ${Math.round(d.mgmt_cost / 1e4)}만원` : d.mgmt_info?.type ? d.mgmt_info.type : "-"}{d.mgmt_info?.details && d.mgmt_info.details.length > 0 ? <small className="blk">{d.mgmt_info.details.map((x) => `${x.name}${x.unable ? "(확인불가)" : x.amount ? ` ${Number(x.amount).toLocaleString()}원` : ""}`).join(" · ")}</small> : null}</td></tr>
             <tr><th>사용승인</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.parking_per_household ? ` · 세대당 주차 ${d.parking_per_household}대` : ""}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
           </tbody></table>
-          {d.tags && d.tags.length > 0 && <p className="t2-kl-tags">{d.tags.map((t) => <span key={t}>{t}</span>)}</p>}
-          {(d.same_addr?.count || d.price_change || d.expose_end) && (
-            <p className="t2-favmeta" style={{ marginTop: 8 }}>
-              {d.same_addr?.count && d.same_addr.count > 1 ? `같은 집 광고 ${d.same_addr.count}곳${d.same_addr.min && d.same_addr.max && d.same_addr.min !== d.same_addr.max ? ` (${d.same_addr.min} ~ ${d.same_addr.max})` : ""}` : "이 집 광고는 이 사무소뿐"}
-              {d.price_change === "DECREASE" ? " · 가격 내림" : d.price_change === "INCREASE" ? " · 가격 올림" : ""}
-              {d.expose_end ? ` · 광고 ${d.expose_end.slice(4, 6)}.${d.expose_end.slice(6, 8)}까지` : ""}
-            </p>
-          )}
           {d.mgmt_declared && (d.mgmt_declared.amount || d.mgmt_declared.includes.length > 0) && (
             <div className="t2-kl-sec"><h3>신고 관리비 <small>{d.mgmt_declared.criteria}{d.mgmt_declared.note ? ` · ${d.mgmt_declared.note}` : ""}</small></h3>
               <p>{d.mgmt_declared.amount ? <b>월 {d.mgmt_declared.amount.toLocaleString()}원</b> : null}{d.mgmt_declared.includes.length > 0 ? <small className="blk">포함: {d.mgmt_declared.includes.join(" · ")}</small> : null}</p></div>
@@ -387,54 +378,69 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
                   {mgItems && <table className="t2-tbl t2-kl-mo"><tbody>{mg.items.map((x) => <tr key={x.name}><td>{x.name}</td><td className="num">{won(x.avg)}</td></tr>)}</tbody></table>}
                 </>
               )}
-              <p className="t2-snote" style={{ margin: "6px 0 0" }}>{mg.source}{mg.households ? ` · ${mg.kapt_name} ${Math.round(mg.households).toLocaleString()}세대` : ""}. 세대 사용량에 따라 실제 고지액은 달라요.</p></div>
+            </div>
           )}
-          {d.complex_facts && d.complex_facts.households && (
-            <div className="t2-kl-sec"><h3>단지 사실 <small>콕집 단지 자료</small></h3>
-              <table className="t2-tbl t2-kl-tbl"><tbody>
-                {(d.complex_facts.heat || d.complex_facts.builder) && <tr><th>난방·시공</th><td>{[d.complex_facts.heat, d.complex_facts.builder].filter(Boolean).join(" · ")}</td></tr>}
-                <tr><th>세대·동</th><td>{`${d.complex_facts.households.toLocaleString()}세대`}{d.complex_facts.dongs ? ` · ${d.complex_facts.dongs}개 동` : ""}{d.complex_facts.households_type ? ` · 이 평형 ${d.complex_facts.households_type}세대` : ""}{d.complex_facts.highest_floor ? ` · ${d.complex_facts.lowest_floor && d.complex_facts.lowest_floor !== d.complex_facts.highest_floor ? `${d.complex_facts.lowest_floor}~` : ""}${d.complex_facts.highest_floor}층` : ""}</td></tr>
-                <tr><th>주차</th><td>{d.complex_facts.parking_total ? `총 ${d.complex_facts.parking_total.toLocaleString()}대` : "-"}{d.complex_facts.parking_per ? ` · 세대당 ${d.complex_facts.parking_per}대` : ""}</td></tr>
-                {(d.complex_facts.entrance || d.complex_facts.subway) && <tr><th>현관·역</th><td>{[d.complex_facts.entrance, d.complex_facts.subway].filter(Boolean).join(" · ")}</td></tr>}
-              </tbody></table></div>
-          )}
-          {mg && mg.facility && (mg.facility.mgr || mg.facility.parking || mg.facility.cctv) && (
-            <div className="t2-kl-sec"><h3>관리 현황 <small>국토교통부 공동주택관리정보(K-apt) 공개</small></h3>
-              <table className="t2-tbl t2-kl-tbl"><tbody>
-                {(mg.facility.mgr || mg.facility.guard || mg.facility.clean) && <tr><th>관리·경비·청소</th><td>{[mg.facility.mgr && `관리 ${mg.facility.mgr}`, mg.facility.guard && `경비 ${mg.facility.guard}`, mg.facility.clean && `청소 ${mg.facility.clean}`].filter(Boolean).join(" · ")}</td></tr>}
-                {(mg.facility.parking || mg.facility.cctv || mg.facility.ev || mg.facility.elev) && <tr><th>주차·설비</th><td>{[mg.facility.parking && `주차 ${mg.facility.parking.toLocaleString()}대${mg.facility.parking_ug ? `(지하 ${mg.facility.parking_ug.toLocaleString()})` : ""}`, mg.facility.ev && `전기차 충전 ${mg.facility.ev}기`, mg.facility.cctv && `CCTV ${mg.facility.cctv}대`, mg.facility.elev && `승강기 ${mg.facility.elev}대`].filter(Boolean).join(" · ")}</td></tr>}
-                {mg.facility.welfare && <tr><th>부대시설</th><td>{mg.facility.welfare}</td></tr>}
-                {(mg.facility.education || mg.facility.convenient) && <tr><th>주변</th><td>{[mg.facility.education, mg.facility.convenient].filter(Boolean).join(" · ")}</td></tr>}
-              </tbody></table></div>
-          )}
+          {/* 단지 — 콕집 단지 자료 + K-apt 관리 현황을 한 묶음으로. 큰 숫자 넷 뒤에 짧은 정의 목록 */}
+          {d.complex_facts && d.complex_facts.households && (() => {
+            const f = d.complex_facts!, fa = mg?.facility; const hh = f.households || 0;
+            const kpi = [
+              f.parking_per ? { b: `${f.parking_per}대`, s: "세대당 주차", t: f.parking_total ? `총 ${f.parking_total.toLocaleString()}대` : "" } : null,
+              fa?.elev && hh ? { b: `${Math.round(hh / fa.elev)}세대`, s: "승강기 1대당", t: `${fa.elev}대` } : null,
+              fa?.cctv && hh ? { b: `${fa.cctv.toLocaleString()}대`, s: "CCTV", t: `100세대당 ${Math.round((fa.cctv / hh) * 100)}대` } : null,
+              fa?.ev ? { b: `${fa.ev}기`, s: "전기차 충전기", t: fa.parking_ug ? `지하 주차 ${fa.parking_ug.toLocaleString()}대` : "" } : null,
+            ].filter(Boolean) as { b: string; s: string; t: string }[];
+            return (
+              <>
+                <div className="t2-pf-h"><h3>단지</h3><small>{[f.builder, f.heat, f.approve_ymd ? `${f.approve_ymd.slice(0, 4)}.${f.approve_ymd.slice(4, 6)} 사용승인` : ""].filter(Boolean).join(" · ")}</small></div>
+                {kpi.length > 0 && <div className="t2-pf-kpi">{kpi.map((k) => <div key={k.s}><b>{k.b}</b><span>{k.s}{k.t ? <small> · {k.t}</small> : null}</span></div>)}</div>}
+                <dl className="t2-pf-dl">
+                  <div><dt>규모</dt><dd>{hh.toLocaleString()}세대{f.dongs ? ` · ${f.dongs}개 동` : ""}{f.highest_floor ? ` · ${f.lowest_floor && f.lowest_floor !== f.highest_floor ? `${f.lowest_floor}~` : ""}${f.highest_floor}층` : ""}{f.households_type ? ` · 이 평형 ${f.households_type}세대` : ""}{f.entrance ? ` · ${f.entrance}` : ""}</dd></div>
+                  {f.subway && <div><dt>역</dt><dd>{f.subway}</dd></div>}
+                  {fa && (fa.mgr || fa.guard || fa.clean) && <div><dt>관리</dt><dd>{[fa.mgr && `관리 ${fa.mgr}`, fa.guard && `경비 ${fa.guard}`, fa.clean && `청소 ${fa.clean}`].filter(Boolean).join(" · ")}</dd></div>}
+                  {fa?.welfare && <div><dt>부대시설</dt><dd>{fa.welfare}</dd></div>}
+                  {fa && (fa.education || fa.convenient) && <div><dt>주변</dt><dd>{[fa.education, fa.convenient].filter(Boolean).join(" · ")}</dd></div>}
+                </dl>
+                {fa && (fa.mgr || fa.cctv || fa.elev) && <p className="t2-pf-src">관리 인원·설비는 국토교통부 공동주택관리정보(K-apt) 공개 자료</p>}
+              </>
+            );
+          })()}
+          {/* 이 집에 드는 돈 — 취득·보유·평당가를 큰 숫자로, 산식은 아래 작게 */}
           {(d.public_price || d.acquire || d.py_price) && (
-            <div className="t2-kl-sec"><h3>돈 계산 <small>콕집 산식 · 참고용</small></h3>
-              <table className="t2-tbl t2-kl-tbl"><tbody>
-                {d.py_price && (d.py_price.supply || d.py_price.excl) ? <tr><th>평당가</th><td>{d.py_price.supply ? `공급 기준 ${Math.round(d.py_price.supply / 1e4).toLocaleString()}만원` : ""}{d.py_price.excl ? `${d.py_price.supply ? " · " : ""}전용 기준 ${Math.round(d.py_price.excl / 1e4).toLocaleString()}만원` : ""}</td></tr> : null}
-                {d.public_price && (d.public_price.n > 0 ? <tr><th>공시가격</th><td>{d.public_price.min === d.public_price.max ? eokS(d.public_price.median) : `${eokS(d.public_price.min)} ~ ${eokS(d.public_price.max)}`} <small>({d.public_price.year}년 · {d.public_price.scope} {d.public_price.n}호)</small><small className="blk">{d.public_price.source}</small></td></tr>
-                  : <tr><th>공시가격</th><td className="mut">{d.public_price.year}년 공시에서 이 동·면적을 찾지 못했어요</td></tr>)}
-                {d.property_tax && <tr><th>보유세</th><td><b>1주택 연 {d.property_tax.one_house.total.toLocaleString()}원</b> <small>(재산세 {d.property_tax.one_house.property.toLocaleString()} · 도시지역분 {d.property_tax.one_house.city.toLocaleString()} · 지방교육세 {d.property_tax.one_house.edu.toLocaleString()})</small><small className="blk">1주택 외 연 {d.property_tax.general.total.toLocaleString()}원 · 공시 중앙값 {eokS(d.property_tax.basis)} 기준, 종부세 별도</small></td></tr>}
-                {d.acquire && <tr><th>취득 비용</th><td><b>{eokS(d.acquire.total)}</b><small className="blk">취득세 {eokS(d.acquire.acq)}({(d.acquire.rate * 100).toFixed(2).replace(/\.?0+$/, "")}%) · 지방교육세 {man(d.acquire.edu)}{d.acquire.rural ? ` · 농특세 ${man(d.acquire.rural)}` : ""} · 중개보수 상한 {eokS(d.acquire.broker)}({d.acquire.broker_rate}%)</small><small className="blk">{d.acquire.basis}</small></td></tr>}
-              </tbody></table></div>
+            <>
+              <div className="t2-pf-h"><h3>이 집에 드는 돈</h3><small>콕집 산식 · 참고용</small></div>
+              <div className="t2-pf-kpi">
+                {d.acquire && <div><b>{eokS(d.acquire.total)}</b><span>살 때 한 번<small> · 취득세·교육세·농특세·중개보수 상한</small></span></div>}
+                {d.property_tax && <div><b>{Math.round(d.property_tax.one_house.total / 1e4).toLocaleString()}만원</b><span>1주택 보유세 연<small> · 재산세·도시지역분·지방교육세</small></span></div>}
+                {d.py_price?.supply ? <div><b>{Math.round(d.py_price.supply / 1e4).toLocaleString()}만원</b><span>평당가 · 공급 기준{d.py_price.excl ? <small> · 전용 기준 {Math.round(d.py_price.excl / 1e4).toLocaleString()}만</small> : null}</span></div> : null}
+                {d.public_price && d.public_price.n > 0 && <div><b>{d.public_price.min === d.public_price.max ? eokS(d.public_price.median) : `${eokS(d.public_price.min)}~${eokS(d.public_price.max)}`}</b><span>공시가격 {d.public_price.year}<small> · {d.public_price.scope} {d.public_price.n}호</small></span></div>}
+              </div>
+              <dl className="t2-pf-dl">
+                {d.acquire && <div><dt>살 때</dt><dd>취득세 {eokS(d.acquire.acq)}({(d.acquire.rate * 100).toFixed(2).replace(/\.?0+$/, "")}%) · 지방교육세 {man(d.acquire.edu)}{d.acquire.rural ? ` · 농특세 ${man(d.acquire.rural)}` : ""} · 중개보수 상한 {eokS(d.acquire.broker)}({d.acquire.broker_rate}%)<small className="blk">{d.acquire.basis}</small></dd></div>}
+                {d.property_tax && <div><dt>보유세</dt><dd>1주택 연 {d.property_tax.one_house.total.toLocaleString()}원 = 재산세 {d.property_tax.one_house.property.toLocaleString()} + 도시지역분 {d.property_tax.one_house.city.toLocaleString()} + 지방교육세 {d.property_tax.one_house.edu.toLocaleString()}<small className="blk">1주택 외 연 {d.property_tax.general.total.toLocaleString()}원 · 공시 중앙값 {eokS(d.property_tax.basis)} 기준 · 종부세 별도</small></dd></div>}
+                {d.public_price && d.public_price.n === 0 && <div><dt>공시가격</dt><dd className="mut">{d.public_price.year}년 공시에서 이 동·면적을 찾지 못했어요</dd></div>}
+              </dl>
+              {d.public_price?.source && <p className="t2-pf-src">{d.public_price.source}</p>}
+            </>
           )}
+          {/* 중개사 설명은 접어 둔다(광고 문구는 우리 것이 아니라 앞세우지 않음) */}
           {d.description && (
             <div className="t2-kl-desc">
-              <p className={more ? "" : "clip"}>{d.description}</p>
-              {d.description.length > 240 && <button className="t2-lnk" onClick={() => setMore(!more)}>{more ? "접기" : "더 보기"}</button>}
+              <button className="t2-lnk" onClick={() => setMore(!more)}>{more ? "중개사 설명 접기" : "중개사 설명 보기"}</button>
+              {more && <p>{d.description}</p>}
             </div>
           )}
           {d.realtor && (
-            <div className="t2-kl-rt">
-              <div className="t2-sh"><h3>{d.realtor.name || "중개사무소"} <small>{d.realtor.representative ? `대표 ${d.realtor.representative}` : ""}{d.realtor.regno ? ` · 등록 ${d.realtor.regno}` : ""}</small></h3></div>
-              {d.realtor.address && <p className="t2-favmeta">{d.realtor.address}</p>}
+            <>
+              <div className="t2-pf-h"><h3>{d.realtor.name || "중개사무소"}</h3><small>{[d.realtor.representative ? `대표 ${d.realtor.representative}` : "", d.realtor.regno ? `등록 ${d.realtor.regno}` : ""].filter(Boolean).join(" · ")}</small></div>
+              {d.realtor.address && <p className="t2-pf-line" style={{ margin: "0 0 8px" }}>{d.realtor.address}</p>}
               <div className="t2-rtc">
                 {tel(d.realtor.tel) && <a className="t2-telbtn pri" href={`tel:${tel(d.realtor.tel)}`}>전화 {d.realtor.tel!.split(/\s+/)[0]}</a>}
                 {tel(d.realtor.cell) && tel(d.realtor.cell) !== tel(d.realtor.tel) && <a className="t2-telbtn" href={`tel:${tel(d.realtor.cell)}`}>휴대폰 {d.realtor.cell}</a>}
                 <button className="t2-telbtn" onClick={() => onRealtor(d.realtor!.realtor_id)}>사무소 상세</button>
               </div>
-            </div>
+            </>
           )}
-          <p className="t2-snote">이 사무소가 콕집매물로 표시하기로 한 광고예요. 표시 내용의 책임은 해당 중개사무소에 있고, 계약 전 현장과 등기부를 확인하세요.</p>
+          <p className="t2-pf-src" style={{ marginTop: 12 }}>표시 내용의 책임은 광고한 중개사무소에 있어요. 계약 전 현장과 등기부를 확인하세요.</p>
         </>
       )}
     </div>

@@ -15,13 +15,13 @@ await p.waitForTimeout(9000);
 await p.screenshot({ path: `${out}/kapt_pane.png` });
 const pane = p.locator(".t2-drawer2");
 if (await pane.count()) {
-  await pane.evaluate((el) => { const h = el.querySelector("h3"); if (h) { const secs = [...el.querySelectorAll(".t2-kl-sec h3")]; const t = secs.find((x) => x.textContent.includes("실제 관리비")); if (t) t.scrollIntoView(); } });
-  await p.waitForTimeout(500);
-  await pane.screenshot({ path: `${out}/kapt_pane_mgmt.png` });
-  const btn = pane.getByText(/항목별 월평균 보기/); if (await btn.count()) { await btn.click(); await p.waitForTimeout(400); }
-  await pane.evaluate((el) => { const secs = [...el.querySelectorAll(".t2-kl-sec h3")]; const t = secs.find((x) => x.textContent.includes("관리 현황")); if (t) t.scrollIntoView(); });
-  await p.waitForTimeout(500);
-  await pane.screenshot({ path: `${out}/kapt_pane_fac.png` });
+  const shot = async (txt, name) => {
+    await pane.evaluate((el, t) => { const h = [...el.querySelectorAll("h3")].find((x) => x.textContent.includes(t)); if (h) h.scrollIntoView(); }, txt);
+    await p.waitForTimeout(400); await pane.screenshot({ path: `${out}/${name}.png` });
+  };
+  await shot("실제 관리비", "kapt_pane_mgmt");
+  await shot("단지", "kapt_pane_cx");
+  await shot("드는 돈", "kapt_pane_money");
   console.log("pane text:", (await pane.innerText()).slice(0, 1800));
 } else { console.log("no pane"); console.log(await p.locator(".t2-drawer").innerText().catch(() => "no drawer")); }
 console.log("console errors:", errs.length, errs.slice(0, 3));

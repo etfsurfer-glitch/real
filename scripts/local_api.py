@@ -11432,8 +11432,8 @@ def kok_realtor_listing_detail(article_no: str):
         r = d.execute(
             "SELECT l.article_no, l.complex_no, cx.complex_name, l.trade_type, l.area_name, l.area1_m2, l.area2_m2, l.floor_info, l.direction, "
             "l.deal_or_warrant_price, l.rent_price, l.realtor_id, l.realtor_name, l.article_confirm_ymd, l.article_feature_desc, l.tag_list_json, "
-            "l.building_name, l.verification_type, cx.cortar_no, cx.latitude, cx.longitude, cx.use_approve_ymd, cx.parking_per_household "
-            "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no WHERE l.article_no=?", (article_no,)).fetchone()
+            "l.building_name, l.verification_type, cx.cortar_no, cx.latitude, cx.longitude, cx.use_approve_ymd, cx.parking_per_household, a.first_seen_date "
+            "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no LEFT JOIN articles a ON a.article_no=l.article_no WHERE l.article_no=?", (article_no,)).fetchone()
         if not r:
             raise HTTPException(404, "광고가 내려간 매물이에요")
         reg = d.execute("SELECT (SELECT cortar_name FROM regions WHERE cortar_no=substr(?,1,2)||'00000000'),"
@@ -11442,16 +11442,18 @@ def kok_realtor_listing_detail(article_no: str):
         regno = d.execute("SELECT b.ra_regno FROM realtor_match m JOIN vworld_brokers b ON b.sys_regno=m.sys_regno WHERE m.realtor_id=? LIMIT 1", (r[11],)).fetchone()
     with _reviews_db() as c:
         _ensure_kok(c)
-        opted = c.execute("SELECT 1 FROM kok_realtor_optin WHERE realtor_id=? AND active=1", (r[11],)).fetchone()
+        opted = c.execute("SELECT agreed_at FROM kok_realtor_optin WHERE realtor_id=? AND active=1", (r[11],)).fetchone()
     if not opted:
         raise HTTPException(404, "콕집매물이 아니에요")
+    # 콕집에 올라온 날 = 사무소가 콕집매물 연동에 동의한 날과 이 광고가 처음 보인 날 중 늦은 쪽(광고 쪽 확인일자는 쓰지 않는다)
+    kok_since = max(str(opted[0] or "")[:10], str(r[23] or "")[:10])
     try:
         tags = _authjson.loads(r[15] or "[]")
     except Exception:  # noqa: BLE001
         tags = []
     out = {"id": f"R{r[0]}", "kind": "realtor", "complex_no": r[1], "name": r[2], "region": " ".join(x for x in (reg or ()) if x), "dong": (r[16] or "").replace("동", ""),
            "trade": r[3], "price": r[9], "rent": r[10], "price_text": _kok_price_text(r[3], r[9], r[10]), "area_name": r[4], "supply_m2": r[5], "excl_m2": r[6],
-           "floor_text": f"{r[7]}층" if r[7] else "", "direction": r[8] or "", "confirm_ymd": r[13] or "", "feature": r[14] or "", "tags": tags,
+           "floor_text": f"{r[7]}층" if r[7] else "", "direction": r[8] or "", "confirm_ymd": r[13] or "", "kok_since": kok_since, "feature": r[14] or "", "tags": tags,
            "verification": r[17] or "", "lat": r[19], "lng": r[20], "approve_ymd": r[21] or "", "parking_per_household": r[22],
            "owner_verified": False, "photos": [], "description": "", "move_in": "", "rooms": None, "baths": None, "mgmt_cost": None, "mgmt_info": None,
            "direction_base": "", "finance_price": None, "violation": "", "exclusive_rate": "",
