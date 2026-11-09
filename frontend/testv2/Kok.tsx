@@ -291,12 +291,17 @@ type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: nu
   complex_facts?: { heat?: string; builder?: string; households?: number | null; households_type?: number | null; parking_total?: number | null; parking_per?: number | null; dongs?: number; subway?: string; entrance?: string; highest_floor?: number | string; lowest_floor?: number | string; approve_ymd?: string };
   py_price?: { supply: number | null; excl: number | null } | null;
   property_tax?: { one_house: { ratio: number; property: number; city: number; edu: number; total: number }; general: { ratio: number; property: number; city: number; edu: number; total: number }; basis: number } | null;
-  mgmt_history?: { avg: number | null; summer: number | null; winter: number | null; avg_common: number | null; months: { ym: string; total: number | null; common: number | null; heat: number | null; etc: number | null }[] } | null;
   mgmt_declared?: { amount: number | null; criteria: string; note: string; includes: string[] } | null;
   same_addr?: { count?: number; direct?: number; min?: string; max?: string }; price_change?: string; expose_end?: string;
   public_price?: { year: number; n: number; min?: number; max?: number; median?: number; scope?: string; source?: string } | null;
   acquire?: { rate: number; acq: number; edu: number; rural: number; broker: number; broker_rate: number; total: number; basis: string } | null };
+// 이 평형 실제 관리비 — /kok/mgmt: 국토교통부 공동주택관리비 공개(K-apt) 단지 총액을 부과면적으로 나눠 콕집이 환산한 값
+type Mgmt = { status: "ready" | "partial" | "pending" | "none"; reason?: string; kapt_name?: string; area?: number; area_basis?: string; households?: number; n?: number;
+  avg?: number; avg_common?: number; avg_indiv?: number; avg_ltf?: number; months?: { ym: string; total: number; common: number; indiv: number; ltf: number }[];
+  items?: { name: string; avg: number }[]; source?: string;
+  facility?: { mgr?: string; guard?: string; clean?: string; cctv?: number; ev?: number; parking?: number; parking_ug?: number; elev?: number; welfare?: string; education?: string; convenient?: string } };
 const man = (v?: number | null) => (v == null ? "-" : `${Math.round(v / 1e4).toLocaleString()}만`);
+const won = (v?: number | null) => (v == null ? "-" : `${Math.round(v).toLocaleString()}원`);
 // 계절 평균 — 월별 공시 합계로 봄(3~5)·여름(6~8)·가을(9~11)·겨울(12~2)을 직접 낸다. 자료가 없는 계절은 비운다.
 const SEASONS: { k: string; l: string; m: number[] }[] = [{ k: "spring", l: "봄", m: [3, 4, 5] }, { k: "summer", l: "여름", m: [6, 7, 8] }, { k: "autumn", l: "가을", m: [9, 10, 11] }, { k: "winter", l: "겨울", m: [12, 1, 2] }];
 const seasonAvg = (months: { ym: string; total: number | null }[]) => SEASONS.map((sn) => {
@@ -311,7 +316,21 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
   const [err, setErr] = useState("");
   const [pi, setPi] = useState(0);
   const [more, setMore] = useState(false);
-  useEffect(() => { setD(null); setErr(""); setPi(0); setMore(false); getJson(`/kok/listings/${it.id}`).then(setD).catch((e) => setErr(typeof e === "number" && e === 404 ? "광고가 내려간 매물이에요." : "불러오지 못했어요.")); }, [it.id]);
+  const [mg, setMg] = useState<Mgmt | null>(null);
+  const [mgItems, setMgItems] = useState(false);
+  useEffect(() => { setD(null); setErr(""); setPi(0); setMore(false); setMg(null); setMgItems(false); getJson(`/kok/listings/${it.id}`).then(setD).catch((e) => setErr(typeof e === "number" && e === 404 ? "광고가 내려간 매물이에요." : "불러오지 못했어요.")); }, [it.id]);
+  // 관리비는 따로 받는다(첫 단지는 몇 초 걸림). 아직 채워지는 중이면 몇 번 다시 본다.
+  useEffect(() => {
+    if (!d) return;
+    let alive = true; let tries = 0; let timer = 0;
+    const q = new URLSearchParams(); if (d.supply_m2) q.set("supply", String(d.supply_m2)); if (d.excl_m2) q.set("excl", String(d.excl_m2)); if (d.area_name) q.set("pyeong", d.area_name);
+    const load = () => getJson(`/kok/mgmt/${d.complex_no}?${q.toString()}`).then((j: Mgmt) => {
+      if (!alive) return; setMg(j);
+      if ((j.status === "pending" || j.status === "partial") && tries++ < 6) timer = window.setTimeout(load, 4000);
+    }).catch(() => { if (alive) setMg({ status: "none", reason: "관리비 공개자료를 지금 받지 못했어요" }); });
+    load();
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [d]);
   const body = (
     <div className="t2-kl">
       <div className="t2-ph"><h2>{d?.name || it.name}{(d?.dong || it.dong) ? ` ${d?.dong || it.dong}동` : ""} <small>{TRADE_L[it.trade]}</small></h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
@@ -346,14 +365,29 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
             <div className="t2-kl-sec"><h3>신고 관리비 <small>{d.mgmt_declared.criteria}{d.mgmt_declared.note ? ` · ${d.mgmt_declared.note}` : ""}</small></h3>
               <p>{d.mgmt_declared.amount ? <b>월 {d.mgmt_declared.amount.toLocaleString()}원</b> : null}{d.mgmt_declared.includes.length > 0 ? <small className="blk">포함: {d.mgmt_declared.includes.join(" · ")}</small> : null}</p></div>
           )}
-          {d.mgmt_history && d.mgmt_history.months.length > 0 && (
-            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>공동주택관리정보시스템(K-apt) 공시 · 최근 {d.mgmt_history.months.length}개월</small></h3>
+          {(!mg || mg.status === "pending") && (
+            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt)</small></h3>
+              <p className="mut">관리비 공개자료를 받아오는 중이에요…</p></div>
+          )}
+          {mg && mg.status === "none" && (
+            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt)</small></h3>
+              <p className="mut">{mg.reason || "이 단지의 관리비 공개자료가 없어요"}</p></div>
+          )}
+          {mg && mg.months && mg.months.length > 0 && (
+            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt) · {mg.area_basis} {mg.area ? Math.round(mg.area) : ""}㎡ 기준 · {mg.n}개월{mg.status === "partial" ? " · 더 받는 중" : ""}</small></h3>
               <div className="t2-kpis small four">
-                {seasonAvg(d.mgmt_history.months).map((sn) => <div key={sn.k}><span>{sn.l}{sn.n ? ` ${sn.n}개월` : ""}</span><b>{man(sn.avg)}</b></div>)}
+                {seasonAvg(mg.months).map((sn) => <div key={sn.k}><span>{sn.l}{sn.n ? ` ${sn.n}개월` : ""}</span><b>{man(sn.avg)}</b></div>)}
               </div>
-              <p className="t2-snote" style={{ margin: "0 0 6px" }}>연평균 {man(d.mgmt_history.avg)} · 공용 관리비 평균 {man(d.mgmt_history.avg_common)}</p>
-              <table className="t2-tbl t2-kl-mo"><thead><tr><th>월</th><th className="num">합계</th><th className="num">공용</th><th className="num">난방</th><th className="num">기타</th></tr></thead>
-                <tbody>{d.mgmt_history.months.map((m) => <tr key={m.ym}><td>{m.ym.slice(2, 4)}.{m.ym.slice(4, 6)}</td><td className="num"><b>{man(m.total)}</b></td><td className="num">{man(m.common)}</td><td className="num">{man(m.heat)}</td><td className="num">{man(m.etc)}</td></tr>)}</tbody></table></div>
+              <p className="t2-snote" style={{ margin: "0 0 6px" }}>월평균 {man(mg.avg)} = 공용관리비 {man(mg.avg_common)} + 개별사용료 {man(mg.avg_indiv)} + 장기수선충당금 {man(mg.avg_ltf)}</p>
+              <table className="t2-tbl t2-kl-mo"><thead><tr><th>월</th><th className="num">합계</th><th className="num">공용관리비</th><th className="num">개별사용료</th><th className="num">장충금</th></tr></thead>
+                <tbody>{mg.months.map((m) => <tr key={m.ym}><td>{m.ym.slice(2, 4)}.{m.ym.slice(4, 6)}</td><td className="num"><b>{man(m.total)}</b></td><td className="num">{man(m.common)}</td><td className="num">{man(m.indiv)}</td><td className="num">{man(m.ltf)}</td></tr>)}</tbody></table>
+              {mg.items && mg.items.length > 0 && (
+                <>
+                  <button className="t2-lnk" onClick={() => setMgItems(!mgItems)}>{mgItems ? "항목별 접기" : `항목별 월평균 보기 (${mg.items.length}항목)`}</button>
+                  {mgItems && <table className="t2-tbl t2-kl-mo"><tbody>{mg.items.map((x) => <tr key={x.name}><td>{x.name}</td><td className="num">{won(x.avg)}</td></tr>)}</tbody></table>}
+                </>
+              )}
+              <p className="t2-snote" style={{ margin: "6px 0 0" }}>{mg.source}{mg.households ? ` · ${mg.kapt_name} ${Math.round(mg.households).toLocaleString()}세대` : ""}. 세대 사용량에 따라 실제 고지액은 달라요.</p></div>
           )}
           {d.complex_facts && d.complex_facts.households && (
             <div className="t2-kl-sec"><h3>단지 사실 <small>콕집 단지 자료</small></h3>
@@ -362,6 +396,15 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
                 <tr><th>세대·동</th><td>{`${d.complex_facts.households.toLocaleString()}세대`}{d.complex_facts.dongs ? ` · ${d.complex_facts.dongs}개 동` : ""}{d.complex_facts.households_type ? ` · 이 평형 ${d.complex_facts.households_type}세대` : ""}{d.complex_facts.highest_floor ? ` · ${d.complex_facts.lowest_floor && d.complex_facts.lowest_floor !== d.complex_facts.highest_floor ? `${d.complex_facts.lowest_floor}~` : ""}${d.complex_facts.highest_floor}층` : ""}</td></tr>
                 <tr><th>주차</th><td>{d.complex_facts.parking_total ? `총 ${d.complex_facts.parking_total.toLocaleString()}대` : "-"}{d.complex_facts.parking_per ? ` · 세대당 ${d.complex_facts.parking_per}대` : ""}</td></tr>
                 {(d.complex_facts.entrance || d.complex_facts.subway) && <tr><th>현관·역</th><td>{[d.complex_facts.entrance, d.complex_facts.subway].filter(Boolean).join(" · ")}</td></tr>}
+              </tbody></table></div>
+          )}
+          {mg && mg.facility && (mg.facility.mgr || mg.facility.parking || mg.facility.cctv) && (
+            <div className="t2-kl-sec"><h3>관리 현황 <small>국토교통부 공동주택관리정보(K-apt) 공개</small></h3>
+              <table className="t2-tbl t2-kl-tbl"><tbody>
+                {(mg.facility.mgr || mg.facility.guard || mg.facility.clean) && <tr><th>관리·경비·청소</th><td>{[mg.facility.mgr && `관리 ${mg.facility.mgr}`, mg.facility.guard && `경비 ${mg.facility.guard}`, mg.facility.clean && `청소 ${mg.facility.clean}`].filter(Boolean).join(" · ")}</td></tr>}
+                {(mg.facility.parking || mg.facility.cctv || mg.facility.ev || mg.facility.elev) && <tr><th>주차·설비</th><td>{[mg.facility.parking && `주차 ${mg.facility.parking.toLocaleString()}대${mg.facility.parking_ug ? `(지하 ${mg.facility.parking_ug.toLocaleString()})` : ""}`, mg.facility.ev && `전기차 충전 ${mg.facility.ev}기`, mg.facility.cctv && `CCTV ${mg.facility.cctv}대`, mg.facility.elev && `승강기 ${mg.facility.elev}대`].filter(Boolean).join(" · ")}</td></tr>}
+                {mg.facility.welfare && <tr><th>부대시설</th><td>{mg.facility.welfare}</td></tr>}
+                {(mg.facility.education || mg.facility.convenient) && <tr><th>주변</th><td>{[mg.facility.education, mg.facility.convenient].filter(Boolean).join(" · ")}</td></tr>}
               </tbody></table></div>
           )}
           {(d.public_price || d.acquire || d.py_price) && (

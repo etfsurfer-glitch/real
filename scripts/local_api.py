@@ -11035,6 +11035,387 @@ def _kok_acquire(price: int, excl: float | None) -> dict:
 
 
 # ── 콕집매물(중개사 연동) 상세 — 광고 중 매물 한 건의 전체 정보. 상세는 수집 계정으로 그때 가져와 15분 캐시 ──
+# ── 공동주택 관리비 — 국토교통부 공동주택관리정보(K-apt) 공개 API 를 우리 키로 직접 받는다 ──
+# 광고 상세에 딸려 오던 월별 관리비를 쓰지 않는다. 단지 총액(공용관리비 17항목·개별사용료 10항목·
+# 장기수선충당금)을 월별로 받아 kapt.sqlite 에 쌓고, 관리비 부과면적으로 나눠 평형별 한 집 금액을 우리가 환산한다.
+# 호출 한도(개발계정 서비스별 5,000/일)가 빡빡해서: 처음 열린 단지는 계절별 최근 1개월(4개월분)만 바로 받고,
+# 나머지 달은 뒤에서 채운다. 밤 배치(kapt_fill.py)가 본 단지부터 12개월을 채운다.
+_KAPT_BASE = "https://apis.data.go.kr/1613000/"
+_KAPT_SVC = {"list": "AptListService4", "basis": "AptBasisInfoServiceV5", "cmn": "AptCmnuseManageCostServiceV3",
+             "ind": "AptIndvdlzManageCostServiceV3", "ltf": "AptRepairsCostServiceV3"}
+_KAPT_DAILY_CAP = 4700            # 서비스별 일일 5,000 중 여유 300
+# 공용관리비 — 오퍼레이션 → (표시 이름, 더할 필드들)
+_KAPT_CMN = {
+    "getHsmpLaborCostInfoV3": ("인건비", ["pay", "sundryCost", "bonus", "pension", "accidentPremium", "employPremium", "nationalPension", "healthPremium", "welfareBenefit"]),
+    "getHsmpOfcrkCostInfoV3": ("제사무비", ["officeSupply", "bookSupply", "transportCost"]),
+    "getHsmpTaxdueInfoV3": ("제세공과금", ["electCost", "telCost", "postageCost", "taxrestCost"]),
+    "getHsmpClothingCostInfoV3": ("피복비", ["clothesCost"]),
+    "getHsmpEduTraingCostInfoV3": ("교육훈련비", ["eduCost"]),
+    "getHsmpVhcleMntncCostInfoV3": ("차량유지비", ["fuelCost", "refairCost", "carInsurance", "carEtc"]),
+    "getHsmpEtcCostInfoV3": ("그 밖의 부대비용", ["careItemCost", "accountingCost", "hiddenCost"]),
+    "getHsmpCleaningCostInfoV3": ("청소비", ["cleanCost"]),
+    "getHsmpGuardCostInfoV3": ("경비비", ["guardCost"]),
+    "getHsmpDisinfectionCostInfoV3": ("소독비", ["disinfCost"]),
+    "getHsmpElevatorMntncCostInfoV3": ("승강기유지비", ["elevCost"]),
+    "getHsmpHomeNetworkMntncCostInfoV3": ("지능형홈네트워크", ["hnetwCost"]),
+    "getHsmpRepairsCostInfoV3": ("수선비", ["lrefCost1"]),
+    "getHsmpFacilityMntncCostInfoV3": ("시설유지비", ["lrefCost2"]),
+    "getHsmpSafetyCheckUpCostInfoV3": ("안전점검비", ["lrefCost3"]),
+    "getHsmpDisasterPreventionCostInfoV3": ("재해예방비", ["lrefCost4"]),
+    "getHsmpConsignManageFeeInfoV3": ("위탁관리수수료", ["manageCost"]),
+}
+# 개별사용료 — 공용(C)·전용(P) 둘 다 더한다(세대에 부과되는 전체).
+_KAPT_IND = {
+    "getHsmpHeatCostInfoV3": ("난방비", ["heatC", "heatP"]),
+    "getHsmpHotWaterCostInfoV3": ("급탕비", ["waterHotC", "waterHotP"]),
+    "getHsmpGasRentalFeeInfoV3": ("가스사용료", ["gasC", "gasP"]),
+    "getHsmpElectricityCostInfoV3": ("전기료", ["electC", "electP"]),
+    "getHsmpWaterCostInfoV3": ("수도료", ["waterCoolC", "waterCoolP"]),
+    "getHsmpWaterPurifierTankFeeInfoV3": ("정화조오물수수료", ["purifi"]),
+    "getHsmpDomesticWasteFeeInfoV3": ("생활폐기물수수료", ["scrap"]),
+    "getHsmpBuildingInsuranceFeeInfoV3": ("건물보험료", ["buildInsu"]),
+    "getHsmpMovingInRepresentationMtgInfoV3": ("입주자대표회의운영비", ["preMeet"]),
+    "getHsmpElectionOrpnsInfoV3": ("선거관리위원회운영비", ["electionMng"]),
+}
+_KAPT_SKIP: dict = {}             # (service, key) → 다시 볼 시각. 403=미신청 키, 429=오늘 한도
+_KAPT_BG: set = set()             # 뒤에서 채우는 중인 단지
+
+
+def _kapt_db() -> sqlite3.Connection:
+    c = sqlite3.connect(DB_PATH.parent / "kapt.sqlite", timeout=30)
+    c.row_factory = sqlite3.Row
+    c.execute("PRAGMA journal_mode=WAL"); c.execute("PRAGMA journal_size_limit=67108864")
+    c.executescript("""
+    CREATE TABLE IF NOT EXISTS kapt_dong(bjd_code TEXT PRIMARY KEY, n INTEGER, fetched_at TEXT);
+    CREATE TABLE IF NOT EXISTS kapt_complex(kapt_code TEXT PRIMARY KEY, name TEXT, bjd_code TEXT, addr TEXT, households REAL, ho_cnt INTEGER,
+        marea REAL, priv_area REAL, tarea REAL, dong_cnt INTEGER, heat TEXT, use_date TEXT, top_floor INTEGER, basis TEXT, dtl TEXT, basis_at TEXT);
+    CREATE INDEX IF NOT EXISTS kapt_complex_bjd ON kapt_complex(bjd_code);
+    CREATE TABLE IF NOT EXISTS kapt_map(complex_no TEXT PRIMARY KEY, kapt_code TEXT, score REAL, how TEXT, updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS kapt_month(kapt_code TEXT, ym TEXT, common INTEGER, indiv INTEGER, ltf INTEGER, items TEXT, complete INTEGER, fetched_at TEXT,
+        PRIMARY KEY(kapt_code, ym));
+    CREATE TABLE IF NOT EXISTS kapt_quota(day TEXT, service TEXT, n INTEGER, PRIMARY KEY(day, service));
+    """)
+    return c
+
+
+def _kapt_today() -> str:
+    import datetime as _dt
+    return (_dt.datetime.utcnow() + _dt.timedelta(hours=9)).strftime("%Y-%m-%d")
+
+
+def _kapt_quota_left(c, service: str) -> int:
+    r = c.execute("SELECT n FROM kapt_quota WHERE day=? AND service=?", (_kapt_today(), service)).fetchone()
+    return _KAPT_DAILY_CAP - (r[0] if r else 0)
+
+
+def _kapt_quota_add(service: str, n: int = 1) -> None:
+    with _kapt_db() as c:
+        c.execute("INSERT INTO kapt_quota(day, service, n) VALUES(?,?,?) ON CONFLICT(day, service) DO UPDATE SET n=n+excluded.n", (_kapt_today(), service, n))
+
+
+def _kapt_get(service: str, op: str, prm: dict, timeout: int = 12) -> dict | None:
+    """한 번 호출 → body(dict). 키를 돌려 쓰되 미신청(403)·한도(429) 키는 건너뛴다. 응답 비정상이면 None."""
+    import urllib.parse as _up, urllib.request as _ur
+    keys = _dgk_keys()
+    now = _time.time()
+    for key in keys:
+        until = _KAPT_SKIP.get((service, key))
+        if until and until > now:
+            continue
+        qs = _up.urlencode({**prm, "_type": "json"}) + "&serviceKey=" + _up.quote(key, safe="")
+        for attempt in range(2):
+            try:
+                with _ur.urlopen(f"{_KAPT_BASE}{_KAPT_SVC[service]}/{op}?{qs}", timeout=timeout) as r:
+                    j = _json.loads(r.read().decode("utf-8", "ignore"))
+                _kapt_quota_add(service)
+                if "OpenAPI_ServiceResponse" in j:            # 게이트웨이 오류(키·서비스)
+                    code = str(((j.get("OpenAPI_ServiceResponse") or {}).get("cmmMsgHeader") or {}).get("returnReasonCode") or "")
+                    _KAPT_SKIP[(service, key)] = now + (1800 if code == "22" else 6 * 3600)
+                    break
+                return (j.get("response") or {}).get("body") or {}
+            except Exception as e:  # noqa: BLE001
+                code = getattr(e, "code", None)
+                if code in (401, 403, 429):
+                    _KAPT_SKIP[(service, key)] = now + (6 * 3600 if code == 403 else 1800)
+                    break
+                if attempt == 0:
+                    _time.sleep(0.8)
+    return None
+
+
+def _kapt_norm(s: str) -> str:
+    s = _re.sub(r"\([^)]*\)", "", s or "")
+    s = _re.sub(r"\s+", "", s).lower()
+    s = _re.sub(r"아파트$|아파트|apt$", "", s)
+    s = s.replace("단지", "").replace("-", "").replace("&", "앤").replace("e편한세상", "이편한세상").replace("skview", "sk뷰").replace("sk뷰", "에스케이뷰")
+    s = _re.sub(r"(\d+)차", r"\1차", s)
+    return s
+
+
+def _kapt_dong_list(c, bjd_code: str) -> list:
+    """법정동의 K-apt 단지 목록(코드·이름). 30일 캐시."""
+    r = c.execute("SELECT fetched_at FROM kapt_dong WHERE bjd_code=?", (bjd_code,)).fetchone()
+    if not r or (r[0] or "") < _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 9 * 3600 - 30 * 86400)):
+        items: list = []
+        for pg in range(1, 6):
+            b = _kapt_get("list", "getLegaldongAptList4", {"bjdCode": bjd_code, "pageNo": pg, "numOfRows": 100})
+            if b is None:
+                break
+            it = b.get("items") or []
+            it = it if isinstance(it, list) else [it]
+            items += [x for x in it if isinstance(x, dict) and x.get("kaptCode")]
+            if len(items) >= int(b.get("totalCount") or 0) or not it:
+                break
+        else:
+            b = None
+        if b is not None or items:
+            for x in items:
+                c.execute("INSERT INTO kapt_complex(kapt_code, name, bjd_code) VALUES(?,?,?) ON CONFLICT(kapt_code) DO UPDATE SET name=excluded.name, bjd_code=excluded.bjd_code",
+                          (x["kaptCode"], x.get("kaptName") or "", bjd_code))
+            c.execute("INSERT OR REPLACE INTO kapt_dong(bjd_code, n, fetched_at) VALUES(?,?,?)", (bjd_code, len(items), _kapt_today()))
+            c.commit()
+    return c.execute("SELECT kapt_code, name, households FROM kapt_complex WHERE bjd_code=?", (bjd_code,)).fetchall()
+
+
+def _kapt_basis(c, kapt_code: str) -> sqlite3.Row | None:
+    """기본 정보(관리비 부과면적·세대·연면적) + 상세(관리 인원·주차·CCTV·충전기). 180일 캐시."""
+    r = c.execute("SELECT * FROM kapt_complex WHERE kapt_code=?", (kapt_code,)).fetchone()
+    if r and r["marea"] and (r["basis_at"] or "") > _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 9 * 3600 - 180 * 86400)):
+        return r
+    b = _kapt_get("basis", "getAphusBassInfoV5", {"kaptCode": kapt_code})
+    it = (b or {}).get("item") or {}
+    if not it.get("kaptCode"):
+        return r
+    d2 = _kapt_get("basis", "getAphusDtlInfoV5", {"kaptCode": kapt_code})
+    dtl = (d2 or {}).get("item") or {}
+    def _f(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    c.execute("""INSERT INTO kapt_complex(kapt_code, name, bjd_code, addr, households, ho_cnt, marea, priv_area, tarea, dong_cnt, heat, use_date, top_floor, basis, dtl, basis_at)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 ON CONFLICT(kapt_code) DO UPDATE SET name=excluded.name, bjd_code=COALESCE(excluded.bjd_code, kapt_complex.bjd_code), addr=excluded.addr, households=excluded.households,
+                 ho_cnt=excluded.ho_cnt, marea=excluded.marea, priv_area=excluded.priv_area, tarea=excluded.tarea, dong_cnt=excluded.dong_cnt, heat=excluded.heat,
+                 use_date=excluded.use_date, top_floor=excluded.top_floor, basis=excluded.basis, dtl=excluded.dtl, basis_at=excluded.basis_at""",
+              (kapt_code, it.get("kaptName") or "", it.get("bjdCode"), it.get("kaptAddr") or "", _f(it.get("kaptdaCnt")), int(_f(it.get("hoCnt")) or 0) or None,
+               _f(it.get("kaptMarea")), _f(it.get("privArea")), _f(it.get("kaptTarea")), int(_f(it.get("kaptDongCnt")) or 0) or None, it.get("codeHeatNm") or "",
+               it.get("kaptUsedate") or "", int(_f(it.get("kaptTopFloor")) or 0) or None, _json.dumps(it, ensure_ascii=False), _json.dumps(dtl, ensure_ascii=False), _kapt_today()))
+    c.commit()
+    return c.execute("SELECT * FROM kapt_complex WHERE kapt_code=?", (kapt_code,)).fetchone()
+
+
+def _kapt_match(d, c, complex_no: str) -> str | None:
+    """우리 단지 → K-apt 단지코드. 같은 법정동 목록에서 이름(정규화)·세대수로 고른다. 결과(없음 포함)는 kapt_map 에 두고 30일 뒤 다시 본다."""
+    m = c.execute("SELECT kapt_code, updated_at FROM kapt_map WHERE complex_no=?", (complex_no,)).fetchone()
+    if m and (m["kapt_code"] or (m["updated_at"] or "") > _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 9 * 3600 - 30 * 86400))):
+        return m["kapt_code"]
+    cx = d.execute("SELECT complex_name, cortar_no, total_household_count FROM complexes WHERE complex_no=?", (complex_no,)).fetchone()
+    if not cx or not cx[1]:
+        return None
+    cands = _kapt_dong_list(c, cx[1])
+    import difflib
+    ours = _kapt_norm(cx[0]); hh = cx[2] or 0
+    best, best_s, how = None, 0.0, ""
+    for k in cands:
+        n = _kapt_norm(k["name"])
+        if not n:
+            continue
+        if n == ours:
+            s, h = 1.0, "이름 일치"
+        elif (n in ours or ours in n) and min(len(n), len(ours)) >= 4:
+            s, h = 0.9, "이름 포함"
+        else:
+            s, h = difflib.SequenceMatcher(None, n, ours).ratio(), "이름 유사"
+        if s > best_s:
+            best, best_s, how = k, s, h
+    code = None
+    if best is not None and best_s >= 0.8:
+        code = best["kapt_code"]
+        # 세대수가 둘 다 있으면 15% 넘게 다르면 다른 단지로 본다(같은 이름의 1·2단지 등)
+        if best_s < 1.0 and hh:
+            b = _kapt_basis(c, code)
+            if b and b["households"] and abs(b["households"] - hh) / max(hh, b["households"]) > 0.15:
+                code, how = None, "세대수 불일치"
+    elif best is not None and best_s >= 0.6 and hh:
+        # 이름이 애매하면 세대수가 거의 같을 때만(±3%) 받아 준다
+        b = _kapt_basis(c, best["kapt_code"])
+        if b and b["households"] and abs(b["households"] - hh) / max(hh, b["households"]) <= 0.03:
+            code, how = best["kapt_code"], "이름 유사+세대수 일치"
+    c.execute("INSERT OR REPLACE INTO kapt_map(complex_no, kapt_code, score, how, updated_at) VALUES(?,?,?,?,?)",
+              (complex_no, code, round(best_s, 3), how if code else f"미매칭({how} {round(best_s, 2)})" if best is not None else "동에 단지 없음", _kapt_today()))
+    c.commit()
+    return code
+
+
+def _kapt_fetch_month(kapt_code: str, ym: str) -> dict | None:
+    """한 달치 28번 호출(공용 17·개별 10·장충금 1)을 병렬로. 저장하고 행을 돌려준다. 한도가 모자라면 None."""
+    from concurrent.futures import ThreadPoolExecutor
+    with _kapt_db() as c:
+        if _kapt_quota_left(c, "cmn") < len(_KAPT_CMN) or _kapt_quota_left(c, "ind") < len(_KAPT_IND) or _kapt_quota_left(c, "ltf") < 1:
+            return None
+    jobs = [("cmn", op) for op in _KAPT_CMN] + [("ind", op) for op in _KAPT_IND] + [("ltf", "getHsmpMonthFeeInfoV3")]
+    def one(j):
+        return j, _kapt_get(j[0], j[1], {"kaptCode": kapt_code, "searchDate": ym})
+    with ThreadPoolExecutor(max_workers=7) as ex:
+        res = list(ex.map(one, jobs))
+    items: dict = {}; common = indiv = ltf = 0; got = 0; failed = 0
+    def _n(v):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return 0
+    for (svc, op), b in res:
+        if b is None:
+            failed += 1
+            continue
+        it = b.get("item") or {}
+        if not it:
+            continue
+        got += 1
+        if svc == "ltf":
+            ltf = _n(it.get("sLevy")); items["장기수선충당금"] = ltf
+            continue
+        name, fields = (_KAPT_CMN if svc == "cmn" else _KAPT_IND)[op]
+        v = sum(_n(it.get(f)) for f in fields)
+        items[name] = v
+        if svc == "cmn":
+            common += v
+        else:
+            indiv += v
+    if failed >= len(jobs) // 2:
+        return None                     # 오늘은 못 받은 것 — 저장하지 않음
+    complete = 1 if (failed == 0 and (common + indiv + ltf) > 0) else 0
+    with _kapt_db() as c:
+        c.execute("INSERT OR REPLACE INTO kapt_month(kapt_code, ym, common, indiv, ltf, items, complete, fetched_at) VALUES(?,?,?,?,?,?,?,?)",
+                  (kapt_code, ym, common, indiv, ltf, _json.dumps(items, ensure_ascii=False), complete, _kapt_today()))
+        c.commit()
+        return c.execute("SELECT * FROM kapt_month WHERE kapt_code=? AND ym=?", (kapt_code, ym)).fetchone()
+
+
+def _kapt_days_ago(n: int) -> str:
+    return _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 9 * 3600 - n * 86400))
+
+
+def _kapt_recent_yms(n: int = 12, lag: int = 1) -> list[str]:
+    """최근 n개월(YYYYMM). 공개가 보통 두 달쯤 늦어 lag 만큼 뒤부터."""
+    import datetime as _dt
+    t = _dt.datetime.utcnow() + _dt.timedelta(hours=9)
+    y, m = t.year, t.month - lag
+    out = []
+    for _ in range(n):
+        while m <= 0:
+            y -= 1; m += 12
+        out.append(f"{y}{m:02d}"); m -= 1
+    return out
+
+
+def _kapt_fill_bg(kapt_code: str) -> None:
+    """뒤에서 최근 15개월 가운데 빠진 달을 채운다(최근부터). 한도가 다 차면 멈춘다."""
+    try:
+        with _kapt_db() as c:
+            have = {r[0] for r in c.execute("SELECT ym FROM kapt_month WHERE kapt_code=? AND (complete=1 OR fetched_at>?)", (kapt_code, _kapt_days_ago(7)))}
+        for ym in _kapt_recent_yms(15):
+            if ym in have:
+                continue
+            if _kapt_fetch_month(kapt_code, ym) is None:
+                break
+    finally:
+        _KAPT_BG.discard(kapt_code)
+
+
+def _kapt_mgmt(complex_no: str, supply_m2: float | None, excl_m2: float | None, pyeong: str | None = None) -> dict:
+    """콕집매물 상세의 '이 평형 실제 관리비'. status: ready|pending|none.
+
+    단지 총액 ÷ 관리비 부과면적 × 이 평형 공급면적. 공급면적이 없으면 전용 × (부과면적/전용합)으로 환산.
+    처음 보는 단지는 계절마다 최근 1개월(4개월)만 바로 받아 보여 주고 나머지는 뒤에서 채운다.
+    """
+    with _open_db() as d, _kapt_db() as c:
+        code = _kapt_match(d, c, complex_no)
+        if not code:
+            return {"status": "none", "reason": "이 단지는 관리비 공개 대상(의무관리 단지)이 아니거나 아직 연결하지 못했어요"}
+        b = _kapt_basis(c, code)
+        if not b or not b["marea"]:
+            return {"status": "pending"}
+        if (not supply_m2 or not excl_m2) and pyeong:
+            ar = d.execute("SELECT supply_area, exclusive_area FROM complex_areas WHERE complex_no=? AND pyeong_name=?", (complex_no, pyeong)).fetchone()
+            if ar:
+                supply_m2 = supply_m2 or ar[0]; excl_m2 = excl_m2 or ar[1]
+        rows = {r["ym"]: r for r in c.execute("SELECT * FROM kapt_month WHERE kapt_code=? AND complete=1", (code,))}
+        empty = {r[0] for r in c.execute("SELECT ym FROM kapt_month WHERE kapt_code=? AND complete=0 AND fetched_at>?", (code, _kapt_days_ago(7)))}
+    yms = _kapt_recent_yms(15)
+    if len([y for y in yms if y in rows]) < 4:
+        # 계절마다 최근 한 달씩 먼저(봄 3~5·여름 6~8·가을 9~11·겨울 12~2). 아직 공개 안 된 달이면 같은 계절의 전 달로
+        season = {3: 0, 4: 0, 5: 0, 6: 1, 7: 1, 8: 1, 9: 2, 10: 2, 11: 2, 12: 3, 1: 3, 2: 3}
+        for sn in range(4):
+            if any(season[int(y[4:6])] == sn for y in rows if y in yms):
+                continue
+            for ym in (y for y in yms if season[int(y[4:6])] == sn and y not in empty):
+                r = _kapt_fetch_month(code, ym)
+                if r is None:
+                    break
+                if r["complete"]:
+                    rows[ym] = r
+                    break
+    if code not in _KAPT_BG and len([y for y in yms if y in rows]) < 12:
+        _KAPT_BG.add(code)
+        _threading.Thread(target=_kapt_fill_bg, args=(code,), daemon=True).start()
+    if not rows:
+        return {"status": "pending" if code in _KAPT_BG else "none", "reason": "아직 공개된 달이 없어요"}
+    marea = b["marea"]
+    if supply_m2:
+        area, basis = float(supply_m2), "공급면적"
+    elif excl_m2 and b["priv_area"]:
+        area, basis = float(excl_m2) * marea / b["priv_area"], "전용면적 환산"
+    else:
+        area, basis = marea / max(b["households"] or 1, 1), "세대 평균"
+    f = area / marea
+    months = []
+    for ym in sorted((y for y in yms if y in rows), reverse=True)[:12]:
+        r = rows[ym]
+        months.append({"ym": ym, "total": round((r["common"] + r["indiv"] + r["ltf"]) * f), "common": round(r["common"] * f), "indiv": round(r["indiv"] * f), "ltf": round(r["ltf"] * f)})
+    # 항목별 평균(이 평형) — 월 자료 평균
+    acc: dict = {}
+    for ym in (m["ym"] for m in months):
+        for k, v in _json.loads(rows[ym]["items"] or "{}").items():
+            acc[k] = acc.get(k, 0) + v
+    items = sorted(({"name": k, "avg": round(v / len(months) * f)} for k, v in acc.items() if v > 0), key=lambda x: -x["avg"])
+    dtl = _json.loads(b["dtl"] or "{}")
+    def _i(v):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return 0
+    park = _i(dtl.get("kaptdPcnt")) + _i(dtl.get("kaptdPcntu"))
+    facility = {k: v for k, v in {
+        "mgr": (dtl.get("codeMgr") or "") + (f" {dtl.get('kaptMgrCnt')}명" if _i(dtl.get("kaptMgrCnt")) else "") + (f"({dtl['kaptCcompany']})" if dtl.get("kaptCcompany") else ""),
+        "guard": (dtl.get("codeSec") or "") + (f" {dtl.get('kaptdScnt')}명" if _i(dtl.get("kaptdScnt")) else ""),
+        "clean": (dtl.get("codeClean") or "") + (f" {dtl.get('kaptdClcnt')}명" if _i(dtl.get("kaptdClcnt")) else ""),
+        "cctv": _i(dtl.get("kaptdCccnt")) or None,
+        "ev": (_i(dtl.get("groundElChargerCnt")) + _i(dtl.get("undergroundElChargerCnt"))) or None,
+        "parking": park or None, "parking_ug": _i(dtl.get("kaptdPcntu")) or None,
+        "elev": _i(dtl.get("kaptdEcnt")) or None,
+        "welfare": dtl.get("welfareFacility") or "", "education": dtl.get("educationFacility") or "", "convenient": dtl.get("convenientFacility") or "",
+    }.items() if v}
+    return {"status": "ready" if len(months) >= 12 or code not in _KAPT_BG else "partial", "kapt_code": code, "kapt_name": b["name"],
+            "area": round(area, 2), "area_basis": basis, "marea": marea, "households": b["households"], "n": len(months),
+            "avg": round(sum(m["total"] for m in months) / len(months)), "avg_common": round(sum(m["common"] for m in months) / len(months)),
+            "avg_indiv": round(sum(m["indiv"] for m in months) / len(months)), "avg_ltf": round(sum(m["ltf"] for m in months) / len(months)),
+            "months": months, "items": items, "facility": facility,
+            "source": "국토교통부 공동주택관리비 공개(K-apt) · 단지 총액을 관리비 부과면적으로 나눠 콕집이 환산"}
+
+
+@app.get("/kok/mgmt/{complex_no}")
+def kok_mgmt(complex_no: str, supply: float | None = None, excl: float | None = None, pyeong: str | None = None):
+    if not complex_no.isdigit():
+        raise HTTPException(404, "not found")
+    try:
+        return _kapt_mgmt(complex_no, supply, excl, pyeong)
+    except Exception as e:  # noqa: BLE001
+        _log_event("kapt_error", query=str(e)[:200])
+        return {"status": "none", "reason": "관리비 공개자료를 지금 받지 못했어요"}
+
+
 _KOK_DETAIL_CACHE: dict = {}
 
 
@@ -11114,8 +11495,7 @@ def kok_realtor_listing_detail(article_no: str):
             "photos": [("https://landthumb-phinf.pstatic.net" + p["imageSrc"]) if str(p.get("imageSrc", "")).startswith("/") else p.get("imageSrc") for p in (det.get("articlePhotos") or []) if p.get("imageSrc")][:20],
             "parking_per_household": ad.get("parkingPerHouseholdCount") or out["parking_per_household"],
         })
-        # ── 더 꺼낼 것: 단지 사실(난방·시공사·세대·주차), 월별 관리비 실적, 같은 집 광고 수, 공시가격·보유세, 취득 비용 ──
-        mc = ad.get("maintenanceCost") or {}
+        # ── 더 꺼낼 것: 신고 관리비, 같은 집 광고 수, 가격 변동, 광고 기한(월별 실제 관리비는 /kok/mgmt 에서 K-apt 공개자료로 따로) ──
         addi = det.get("articleAddition") or {}
         cost = det.get("administrationCostInfo") or {}
         inc = {"01": "공용관리비", "11": "전기료", "12": "수도료", "13": "가스사용료", "14": "난방비", "15": "인터넷", "16": "TV", "99": "기타"}
@@ -11127,10 +11507,6 @@ def kok_realtor_listing_detail(article_no: str):
             except (TypeError, ValueError):
                 return None
         out.update({
-            "mgmt_history": {"avg": _i(mc.get("averageTotalPrice")), "summer": _i(mc.get("summerTotalPrice")), "winter": _i(mc.get("winterTotalPrice")),
-                             "avg_common": _i(mc.get("averageCommonPrice")),
-                             "months": [{"ym": x.get("basisYearMonth"), "total": _i(x.get("totalPrice")), "common": _i(x.get("commonPrice")), "heat": _i(x.get("heatPrice")), "etc": _i(x.get("etcPrice"))}
-                                        for x in (mc.get("costsByDate") or [])][:12]} if mc else None,
             "mgmt_declared": {"amount": _i(ef.get("etcFeeAmount")), "criteria": crit, "note": cost.get("chargeInputContent") or "",
                               "includes": [inc.get(c, c) for c in (ef.get("includeCodeTypes") or [])]} if ef else None,
             "same_addr": {"count": addi.get("sameAddrCnt"), "direct": addi.get("sameAddrDirectCnt"), "min": addi.get("sameAddrMinPrc"), "max": addi.get("sameAddrMaxPrc")},
