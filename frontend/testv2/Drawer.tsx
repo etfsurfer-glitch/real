@@ -82,6 +82,7 @@ export type DrawerTab = "deals" | "tx" | "hoga" | "nearby" | "realtor" | "review
 export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab;
   fav?: boolean | null; onFav?: () => void }) {
   const [tab, setTab] = useState<DrawerTab>(initialTab);
+  useEffect(() => { setTab(initialTab); }, [initialTab]);   // 같은 단지에서 팝업 버튼으로 다른 탭을 고를 때
   const [info, setInfo] = useState<Info | null>(null);
   const [sum, setSum] = useState<Summary | null>(null);
   const [agg, setAgg] = useState<AggRow[] | null>(null);

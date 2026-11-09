@@ -131,7 +131,9 @@ export default function App() {
   const phone = useIsPhone();
   const [layer, setLayer] = useState<Layer>(init.layer);
   // 단지를 누르면 서랍은 지금 보고 있는 레이어의 탭으로 연다
-  const drawerTab: DrawerTab = layer === "price" ? "tx" : layer === "realtor" ? "realtor" : "deals";
+  // 핀 팝업의 실거래·단지·이야기 버튼은 서랍을 그 탭으로 연다(한 번만, 다음 단지부터는 레이어 기본 탭)
+  const [tabOv, setTabOv] = useState<DrawerTab | null>(null);
+  const drawerTab: DrawerTab = tabOv ?? (layer === "price" ? "tx" : layer === "realtor" ? "realtor" : "deals");
   const [view, setView] = useState<View | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
   const [sel, setSel] = useState<Cx | null>(null);
@@ -261,7 +263,8 @@ export default function App() {
     return () => { off = true; };
   }, [view?.lat, view?.lng]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const pickComplex = useCallback((c: Cx, pan = true) => {
+  const pickComplex = useCallback((c: Cx, pan = true, tab?: DrawerTab) => {
+    setTabOv(tab ?? null);
     setSel(c);
     if (phone) setSheet("half");
     const m = mapRef.current;
@@ -288,11 +291,16 @@ export default function App() {
     const k = window.kakao;
     let off = false;
     const clear = () => { ovs.current.forEach((o) => o.setMap(null)); ovs.current = []; };
-    const put = (lat: number, lng: number, html: string, onClick?: () => void, z = 1, yAnchor = 1) => {
+    // onAct: 핀 안의 data-t 버튼(팝업의 실거래·단지·이야기) — 그 값으로 따로 처리하고 핀 클릭과 섞이지 않게 한다
+    const put = (lat: number, lng: number, html: string, onClick?: () => void, z = 1, yAnchor = 1, onAct?: (t: string) => void) => {
       if (!map) return;
       const el = document.createElement("div");
       el.innerHTML = html;
-      if (onClick) el.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
+      if (onClick) el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const b = (e.target as HTMLElement).closest("[data-t]");
+        if (b && onAct) onAct(b.getAttribute("data-t")!); else onClick();
+      });
       const ov = new k.maps.CustomOverlay({ position: new k.maps.LatLng(lat, lng), content: el, yAnchor, clickable: true, zIndex: z });
       el.addEventListener("mouseenter", () => ov.setZIndex(999));
       el.addEventListener("mouseleave", () => ov.setZIndex(z));
@@ -329,13 +337,21 @@ export default function App() {
           }).catch(() => {});
           return;
         }
+        // 단지별 가장 큰 할인 매물 1건(평형·호가·실거래 평균 대비) — 핀 머리띠와 팝업 둘째 줄에 쓴다
+        type Dq = { discount: number; area_name: string; asking_min: number; avg_real: number; n_real: number };
         const disc = new Map<string, number>();
-        for (const d of jd.items || []) disc.set(d.complex_no, Math.min(disc.get(d.complex_no) ?? 0, d.discount));
+        const dq = new Map<string, Dq>();
+        for (const d of jd.items || []) {
+          disc.set(d.complex_no, Math.min(disc.get(d.complex_no) ?? 0, d.discount));
+          if (!dq.has(d.complex_no) || d.discount < dq.get(d.complex_no)!.discount) dq.set(d.complex_no, d);
+        }
         const spn = new Map<string, number>();
         for (const d of sj?.items || []) spn.set(d.complex_no, (spn.get(d.complex_no) || 0) + 1);
-        let items: (Cx & { n: number; u: number; minp: number | null; minr: number | null; disc?: number; sp?: number })[] = (ml.items || []).map((m: any) => ({
+        let items: (Cx & { n: number; u: number; minp: number | null; maxp: number | null; minr: number | null; area: number | null; areaName: string | null;
+          real: number | null; realYmd: string | null; disc?: number; dq?: Dq; sp?: number })[] = (ml.items || []).map((m: any) => ({
           complex_no: m.complex_no, name: m.name, lat: m.lat, lng: m.lng, households: m.households, listings: m.n,
-          n: m.n, u: Math.round(m.units || 0), minp: m.min_price, minr: m.min_rent, disc: disc.get(m.complex_no), sp: spn.get(m.complex_no),
+          n: m.n, u: Math.round(m.units || 0), minp: m.min_price, maxp: m.max_price, minr: m.min_rent, area: m.min_area, areaName: m.min_area_name,
+          real: m.real_price, realYmd: m.real_ymd, disc: disc.get(m.complex_no), dq: dq.get(m.complex_no), sp: spn.get(m.complex_no),
         }));
         if (flt.only) items = items.filter((c) => c.disc);   // 급매만: 급매가 있는 단지만 남긴다
         if (flt.sp) items = items.filter((c) => c.sp);       // 특수조건: 해당 매물이 있는 단지만
@@ -343,13 +359,20 @@ export default function App() {
         setInView(items);
         const spl = SPECIAL_KINDS.find((x) => x.k === flt.sp)?.l;
         setHint(items.length ? "" : flt.sp ? `이 범위엔 ${spl} 매물이 있는 단지가 없어요` : flt.only ? "이 범위엔 조건에 맞는 급매 단지가 없어요" : "이 조건에 맞는 매물이 이 범위엔 없어요");
+        // 핀 = 머리띠(최저가 매물의 평형 · 급매/특수조건) + 몸통(매·전·월 최저 호가, 같은 평형 최근 실거래 '실'). 이름은 마우스를 올리면 팝업으로.
+        // 팝업: 단지 이름 · 호가 범위 · 급매(가장 큰 할인 1건, 없으면 '급매 없음') · 실거래/단지/이야기 바로가기. 폰은 hover 가 없어 핀 탭 → 서랍.
+        const tl = flt.trade === "B1" ? "전" : flt.trade === "B2" ? "월" : "매";
+        const tlf = flt.trade === "B1" ? "전세" : flt.trade === "B2" ? "월세" : "매매";
         for (const c of items) {
           const on = c.complex_no === selNo;
           const price = c.minp ? wonShort(c.minp) + (flt.trade === "B2" && c.minr ? `/${Math.round(c.minr / 1e4)}` : "") : "-";
-          // 1줄 = 단지 이름·가격, 2줄 = 실매물 · 급매(빨간 칩으로 강조) · 특수조건. 광고 건수는 안 보여 준다.
-          const l2 = [c.u ? `실 ${c.u}` : "", c.disc ? `<strong class="dl">급매 ${pct(c.disc, 0)}</strong>` : "", c.sp ? `${spl} ${c.sp}` : ""].filter(Boolean).join("<s>·</s>");
-          put(c.lat, c.lng, `<div class="t2-pin lst${c.disc ? " deal" : ""}${c.sp ? " sp" : ""}${on ? " on" : ""}"><span class="l1"><b>${esc(shortName(c.name))}</b><i>${price}</i></span>${l2 ? `<em>${l2}</em>` : ""}</div>`,
-            () => pickComplex(c, false), on ? 50 : c.disc || c.sp ? 6 : 5);
+          const hd = [c.area ? areaLabel(c.area) : (c.areaName ? `${c.areaName}타입` : "매물"), c.disc ? `급매 ${pct(c.disc, 0)}` : "", c.sp ? `${spl} ${c.sp}` : ""].filter(Boolean).join(" · ");
+          const range = c.minp ? (c.maxp && c.maxp !== c.minp ? `${wonShort(c.minp)} ~ ${wonShort(c.maxp)}` : wonShort(c.minp)) : "-";
+          const deal = c.dq ? `<b>급매</b> ${esc(c.dq.area_name)}타입 ${wonShort(c.dq.asking_min)} <i>실거래 평균 대비 ${pct(c.dq.discount, 0)}</i>` : `<b>급매</b> 없음`;
+          put(c.lat, c.lng, `<div class="t2-pw"><div class="t2-pin2${c.disc ? " deal" : ""}${c.sp ? " sp" : ""}${on ? " on" : ""}"><span class="hd">${esc(hd)}</span><b>${tl} ${price}</b>${c.real ? `<em>실 ${wonShort(c.real)}</em>` : ""}</div>
+            <div class="t2-pop"><div class="t2-pop-in"><div class="h">${esc(c.name)}</div><div class="p"><span>${tlf}</span>${range}</div><div class="d${c.dq ? " on" : ""}">${deal}</div>
+            <div class="a"><button type="button" data-t="tx">실거래</button><button type="button" data-t="info">단지</button><button type="button" data-t="review">이야기</button></div></div></div></div>`,
+            () => pickComplex(c, false), on ? 50 : c.disc || c.sp ? 6 : 5, 1, (t) => pickComplex(c, false, t as DrawerTab));
         }
         for (const c of kokCx) {
           put(c.lat, c.lng, `<div class="t2-pin kok"><b>${esc(shortName(c.name))}</b><i>콕집</i></div>`, () => pickComplex(c, false), 6);

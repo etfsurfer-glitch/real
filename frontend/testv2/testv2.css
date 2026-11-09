@@ -819,3 +819,31 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-win.phone .t2-ai-a { padding-left: 0; padding-top: 18px; }
 .t2-win.phone .t2-ai-in .t2-win-in { padding: 8px 12px 10px; }
 .t2-win.phone .t2-ask-sum th { width: 64px; }
+
+/* ── 매물찾기 핀 v2: 머리띠(평형·급매) + 몸통(호가·실거래), 마우스를 올리면 단지 팝업 ── */
+.t2-pw { position: relative; }
+.t2-pin2 { --pc: #1f2d4d; position: relative; display: flex; flex-direction: column; background: #fff; border: 1.5px solid var(--pc); border-radius: 9px; box-shadow: var(--sh-sm); cursor: pointer; margin-bottom: 7px; white-space: nowrap; min-width: 66px; line-height: 1.15; }
+.t2-pin2 .hd { background: var(--pc); color: #fff; font-size: 10.5px; font-weight: 700; padding: 3px 8px 2px; border-radius: 7px 7px 0 0; text-align: center; }
+.t2-pin2 > b { font-size: 14.5px; font-weight: 800; color: #111; padding: 4px 8px 3px; text-align: center; }
+.t2-pin2 > em { font-style: normal; font-size: 12.5px; font-weight: 800; color: #159570; padding: 0 8px 4px; text-align: center; margin-top: -1px; }
+.t2-pin2::after { content: ""; position: absolute; left: 50%; bottom: -7px; margin-left: -6px; border: 6px solid transparent; border-top-color: var(--pc); border-bottom: 0; }
+.t2-pin2.deal { --pc: var(--c-up); }
+.t2-pin2.sp { --pc: #6d28d9; }
+.t2-pin2.deal.sp { --pc: var(--c-up); }
+.t2-pin2.on { outline: 3px solid var(--c-gold); outline-offset: 1px; }
+.t2-pop { display: none; position: absolute; left: -14px; bottom: 100%; padding-bottom: 3px; z-index: 5; text-align: left; white-space: nowrap; }
+.t2-pw:hover .t2-pop { display: block; }
+.t2-pop-in { position: relative; background: #fff; border: 1.5px solid #1f2d4d; border-radius: 12px; min-width: 240px; box-shadow: var(--sh-lg); overflow: hidden; }
+.t2-pop-in::after { content: ""; position: absolute; left: 22px; bottom: -1px; width: 0; }
+.t2-pop .h { background: #1f2d4d; color: #fff; font-weight: 800; font-size: 15px; padding: 8px 14px; }
+.t2-pop .p { font-size: 16px; font-weight: 800; padding: 10px 14px 4px; }
+.t2-pop .p span { font-size: 14px; font-weight: 600; margin-right: 6px; }
+.t2-pop .d { font-size: 13px; padding: 0 14px 10px; color: var(--c-muted); }
+.t2-pop .d b { font-weight: 800; margin-right: 4px; }
+.t2-pop .d.on { color: var(--c-text); }
+.t2-pop .d.on b { color: var(--c-up); }
+.t2-pop .d i { font-style: normal; color: var(--c-up); font-weight: 700; margin-left: 4px; }
+.t2-pop .a { display: flex; gap: 4px; padding: 0 10px 10px; }
+.t2-pop .a button { flex: 1; border: 0; background: #f1f4f8; padding: 9px 6px; font-weight: 700; font-size: 13px; border-radius: 6px; color: var(--c-text); }
+.t2-pop .a button:hover { background: var(--c-primary-tint); color: var(--c-primary); }
+.t2.phone .t2-pop { display: none !important; }

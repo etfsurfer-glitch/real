@@ -10651,10 +10651,50 @@ def map_listings(swlat: float, swlng: float, nelat: float, nelng: float,
             f"WHERE cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ? AND {' AND '.join(cw)} "
             f"GROUP BY cx.complex_no ORDER BY COUNT(l.article_no) DESC LIMIT ?",
             [*lp, swlat, nelat, swlng, nelng, *cp, limit]).fetchall()
+        # 핀에 적는 '최저가 매물의 평형' — MIN() 하나만 둔 별도 쿼리라야 bare column(area2_m2·area_name)이 그 행에서 온다
+        # (위 쿼리는 MIN·MAX 가 여럿이라 임의 행이 된다).
+        area: dict = {}
+        ids_all = [r[0] for r in rows]
+        for i in range(0, len(ids_all), 500):
+            chunk = ids_all[i:i + 500]
+            for no, a2, an, _mp in c.execute(
+                    f"SELECT l.complex_no, l.area2_m2, l.area_name, MIN(l.deal_or_warrant_price) FROM listings_current l "
+                    f"WHERE l.complex_no IN ({','.join('?' * len(chunk))}) AND {' AND '.join(lw)} GROUP BY l.complex_no",
+                    [*chunk, *lp]):
+                area[no] = (a2, an)
+        rows = [(*r, *area.get(r[0], (None, None))) for r in rows]
+        # 핀 '실 N억': 그 평형(±1.5㎡)의 최근 1년 실거래 중 가장 최근 1건(해제 제외). 매매·전세만, 월세는 없음.
+        real: dict = {}
+        if trade in ("A1", "B1") and rows:
+            amin = {r[0]: float(r[12] or 0) for r in rows}
+            groups = {"apt": [r[0] for r in rows if r[4] not in ("OPST", "OBYG")],
+                      "offi": [r[0] for r in rows if r[4] in ("OPST", "OBYG")]}
+            for kind, ids in groups.items():
+                if not ids:
+                    continue
+                if trade == "A1":
+                    tbl = "transactions" if kind == "apt" else "offi_transactions"
+                    sql = (f"SELECT matched_complex_no, deal_amount, excl_use_ar, deal_ymd FROM {tbl} "
+                           f"WHERE matched_complex_no IN (PH) AND is_cancelled=0 "
+                           f"AND deal_ymd>=date('now','+9 hours','-365 days') ORDER BY deal_ymd DESC")
+                else:
+                    tbl = "rentals" if kind == "apt" else "offi_rentals"
+                    sql = (f"SELECT matched_complex_no, deposit, excl_use_ar, deal_ymd FROM {tbl} "
+                           f"WHERE matched_complex_no IN (PH) AND +monthly_rent=0 "
+                           f"AND deal_ymd>=date('now','+9 hours','-365 days') ORDER BY deal_ymd DESC")
+                for i in range(0, len(ids), 500):
+                    chunk = ids[i:i + 500]
+                    for no, amt, ar, ymd in c.execute(sql.replace("PH", ",".join("?" * len(chunk))), chunk):
+                        if no in real or not amt or not ar:
+                            continue
+                        if abs(float(ar) - amin.get(no, 0)) <= 1.5:
+                            real[no] = (int(amt), ymd)
     return {"too_wide": False, "n_complexes": n_cx, "trade": trade, "items": [
         {"complex_no": r[0], "name": r[1], "lat": r[2], "lng": r[3], "type": r[4], "households": r[5],
          "approve_year": int(r[6]) if r[6] and str(r[6]).isdigit() else None,
-         "n": r[7], "min_price": r[8], "max_price": r[9], "min_rent": r[10], "units": round(r[11] or 0)}
+         "n": r[7], "min_price": r[8], "max_price": r[9], "min_rent": r[10], "units": round(r[11] or 0),
+         "min_area": r[12], "min_area_name": r[13],
+         "real_price": real.get(r[0], (None, None))[0], "real_ymd": real.get(r[0], (None, None))[1]}
         for r in rows]}
 
 
