@@ -81,6 +81,14 @@ const CONFIRM_OPTS = [{ l: "전체", v: 0 }, { l: "오늘 확인", v: 1 }, { l: 
 const CX_TYPES: { k: string; l: string }[] = [
   { k: "APT", l: "아파트" }, { k: "ABYG", l: "아파트분양권" }, { k: "JGC", l: "재건축" }, { k: "OPST", l: "오피스텔" }, { k: "OBYG", l: "오피스텔분양권" },
 ];
+// 단지가 아닌 매물(지역 수집 DB 10종) — 같은 좌표끼리 묶어 핀 하나. 키는 /map/other-listings 의 kinds 와 같다.
+const NR_TYPES: { k: string; l: string }[] = [
+  { k: "villa", l: "빌라·연립" }, { k: "oneroom", l: "원룸" }, { k: "house", l: "단독·다가구" }, { k: "sangga", l: "상가" }, { k: "office", l: "사무실" },
+  { k: "building", l: "건물" }, { k: "land", l: "토지" }, { k: "factory", l: "공장·창고" }, { k: "knowledge", l: "지식산업센터" }, { k: "redev", l: "재개발" },
+];
+const NR_KEYS = new Set(NR_TYPES.map((t) => t.k));
+type NrItem = { article_no: string; type: string; trade: string; price: number; rent: number; price_text: string; area1_m2: number | null; area2_m2: number | null; floor_info: string; direction: string; building: string; realtor_name: string; confirm_ymd: string; feature: string; dup: number };
+type NrGroup = { kind: string; label: string; lat: number; lng: number; n: number; min_price: number | null; price_text: string; name: string; items: NrItem[] };
 const TRADES: { k: Trade; l: string }[] = [{ k: "A1", l: "매매" }, { k: "B1", l: "전세" }, { k: "B2", l: "월세" }];
 const E = 1e8;
 const PRICE_OPTS: { l: string; a: number; b: number }[] = [
@@ -100,7 +108,7 @@ const HH_OPTS: { l: string; a: number; b: number }[] = [
   { l: "전체", a: 0, b: 0 }, { l: "100세대 이상", a: 100, b: 0 }, { l: "300세대 이상", a: 300, b: 0 }, { l: "500세대 이상", a: 500, b: 0 },
   { l: "1,000세대 이상", a: 1000, b: 0 }, { l: "2,000세대 이상", a: 2000, b: 0 },
 ];
-const fltQs = (f: Flt) => new URLSearchParams({ types: f.types.join(","), trade: f.trade, price_min: String(f.pmin), price_max: String(f.pmax),
+const fltQs = (f: Flt) => new URLSearchParams({ types: f.types.filter((t) => !NR_KEYS.has(t)).join(","), trade: f.trade, price_min: String(f.pmin), price_max: String(f.pmax),
   area_min: String(f.amin), area_max: String(f.amax), approve_from: String(f.afrom), approve_to: String(f.ato), hh_min: String(f.hmin), hh_max: String(f.hmax),
   bld_min: String(f.bld), park_min: String(f.park), far_max: String(f.far), walk_max: String(f.walk), verify: f.verify, confirm_days: String(f.confirm), price_down: f.down ? "1" : "0",
   rooms: f.rooms.join(","), baths: f.baths.join(","), floor: f.floor.join(","), dirs: f.dirs.join(","), loan: f.loan, tags: f.tags.join(",") });
@@ -179,6 +187,7 @@ export default function App() {
   const [kokTick, setKokTick] = useState(0);
   const kok = useKok(view ? { swLat: view.swLat, swLng: view.swLng, neLat: view.neLat, neLng: view.neLng } : null, flt.trade, kokTick);
   const [kokOpen, setKokOpen] = useState<KokItem | null>(null);
+  const [nrOpen, setNrOpen] = useState<NrGroup | null>(null);   // 비단지 핀을 눌렀을 때 그 자리 매물 목록
   const [rkDong, setRkDong] = useState<{ code: string; name: string } | null>(null);
   // 중개사랭킹 지도 핀: 패널이 정렬한 상위 사무소(순위 포함) + 고른 핀(같은 자리 묶음 키)
   const [rkRows, setRkRows] = useState<(Rk & { rank: number })[]>([]);
@@ -375,9 +384,18 @@ export default function App() {
         }).catch(() => {});
       };
       if (view.level >= 6) { drawAgg(view.level >= 8 ? "gu" : "dong"); return; }
-      Promise.all([getJson(`/map/listings?${b2}&${fltQs(flt)}`), qd, sp]).then(([ml, jd, sj]) => {
+      const nrKinds = flt.types.filter((t) => NR_KEYS.has(t));
+      const hasCx = flt.types.some((t) => !NR_KEYS.has(t));
+      const mlP = hasCx ? getJson(`/map/listings?${b2}&${fltQs(flt)}`) : Promise.resolve({ too_wide: false, items: [] });
+      const nrP = nrKinds.length ? getJson(`/map/other-listings?${b2}&kinds=${nrKinds.join(",")}&trade=${flt.trade}&price_min=${flt.pmin}&price_max=${flt.pmax}&area_min=${flt.amin}&area_max=${flt.amax}`).catch(() => ({ groups: [] })) : Promise.resolve({ groups: [] });
+      Promise.all([mlP, qd, sp, nrP]).then(([ml, jd, sj, nr]) => {
         if (off) return;
         clear();
+        // 비단지 묶음 핀: 머리띠 = 유형 · 건수, 몸통 = 최저 호가. 누르면 그 자리 매물 목록
+        for (const g of (nr.groups || []) as NrGroup[]) {
+          put(g.lat, g.lng, `<div class="t2-pw"><div class="t2-pin2 nr"><span class="hd">${esc(g.label)} · ${g.n}건</span><b>${g.price_text === "-" ? esc(g.label) : `${flt.trade === "B1" ? "전" : flt.trade === "B2" ? "월" : "매"} ${esc(g.price_text)}`}</b></div></div>`,
+            () => setNrOpen(g), 4);
+        }
         if (ml.too_wide) { drawAgg("gu"); return; }
         // 단지별 가장 큰 할인 매물 1건(평형·호가·실거래 평균 대비) — 핀 머리띠와 팝업 둘째 줄에 쓴다
         type Dq = { discount: number; area_name: string; asking_min: number; avg_real: number; n_real: number };
@@ -804,6 +822,7 @@ export default function App() {
               else if (path.startsWith("/settings")) setMeOpen(true);
               else window.open(SITE + path, "_blank", "noreferrer");   // 중개사라운지·약관 등 지도 밖 문서만
             }} />}
+          {nrOpen && <NrListModal g={nrOpen} trade={flt.trade} onClose={() => setNrOpen(null)} />}
           {kokOpen && <KokDetail it={kokOpen} session={session} onClose={() => { setKokOpen(null); setKokTick((t) => t + 1); }} onLogin={() => setMeOpen(true)} onGo={goComplex} />}
           {fav && <FavWindow phone={phone} session={session} onClose={() => setFav(false)} onRemoved={(no) => setFavs((o) => (o || []).filter((f) => f.complex_no !== no))}
             onGo={(no, name, tab) => { setFav(false); goComplex(no, name, tab); }} />}
@@ -858,6 +877,32 @@ export default function App() {
           )}
         </nav>
       )}
+    </div>
+  );
+}
+
+// ── 비단지 핀을 누르면: 그 자리(같은 좌표) 매물 목록 ─────────────────
+function NrListModal({ g, trade, onClose }: { g: NrGroup; trade: Trade; onClose: () => void }) {
+  const tl = trade === "B1" ? "전세" : trade === "B2" ? "월세" : "매매";
+  return (
+    <div className="t2-modal" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="t2-modal-in legal" style={{ width: "min(720px, 100%)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="t2-ph"><h2>{g.label} <small>{tl} {g.n}건 · 같은 자리</small></h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
+        <p className="t2-snote">지역 단위로 모은 매물이라 건물 이름이 없을 수 있어요. 같은 매물을 여러 사무소가 올린 경우 건수가 겹쳐요.</p>
+        <table className="t2-tbl">
+          <thead><tr><th>유형</th><th>면적</th><th>층</th><th>방향</th><th className="num">가격</th><th>사무소</th><th>확인</th><th /></tr></thead>
+          <tbody>
+            {g.items.map((it) => (
+              <tr key={it.article_no}>
+                <td>{it.type}</td><td>{it.area2_m2 ? areaLabel(it.area2_m2) : it.area1_m2 ? `${Math.round(it.area1_m2)}㎡` : "-"}</td><td>{it.floor_info ? `${it.floor_info}층` : ""}</td><td>{it.direction}</td>
+                <td className="num"><b>{it.price_text}</b></td><td className="mut">{it.realtor_name}</td><td className="mut">{it.confirm_ymd ? it.confirm_ymd.slice(4, 6) + "." + it.confirm_ymd.slice(6, 8) : ""}</td>
+                <td><a className="t2-nbtn" href={`https://m.land.naver.com/article/info/${it.article_no}`} target="_blank" rel="noreferrer" title="원본 매물">N</a></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {g.n > g.items.length && <p className="t2-snote">외 {g.n - g.items.length}건</p>}
+      </div>
     </div>
   );
 }
@@ -955,8 +1000,8 @@ function TopBar({ phone, onPick, favs, session, sess, user, onMe, onGo, onAddr, 
 // ── 매물찾기 필터 바(지도 위) ────────────────────────
 // 유형 드롭다운 이름: 전부면 '전체', 둘까지는 이름 나열, 그 이상은 '아파트 외 2'
 function typeLabel(ts: string[]) {
-  const ls = CX_TYPES.filter((t) => ts.includes(t.k)).map((t) => t.l);
-  if (ls.length === CX_TYPES.length) return "유형 전체";
+  const ls = [...CX_TYPES, ...NR_TYPES].filter((t) => ts.includes(t.k)).map((t) => t.l);
+  if (ls.length === CX_TYPES.length + NR_TYPES.length) return "유형 전체";
   return ls.length <= 2 ? ls.join("·") : `${ls[0]} 외 ${ls.length - 1}`;
 }
 
@@ -994,10 +1039,11 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
   return (
     <div className="t2-fbar" onMouseLeave={() => setOpen(null)}>
       <Dd id="types" open={open} setOpen={setOpen} label={typeLabel(flt.types)} active={flt.types.join() !== FLT0.types.join()}>
-        <span className="t2-ddm-in" onClick={(e) => e.stopPropagation()}>
-          {CX_TYPES.map((t) => (
-            <button key={t.k} className={flt.types.includes(t.k) ? "on chk" : "chk"} onClick={() => toggleType(t.k)}><i />{t.l}</button>
-          ))}
+        <span className="t2-ddm-in cols" onClick={(e) => e.stopPropagation()}>
+          <span className="t2-ddm-col"><small>단지</small>
+            {CX_TYPES.map((t) => <button key={t.k} className={flt.types.includes(t.k) ? "on chk" : "chk"} onClick={() => toggleType(t.k)}><i />{t.l}</button>)}</span>
+          <span className="t2-ddm-col"><small>그 외</small>
+            {NR_TYPES.map((t) => <button key={t.k} className={flt.types.includes(t.k) ? "on chk" : "chk"} onClick={() => toggleType(t.k)}><i />{t.l}</button>)}</span>
         </span>
       </Dd>
       <Dd id="trade" open={open} setOpen={setOpen} label={TRADES.find((t) => t.k === flt.trade)!.l} active>

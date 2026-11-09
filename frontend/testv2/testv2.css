@@ -1035,3 +1035,6 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-kok-upl .add { width: 96px; height: 72px; border: 1.5px dashed var(--c-border); border-radius: 6px; background: #fff; font-weight: 700; color: var(--c-primary); }
 .t2-split-b .t2-ph { align-items: center; }
 .t2-split-b .t2-ph .t2-lnk { font-size: 13px; }
+.t2-pin2.nr { --pc: #0f766e; }
+.t2-pin2.nr > b { font-size: 13.5px; }
+.t2-ddm-in.cols .t2-ddm-col button.chk { white-space: nowrap; }

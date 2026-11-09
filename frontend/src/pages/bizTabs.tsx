@@ -2012,7 +2012,7 @@ export function ListingsTab({ authH, office }: { authH: () => Record<string, str
       trade_type: pick((l) => l.trade_type || "", "trade_type"),
       dong: pick(bldDongOf, "dong"),
       areaDong: pick(areaDongOf, "areaDong"),
-      area_name: pick((l) => l.area_name || "", "area_name"),
+      area_name: pick((l) => (l.area_name && /^\d/.test(l.area_name) ? l.area_name : ""), "area_name"),   // 비단지의 유형 딱지(사무실·상가점포)는 평형이 아니다
       direction: pick((l) => l.direction || "", "direction"),
       manager: pick((l) => l.manager || "", "manager"),
       cp_name: [...new Set(applyColF(base.slice(), "cp_name")

@@ -11147,6 +11147,71 @@ def admin_kok_owner_status(lid: int, body: dict, _admin: dict = Depends(admin_us
     return {"ok": True}
 
 
+# ── 지도 매물찾기: 비단지 매물(빌라·원룸·단독·상가·사무실·건물·토지·공장·지식산업센터·재개발) ──
+# 지역 수집 DB 10개(listings_*.sqlite, 가격 단위 만원)를 bbox 로 훑어 같은 좌표(=같은 건물·필지)끼리 묶는다.
+# 핀 하나 = 묶음 하나(유형·건수·최저가). 누르면 그 자리 매물 목록.
+_NR_KINDS = tuple(_NONRESI_DB.keys())
+
+
+@app.get("/map/other-listings")
+def map_other_listings(swlat: float, swlng: float, nelat: float, nelng: float, kinds: str = "villa", trade: str = "A1",
+                       price_min: int = 0, price_max: int = 0, area_min: float = 0, area_max: float = 0, limit: int = 400):
+    if not (swlat < nelat and swlng < nelng):
+        raise HTTPException(400, "bad bounds")
+    ks = [k for k in (kinds or "").split(",") if k in _NR_KINDS]
+    if not ks:
+        return {"too_wide": False, "groups": [], "count": 0}
+    # 너무 넓으면(구 단위 이상) 핀이 폭주한다 → 프런트가 동·구 묶음으로 넘어가므로 여기선 상한만
+    span = (nelat - swlat) * (nelng - swlng)
+    if span > 0.02:
+        return {"too_wide": True, "groups": [], "count": 0}
+    lw, lp = ["latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?"], [swlat, nelat, swlng, nelng]
+    if trade in ("A1", "B1", "B2"):
+        lw.append("trade_type=?"); lp.append(trade)
+    if price_min:
+        lw.append("deal_or_warrant_price>=?"); lp.append(price_min // 10000)
+    if price_max:
+        lw.append("deal_or_warrant_price<=?"); lp.append(price_max // 10000)
+    if area_min:
+        lw.append("area2_m2>=?"); lp.append(area_min)
+    if area_max:
+        lw.append("area2_m2<=?"); lp.append(area_max)
+    groups: dict = {}
+    total = 0
+    for k in ks:
+        path = DB_PATH.parent / _NONRESI_DB[k]
+        if not path.exists():
+            continue
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = con.execute(
+                f"SELECT article_no, real_estate_type_name, trade_type, deal_or_warrant_price, rent_price, area1_m2, area2_m2, floor_info, direction, "
+                f"building_name, realtor_name, latitude, longitude, article_confirm_ymd, article_feature_desc, same_addr_cnt, cortar_no "
+                f"FROM listings WHERE {' AND '.join(lw)} ORDER BY article_confirm_ymd DESC LIMIT 3000", lp).fetchall()
+        finally:
+            con.close()
+        for r in rows:
+            if not r[11] or not r[12]:
+                continue
+            total += 1
+            key = (k, round(r[11], 5), round(r[12], 5))
+            g = groups.setdefault(key, {"kind": k, "label": _NONRESI_LABEL[k], "lat": r[11], "lng": r[12], "n": 0, "min_price": None, "name": r[9] or _NONRESI_LABEL[k],
+                                        "cortar": r[16], "items": []})
+            g["n"] += 1
+            p = int(r[3] or 0) * 10000
+            if p and (g["min_price"] is None or p < g["min_price"]):
+                g["min_price"] = p
+            if len(g["items"]) < 30:
+                g["items"].append({"article_no": r[0], "type": r[1], "trade": r[2], "price": p, "rent": int(r[4] or 0) * 10000,
+                                   "price_text": _kok_price_text(r[2], p, int(r[4] or 0) * 10000), "area1_m2": r[5], "area2_m2": r[6],
+                                   "floor_info": r[7] or "", "direction": r[8] or "", "building": r[9] or "", "realtor_name": r[10] or "",
+                                   "confirm_ymd": r[13] or "", "feature": (r[14] or "")[:60], "dup": r[15] or 1})
+    gl = sorted(groups.values(), key=lambda g: -g["n"])[:limit]
+    for g in gl:
+        g["price_text"] = _kok_price_text(trade if trade in ("A1", "B1", "B2") else "A1", g["min_price"], 0) if g["min_price"] else "-"
+    return {"too_wide": False, "count": total, "groups": gl}
+
+
 @app.get("/map/deals-agg")
 def map_deals_agg(swlat: float, swlng: float, nelat: float, nelng: float, level: str = "dong", trade: str = "A1"):
     """지도 축소 시 동(level=dong)·구(gu) 묶음 — 묶음마다 급매 매물 건수(quick_deals_cx 사전집계, 3% 문턱)와
