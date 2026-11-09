@@ -9,7 +9,7 @@ import os, sqlite3, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import scripts.local_api as api  # noqa: E402
 
-BUDGET_CMN = 4200          # 밤에 쓸 cmn 호출 상한(낮 온디맨드 몫 500은 남겨 둔다)
+BUDGET_CMN = 40000         # 밤에 쓸 cmn 호출 상한(운영계정 95,000 중 낮 온디맨드 몫은 남겨 둔다)
 
 
 def main() -> int:

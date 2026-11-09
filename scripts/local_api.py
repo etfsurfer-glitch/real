@@ -11043,7 +11043,7 @@ def _kok_acquire(price: int, excl: float | None) -> dict:
 _KAPT_BASE = "https://apis.data.go.kr/1613000/"
 _KAPT_SVC = {"list": "AptListService4", "basis": "AptBasisInfoServiceV5", "cmn": "AptCmnuseManageCostServiceV3",
              "ind": "AptIndvdlzManageCostServiceV3", "ltf": "AptRepairsCostServiceV3"}
-_KAPT_DAILY_CAP = 4700            # 서비스별 일일 5,000 중 여유 300
+_KAPT_DAILY_CAP = 95000           # 운영계정(2026-11-10) 서비스별 일일 100,000 중 여유 5,000
 # 공용관리비 — 오퍼레이션 → (표시 이름, 더할 필드들)
 _KAPT_CMN = {
     "getHsmpLaborCostInfoV3": ("인건비", ["pay", "sundryCost", "bonus", "pension", "accidentPremium", "employPremium", "nationalPension", "healthPremium", "welfareBenefit"]),
