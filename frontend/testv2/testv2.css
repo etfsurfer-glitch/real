@@ -931,7 +931,7 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 /* ── 바닥 회사정보·약관 ── */
 .t2-foot { flex-shrink: 0; height: 26px; display: flex; align-items: center; gap: 0; padding: 0 14px; border-top: 1px solid var(--c-border); background: #fff; font-size: 11px; color: var(--c-muted); white-space: nowrap; overflow: hidden; }
 .t2-foot > * { flex-shrink: 0; }
-.t2-foot > span + span, .t2-foot > span + a, .t2-foot > a + button, .t2-foot > button + button, .t2-foot > button + span { margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--c-border-soft); }
+.t2-foot > span + span, .t2-foot > span + a, .t2-foot > a + a, .t2-foot > a + button, .t2-foot > button + button, .t2-foot > button + span { margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--c-border-soft); }
 .t2-foot .brand { font-weight: 800; color: var(--c-primary); font-size: 12px; }
 .t2-foot a, .t2-foot button { border: 0; background: none; padding: 0; font: inherit; font-size: 11px; color: var(--c-text-soft); font-weight: 600; cursor: pointer; }
 .t2-foot button.b { font-weight: 800; color: var(--c-text); }

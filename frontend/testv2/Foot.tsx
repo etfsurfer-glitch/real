@@ -5,6 +5,7 @@ import Privacy from "../src/pages/Privacy";
 
 export type LegalKind = "terms" | "privacy";
 const CS_URL = "https://pf.kakao.com/_ackPX/chat";
+const AD_MAIL = "mailto:runtoonline@gmail.com?subject=" + encodeURIComponent("콕집 광고문의");   // 분양·중개사무소 상단노출·배너
 
 export const COMPANY = [
   "런투온라인", "대표 황인찬", "사업자등록번호 628-11-03169", "통신판매업신고 2026-진건퇴계원-114",
@@ -17,6 +18,7 @@ export function FootBar({ onLegal }: { onLegal: (k: LegalKind) => void }) {
       <span className="brand">콕집</span>
       {COMPANY.map((t) => <span key={t}>{t}</span>)}
       <a href={CS_URL} target="_blank" rel="noreferrer">고객센터</a>
+      <a href={AD_MAIL}>광고문의</a>
       <button onClick={() => onLegal("terms")}>이용약관</button>
       <button className="b" onClick={() => onLegal("privacy")}>개인정보처리방침</button>
       <span className="note">매물 정보는 참고용이며 거래 전 반드시 현장 확인 바랍니다.</span>
@@ -32,6 +34,7 @@ export function FootNote({ onLegal }: { onLegal: (k: LegalKind) => void }) {
         <button onClick={() => onLegal("terms")}>이용약관</button>
         <button className="b" onClick={() => onLegal("privacy")}>개인정보처리방침</button>
         <a href={CS_URL} target="_blank" rel="noreferrer">고객센터</a>
+        <a href={AD_MAIL}>광고문의</a>
       </div>
       <p>{COMPANY.join(" · ")}</p>
       <p>매물 정보는 참고용이며 거래 전 반드시 현장 확인 바랍니다.</p>
