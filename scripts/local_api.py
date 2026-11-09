@@ -11004,6 +11004,42 @@ def kok_realtor_listing_detail(article_no: str):
             "photos": [("https://landthumb-phinf.pstatic.net" + p["imageSrc"]) if str(p.get("imageSrc", "")).startswith("/") else p.get("imageSrc") for p in (det.get("articlePhotos") or []) if p.get("imageSrc")][:20],
             "parking_per_household": ad.get("parkingPerHouseholdCount") or out["parking_per_household"],
         })
+        # ── 더 꺼낼 것: 단지 사실(난방·시공사·세대·주차), 월별 관리비 실적, 같은 집 광고 수, 공시가격·보유세, 취득 비용 ──
+        mc = ad.get("maintenanceCost") or {}
+        lp = det.get("landPrice") or {}
+        tax = det.get("articleTax") or {}
+        addi = det.get("articleAddition") or {}
+        cost = det.get("administrationCostInfo") or {}
+        inc = {"01": "공용관리비", "11": "전기료", "12": "수도료", "13": "가스사용료", "14": "난방비", "15": "인터넷", "16": "TV", "99": "기타"}
+        ef = cost.get("etcFeeDetails") or {}
+        crit = {"01": "직전 월", "02": "최근 3개월 평균", "03": "최근 1년 평균", "04": "해당 평형 월평균"}.get(str(cost.get("chargeCriteriaCode") or ""), "")
+        def _i(v):
+            try:
+                return int(float(v))
+            except (TypeError, ValueError):
+                return None
+        out.update({
+            "complex_facts": {"heat": " · ".join(x for x in [ad.get("aptHeatMethodTypeName"), ad.get("aptHeatFuelTypeName")] if x),
+                              "builder": ad.get("aptConstructionCompanyName") or "", "households": _i(ad.get("aptHouseholdCount")),
+                              "households_type": _i(ad.get("householdCountByPtp")), "parking_total": _i(ad.get("aptParkingCount")),
+                              "dongs": ad.get("totalDongCount"), "subway_walk": ad.get("walkingTimeToNearSubway"),
+                              "entrance": fac.get("entranceTypeName") or "", "highest_floor": (det.get("articleFloor") or {}).get("complexHighestFloor")},
+            "mgmt_history": {"avg": _i(mc.get("averageTotalPrice")), "summer": _i(mc.get("summerTotalPrice")), "winter": _i(mc.get("winterTotalPrice")),
+                             "avg_common": _i(mc.get("averageCommonPrice")),
+                             "months": [{"ym": x.get("basisYearMonth"), "total": _i(x.get("totalPrice")), "common": _i(x.get("commonPrice")), "heat": _i(x.get("heatPrice")), "etc": _i(x.get("etcPrice"))}
+                                        for x in (mc.get("costsByDate") or [])][:12]} if mc else None,
+            "mgmt_declared": {"amount": _i(ef.get("etcFeeAmount")), "criteria": crit, "note": cost.get("chargeInputContent") or "",
+                              "includes": [inc.get(c, c) for c in (ef.get("includeCodeTypes") or [])]} if ef else None,
+            "same_addr": {"count": addi.get("sameAddrCnt"), "direct": addi.get("sameAddrDirectCnt"), "min": addi.get("sameAddrMinPrc"), "max": addi.get("sameAddrMaxPrc")},
+            "price_change": addi.get("priceChangeState") or "",
+            "expose_end": ad.get("exposeEndYMD") or "",
+            "public_price": {"price": _i(lp.get("price")), "prev": _i(lp.get("prevPrice")), "year": lp.get("stdYear"),
+                             "property_tax": _i((lp.get("landPriceTax") or {}).get("propertyTotalTax")),
+                             "comprehensive_tax": _i((lp.get("landPriceTax") or {}).get("realEstateTotalTax"))} if lp.get("price") else None,
+            "acquire": {"acq_tax": _i(tax.get("acquisitionTax")), "edu_tax": _i(tax.get("eduTax")), "special_tax": _i(tax.get("specialTax")),
+                        "broker_fee": _i(tax.get("brokerFee")), "broker_rate": tax.get("maxBrokerFee"), "total": _i(tax.get("totalPrice"))} if tax.get("totalPrice") else None,
+            "price_per_py": _i(pr.get("priceBySpace")),
+        })
         out["realtor"].update({k: v for k, v in {"name": rt.get("realtorName"), "representative": rt.get("representativeName"),
                                                  "regno": rt.get("establishRegistrationNo"), "tel": rt.get("representativeTelNo"),
                                                  "cell": rt.get("cellPhoneNo"), "address": rt.get("address")}.items() if v})
