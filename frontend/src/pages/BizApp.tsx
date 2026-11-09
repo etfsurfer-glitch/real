@@ -7,6 +7,7 @@ import { STORE, isRealtorApp, isIOSApp } from "../lib/appmode";
 import AppleLoginButton from "../components/AppleLoginButton";
 import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
+import { KokPanel } from "../components/KokOptinModal";
 import { Loading } from "../components/Loading";
 import { enablePush, disablePush, pushOptedIn, pushSupported } from "../lib/push";
 import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp, Presentation, MapPin, X, Send } from "lucide-react";
@@ -668,6 +669,7 @@ function BizHome({ office, authH, role, staffName, hideChrome }: {
     <div className="biz-shell">
       {!hideChrome && <BizTop settings />}
       <div className="biz-body">
+      <KokPanel authH={authH} />
         <div className="biz-greet">
           <div className="biz-greet-name"><b>{role === "owner" ? `${office.representative || "대표"} 대표님` : `${staffName || "직원"}님`}</b>, 안녕하세요</div>
           <div className="biz-greet-office">{office.realtor_name}</div>

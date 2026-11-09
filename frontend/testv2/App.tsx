@@ -13,6 +13,7 @@ import { FavWindow } from "./Fav";
 import { RealtorWindow } from "./Realtor";
 import { FootBar, FootNote, LegalModal, type LegalKind } from "./Foot";
 import { useAds, AdRow, AdInfoModal, type Ad } from "./Ads";
+import { useKok, KokPanelList, KokDetail, type KokItem } from "./Kok";
 import type { Session } from "@supabase/supabase-js";
 
 const API = "https://api.koczip.com";
@@ -174,6 +175,10 @@ export default function App() {
   const [favs, setFavs] = useState<{ complex_no: string; complex_name: string }[] | null>(null);
   const [askLogin, setAskLogin] = useState(false);
   const [flt, setFlt] = useState<Flt>(FLT0);
+  // 콕집매물(중개사 연동 + 직거래) — 지도 범위 안. 핀 꼬리표·패널 칸·서랍에 쓴다
+  const [kokTick, setKokTick] = useState(0);
+  const kok = useKok(view ? { swLat: view.swLat, swLng: view.swLng, neLat: view.neLat, neLng: view.neLng } : null, flt.trade, kokTick);
+  const [kokOpen, setKokOpen] = useState<KokItem | null>(null);
   const [rkDong, setRkDong] = useState<{ code: string; name: string } | null>(null);
   // 중개사랭킹 지도 핀: 패널이 정렬한 상위 사무소(순위 포함) + 고른 핀(같은 자리 묶음 키)
   const [rkRows, setRkRows] = useState<(Rk & { rank: number })[]>([]);
@@ -405,10 +410,11 @@ export default function App() {
           // 몸통 가격 = 대표 평형(세대수 최다)의 최저 호가. 팝업의 범위는 단지 전체 최저~최고.
           const pp = c.repp ?? c.minp;
           const price = pp ? wonShort(pp) + (flt.trade === "B2" && c.minr ? `/${Math.round(c.minr / 1e4)}` : "") : "-";
-          const hd = [c.area ? areaLabel(c.area) : (c.areaName ? `${c.areaName}타입` : "매물"), c.disc ? `급매 ${pct(c.disc, 0)}` : "", c.sp ? `${spl} ${c.sp}` : ""].filter(Boolean).join(" · ");
+          const nk = kok.byCx[c.complex_no] || 0;
+          const hd = [c.area ? areaLabel(c.area) : (c.areaName ? `${c.areaName}타입` : "매물"), c.disc ? `급매 ${pct(c.disc, 0)}` : "", c.sp ? `${spl} ${c.sp}` : "", nk ? `콕집 ${nk}` : ""].filter(Boolean).join(" · ");
           const range = c.minp ? (c.maxp && c.maxp !== c.minp ? `${wonShort(c.minp)} ~ ${wonShort(c.maxp)}` : wonShort(c.minp)) : "-";
           const deal = c.dq ? `<b>급매</b> ${esc(c.dq.area_name)}타입 ${wonShort(c.dq.asking_min)} <i>실거래 평균 대비 ${pct(c.dq.discount, 0)}</i>` : `<b>급매</b> 없음`;
-          put(c.lat, c.lng, `<div class="t2-pw"><div class="t2-pin2${c.disc ? " deal" : ""}${c.sp ? " sp" : ""}${on ? " on" : ""}"><span class="hd">${esc(hd)}</span><b>${tl} ${price}</b>${c.real ? `<em>실 ${wonShort(c.real)}</em>` : ""}</div>
+          put(c.lat, c.lng, `<div class="t2-pw"><div class="t2-pin2${c.disc ? " deal" : ""}${c.sp ? " sp" : ""}${nk ? " kok" : ""}${on ? " on" : ""}"><span class="hd">${esc(hd)}</span><b>${tl} ${price}</b>${c.real ? `<em>실 ${wonShort(c.real)}</em>` : ""}</div>
             <div class="t2-pop"><div class="t2-pop-in"><div class="h">${esc(c.name)}</div><div class="p"><span>${tlf}</span>${range}</div><div class="d${c.dq ? " on" : ""}">${deal}</div>
             <div class="a"><button type="button" data-t="tx">실거래</button><button type="button" data-t="info">단지</button><button type="button" data-t="review">이야기</button></div></div></div></div>`,
             () => pickComplex(c, false), on ? 50 : c.disc || c.sp ? 6 : 5, 1, (t) => pickComplex(c, false, t as DrawerTab));
@@ -512,7 +518,7 @@ export default function App() {
       }).catch(() => { if (!off) { setAgg([]); setAggLoading(false); } });
     }
     return () => { off = true; };
-  }, [layer, view, selNo, selJ?.ref, rkDong, region?.dong, region?.sgg, pickComplex, pm, pw, pa, flt, ads.pin]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layer, view, selNo, selJ?.ref, rkDong, region?.dong, region?.sgg, pickComplex, pm, pw, pa, flt, ads.pin, kok.byCx]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // 레이어·유형을 바꾸면 지번 서랍은 닫는다
   useEffect(() => { setSelJ(null); }, [layer, pa]);
@@ -709,7 +715,7 @@ export default function App() {
   // ── 화면 ─────────────────────────────────────────
   const panel = (
     <>
-      {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} onRequest={() => openAsk("req")} ad={ads.deals_top[0]} sessObj={session} />}
+      {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} onRequest={() => openAsk("req")} ad={ads.deals_top[0]} sessObj={session} kok={kok.items} onKok={setKokOpen} onOwner={() => openAsk("owner")} />}
       {layer === "price" && isJibun(pa) && <JibunPanel asset={pa} pins={jpins} region={region} win={pw} onWin={setPw} loading={aggLoading} zoomedOut={(view?.level ?? 5) > (pa === "villa" ? 4 : 5)}
         onPick={(p) => { setSel(null); setSelJ({ asset: pa as Jibun["asset"], ref: p.ref, name: p.name, sigungu: region?.sgg || "", lat: p.lat, lng: p.lng }); goTo(p.lat, p.lng, 3); }} />}
       {layer === "price" && !isJibun(pa) && pm === "rh" && <RecordHighPanel rows={rhs} region={region} win={pw} onWin={setPw} loading={aggLoading} onMetric={setPm} onPick={pickComplex} onStats={() => { closeWins(); setStats({ g: "price", i: "rh" }); }} />}
@@ -779,7 +785,7 @@ export default function App() {
             onSafe={() => { setStats(null); setSafe("jeonse"); }} ad={ads.stats_band[0]} />}
           {safe && <SafeWindow tab={safe} onTab={setSafe} phone={phone} onClose={() => setSafe(null)} session={session}
             at={selJ ? { lat: selJ.lat, lng: selJ.lng, name: selJ.name } : null} onLogin={() => setAskLogin(true)} />}
-          {ask && <AskWindow tab={ask} onTab={setAsk} phone={phone} onClose={() => setAsk(null)} session={session} token={init.proposals || undefined}
+          {ask && <AskWindow tab={ask} onTab={setAsk} phone={phone} onClose={() => setAsk(null)} session={session} token={init.proposals || undefined} onLogin={() => setAskLogin(true)} onComplex={(no, name) => { setAsk(null); goComplex(no, name); }}
             region={{ sido: region ? region.dong.slice(0, 2) + "00000000" : "", sgg: region?.sgg || "", dong: region?.dong || "" }}
             onGo={(path, text) => {
               const m = /^\/complex\/(\d+)/.exec(path);
@@ -798,11 +804,12 @@ export default function App() {
               else if (path.startsWith("/settings")) setMeOpen(true);
               else window.open(SITE + path, "_blank", "noreferrer");   // 중개사라운지·약관 등 지도 밖 문서만
             }} />}
+          {kokOpen && <KokDetail it={kokOpen} session={session} onClose={() => { setKokOpen(null); setKokTick((t) => t + 1); }} onLogin={() => setMeOpen(true)} onGo={goComplex} />}
           {fav && <FavWindow phone={phone} session={session} onClose={() => setFav(false)} onRemoved={(no) => setFavs((o) => (o || []).filter((f) => f.complex_no !== no))}
             onGo={(no, name, tab) => { setFav(false); goComplex(no, name, tab); }} />}
           {rt && <RealtorWindow id={rt} phone={phone} session={session} onClose={() => setRt(null)} onMe={() => setMeOpen(true)}
             onGo={(no, name) => { setRt(null); goComplex(no, name); }} />}
-          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]}
+          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]} onKok={(it) => { if (it.kind === "owner") setKokOpen(it); }}
             fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} /></aside>}
           {!phone && !sel && selJ && <aside className="t2-drawer"><JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /></aside>}
           {meOpen && session && <MeModal session={session} onClose={() => setMeOpen(false)} onLogout={() => logout()} admin={isAdmin} />}
@@ -819,7 +826,7 @@ export default function App() {
               <button className="t2-grab" aria-label="목록 크기 바꾸기"
                 onClick={() => setSheet(sheet === "peek" ? "half" : sheet === "half" ? "full" : "peek")}><i /></button>
               <div className="t2-sheet-in">
-                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]}
+                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]} onKok={(it) => { if (it.kind === "owner") setKokOpen(it); }}
                   fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} />
                   : selJ ? <JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /> : panel}
               </div>
@@ -869,6 +876,7 @@ function ReqMenu({ onClose, onPick }: { onClose: () => void; onPick: (t: AskTab)
       <button onClick={() => onPick("req")}><b>중개사에게 매물의뢰</b><span>지역·예산·조건을 적으면 동네 중개사가 매물을 찾아 제안해요</span></button>
       <button onClick={() => onPick("ai")}><b>AI 상담사</b><span>"강남 30평대 급매 찾아줘"처럼 말로 물어보기</span></button>
       <button onClick={() => onPick("mine")}><b>내 요청 보기</b><span>보낸 의뢰와 중개사 제안 확인</span></button>
+      <button onClick={() => onPick("owner")}><b>내 집 내놓기</b><span>등기 소유자 확인 뒤 직거래로 올리기 · 중개보수 없음</span></button>
     </div>
   );
 }
@@ -1053,7 +1061,7 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
 }
 
 // ── 매물찾기: 위 2/3 급매, 아래 1/3 콕집 매물 ─────────────────
-function DealsPanel({ region, inView, onPick, zoomedOut, onRequest, ad, sessObj }: { region: Region | null; inView: Cx[]; onPick: (c: Cx) => void; zoomedOut: boolean; onRequest: () => void; ad?: Ad; sessObj: Session | null }) {
+function DealsPanel({ region, inView, onPick, zoomedOut, onRequest, ad, sessObj, kok, onKok, onOwner }: { region: Region | null; inView: Cx[]; onPick: (c: Cx) => void; zoomedOut: boolean; onRequest: () => void; ad?: Ad; sessObj: Session | null; kok: KokItem[]; onKok: (it: KokItem) => void; onOwner: () => void }) {
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const [onlyView, setOnlyView] = useState(true);
   useEffect(() => {
@@ -1103,8 +1111,8 @@ function DealsPanel({ region, inView, onPick, zoomedOut, onRequest, ad, sessObj 
         )}
       </section>
       <section className="t2-split-b">
-        <div className="t2-ph"><h2><span className="t2-kz">콕집</span> 콕집 매물</h2></div>
-        <p className="t2-empty sm">콕집에 직접 등록된 매물이 여기에 먼저 보여요. 아직 이 지역엔 없어요.</p>
+        <div className="t2-ph"><h2><span className="t2-kz">콕집</span> 콕집 매물 <small>{kok.length ? `지도 안 ${kok.length}건` : ""}</small></h2><button className="t2-lnk" onClick={onOwner}>내 집 내놓기</button></div>
+        <KokPanelList items={kok} onOpen={onKok} onGo={(no, name) => onPick({ complex_no: no, name, lat: 0, lng: 0 })} />
         <div className="t2-cta">
           <button onClick={onRequest}>이 동네 매물 요청하기</button>
           <a className="ghost" href={siteUrl("/lounge", sessObj)} target="_blank" rel="noreferrer">중개사 · 매물 올리기</a>

@@ -6,6 +6,7 @@ import { ComposedChart, Scatter, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveCon
 import { wonShort } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
 import { AdRow, AdBand, type Ad } from "./Ads";
+import { KokRow, type KokItem } from "./Kok";
 import { RequestModal, useSession, authHeaders, LoginBox, type ReqTarget } from "./Request";
 
 export const API = "https://api.koczip.com";
@@ -82,7 +83,7 @@ export type DrawerTab = "deals" | "tx" | "hoga" | "nearby" | "realtor" | "review
 // initialTab: 지도 레이어에 맞춰 시작 탭을 정한다(매물찾기→급매, 시세분석→실거래, 중개사랭킹→중개사). 단지가 바뀌면 다시 적용.
 // onPick: 인근단지·같은 건물에서 다른 단지를 고르면 지도가 그 단지로 옮겨 간다.
 // fav: 관심단지 여부(null=로그인 전), onFav: 하트 누름(로그인 전이면 App 이 로그인 안내를 띄운다)
-export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav, onRealtor, onMine, adTop, adLife }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab; onRealtor?: (id: string) => void; onMine?: () => void; adTop?: Ad; adLife?: Ad;
+export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav, onRealtor, onMine, adTop, adLife, onKok }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab; onRealtor?: (id: string) => void; onMine?: () => void; adTop?: Ad; adLife?: Ad; onKok?: (it: KokItem) => void;
   fav?: boolean | null; onFav?: () => void }) {
   const [tab, setTab] = useState<DrawerTab>(initialTab);
   useEffect(() => { setTab(initialTab); }, [initialTab]);   // 같은 단지에서 팝업 버튼으로 다른 탭을 고를 때
@@ -91,6 +92,7 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
   const [agg, setAgg] = useState<AggRow[] | null>(null);
   const [areas, setAreas] = useState<Area[]>([]);
   const [deals, setDeals] = useState<DealRow[] | null>(null);
+  const [kok, setKok] = useState<KokItem[]>([]);   // 이 단지 콕집매물(직거래 + 연동 사무소 광고)
   const [tx, setTx] = useState<{ sale: any[]; jeonse: any[]; wolse: any[] } | null>(null);
   const [rk, setRk] = useState<any[] | null>(null);
   const [req, setReq] = useState<ReqTarget | null>(null);
@@ -110,6 +112,7 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
       .then((rows) => setAgg(rows || [])).catch(() => setAgg([]));
     getJson(`/complex/${no}/areas`).then((j) => setAreas(j.items || [])).catch(() => {});
     getJson(`/complex/${no}/quick-deals?min_discount=0.03`).then((j) => setDeals(j.items || [])).catch(() => setDeals([]));
+    setKok([]); getJson(`/kok/listings?complex_no=${no}`).then((j) => setKok(j.items || [])).catch(() => {});
     getJson(`/complex/${no}/transactions?months=36`).then((j) => {
       // 분양권·입주권 거래는 매매 목록에 섞어 보인다(신축 단지는 이것뿐이라 비어 보이던 것)
       const silv = (j.silv || []).map((s: any) => ({ ...s, silv: s.kind || "분양권" }));
@@ -170,6 +173,10 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
         ))}
       </div>
       <div className="t2-dr-b">
+        {tab === "deals" && kok.length > 0 && (
+          <div className="t2-dr-flt"><div className="t2-ph"><h3><span className="t2-kz">콕집</span> 콕집 매물 <small>{kok.length}건</small></h3></div>
+            <ul className="t2-kok-list">{kok.slice(0, 20).map((k) => <KokRow key={k.id} it={k} onOpen={(x) => onKok?.(x)} />)}</ul></div>
+        )}
         {tab === "deals" && <DealsTab no={cx.complex_no} deals={deals} exclOf={exclOf} onRequest={(d) => setReq({
           realtor_id: d.realtor_id, realtor_name: d.realtor_name, complex: regionName,
           listing: { article_no: d.article_no, area_name: d.area_name, excl: exclOf.get(d.area_name) ?? null,

@@ -5,10 +5,11 @@ import { Dd, getJson, API } from "./Drawer";
 import { useRegionLists, regionLabel, Seg, type RegionSel } from "./Stats";
 import { LoginBox, PhoneBlock, authHeaders, login, sessionName } from "./Request";
 import { visitorHeader } from "../src/lib/visitor";
+import { OwnerTab } from "./Kok";
 
 const SITE = "https://koczip.com";
-export type AskTab = "req" | "ai" | "mine";
-export const ASK_TABS: { k: AskTab; l: string }[] = [{ k: "req", l: "중개사에게 매물의뢰" }, { k: "ai", l: "AI 상담사" }, { k: "mine", l: "내 요청" }];
+export type AskTab = "req" | "ai" | "mine" | "owner";
+export const ASK_TABS: { k: AskTab; l: string }[] = [{ k: "req", l: "중개사에게 매물의뢰" }, { k: "ai", l: "AI 상담사" }, { k: "mine", l: "내 요청" }, { k: "owner", l: "내 집 내놓기" }];
 export const askTabOf = (s: string | null): AskTab | null => (s && ASK_TABS.some((t) => t.k === s) ? (s as AskTab) : null);
 
 const ASSETS = [{ k: "apt", l: "아파트" }, { k: "offi", l: "오피스텔" }, { k: "villa", l: "빌라·연립" }, { k: "house", l: "단독·다가구" }, { k: "comm", l: "상가·사무실" }];
@@ -436,8 +437,8 @@ function MineTab({ session, onNew, onGo, token }: { session: Session | null; onN
 }
 
 // ── 창 ─────────────────────────────────────────────
-export function AskWindow({ tab, onTab, onClose, phone, session, region, onGo, token }: {
-  tab: AskTab; onTab: (t: AskTab) => void; onClose: () => void; phone: boolean; session: Session | null; region: RegionSel; token?: string;
+export function AskWindow({ tab, onTab, onClose, phone, session, region, onGo, token, onLogin, onComplex }: {
+  tab: AskTab; onTab: (t: AskTab) => void; onClose: () => void; phone: boolean; session: Session | null; region: RegionSel; token?: string; onLogin: () => void; onComplex: (no: string, name: string) => void;
   onGo: (path: string, text?: string) => void;   // 답변 속 내부 링크(/complex/…)는 지도에서 열고, 나머지는 운영 새 탭
 }) {
   const [prefillQ, setPrefillQ] = useState("");
@@ -465,6 +466,7 @@ export function AskWindow({ tab, onTab, onClose, phone, session, region, onGo, t
             <h3 className="t2-win-ttl">{ASK_TABS.find((t) => t.k === tab)?.l}</h3>
             {tab === "req" && <ReqTab session={session} region={region} prefillQ={prefillQ} onSent={() => onTab("mine")} />}
             {tab === "mine" && <MineTab session={session} onNew={() => onTab("req")} onGo={go} token={token} />}
+            {tab === "owner" && <OwnerTab session={session} onLogin={onLogin} onGo={onComplex} />}
           </div>
         </div>
       )}
