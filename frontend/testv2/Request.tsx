@@ -28,6 +28,12 @@ export const login = (provider: "kakao" | "google") => auth?.auth.signInWithOAut
 });
 
 export const logout = () => auth?.auth.signOut();
+// 운영 사이트(koczip.com)는 출처가 달라 로그인이 안 넘어간다 → 세션 토큰을 해시로 실어 /handoff 로 보내면 거기서 로그인한 채 목적지로 간다
+export const siteUrl = (path: string, s: Session | null) => {
+  if (!s) return `https://koczip.com${path}`;
+  const h = new URLSearchParams({ at: s.access_token, rt: s.refresh_token, to: path });
+  return `https://koczip.com/handoff#${h.toString()}`;
+};
 // 세션에서 보여 줄 내 이름(카카오/구글 프로필 이름 → 이메일 앞부분)
 export const sessionName = (s: Session | null) => {
   const m: any = s?.user?.user_metadata || {};
@@ -147,7 +153,7 @@ export function MeModal({ session, onClose, onLogout, admin }: { session: Sessio
       <div className="t2-modal-in" onClick={(e) => e.stopPropagation()}>
         <div className="t2-ph"><h2>내 정보</h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
         <p className="t2-to"><b>{sessionName(session)}</b> · {session.user?.email || ""}{me?.member_no ? ` · 회원번호 ${me.member_no}` : ""}</p>
-        {admin && <a className="t2-cta1" style={{ textDecoration: "none" }} href="https://koczip.com/admin" target="_blank" rel="noreferrer">관리 페이지 열기</a>}
+        {admin && <a className="t2-cta1" style={{ textDecoration: "none" }} href={siteUrl("/admin", session)} target="_blank" rel="noreferrer">관리 페이지 열기</a>}
         <div className="t2-me-sec">
           <h3>닉네임 <small>글·리뷰·AI 호칭에 써요. 한글·영문·숫자·_ 2~12자</small></h3>
           <div className="row">

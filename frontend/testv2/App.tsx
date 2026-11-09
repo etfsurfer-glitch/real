@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadKakao, wonShort, geocodeRegion } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
 import { ComplexDrawer, JibunDrawer, Skel, Dd, SPECIAL_KINDS, type DrawerTab, type Jibun } from "./Drawer";
-import { useSession, authHeaders, LoginBox, MeModal, logout, sessionName } from "./Request";
+import { useSession, authHeaders, LoginBox, MeModal, logout, sessionName, siteUrl } from "./Request";
 import { StatsWindow, statsKeyOf, type StatsKey } from "./Stats";
 import { SafeWindow, type SafeTab } from "./Safe";
 import { AskWindow, askTabOf, type AskTab } from "./Ask";
@@ -13,6 +13,7 @@ import { FavWindow } from "./Fav";
 import { RealtorWindow } from "./Realtor";
 import { FootBar, FootNote, LegalModal, type LegalKind } from "./Foot";
 import { useAds, AdRow, AdInfoModal, type Ad } from "./Ads";
+import type { Session } from "@supabase/supabase-js";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -708,7 +709,7 @@ export default function App() {
   // ── 화면 ─────────────────────────────────────────
   const panel = (
     <>
-      {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} onRequest={() => openAsk("req")} ad={ads.deals_top[0]} />}
+      {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} onRequest={() => openAsk("req")} ad={ads.deals_top[0]} sessObj={session} />}
       {layer === "price" && isJibun(pa) && <JibunPanel asset={pa} pins={jpins} region={region} win={pw} onWin={setPw} loading={aggLoading} zoomedOut={(view?.level ?? 5) > (pa === "villa" ? 4 : 5)}
         onPick={(p) => { setSel(null); setSelJ({ asset: pa as Jibun["asset"], ref: p.ref, name: p.name, sigungu: region?.sgg || "", lat: p.lat, lng: p.lng }); goTo(p.lat, p.lng, 3); }} />}
       {layer === "price" && !isJibun(pa) && pm === "rh" && <RecordHighPanel rows={rhs} region={region} win={pw} onWin={setPw} loading={aggLoading} onMetric={setPm} onPick={pickComplex} onStats={() => { closeWins(); setStats({ g: "price", i: "rh" }); }} />}
@@ -721,7 +722,7 @@ export default function App() {
 
   return (
     <div className={"t2" + (phone ? " phone" : " desk")}>
-      <TopBar phone={phone} favs={favs} session={!!session} user={session ? sessionName(session) : null} onMe={() => setMeOpen(true)} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)}
+      <TopBar phone={phone} favs={favs} session={!!session} sess={session} user={session ? sessionName(session) : null} onMe={() => setMeOpen(true)} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)}
         statsOn={!!stats} safeOn={!!safe} onStats={() => { const was = !!stats; closeWins(); if (!was) setStats({ g: "price", i: "top" }); }} onSafe={() => { const was = !!safe; closeWins(); if (!was) setSafe("alert"); }} onFavDash={openFav} admin={isAdmin} onPick={(c) => {
         const m = mapRef.current;
         if (m && c.lat) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(c.lat, c.lng)); }
@@ -840,11 +841,11 @@ export default function App() {
           {more && (
             <div className="t2-more" onClick={() => setMore(false)}>
               {favs && favs.length > 0 && favs.map((f) => <button key={f.complex_no} onClick={() => goComplex(f.complex_no, f.complex_name)}>관심단지 · {f.complex_name}</button>)}
-              {isAdmin && <a href={`${SITE}/admin`} target="_blank" rel="noreferrer">관리 페이지</a>}
+              {isAdmin && <a href={siteUrl("/admin", session)} target="_blank" rel="noreferrer">관리 페이지</a>}
               {session && <button onClick={openFav}>관심단지 대시보드</button>}
               {!session ? <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>
                 : <button onClick={() => setMeOpen(true)}>{sessionName(session)} · 내 정보</button>}
-              <a href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사라운지</a>
+              <a href={siteUrl("/lounge", session)} target="_blank" rel="noreferrer">중개사라운지</a>
               <FootNote onLegal={(k) => { setMore(false); setLegal(k); }} onAd={() => { setMore(false); setAdInfo(true); }} />
             </div>
           )}
@@ -873,8 +874,8 @@ function ReqMenu({ onClose, onPick }: { onClose: () => void; onPick: (t: AskTab)
 }
 
 // ── 상단 바 ─────────────────────────────────────────
-function TopBar({ phone, onPick, favs, session, user, onMe, onGo, onAddr, onLogin, statsOn, safeOn, onStats, onSafe, onFavDash, admin }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
-  session: boolean; user: string | null; onMe: () => void; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void;
+function TopBar({ phone, onPick, favs, session, sess, user, onMe, onGo, onAddr, onLogin, statsOn, safeOn, onStats, onSafe, onFavDash, admin }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
+  session: boolean; sess: Session | null; user: string | null; onMe: () => void; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void;
   statsOn: boolean; safeOn: boolean; onStats: () => void; onSafe: () => void; onFavDash: () => void; admin: boolean }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<any[]>([]);
@@ -919,7 +920,7 @@ function TopBar({ phone, onPick, favs, session, user, onMe, onGo, onAddr, onLogi
       {!phone && (
         <nav className="t2-util">
           {/* 지도 밖 기능 셋(절충안): 안심 · 통계 · 중개사라운지. 안심·통계는 지도 위 창 */}
-          {admin && <a className="t2-utilbtn admin" href={`${SITE}/admin`} target="_blank" rel="noreferrer">관리</a>}
+          {admin && <a className="t2-utilbtn admin" href={siteUrl("/admin", sess)} target="_blank" rel="noreferrer">관리</a>}
           <button className={"t2-utilbtn" + (safeOn ? " on" : "")} onClick={onSafe}>안심</button>
           <button className={"t2-utilbtn" + (statsOn ? " on" : "")} onClick={onStats}>통계</button>
           <span className="t2-dd" onMouseLeave={() => setFavOpen(false)}>
@@ -933,7 +934,7 @@ function TopBar({ phone, onPick, favs, session, user, onMe, onGo, onAddr, onLogi
               </span>
             )}
           </span>
-          <a className="lounge" href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사라운지</a>
+          <a className="lounge" href={siteUrl("/lounge", sess)} target="_blank" rel="noreferrer">중개사라운지</a>
           {session
             ? <button className="t2-loginbtn on" onClick={onMe} title="내 정보"><span>{user}</span>내 정보</button>
             : <button className="t2-loginbtn" onClick={onLogin}>로그인</button>}
@@ -1052,7 +1053,7 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
 }
 
 // ── 매물찾기: 위 2/3 급매, 아래 1/3 콕집 매물 ─────────────────
-function DealsPanel({ region, inView, onPick, zoomedOut, onRequest, ad }: { region: Region | null; inView: Cx[]; onPick: (c: Cx) => void; zoomedOut: boolean; onRequest: () => void; ad?: Ad }) {
+function DealsPanel({ region, inView, onPick, zoomedOut, onRequest, ad, sessObj }: { region: Region | null; inView: Cx[]; onPick: (c: Cx) => void; zoomedOut: boolean; onRequest: () => void; ad?: Ad; sessObj: Session | null }) {
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const [onlyView, setOnlyView] = useState(true);
   useEffect(() => {
@@ -1106,7 +1107,7 @@ function DealsPanel({ region, inView, onPick, zoomedOut, onRequest, ad }: { regi
         <p className="t2-empty sm">콕집에 직접 등록된 매물이 여기에 먼저 보여요. 아직 이 지역엔 없어요.</p>
         <div className="t2-cta">
           <button onClick={onRequest}>이 동네 매물 요청하기</button>
-          <a className="ghost" href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사 · 매물 올리기</a>
+          <a className="ghost" href={siteUrl("/lounge", sessObj)} target="_blank" rel="noreferrer">중개사 · 매물 올리기</a>
         </div>
       </section>
     </div>

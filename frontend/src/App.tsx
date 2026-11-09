@@ -53,6 +53,7 @@ import AdminRealtorRequests from "./pages/AdminRealtorRequests";
 import AdminDataSources from "./pages/AdminDataSources";
 import AdminIros from "./pages/AdminIros";
 import AdminMapAds from "./pages/AdminMapAds";
+import Handoff from "./pages/Handoff";
 import AdminPush from "./pages/AdminPush";
 import AdminTodayStats from "./pages/AdminTodayStats";
 import AdminBotStats from "./pages/AdminBotStats";
@@ -531,6 +532,7 @@ function AppShell() {
         <Route path="/admin/audit" element={<RequireAdmin><AuditRealtor /></RequireAdmin>} />
         <Route path="/admin/iros" element={<RequireAdmin><AdminIros /></RequireAdmin>} />
         <Route path="/admin/map-ads" element={<RequireAdmin><AdminMapAds /></RequireAdmin>} />
+        <Route path="/handoff" element={<Handoff />} />
         {/* 회원용 등기변동 알림 — 오픈 전 관리자만. 오픈 시 RequireAdmin→로그인 회원 + 서버 IROS_MEMBER_OPEN=1 */}
         <Route path="/iros" element={<RequireAdmin><AdminIros mode="member" /></RequireAdmin>} />
         <Route path="/admin/cardnews" element={<RequireAdmin><CardNews /></RequireAdmin>} />
