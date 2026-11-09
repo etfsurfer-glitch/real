@@ -10927,6 +10927,88 @@ def kok_listings(swlat: float = 0, swlng: float = 0, nelat: float = 0, nelng: fl
     return {"count": len(items), "items": items[:limit], "by_complex": by_cx}
 
 
+# ── 콕집매물(중개사 연동) 상세 — 광고 중 매물 한 건의 전체 정보. 상세는 수집 계정으로 그때 가져와 15분 캐시 ──
+_KOK_DETAIL_CACHE: dict = {}
+
+
+@app.get("/kok/listings/R{article_no}")
+def kok_realtor_listing_detail(article_no: str):
+    with _open_db() as d:
+        r = d.execute(
+            "SELECT l.article_no, l.complex_no, cx.complex_name, l.trade_type, l.area_name, l.area1_m2, l.area2_m2, l.floor_info, l.direction, "
+            "l.deal_or_warrant_price, l.rent_price, l.realtor_id, l.realtor_name, l.article_confirm_ymd, l.article_feature_desc, l.tag_list_json, "
+            "l.building_name, l.verification_type, cx.cortar_no, cx.latitude, cx.longitude, cx.use_approve_ymd, cx.parking_per_household "
+            "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no WHERE l.article_no=?", (article_no,)).fetchone()
+        if not r:
+            raise HTTPException(404, "광고가 내려간 매물이에요")
+        reg = d.execute("SELECT (SELECT cortar_name FROM regions WHERE cortar_no=substr(?,1,2)||'00000000'),"
+                        "(SELECT cortar_name FROM regions WHERE cortar_no=substr(?,1,5)||'00000'),"
+                        "(SELECT cortar_name FROM regions WHERE cortar_no=?)", (r[18], r[18], r[18])).fetchone()
+        regno = d.execute("SELECT b.ra_regno FROM realtor_match m JOIN vworld_brokers b ON b.sys_regno=m.sys_regno WHERE m.realtor_id=? LIMIT 1", (r[11],)).fetchone()
+    with _reviews_db() as c:
+        _ensure_kok(c)
+        opted = c.execute("SELECT 1 FROM kok_realtor_optin WHERE realtor_id=? AND active=1", (r[11],)).fetchone()
+    if not opted:
+        raise HTTPException(404, "콕집매물이 아니에요")
+    try:
+        tags = _authjson.loads(r[15] or "[]")
+    except Exception:  # noqa: BLE001
+        tags = []
+    out = {"id": f"R{r[0]}", "kind": "realtor", "complex_no": r[1], "name": r[2], "region": " ".join(x for x in (reg or ()) if x), "dong": (r[16] or "").replace("동", ""),
+           "trade": r[3], "price": r[9], "rent": r[10], "price_text": _kok_price_text(r[3], r[9], r[10]), "area_name": r[4], "supply_m2": r[5], "excl_m2": r[6],
+           "floor_text": f"{r[7]}층" if r[7] else "", "direction": r[8] or "", "confirm_ymd": r[13] or "", "feature": r[14] or "", "tags": tags,
+           "verification": r[17] or "", "lat": r[19], "lng": r[20], "approve_ymd": r[21] or "", "parking_per_household": r[22],
+           "owner_verified": False, "photos": [], "description": "", "move_in": "", "rooms": None, "baths": None, "mgmt_cost": None, "mgmt_info": None,
+           "direction_base": "", "finance_price": None, "violation": "", "exclusive_rate": "",
+           "realtor": {"realtor_id": r[11], "name": r[12], "regno": regno[0] if regno else "", **{k: v for k, v in (_office_brief(r[11]) or {}).items() if k in ("address", "representative", "tel", "cell")}}}
+    # 상세(사진·설명·입주·방/욕실·관리비·방향 기준) — 실패해도 기본 정보는 나간다
+    hit = _KOK_DETAIL_CACHE.get(article_no)
+    det = None
+    if hit and _time.monotonic() - hit[0] < 900:
+        det = hit[1]
+    else:
+        try:
+            from collector.article_detail import fetch_article_detail
+            from collector.creds import ensure_creds
+            st_, det = fetch_article_detail(article_no, r[1], ensure_creds())
+            if st_ != 200:
+                det = None
+            _KOK_DETAIL_CACHE[article_no] = (_time.monotonic(), det)
+            if len(_KOK_DETAIL_CACHE) > 2000:
+                _KOK_DETAIL_CACHE.clear()
+        except Exception as e:  # noqa: BLE001
+            _log_event("kok_detail_fetch_error", query=str(e)[:200])
+            det = None
+    if det:
+        ad = det.get("articleDetail") or {}
+        fac = det.get("articleFacility") or {}
+        sp = det.get("articleSpace") or {}
+        pr = det.get("articlePrice") or {}
+        rt = det.get("articleRealtor") or {}
+        cost = det.get("administrationCostInfo") or {}
+        out.update({
+            "description": (ad.get("detailDescription") or "").strip()[:3000],
+            "feature": out["feature"] or (ad.get("articleFeatureDesc") or ""),
+            "tags": out["tags"] or (ad.get("tagList") or []),
+            "move_in": " ".join(x for x in [ad.get("moveInTypeName") or "", "협의 가능" if ad.get("moveInDiscussionPossibleYN") == "Y" else ""] if x).strip(),
+            "rooms": ad.get("roomCount"), "baths": ad.get("bathroomCount"),
+            "mgmt_cost": int(ad["monthlyManagementCost"]) if str(ad.get("monthlyManagementCost") or "").isdigit() and int(ad["monthlyManagementCost"]) > 0 else None,
+            "mgmt_info": {"type": cost.get("chargeCodeTypeName") or cost.get("chargeCodeType"), "details": [
+                {"name": x.get("detailCodeTypeName") or x.get("detailCodeType"), "amount": x.get("amount"), "unable": x.get("amountCodeType") == "02"}
+                for x in (cost.get("fixedFeeDetails") or [])]} if cost else None,
+            "direction": fac.get("directionTypeName") or out["direction"], "direction_base": fac.get("directionBaseTypeName") or "",
+            "supply_m2": sp.get("supplySpace") or out["supply_m2"], "excl_m2": sp.get("exclusiveSpace") or out["excl_m2"], "exclusive_rate": sp.get("exclusiveRate") or "",
+            "finance_price": (int(pr["financePrice"]) * 10000) if pr.get("financePrice") else None,
+            "violation": ad.get("violationBuildingYN") or "", "dong": (ad.get("buildingName") or out["dong"] or "").replace("동", ""),
+            "photos": [("https://landthumb-phinf.pstatic.net" + p["imageSrc"]) if str(p.get("imageSrc", "")).startswith("/") else p.get("imageSrc") for p in (det.get("articlePhotos") or []) if p.get("imageSrc")][:20],
+            "parking_per_household": ad.get("parkingPerHouseholdCount") or out["parking_per_household"],
+        })
+        out["realtor"].update({k: v for k, v in {"name": rt.get("realtorName"), "representative": rt.get("representativeName"),
+                                                 "regno": rt.get("establishRegistrationNo"), "tel": rt.get("representativeTelNo"),
+                                                 "cell": rt.get("cellPhoneNo"), "address": rt.get("address")}.items() if v})
+    return out
+
+
 @app.get("/kok/listings/{kid}")
 def kok_listing_detail(kid: str):
     if not kid.startswith("K") or not kid[1:].isdigit():

@@ -13,7 +13,7 @@ import { FavWindow } from "./Fav";
 import { RealtorWindow } from "./Realtor";
 import { FootBar, FootNote, LegalModal, type LegalKind } from "./Foot";
 import { useAds, AdRow, AdInfoModal, type Ad } from "./Ads";
-import { useKok, KokPanelList, KokDetail, type KokItem } from "./Kok";
+import { useKok, KokPanelList, KokDetail, KokListingPane, type KokItem } from "./Kok";
 import type { Session } from "@supabase/supabase-js";
 
 const API = "https://api.koczip.com";
@@ -320,6 +320,7 @@ export default function App() {
   const pickComplex = useCallback((c: Cx, pan = true, tab?: DrawerTab) => {
     setTabOv(tab ?? null);
     setSel(c);
+    setKokOpen((k) => (k && k.kind === "realtor" && k.complex_no !== c.complex_no ? null : k));
     if (phone) setSheet("half");
     const m = mapRef.current;
     if ((pan || phone) && m && c.lat) {
@@ -754,7 +755,7 @@ export default function App() {
       }} />
       <div className="t2-body">
         {!phone && <aside className="t2-side">{panel}</aside>}
-        <main className="t2-mapwrap">
+        <main className={"t2-mapwrap" + (!phone && sel && kokOpen?.kind === "realtor" ? " two" : "")}>
           <div ref={mapEl} className="t2-map" />
           {mapErr && <div className="t2-maperr">{mapErr}</div>}
           {hint && !mapErr && <div className="t2-hint">{hint}</div>}
@@ -823,12 +824,13 @@ export default function App() {
               else window.open(SITE + path, "_blank", "noreferrer");   // 중개사라운지·약관 등 지도 밖 문서만
             }} />}
           {nrOpen && <NrListModal g={nrOpen} trade={flt.trade} onClose={() => setNrOpen(null)} />}
-          {kokOpen && <KokDetail it={kokOpen} session={session} onClose={() => { setKokOpen(null); setKokTick((t) => t + 1); }} onLogin={() => setMeOpen(true)} onGo={goComplex} />}
+          {kokOpen && kokOpen.kind === "owner" && <KokDetail it={kokOpen} session={session} onClose={() => { setKokOpen(null); setKokTick((t) => t + 1); }} onLogin={() => setMeOpen(true)} onGo={goComplex} />}
+          {kokOpen && kokOpen.kind === "realtor" && <KokListingPane it={kokOpen} onClose={() => setKokOpen(null)} onRealtor={(id) => { setKokOpen(null); openRt(id); }} asModal={phone || !sel} />}
           {fav && <FavWindow phone={phone} session={session} onClose={() => setFav(false)} onRemoved={(no) => setFavs((o) => (o || []).filter((f) => f.complex_no !== no))}
             onGo={(no, name, tab) => { setFav(false); goComplex(no, name, tab); }} />}
           {rt && <RealtorWindow id={rt} phone={phone} session={session} onClose={() => setRt(null)} onMe={() => setMeOpen(true)}
             onGo={(no, name) => { setRt(null); goComplex(no, name); }} />}
-          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]} onKok={(it) => { if (it.kind === "owner") setKokOpen(it); }}
+          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]} onKok={setKokOpen}
             fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} /></aside>}
           {!phone && !sel && selJ && <aside className="t2-drawer"><JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /></aside>}
           {meOpen && session && <MeModal session={session} onClose={() => setMeOpen(false)} onLogout={() => logout()} admin={isAdmin} />}
@@ -845,7 +847,7 @@ export default function App() {
               <button className="t2-grab" aria-label="목록 크기 바꾸기"
                 onClick={() => setSheet(sheet === "peek" ? "half" : sheet === "half" ? "full" : "peek")}><i /></button>
               <div className="t2-sheet-in">
-                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]} onKok={(it) => { if (it.kind === "owner") setKokOpen(it); }}
+                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]} onKok={setKokOpen}
                   fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} />
                   : selJ ? <JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /> : panel}
               </div>

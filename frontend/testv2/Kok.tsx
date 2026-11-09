@@ -50,7 +50,7 @@ export function KokPanelList({ items, onOpen, onGo }: { items: KokItem[]; onOpen
   if (items.length === 0) return <p className="t2-empty sm">이 범위엔 아직 콕집 매물이 없어요. 로그인하면 내 집을 직거래로 내놓을 수 있어요.</p>;
   return (
     <ul className="t2-kok-list">
-      {items.slice(0, 40).map((it) => <KokRow key={it.id} it={it} onOpen={(x) => (x.kind === "owner" ? onOpen(x) : onGo(x.complex_no, x.name))} />)}
+      {items.slice(0, 40).map((it) => <KokRow key={it.id} it={it} onOpen={(x) => { if (x.kind === "realtor") onGo(x.complex_no, x.name); onOpen(x); }} />)}
     </ul>
   );
 }
@@ -282,3 +282,65 @@ function OwnerForm({ session, onDone, onCancel }: { session: Session; onDone: ()
 }
 
 export const useKokTick = () => useMemo(() => Date.now(), []);
+
+// ── 중개사 연동 매물 상세 — 단지 서랍 옆 패널(PC) / 창(휴대폰) ──
+type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: number | null; description?: string; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
+  mgmt_cost?: number | null; mgmt_info?: { type?: string; details?: { name: string; amount?: number | string | null; unable?: boolean }[] } | null; direction_base?: string;
+  finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
+  realtor?: { realtor_id: string; name?: string; regno?: string; address?: string; representative?: string; tel?: string; cell?: string } };
+const tel = (s?: string | null) => { const f = (s || "").split(/\s+/)[0].replace(/[^\d]/g, ""); return f.length >= 7 ? f : null; };
+
+export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokItem; onClose: () => void; onRealtor: (id: string) => void; asModal: boolean }) {
+  const [d, setD] = useState<RDetail | null>(null);
+  const [err, setErr] = useState("");
+  const [pi, setPi] = useState(0);
+  const [more, setMore] = useState(false);
+  useEffect(() => { setD(null); setErr(""); setPi(0); setMore(false); getJson(`/kok/listings/${it.id}`).then(setD).catch((e) => setErr(typeof e === "number" && e === 404 ? "광고가 내려간 매물이에요." : "불러오지 못했어요.")); }, [it.id]);
+  const body = (
+    <div className="t2-kl">
+      <div className="t2-ph"><h2>{d?.name || it.name}{(d?.dong || it.dong) ? ` ${d?.dong || it.dong}동` : ""} <small>{TRADE_L[it.trade]}</small></h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
+      <p className="t2-favmeta"><i className="t2-kok-badge rt">{d?.realtor?.name || it.realtor_name || "중개사무소"}</i>{d?.verification && d.verification !== "NONE" && <i className="t2-kok-badge ok">{d.verification === "OWNER" ? "집주인 확인" : "확인 매물"}</i>}{d?.confirm_ymd && <> 확인 {d.confirm_ymd.slice(0, 4)}.{d.confirm_ymd.slice(4, 6)}.{d.confirm_ymd.slice(6, 8)}</>}</p>
+      {err && <p className="t2-sempty">{err}</p>}
+      {!d && !err && <Skel />}
+      {d && (
+        <>
+          {d.photos && d.photos.length > 0 && (
+            <div className="t2-kok-photos"><img src={d.photos[pi]} alt="" referrerPolicy="no-referrer" />
+              {d.photos.length > 1 && <div className="thumbs">{d.photos.map((p, i) => <img key={p} src={p} alt="" referrerPolicy="no-referrer" className={i === pi ? "on" : ""} onClick={() => setPi(i)} />)}</div>}</div>
+          )}
+          <div className="t2-kl-price"><b>{d.price_text}</b>{d.finance_price ? <small>융자금 {Math.round(d.finance_price / 1e8 * 10) / 10}억</small> : null}</div>
+          {d.feature && <p className="t2-kok-feat">{d.feature}</p>}
+          <table className="t2-tbl t2-kl-tbl"><tbody>
+            <tr><th>면적</th><td>{d.excl_m2 ? areaLabel(d.excl_m2) : d.area_name}{d.supply_m2 ? ` · 공급 ${Math.round(d.supply_m2)}㎡` : ""}{d.area_name ? ` · ${d.area_name}타입` : ""}{d.exclusive_rate ? ` · 전용률 ${d.exclusive_rate}%` : ""}</td></tr>
+            <tr><th>층 · 방향</th><td>{[d.floor_text, d.direction ? `${d.direction}${d.direction_base ? `(${d.direction_base})` : ""}` : ""].filter(Boolean).join(" · ") || "-"}</td></tr>
+            <tr><th>방 · 욕실</th><td>{d.rooms || d.baths ? `방 ${d.rooms ?? "-"} · 욕실 ${d.baths ?? "-"}` : "-"}</td></tr>
+            <tr><th>입주</th><td>{d.move_in || "-"}</td></tr>
+            <tr><th>관리비</th><td>{d.mgmt_cost ? `월 약 ${Math.round(d.mgmt_cost / 1e4)}만원` : d.mgmt_info?.type ? d.mgmt_info.type : "-"}{d.mgmt_info?.details && d.mgmt_info.details.length > 0 ? <small className="blk">{d.mgmt_info.details.map((x) => `${x.name}${x.unable ? "(확인불가)" : x.amount ? ` ${Number(x.amount).toLocaleString()}원` : ""}`).join(" · ")}</small> : null}</td></tr>
+            <tr><th>사용승인</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.parking_per_household ? ` · 세대당 주차 ${d.parking_per_household}대` : ""}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
+          </tbody></table>
+          {d.tags && d.tags.length > 0 && <p className="t2-kl-tags">{d.tags.map((t) => <span key={t}>{t}</span>)}</p>}
+          {d.description && (
+            <div className="t2-kl-desc">
+              <p className={more ? "" : "clip"}>{d.description}</p>
+              {d.description.length > 240 && <button className="t2-lnk" onClick={() => setMore(!more)}>{more ? "접기" : "더 보기"}</button>}
+            </div>
+          )}
+          {d.realtor && (
+            <div className="t2-kl-rt">
+              <div className="t2-sh"><h3>{d.realtor.name || "중개사무소"} <small>{d.realtor.representative ? `대표 ${d.realtor.representative}` : ""}{d.realtor.regno ? ` · 등록 ${d.realtor.regno}` : ""}</small></h3></div>
+              {d.realtor.address && <p className="t2-favmeta">{d.realtor.address}</p>}
+              <div className="t2-rtc">
+                {tel(d.realtor.tel) && <a className="t2-telbtn pri" href={`tel:${tel(d.realtor.tel)}`}>전화 {d.realtor.tel!.split(/\s+/)[0]}</a>}
+                {tel(d.realtor.cell) && tel(d.realtor.cell) !== tel(d.realtor.tel) && <a className="t2-telbtn" href={`tel:${tel(d.realtor.cell)}`}>휴대폰 {d.realtor.cell}</a>}
+                <button className="t2-telbtn" onClick={() => onRealtor(d.realtor!.realtor_id)}>사무소 상세</button>
+              </div>
+            </div>
+          )}
+          <p className="t2-snote">이 사무소가 콕집매물로 표시하기로 한 광고예요. 표시 내용의 책임은 해당 중개사무소에 있고, 계약 전 현장과 등기부를 확인하세요.</p>
+        </>
+      )}
+    </div>
+  );
+  if (asModal) return <div className="t2-modal" role="dialog" aria-modal="true" onClick={onClose}><div className="t2-modal-in legal" style={{ width: "min(640px, 100%)" }} onClick={(e) => e.stopPropagation()}>{body}</div></div>;
+  return <aside className="t2-drawer t2-drawer2">{body}</aside>;
+}
