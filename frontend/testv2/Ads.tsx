@@ -30,8 +30,8 @@ export function AdRow({ ad, onGo, onRealtor }: { ad: Ad; onGo?: (no: string, nam
     else if (ad.url) window.open(ad.url, "_blank", "noreferrer");
   };
   return (
-    <button className="t2-adrow" onClick={go}>
-      <span className="t2-adtag">광고</span>
+    <button className="t2-sp-row" onClick={go}>
+      <span className="t2-sp-tag">광고</span>
       {ad.image_url && <img src={ad.image_url} alt="" />}
       <span className="t"><b>{ad.title}</b>{ad.sub && <em>{ad.sub}</em>}</span>
       {ad.advertiser && <small>{ad.advertiser}</small>}
@@ -42,8 +42,8 @@ export function AdRow({ ad, onGo, onRealtor }: { ad: Ad; onGo?: (no: string, nam
 // 통계 창 아래 가로 띠 · 단지정보 아래 생활 광고
 export function AdBand({ ad }: { ad: Ad }) {
   return (
-    <a className="t2-adband" href={ad.url || "#"} target={ad.url ? "_blank" : undefined} rel="noreferrer" onClick={() => adClick(ad)}>
-      <span className="t2-adtag">광고</span>
+    <a className="t2-sp-band" href={ad.url || "#"} target={ad.url ? "_blank" : undefined} rel="noreferrer" onClick={() => adClick(ad)}>
+      <span className="t2-sp-tag">광고</span>
       {ad.image_url && <img src={ad.image_url} alt="" />}
       <span className="t"><b>{ad.title}</b>{ad.sub && <em>{ad.sub}</em>}</span>
       {ad.advertiser && <small>{ad.advertiser}</small>}
@@ -54,7 +54,7 @@ export function AdBand({ ad }: { ad: Ad }) {
 // ── 광고 안내(상품·가격·문의) ──
 const AD_MAIL = "mailto:runtoonline@gmail.com?subject=" + encodeURIComponent("콕집 광고문의");
 const CS_URL = "https://pf.kakao.com/_ackPX/chat";
-// img: 실제 서비스 화면 캡처(testv2/public/adex, 시험 광고를 넣고 찍음). PC 는 표 행에 마우스를 올리면 오른쪽에, 휴대폰은 행을 누르면 크게.
+// img: 실제 서비스 화면 캡처(testv2/public/slots, 시험 광고를 넣고 찍음). PC 는 표 행에 마우스를 올리면 오른쪽에, 휴대폰은 행을 누르면 크게.
 const PRODUCTS: { k: string; name: string; where: string; who: string; price: string; unit: string; img: string; cap: string }[] = [
   { k: "pin", name: "광고 핀", where: "매물찾기 지도 위 금색 핀. 누르면 분양 안내 페이지 또는 단지로", who: "분양·입주 현장, 모델하우스", price: "구 1곳 월 20만원", unit: "시·도 전체 월 120만원 · 구당 핀 최대 3곳 순환", img: "pin", cap: "매물찾기 지도 — 금색 머리띠 '광고' 핀" },
   { k: "realtor_top", name: "중개사무소 상단 노출", where: "중개사 랭킹 1위 위 고정 1칸 + 그 동 단지 서랍 중개사 탭 맨 위", who: "공인중개사무소", price: "동 1곳 월 5만원", unit: "동마다 1곳 독점 · 구 전체 월 30만원", img: "realtor_top", cap: "중개사 레이어 — 랭킹 1위 위 고정 칸" },
@@ -82,9 +82,9 @@ function AdInfoBody({ onClose }: { onClose: () => void }) {
   const rowProps = (p: typeof PRODUCTS[0]) => ({ onMouseEnter: () => { if (!phone) setCur(p); }, onClick: () => { if (phone) setBig(p); }, className: cur.k === p.k && cur.name === p.name && !phone ? "on" : "" });
   return (
     <div className="t2-modal" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className={"t2-modal-in legal" + (phone ? "" : " adwide")} onClick={(e) => e.stopPropagation()}>
+      <div className={"t2-modal-in legal" + (phone ? "" : " wide2")} onClick={(e) => e.stopPropagation()}>
         <div className="t2-ph"><h2>광고 안내</h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
-        <div className={"t2-adinfo" + (phone ? "" : " cols")}>
+        <div className={"t2-sp-info" + (phone ? "" : " cols")}>
         <div>
           <p className="t2-safe-lead">콕집 지도는 매물·실거래·중개사 자료를 보러 오는 사람에게 광고를 보여 줘요. 광고는 모두 <b>'광고' 표시</b>를 달고, 급매 순위·중개사 랭킹과 섞지 않아요.</p>
           {(_settings.visitors || _settings.pageviews || _settings.complex_views) && (
@@ -95,7 +95,7 @@ function AdInfoBody({ onClose }: { onClose: () => void }) {
             </div>
           )}
           <p className="t2-snote">{phone ? "상품을 누르면 실제 화면을 보여 드려요." : "상품에 마우스를 올리면 오른쪽에 실제 화면이 보여요."}</p>
-          <table className="t2-tbl t2-adprice hover">
+          <table className="t2-tbl t2-sp-table hover">
             <thead><tr><th>상품</th><th>자리</th><th>맞는 광고주</th><th className="num">가격(월, 부가세 별도)</th></tr></thead>
             <tbody>
               {PRODUCTS.map((p) => <tr key={p.k} {...rowProps(p)}><td><b>{p.name}</b></td><td style={{ whiteSpace: "normal" }}>{p.where}</td><td style={{ whiteSpace: "normal" }}>{p.who}</td><td className="num" style={{ whiteSpace: "normal" }}><b>{p.price}</b><small className="blk">{p.unit}</small></td></tr>)}
@@ -109,27 +109,27 @@ function AdInfoBody({ onClose }: { onClose: () => void }) {
             <li>부동산 광고는 표시·광고법과 공인중개사법 광고 규정을 따라야 해요. 중개사무소 광고는 등록번호·상호가 있어야 해요.</li>
             <li>게재 뒤 광고주가 원하면 7일 안에 소재를 한 번 바꿀 수 있어요.</li>
           </ul>
-          <div className="t2-adcta">
+          <div className="t2-sp-cta">
             <a className="t2-cta1 kakao" href={CS_URL} target="_blank" rel="noreferrer">카카오톡 문의</a>
             <a className="t2-cta1 ghost" href={AD_MAIL}>메일 문의</a>
           </div>
           <p className="t2-snote">런투온라인 · 대표 황인찬 · runtoonline@gmail.com · 070-7954-4114</p>
         </div>
         {!phone && (
-          <aside className="t2-adprev">
-            <div className="t2-adprev-h"><b>{cur.name}</b><small>{cur.cap}</small></div>
-            <img src={`/adex/${cur.img}.png`} alt={cur.name} />
+          <aside className="t2-sp-prev">
+            <div className="t2-sp-prev-h"><b>{cur.name}</b><small>{cur.cap}</small></div>
+            <img src={`/slots/${cur.img}.png`} alt={cur.name} />
             <p className="t2-snote">실제 지도 화면 캡처예요. 광고 글은 예시.</p>
           </aside>
         )}
         </div>
       </div>
       {big && (
-        <div className="t2-modal t2-adbig" onClick={(e) => { e.stopPropagation(); setBig(null); }}>
-          <div className="t2-adbig-in" onClick={(e) => e.stopPropagation()}>
+        <div className="t2-modal t2-sp-big" onClick={(e) => { e.stopPropagation(); setBig(null); }}>
+          <div className="t2-sp-big-in" onClick={(e) => e.stopPropagation()}>
             <div className="t2-ph"><h3>{big.name}</h3><button className="t2-x" onClick={() => setBig(null)} aria-label="닫기">×</button></div>
             <p className="t2-snote" style={{ marginTop: 0 }}>{big.cap}</p>
-            <img src={`/adex/${big.img}.png`} alt={big.name} />
+            <img src={`/slots/${big.img}.png`} alt={big.name} />
           </div>
         </div>
       )}

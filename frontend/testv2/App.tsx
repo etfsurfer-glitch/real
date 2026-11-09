@@ -416,7 +416,7 @@ export default function App() {
         // 광고 핀(금색 머리띠 '광고'): 분양·입주 현장. 누르면 연결 주소(또는 단지)로
         for (const a of ads.pin) {
           if (!a.lat || !a.lng) continue;
-          put(a.lat, a.lng, `<div class="t2-pw"><div class="t2-pin2 ad"><span class="hd">광고${a.sub ? ` · ${esc(a.sub)}` : ""}</span><b>${esc(a.title)}</b>${a.advertiser ? `<em>${esc(a.advertiser)}</em>` : ""}</div></div>`,
+          put(a.lat, a.lng, `<div class="t2-pw"><div class="t2-pin2 spon"><span class="hd">광고${a.sub ? ` · ${esc(a.sub)}` : ""}</span><b>${esc(a.title)}</b>${a.advertiser ? `<em>${esc(a.advertiser)}</em>` : ""}</div></div>`,
             () => { fetch(`${API}/map/ads/${a.id}/click`, { method: "POST" }).catch(() => {}); if (a.complex_no) goComplex(a.complex_no, a.title); else if (a.url) window.open(a.url, "_blank", "noreferrer"); }, 7);
         }
         for (const c of kokCx) {

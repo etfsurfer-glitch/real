@@ -129,9 +129,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-rank .c { text-align: right; font-weight: 800; font-size: 14px; display: flex; flex-direction: column; line-height: 1.2; }
 .t2-rank .c small { font-size: 11px; color: var(--c-muted); font-weight: 600; }
 .t2-more-btn { width: 100%; margin-top: 6px; padding: 9px; border: 1px solid var(--c-border); background: #fff; border-radius: var(--r-md); font-size: 13px; font-weight: 700; color: var(--c-primary); }
-.t2-ad { margin-top: 18px; padding-top: 14px; border-top: 6px solid #f1f4f8; }
-.t2-adtag { font-size: 11px; font-weight: 700; color: var(--c-muted); border: 1px solid var(--c-border); border-radius: 4px; padding: 1px 6px; }
-.t2-adslot { margin-top: 8px; border: 1.5px dashed var(--c-border); border-radius: var(--r-md); padding: 14px; font-size: 12.5px; color: var(--c-muted); line-height: 1.55; }
+.t2-sp-box { margin-top: 18px; padding-top: 14px; border-top: 6px solid #f1f4f8; }
+.t2-sp-tag { font-size: 11px; font-weight: 700; color: var(--c-muted); border: 1px solid var(--c-border); border-radius: 4px; padding: 1px 6px; }
+.t2-sp-slot { margin-top: 8px; border: 1.5px dashed var(--c-border); border-radius: var(--r-md); padding: 14px; font-size: 12.5px; color: var(--c-muted); line-height: 1.55; }
 
 .t2-skel { display: flex; flex-direction: column; gap: 10px; padding: 6px 0; }
 .t2-skel i { display: block; height: 40px; border-radius: 8px; background: linear-gradient(90deg, #f0f3f7, #f8fafc, #f0f3f7); background-size: 200% 100%; animation: t2sk 1.2s infinite; }
@@ -951,50 +951,50 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2.phone .t2-more { max-height: 70vh; overflow-y: auto; }
 
 /* ── 광고 자리(광고 꼬리표 필수, 순위·급매와 섞지 않음) ── */
-.t2-adrow { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: #fffdf5; border-top: 1px solid #f1e4b8; border-bottom: 1px solid #f1e4b8; padding: 10px 12px; margin: 6px 0; font: inherit; color: var(--c-text); cursor: pointer; }
-.t2-adrow:hover { background: #fff8e0; }
-.t2-adrow img, .t2-adband img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
-.t2-adrow .t, .t2-adband .t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.t2-adrow .t b, .t2-adband .t b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.t2-adrow .t em, .t2-adband .t em { font-style: normal; font-size: 12px; color: var(--c-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.t2-adrow small, .t2-adband small { font-size: 11px; color: var(--c-muted); flex-shrink: 0; }
-.t2-adtag { display: inline-block; flex-shrink: 0; font-size: 10px; font-weight: 800; border-radius: 4px; padding: 1px 5px; background: #f3e5b7; color: #7a5b00; line-height: 1.5; }
-.t2-adband { display: flex; align-items: center; gap: 10px; margin: 22px 0 0; padding: 10px 14px; border-top: 1px solid #f1e4b8; border-bottom: 1px solid #f1e4b8; background: #fffdf5; color: var(--c-text); }
-.t2-pin2.ad { --pc: #b8860b; }
-.t2-pin2.ad > em { color: var(--c-muted); font-weight: 600; font-size: 11px; }
-.t2-adinfo .t2-adprice th { text-align: left; }
-.t2-adinfo .t2-adprice td { white-space: normal; vertical-align: top; }
-.t2-adcta { display: flex; gap: 8px; margin: 16px 0 10px; }
-.t2-adcta .t2-cta1 { flex: 1; text-decoration: none; }
-.t2-adcta .t2-cta1.ghost { margin-top: 0; }
-.t2.phone .t2-adcta { flex-direction: column; }
-.t2.phone .t2-adinfo .t2-adprice { display: block; overflow-x: auto; }
+.t2-sp-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: #fffdf5; border-top: 1px solid #f1e4b8; border-bottom: 1px solid #f1e4b8; padding: 10px 12px; margin: 6px 0; font: inherit; color: var(--c-text); cursor: pointer; }
+.t2-sp-row:hover { background: #fff8e0; }
+.t2-sp-row img, .t2-sp-band img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.t2-sp-row .t, .t2-sp-band .t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.t2-sp-row .t b, .t2-sp-band .t b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t2-sp-row .t em, .t2-sp-band .t em { font-style: normal; font-size: 12px; color: var(--c-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t2-sp-row small, .t2-sp-band small { font-size: 11px; color: var(--c-muted); flex-shrink: 0; }
+.t2-sp-tag { display: inline-block; flex-shrink: 0; font-size: 10px; font-weight: 800; border-radius: 4px; padding: 1px 5px; background: #f3e5b7; color: #7a5b00; line-height: 1.5; }
+.t2-sp-band { display: flex; align-items: center; gap: 10px; margin: 22px 0 0; padding: 10px 14px; border-top: 1px solid #f1e4b8; border-bottom: 1px solid #f1e4b8; background: #fffdf5; color: var(--c-text); }
+.t2-pin2.spon { --pc: #b8860b; }
+.t2-pin2.spon > em { color: var(--c-muted); font-weight: 600; font-size: 11px; }
+.t2-sp-info .t2-sp-table th { text-align: left; }
+.t2-sp-info .t2-sp-table td { white-space: normal; vertical-align: top; }
+.t2-sp-cta { display: flex; gap: 8px; margin: 16px 0 10px; }
+.t2-sp-cta .t2-cta1 { flex: 1; text-decoration: none; }
+.t2-sp-cta .t2-cta1.ghost { margin-top: 0; }
+.t2.phone .t2-sp-cta { flex-direction: column; }
+.t2.phone .t2-sp-info .t2-sp-table { display: block; overflow-x: auto; }
 /* 광고 안내 표 — 휴대폰은 행을 세로로 풀어 쓴다(4열이 글자 단위로 꺾이지 않게) */
-.t2.phone .t2-adinfo .t2-adprice { display: block; overflow: visible; }
-.t2.phone .t2-adinfo .t2-adprice thead { display: none; }
-.t2.phone .t2-adinfo .t2-adprice tbody, .t2.phone .t2-adinfo .t2-adprice tr { display: block; }
-.t2.phone .t2-adinfo .t2-adprice tr { padding: 10px 0; border-bottom: 1px solid var(--c-border-soft); }
-.t2.phone .t2-adinfo .t2-adprice td { display: block; border: 0; padding: 1px 0; text-align: left; font-size: 13px; }
-.t2.phone .t2-adinfo .t2-adprice td:first-child b { font-size: 15px; }
-.t2.phone .t2-adinfo .t2-adprice td.num { margin-top: 4px; }
-.t2.phone .t2-adinfo .t2-adprice td.num small { display: inline; margin-left: 6px; }
+.t2.phone .t2-sp-info .t2-sp-table { display: block; overflow: visible; }
+.t2.phone .t2-sp-info .t2-sp-table thead { display: none; }
+.t2.phone .t2-sp-info .t2-sp-table tbody, .t2.phone .t2-sp-info .t2-sp-table tr { display: block; }
+.t2.phone .t2-sp-info .t2-sp-table tr { padding: 10px 0; border-bottom: 1px solid var(--c-border-soft); }
+.t2.phone .t2-sp-info .t2-sp-table td { display: block; border: 0; padding: 1px 0; text-align: left; font-size: 13px; }
+.t2.phone .t2-sp-info .t2-sp-table td:first-child b { font-size: 15px; }
+.t2.phone .t2-sp-info .t2-sp-table td.num { margin-top: 4px; }
+.t2.phone .t2-sp-info .t2-sp-table td.num small { display: inline; margin-left: 6px; }
 .t2-cta1.kakao { background: #fee500; color: #191919; }
-.t2-adex { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin: 6px 0 14px; }
-.t2-adex-i small { display: block; font-size: 11.5px; color: var(--c-muted); font-weight: 600; margin-bottom: 2px; }
-.t2-adex-i .t2-adrow, .t2-adex-i .t2-adband { cursor: default; margin: 4px 0 0; }
-.t2-adex-i .t2-pin2 { cursor: default; }
-.t2.phone .t2-adex { grid-template-columns: 1fr; }
+.t2-sp-ex { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin: 6px 0 14px; }
+.t2-sp-ex-i small { display: block; font-size: 11.5px; color: var(--c-muted); font-weight: 600; margin-bottom: 2px; }
+.t2-sp-ex-i .t2-sp-row, .t2-sp-ex-i .t2-sp-band { cursor: default; margin: 4px 0 0; }
+.t2-sp-ex-i .t2-pin2 { cursor: default; }
+.t2.phone .t2-sp-ex { grid-template-columns: 1fr; }
 .t2-util .t2-utilbtn.admin { color: var(--c-up); font-weight: 800; text-decoration: none; }
 /* 광고 안내 — 실제 화면 미리보기 */
-.t2-modal-in.legal.adwide { width: min(1180px, 100%); }
-.t2-adinfo.cols { display: grid; grid-template-columns: 1fr 400px; gap: 24px; align-items: start; }
-.t2-adprev { position: sticky; top: 0; border-left: 1px solid var(--c-border-soft); padding-left: 20px; }
-.t2-adprev-h { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 10px; }
-.t2-adprev-h b { font-size: 15px; } .t2-adprev-h small { font-size: 12px; color: var(--c-muted); }
-.t2-adprev img { width: 100%; border: 1px solid var(--c-border); border-radius: 6px; display: block; }
-.t2-adprice.hover tbody tr { cursor: pointer; }
-.t2-adprice.hover tbody tr:hover td, .t2-adprice.hover tbody tr.on td { background: #fffbea; }
-.t2-adbig { z-index: 120; }
-.t2-adbig-in { width: min(900px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; background: #fff; border-radius: var(--r-lg); padding: 14px; }
-.t2-adbig-in h3 { margin: 0; font-size: 16px; }
-.t2-adbig-in img { width: 100%; border: 1px solid var(--c-border); border-radius: 6px; display: block; }
+.t2-modal-in.legal.wide2 { width: min(1180px, 100%); }
+.t2-sp-info.cols { display: grid; grid-template-columns: 1fr 400px; gap: 24px; align-items: start; }
+.t2-sp-prev { position: sticky; top: 0; border-left: 1px solid var(--c-border-soft); padding-left: 20px; }
+.t2-sp-prev-h { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 10px; }
+.t2-sp-prev-h b { font-size: 15px; } .t2-sp-prev-h small { font-size: 12px; color: var(--c-muted); }
+.t2-sp-prev img { width: 100%; border: 1px solid var(--c-border); border-radius: 6px; display: block; }
+.t2-sp-table.hover tbody tr { cursor: pointer; }
+.t2-sp-table.hover tbody tr:hover td, .t2-sp-table.hover tbody tr.on td { background: #fffbea; }
+.t2-sp-big { z-index: 120; }
+.t2-sp-big-in { width: min(900px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; background: #fff; border-radius: var(--r-lg); padding: 14px; }
+.t2-sp-big-in h3 { margin: 0; font-size: 16px; }
+.t2-sp-big-in img { width: 100%; border: 1px solid var(--c-border); border-radius: 6px; display: block; }
