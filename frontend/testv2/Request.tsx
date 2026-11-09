@@ -162,6 +162,12 @@ export function MeModal({ session, onClose, onLogout }: { session: Session; onCl
             : <PhoneBlock session={session} onDone={() => { setMe({ ...me, phone_verified: true }); }} />}
         </div>
         <button className="t2-cta1 ghost" onClick={() => { onLogout(); onClose(); }}>로그아웃</button>
+        <button className="t2-lnk mut t2-withdraw" onClick={async () => {
+          if (!window.confirm("정말 탈퇴하시겠어요?\n회원정보·포인트·작성한 글/리뷰가 모두 삭제되며 되돌릴 수 없습니다.")) return;
+          const x = await fetch(`${_API}/me`, { method: "DELETE", headers: authHeaders(session) }).catch(() => null);
+          if (!x || !x.ok) { setMsg("탈퇴 처리에 실패했어요. 잠시 후 다시 시도해 주세요."); return; }
+          onLogout(); onClose();
+        }}>회원 탈퇴</button>
       </div>
     </div>
   );

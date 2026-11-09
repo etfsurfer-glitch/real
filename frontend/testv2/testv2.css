@@ -927,3 +927,25 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-me-sec .row button:disabled { opacity: .45; }
 .t2-me-sec p.ok { margin: 6px 0 0; font-size: 13px; font-weight: 700; color: var(--c-down); }
 .t2-me-sec .t2-phone { margin-top: 0; }
+
+/* ── 바닥 회사정보·약관 ── */
+.t2-foot { flex-shrink: 0; height: 26px; display: flex; align-items: center; gap: 0; padding: 0 14px; border-top: 1px solid var(--c-border); background: #fff; font-size: 11px; color: var(--c-muted); white-space: nowrap; overflow: hidden; }
+.t2-foot > * { flex-shrink: 0; }
+.t2-foot > span + span, .t2-foot > span + a, .t2-foot > a + button, .t2-foot > button + button, .t2-foot > button + span { margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--c-border-soft); }
+.t2-foot .brand { font-weight: 800; color: var(--c-primary); font-size: 12px; }
+.t2-foot a, .t2-foot button { border: 0; background: none; padding: 0; font: inherit; font-size: 11px; color: var(--c-text-soft); font-weight: 600; cursor: pointer; }
+.t2-foot button.b { font-weight: 800; color: var(--c-text); }
+.t2-foot .note { margin-left: auto; padding-left: 10px; border-left: 0; color: var(--c-muted); flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.t2-more-foot { margin-top: 6px; padding: 8px 6px 2px; border-top: 1px solid var(--c-border-soft); }
+.t2-more-foot .lnks { display: flex; gap: 12px; margin-bottom: 6px; }
+.t2-more-foot .lnks button, .t2-more-foot .lnks a { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; font-weight: 700; color: var(--c-primary); }
+.t2-more-foot .lnks button.b { color: var(--c-text); }
+.t2-more-foot p { margin: 0 0 4px; font-size: 10.5px; line-height: 1.5; color: var(--c-muted); white-space: normal; }
+.t2-modal-in.legal { width: min(760px, 100%); max-height: calc(100vh - 32px); }
+.t2-legal h1 { font-size: 18px; margin: 10px 0 4px; }
+.t2-legal .legal-meta { font-size: 12px; color: var(--c-muted); margin: 0 0 12px; }
+.t2-legal h2 { font-size: 14.5px; margin: 16px 0 6px; }
+.t2-legal p, .t2-legal li { font-size: 13.5px; line-height: 1.65; color: var(--c-text-soft); }
+.t2-legal ul, .t2-legal ol { padding-left: 20px; }
+.t2-withdraw { display: block; margin: 12px auto 0; font-size: 12px; }
+.t2.phone .t2-more { max-height: 70vh; overflow-y: auto; }

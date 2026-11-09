@@ -11,6 +11,7 @@ import { SafeWindow, type SafeTab } from "./Safe";
 import { AskWindow, askTabOf, type AskTab } from "./Ask";
 import { FavWindow } from "./Fav";
 import { RealtorWindow } from "./Realtor";
+import { FootBar, FootNote, LegalModal, type LegalKind } from "./Foot";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -187,6 +188,7 @@ export default function App() {
   // 관심단지 대시보드(?fav=1) · 중개사무소 상세(?rt=아이디) — 운영 페이지 대신 지도 안 창
   const [fav, setFav] = useState<boolean>(init.fav);
   const [meOpen, setMeOpen] = useState(false);   // 내 정보(닉네임·휴대폰 인증·로그아웃) 작은 창
+  const [legal, setLegal] = useState<LegalKind | null>(null);   // 이용약관·개인정보처리방침 모달
   const [rt, setRt] = useState<string | null>(init.rt);
   const closeWins = () => { setStats(null); setSafe(null); setAsk(null); setFav(false); setRt(null); setReqOpen(false); };
   const openAsk = (t: AskTab) => { closeWins(); setAsk(t); };
@@ -809,6 +811,8 @@ export default function App() {
           )}
         </main>
       </div>
+      {!phone && <FootBar onLegal={setLegal} />}
+      {legal && <LegalModal kind={legal} onClose={() => setLegal(null)} />}
       {phone && (
         <nav className="t2-tabbar">
           <button className={!stats && !safe && !ask && !fav && !rt ? "on" : ""} onClick={closeWins}>지도</button>
@@ -824,6 +828,7 @@ export default function App() {
               {!session ? <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>
                 : <button onClick={() => setMeOpen(true)}>{sessionName(session)} · 내 정보</button>}
               <a href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사라운지</a>
+              <FootNote onLegal={(k) => { setMore(false); setLegal(k); }} />
             </div>
           )}
         </nav>
