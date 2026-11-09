@@ -340,8 +340,8 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
               <p>{d.mgmt_declared.amount ? <b>월 {d.mgmt_declared.amount.toLocaleString()}원</b> : null}{d.mgmt_declared.includes.length > 0 ? <small className="blk">포함: {d.mgmt_declared.includes.join(" · ")}</small> : null}</p></div>
           )}
           {d.mgmt_history && d.mgmt_history.months.length > 0 && (
-            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>공동주택관리정보 · 최근 {d.mgmt_history.months.length}개월</small></h3>
-              <div className="t2-kpis small">
+            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>공동주택관리정보시스템(K-apt) 공시 · 최근 {d.mgmt_history.months.length}개월</small></h3>
+              <div className="t2-kpis small four">
                 <div><span>월평균</span><b>{man(d.mgmt_history.avg)}</b></div>
                 <div><span>여름</span><b>{man(d.mgmt_history.summer)}</b></div>
                 <div><span>겨울</span><b>{man(d.mgmt_history.winter)}</b></div>

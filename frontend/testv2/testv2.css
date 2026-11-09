@@ -1062,3 +1062,8 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-kl-sec > p { margin: 0; font-size: 13.5px; }
 .t2-kl-mo td, .t2-kl-mo th { font-size: 12px; padding: 4px 4px; }
 .t2-kl .t2-kpis.small { margin: 4px 0 8px; }
+/* 관리비 요약 네 칸은 한 줄에 — flex-basis 때문에 넷째 칸이 둘째 줄로 내려가던 것 */
+.t2-kpis.small.four { flex-wrap: nowrap; }
+.t2-kpis.small.four > div { flex: 1 1 0; min-width: 0; padding: 8px 8px 8px 0; margin-right: 8px; }
+.t2-kpis.small.four > div + div { padding-left: 8px; }
+.t2-kpis.small.four b { font-size: 16px; white-space: nowrap; }
