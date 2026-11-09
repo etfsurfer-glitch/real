@@ -10607,6 +10607,104 @@ def _sgg_centroids():
     return _SGG_CENTROID
 
 
+# ── 지도 시험판 광고(map_ads) — 자리 5곳: pin(광고 핀) · realtor_top(중개사 상단 노출) · deals_top(급매 목록 첫 칸)
+#    · stats_band(통계 창 띠) · info_life(단지정보 아래 생활 광고). 광고가 없으면 프런트가 자리를 숨긴다.
+#    scope: nat(전국) | sigungu(5자리) | dong(10자리). 기간(starts~ends)·active 로 켜고 끈다. 관리자 API 로 넣는다.
+_AD_SLOTS = ("pin", "realtor_top", "deals_top", "stats_band", "info_life")
+_ADS_CACHE: dict = {}
+
+
+def _ensure_map_ads(c) -> None:
+    c.execute("""CREATE TABLE IF NOT EXISTS map_ads(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, slot TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'sigungu', code TEXT DEFAULT '',
+        title TEXT NOT NULL, sub TEXT DEFAULT '', url TEXT DEFAULT '', image_url TEXT DEFAULT '',
+        complex_no TEXT DEFAULT '', realtor_id TEXT DEFAULT '', lat REAL, lng REAL,
+        starts TEXT DEFAULT '', ends TEXT DEFAULT '', active INTEGER DEFAULT 1,
+        advertiser TEXT DEFAULT '', note TEXT DEFAULT '', clicks INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now','+9 hours')))""")
+
+
+def _ad_row(r) -> dict:
+    return {k: r[k] for k in ("id", "slot", "scope", "code", "title", "sub", "url", "image_url", "complex_no", "realtor_id",
+                              "lat", "lng", "starts", "ends", "active", "advertiser", "note", "clicks", "created_at")}
+
+
+@app.get("/map/ads")
+def map_ads(sigungu: str = "", dong: str = ""):
+    """지금 보는 시군구·동에 켜진 광고를 자리별로. 5분 캐시."""
+    sg = (sigungu or "")[:5]
+    dg = (dong or "")[:10]
+    # 공용 런타임 캐시는 TTL 이 하루라 광고 변경이 늦게 보인다 → 5분짜리 전용 캐시(관리자 수정 시 비움)
+    ck = f"{sg}:{dg}"
+    hit = _ADS_CACHE.get(ck)
+    if hit and _time.monotonic() - hit[0] < 300:
+        return hit[1]
+    import datetime as _dt_ads
+    today = (_dt_ads.datetime.utcnow() + _dt_ads.timedelta(hours=9)).strftime("%Y-%m-%d")
+    with _reviews_db() as c:
+        _ensure_map_ads(c)
+        rows = c.execute(
+            "SELECT * FROM map_ads WHERE active=1 AND (starts='' OR starts<=?) AND (ends='' OR ends>=?) "
+            "AND (scope='nat' OR (scope='sigungu' AND code=?) OR (scope='dong' AND code=?)) ORDER BY id",
+            (today, today, sg, dg)).fetchall()
+    out: dict = {k: [] for k in _AD_SLOTS}
+    for r in rows:
+        if r["slot"] in out:
+            out[r["slot"]].append(_ad_row(r))
+    res = {"sigungu": sg, "dong": dg, "slots": out}
+    _ADS_CACHE[ck] = (_time.monotonic(), res)
+    return res
+
+
+@app.post("/map/ads/{ad_id}/click")
+def map_ad_click(ad_id: int):
+    with _reviews_db() as c:
+        _ensure_map_ads(c)
+        c.execute("UPDATE map_ads SET clicks=COALESCE(clicks,0)+1 WHERE id=?", (ad_id,))
+        c.commit()
+    return {"ok": True}
+
+
+@app.get("/admin/map-ads")
+def admin_map_ads(_admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        _ensure_map_ads(c)
+        return {"items": [_ad_row(r) for r in c.execute("SELECT * FROM map_ads ORDER BY id DESC")]}
+
+
+@app.post("/admin/map-ads")
+def admin_map_ads_upsert(body: dict, _admin: dict = Depends(admin_user)):
+    """id 가 있으면 수정, 없으면 추가. slot·title 필수."""
+    if body.get("slot") not in _AD_SLOTS:
+        raise HTTPException(400, f"slot must be one of {_AD_SLOTS}")
+    if not str(body.get("title") or "").strip():
+        raise HTTPException(400, "title required")
+    cols = ("slot", "scope", "code", "title", "sub", "url", "image_url", "complex_no", "realtor_id", "lat", "lng",
+            "starts", "ends", "active", "advertiser", "note")
+    vals = [body.get(k) if k in ("lat", "lng") else (int(bool(body.get(k, 1))) if k == "active" else str(body.get(k) or "")) for k in cols]
+    with _reviews_db() as c:
+        _ensure_map_ads(c)
+        if body.get("id"):
+            c.execute(f"UPDATE map_ads SET {', '.join(f'{k}=?' for k in cols)} WHERE id=?", [*vals, int(body["id"])])
+            rid = int(body["id"])
+        else:
+            rid = c.execute(f"INSERT INTO map_ads({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})", vals).lastrowid
+        c.commit()
+        r = c.execute("SELECT * FROM map_ads WHERE id=?", (rid,)).fetchone()
+    _ADS_CACHE.clear()
+    return _ad_row(r)
+
+
+@app.delete("/admin/map-ads/{ad_id}")
+def admin_map_ads_delete(ad_id: int, _admin: dict = Depends(admin_user)):
+    with _reviews_db() as c:
+        _ensure_map_ads(c)
+        c.execute("DELETE FROM map_ads WHERE id=?", (ad_id,))
+        c.commit()
+    _ADS_CACHE.clear()
+    return {"ok": True}
+
+
 @app.get("/map/deals-agg")
 def map_deals_agg(swlat: float, swlng: float, nelat: float, nelng: float, level: str = "dong", trade: str = "A1"):
     """지도 축소 시 동(level=dong)·구(gu) 묶음 — 묶음마다 급매 매물 건수(quick_deals_cx 사전집계, 3% 문턱)와

@@ -5,20 +5,19 @@ import Privacy from "../src/pages/Privacy";
 
 export type LegalKind = "terms" | "privacy";
 const CS_URL = "https://pf.kakao.com/_ackPX/chat";
-const AD_MAIL = "mailto:runtoonline@gmail.com?subject=" + encodeURIComponent("콕집 광고문의");   // 분양·중개사무소 상단노출·배너
 
 export const COMPANY = [
   "런투온라인", "대표 황인찬", "사업자등록번호 628-11-03169", "통신판매업신고 2026-진건퇴계원-114",
   "경기도 남양주시 진건읍 사릉로157번길 3, 1층 103호 A172", "전화 070-7954-4114", "문의 runtoonline@gmail.com",
 ];
 
-export function FootBar({ onLegal }: { onLegal: (k: LegalKind) => void }) {
+export function FootBar({ onLegal, onAd }: { onLegal: (k: LegalKind) => void; onAd: () => void }) {
   return (
     <footer className="t2-foot">
       <span className="brand">콕집</span>
       {COMPANY.map((t) => <span key={t}>{t}</span>)}
       <a href={CS_URL} target="_blank" rel="noreferrer">고객센터</a>
-      <a href={AD_MAIL}>광고문의</a>
+      <button onClick={onAd}>광고문의</button>
       <button onClick={() => onLegal("terms")}>이용약관</button>
       <button className="b" onClick={() => onLegal("privacy")}>개인정보처리방침</button>
       <span className="note">매물 정보는 참고용이며 거래 전 반드시 현장 확인 바랍니다.</span>
@@ -27,14 +26,14 @@ export function FootBar({ onLegal }: { onLegal: (k: LegalKind) => void }) {
 }
 
 // 휴대폰 더보기 메뉴 아래 붙는 작은 글
-export function FootNote({ onLegal }: { onLegal: (k: LegalKind) => void }) {
+export function FootNote({ onLegal, onAd }: { onLegal: (k: LegalKind) => void; onAd: () => void }) {
   return (
     <div className="t2-more-foot" onClick={(e) => e.stopPropagation()}>
       <div className="lnks">
         <button onClick={() => onLegal("terms")}>이용약관</button>
         <button className="b" onClick={() => onLegal("privacy")}>개인정보처리방침</button>
         <a href={CS_URL} target="_blank" rel="noreferrer">고객센터</a>
-        <a href={AD_MAIL}>광고문의</a>
+        <button onClick={onAd}>광고문의</button>
       </div>
       <p>{COMPANY.join(" · ")}</p>
       <p>매물 정보는 참고용이며 거래 전 반드시 현장 확인 바랍니다.</p>

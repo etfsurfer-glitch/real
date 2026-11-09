@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceArea, ReferenceLine, Cell } from "recharts";
 import { Dd, getJson } from "./Drawer";
+import { AdBand, type Ad } from "./Ads";
 import { areaLabel } from "../src/lib/area";
 
 export type StatsGroup = "price" | "hoga" | "flow" | "invest";
@@ -981,9 +982,9 @@ function Presale({ r, onPick }: PanelProps) {
 }
 
 // ── 창 ────────────────────────────────────────────────
-export function StatsWindow({ open, onKey, region, onClose, onPick, onMapLayer, onSafe, phone }: {
+export function StatsWindow({ open, onKey, region, onClose, onPick, onMapLayer, onSafe, phone, ad }: {
   open: StatsKey; onKey: (k: StatsKey) => void; region: RegionSel; onClose: () => void;
-  onPick: (no: string, name: string) => void; onMapLayer: () => void; onSafe: () => void; phone: boolean;
+  onPick: (no: string, name: string) => void; onMapLayer: () => void; onSafe: () => void; phone: boolean; ad?: Ad;
 }) {
   // 지역은 지도가 보던 곳으로 시작한다. 창이 지도보다 먼저 떠서(공유 링크) 지역이 늦게 오면 따라가되, 사용자가 손댄 뒤엔 그대로 둔다.
   const [r, setR0] = useState<RegionSel>(region);
@@ -1063,6 +1064,7 @@ export function StatsWindow({ open, onKey, region, onClose, onPick, onMapLayer, 
         <div className="t2-win-in">
           <h3 className="t2-win-ttl">{item.l}{!noRegion && <small>{regionLabel(r, L)}</small>}</h3>
           {panel}
+          {ad && <AdBand ad={ad} />}
         </div>
       </div>
     </section>

@@ -949,3 +949,32 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-legal ul, .t2-legal ol { padding-left: 20px; }
 .t2-withdraw { display: block; margin: 12px auto 0; font-size: 12px; }
 .t2.phone .t2-more { max-height: 70vh; overflow-y: auto; }
+
+/* ── 광고 자리(광고 꼬리표 필수, 순위·급매와 섞지 않음) ── */
+.t2-adrow { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: #fffdf5; border-top: 1px solid #f1e4b8; border-bottom: 1px solid #f1e4b8; padding: 10px 12px; margin: 6px 0; font: inherit; color: var(--c-text); cursor: pointer; }
+.t2-adrow:hover { background: #fff8e0; }
+.t2-adrow img, .t2-adband img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.t2-adrow .t, .t2-adband .t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.t2-adrow .t b, .t2-adband .t b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t2-adrow .t em, .t2-adband .t em { font-style: normal; font-size: 12px; color: var(--c-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t2-adrow small, .t2-adband small { font-size: 11px; color: var(--c-muted); flex-shrink: 0; }
+.t2-adtag { display: inline-block; flex-shrink: 0; font-size: 10px; font-weight: 800; border-radius: 4px; padding: 1px 5px; background: #f3e5b7; color: #7a5b00; line-height: 1.5; }
+.t2-adband { display: flex; align-items: center; gap: 10px; margin: 22px 0 0; padding: 10px 14px; border-top: 1px solid #f1e4b8; border-bottom: 1px solid #f1e4b8; background: #fffdf5; color: var(--c-text); }
+.t2-pin2.ad { --pc: #b8860b; }
+.t2-pin2.ad > em { color: var(--c-muted); font-weight: 600; font-size: 11px; }
+.t2-adinfo .t2-adprice th { text-align: left; }
+.t2-adinfo .t2-adprice td { white-space: normal; vertical-align: top; }
+.t2-adcta { display: flex; gap: 8px; margin: 16px 0 10px; }
+.t2-adcta .t2-cta1 { flex: 1; text-decoration: none; }
+.t2-adcta .t2-cta1.ghost { margin-top: 0; }
+.t2.phone .t2-adcta { flex-direction: column; }
+.t2.phone .t2-adinfo .t2-adprice { display: block; overflow-x: auto; }
+/* 광고 안내 표 — 휴대폰은 행을 세로로 풀어 쓴다(4열이 글자 단위로 꺾이지 않게) */
+.t2.phone .t2-adinfo .t2-adprice { display: block; overflow: visible; }
+.t2.phone .t2-adinfo .t2-adprice thead { display: none; }
+.t2.phone .t2-adinfo .t2-adprice tbody, .t2.phone .t2-adinfo .t2-adprice tr { display: block; }
+.t2.phone .t2-adinfo .t2-adprice tr { padding: 10px 0; border-bottom: 1px solid var(--c-border-soft); }
+.t2.phone .t2-adinfo .t2-adprice td { display: block; border: 0; padding: 1px 0; text-align: left; font-size: 13px; }
+.t2.phone .t2-adinfo .t2-adprice td:first-child b { font-size: 15px; }
+.t2.phone .t2-adinfo .t2-adprice td.num { margin-top: 4px; }
+.t2.phone .t2-adinfo .t2-adprice td.num small { display: inline; margin-left: 6px; }

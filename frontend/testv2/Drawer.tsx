@@ -5,6 +5,7 @@ import type React from "react";
 import { ComposedChart, Scatter, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { wonShort } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
+import { AdRow, AdBand, type Ad } from "./Ads";
 import { RequestModal, useSession, authHeaders, LoginBox, type ReqTarget } from "./Request";
 
 export const API = "https://api.koczip.com";
@@ -81,7 +82,7 @@ export type DrawerTab = "deals" | "tx" | "hoga" | "nearby" | "realtor" | "review
 // initialTab: 지도 레이어에 맞춰 시작 탭을 정한다(매물찾기→급매, 시세분석→실거래, 중개사랭킹→중개사). 단지가 바뀌면 다시 적용.
 // onPick: 인근단지·같은 건물에서 다른 단지를 고르면 지도가 그 단지로 옮겨 간다.
 // fav: 관심단지 여부(null=로그인 전), onFav: 하트 누름(로그인 전이면 App 이 로그인 안내를 띄운다)
-export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav, onRealtor, onMine }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab; onRealtor?: (id: string) => void; onMine?: () => void;
+export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, onFav, onRealtor, onMine, adTop, adLife }: { cx: DrawerCx; onClose: () => void; onPick?: (c: DrawerCx) => void; initialTab?: DrawerTab; onRealtor?: (id: string) => void; onMine?: () => void; adTop?: Ad; adLife?: Ad;
   fav?: boolean | null; onFav?: () => void }) {
   const [tab, setTab] = useState<DrawerTab>(initialTab);
   useEffect(() => { setTab(initialTab); }, [initialTab]);   // 같은 단지에서 팝업 버튼으로 다른 탭을 고를 때
@@ -177,9 +178,9 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
         {tab === "hoga" && <HogaTab no={cx.complex_no} exclOf={exclOf} />}
         {tab === "nearby" && <NearbyTab no={cx.complex_no} areas={areas} onPick={onPick} />}
         {tab === "realtor" && <RealtorTab rk={rk} total={cnt.A1 + cnt.B1 + cnt.B2 || cx.listings || 0}
-          onRequest={(r) => setReq({ realtor_id: r.realtor_id, realtor_name: r.realtor_name, complex: regionName })} onRealtor={onRealtor} />}
+          onRequest={(r) => setReq({ realtor_id: r.realtor_id, realtor_name: r.realtor_name, complex: regionName })} onRealtor={onRealtor} ad={adTop} />}
         {tab === "review" && <ReviewTab no={cx.complex_no} />}
-        {tab === "info" && <InfoTab no={cx.complex_no} asset={asset} info={info} raw={raw} agg={agg} areas={areas} sum={sum} onPick={onPick} />}
+        {tab === "info" && <InfoTab no={cx.complex_no} asset={asset} info={info} raw={raw} agg={agg} areas={areas} sum={sum} onPick={onPick} ad={adLife} />}
       </div>
       {req && <RequestModal target={req} onClose={() => setReq(null)} onMine={onMine} />}
     </div>
@@ -637,7 +638,7 @@ function NearbyTab({ no, areas, onPick }: { no: string; areas: Area[]; onPick?: 
 }
 
 // ── 중개사 랭킹 ───────────────────────────────────────
-function RealtorTab({ rk, total, onRequest, onRealtor }: { rk: any[] | null; total: number; onRequest: (r: any) => void; onRealtor?: (id: string) => void }) {
+function RealtorTab({ rk, total, onRequest, onRealtor, ad }: { rk: any[] | null; total: number; onRequest: (r: any) => void; onRealtor?: (id: string) => void; ad?: Ad }) {
   const [all, setAll] = useState(false);
   // 중개사 리뷰 요약(평점·개수) — 보이는 줄만 불러온다(운영 /realtor/{id}/reviews)
   const [rv, setRv] = useState<Record<string, { avg_rating: number | null; total_count: number }>>({});
@@ -657,6 +658,7 @@ function RealtorTab({ rk, total, onRequest, onRealtor }: { rk: any[] | null; tot
   return (
     <>
       <div className="t2-dr-flt"><div className="t2-ph"><h3>이 단지 중개사 랭킹</h3><small>기준: 이 단지 매물 수</small></div></div>
+      {ad && <AdRow ad={ad} onRealtor={onRealtor} />}
       {rk.length === 0 ? <p className="t2-empty">이 단지에 매물을 올린 중개사가 없어요.</p> : (
         <ol className="t2-rank withreq">
           {shown.map((r, i) => (
@@ -674,10 +676,6 @@ function RealtorTab({ rk, total, onRequest, onRealtor }: { rk: any[] | null; tot
         </ol>
       )}
       {!all && rk.length > 10 && <button className="t2-more-btn" onClick={() => setAll(true)}>{rk.length >= 50 ? "상위 50곳 보기" : `${rk.length}곳 전체 보기`}</button>}
-      <div className="t2-ad">
-        <div className="t2-ph"><h3>근처 분양·광고 단지</h3><span className="t2-adtag">광고</span></div>
-        <div className="t2-adslot">광고 단지 자리 (시험판 표시) — 실제로는 광고가 없으면 이 칸을 숨겨요. 랭킹 순위와는 섞지 않아요.</div>
-      </div>
     </>
   );
 }
@@ -685,7 +683,7 @@ function RealtorTab({ rk, total, onRequest, onRealtor }: { rk: any[] | null; tot
 // ── 단지정보: 대장 요약 + 교통·학군 + 건축물대장 + 평형별 세대·호가 + 같은 건물 ─────────────────────
 type Ledger = { structure?: string; roof?: string; grnd_flr?: number; ugrnd_flr?: number; heit?: number; bc_rat?: number | null; vl_rat?: number | null;
   arch_area?: number; plat_area?: number | null; tot_area?: number; elvt?: number; pms_day?: string; stcns_day?: string; use_apr_day?: string; n_dong?: number; main_purps?: string; etc_purps?: string };
-function InfoTab({ no, asset, info, raw, agg, areas, sum, onPick }: { no: string; asset: string; info: Info | null; raw: any; agg: AggRow[] | null; areas: Area[]; sum: Summary | null; onPick?: (c: DrawerCx) => void }) {
+function InfoTab({ no, asset, info, raw, agg, areas, sum, onPick, ad }: { no: string; asset: string; info: Info | null; raw: any; agg: AggRow[] | null; areas: Area[]; sum: Summary | null; onPick?: (c: DrawerCx) => void; ad?: Ad }) {
   const [ledger, setLedger] = useState<Ledger | null | undefined>(undefined);
   const [sibs, setSibs] = useState<any[]>([]);
   useEffect(() => {
@@ -763,6 +761,7 @@ function InfoTab({ no, asset, info, raw, agg, areas, sum, onPick }: { no: string
           </ul>
         </>
       )}
+      {ad && <AdBand ad={ad} />}
     </>
   );
 }

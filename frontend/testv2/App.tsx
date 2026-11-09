@@ -12,6 +12,7 @@ import { AskWindow, askTabOf, type AskTab } from "./Ask";
 import { FavWindow } from "./Fav";
 import { RealtorWindow } from "./Realtor";
 import { FootBar, FootNote, LegalModal, type LegalKind } from "./Foot";
+import { useAds, AdRow, AdInfoModal, type Ad } from "./Ads";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -155,6 +156,7 @@ export default function App() {
   const drawerTab: DrawerTab = tabOv ?? (layer === "price" ? "tx" : layer === "realtor" ? "realtor" : "deals");
   const [view, setView] = useState<View | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
+  const ads = useAds(region?.sgg, region?.dong);   // 지도 광고 5자리(없으면 빈 배열)
   const [sel, setSel] = useState<Cx | null>(null);
   const [inView, setInView] = useState<Cx[]>([]);
   const [agg, setAgg] = useState<Agg[]>([]);
@@ -189,6 +191,7 @@ export default function App() {
   const [fav, setFav] = useState<boolean>(init.fav);
   const [meOpen, setMeOpen] = useState(false);   // 내 정보(닉네임·휴대폰 인증·로그아웃) 작은 창
   const [legal, setLegal] = useState<LegalKind | null>(null);   // 이용약관·개인정보처리방침 모달
+  const [adInfo, setAdInfo] = useState(false);   // 광고 안내(상품·가격·문의)
   const [rt, setRt] = useState<string | null>(init.rt);
   const closeWins = () => { setStats(null); setSafe(null); setAsk(null); setFav(false); setRt(null); setReqOpen(false); };
   const openAsk = (t: AskTab) => { closeWins(); setAsk(t); };
@@ -403,6 +406,12 @@ export default function App() {
             <div class="a"><button type="button" data-t="tx">실거래</button><button type="button" data-t="info">단지</button><button type="button" data-t="review">이야기</button></div></div></div></div>`,
             () => pickComplex(c, false), on ? 50 : c.disc || c.sp ? 6 : 5, 1, (t) => pickComplex(c, false, t as DrawerTab));
         }
+        // 광고 핀(금색 머리띠 '광고'): 분양·입주 현장. 누르면 연결 주소(또는 단지)로
+        for (const a of ads.pin) {
+          if (!a.lat || !a.lng) continue;
+          put(a.lat, a.lng, `<div class="t2-pw"><div class="t2-pin2 ad"><span class="hd">광고${a.sub ? ` · ${esc(a.sub)}` : ""}</span><b>${esc(a.title)}</b>${a.advertiser ? `<em>${esc(a.advertiser)}</em>` : ""}</div></div>`,
+            () => { fetch(`${API}/map/ads/${a.id}/click`, { method: "POST" }).catch(() => {}); if (a.complex_no) goComplex(a.complex_no, a.title); else if (a.url) window.open(a.url, "_blank", "noreferrer"); }, 7);
+        }
         for (const c of kokCx) {
           put(c.lat, c.lng, `<div class="t2-pin kok"><b>${esc(shortName(c.name))}</b><i>콕집</i></div>`, () => pickComplex(c, false), 6);
         }
@@ -496,7 +505,7 @@ export default function App() {
       }).catch(() => { if (!off) { setAgg([]); setAggLoading(false); } });
     }
     return () => { off = true; };
-  }, [layer, view, selNo, selJ?.ref, rkDong, region?.dong, region?.sgg, pickComplex, pm, pw, pa, flt]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layer, view, selNo, selJ?.ref, rkDong, region?.dong, region?.sgg, pickComplex, pm, pw, pa, flt, ads.pin]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // 레이어·유형을 바꾸면 지번 서랍은 닫는다
   useEffect(() => { setSelJ(null); }, [layer, pa]);
@@ -693,14 +702,14 @@ export default function App() {
   // ── 화면 ─────────────────────────────────────────
   const panel = (
     <>
-      {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} onRequest={() => openAsk("req")} />}
+      {layer === "deals" && <DealsPanel region={region} inView={inView} onPick={pickComplex} zoomedOut={!!hint && inView.length === 0} onRequest={() => openAsk("req")} ad={ads.deals_top[0]} />}
       {layer === "price" && isJibun(pa) && <JibunPanel asset={pa} pins={jpins} region={region} win={pw} onWin={setPw} loading={aggLoading} zoomedOut={(view?.level ?? 5) > (pa === "villa" ? 4 : 5)}
         onPick={(p) => { setSel(null); setSelJ({ asset: pa as Jibun["asset"], ref: p.ref, name: p.name, sigungu: region?.sgg || "", lat: p.lat, lng: p.lng }); goTo(p.lat, p.lng, 3); }} />}
       {layer === "price" && !isJibun(pa) && pm === "rh" && <RecordHighPanel rows={rhs} region={region} win={pw} onWin={setPw} loading={aggLoading} onMetric={setPm} onPick={pickComplex} onStats={() => { closeWins(); setStats({ g: "price", i: "rh" }); }} />}
       {layer === "price" && !isJibun(pa) && pm !== "rh" && <PricePanel region={region} agg={agg} level={view?.level ?? 5} metric={pm} onMetric={setPm}
         win={pw} onWin={setPw} loading={aggLoading} meta={aggMeta} onPick={pickComplex}
         onStats={() => { closeWins(); setStats(pm === "hoga" ? { g: "hoga", i: "sum" } : pm === "vol" ? { g: "flow", i: "vol" } : pm === "gap" ? { g: "invest", i: "gap" } : { g: "price", i: "top" }); }} />}
-      {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} onRows={setRkRows} onPick={pickRealtor} onDong={pickDong} onRealtor={openRt} />}
+      {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} onRows={setRkRows} onPick={pickRealtor} onDong={pickDong} onRealtor={openRt} ad={ads.realtor_top[0]} />}
     </>
   );
 
@@ -760,7 +769,7 @@ export default function App() {
             region={{ sido: region ? region.dong.slice(0, 2) + "00000000" : "", sgg: region?.sgg || "", dong: "" }}
             onPick={(no, name) => { setStats(null); goComplex(no, name); }}
             onMapLayer={() => { setStats(null); setLayer("price"); setPm("tx"); }}
-            onSafe={() => { setStats(null); setSafe("jeonse"); }} />}
+            onSafe={() => { setStats(null); setSafe("jeonse"); }} ad={ads.stats_band[0]} />}
           {safe && <SafeWindow tab={safe} onTab={setSafe} phone={phone} onClose={() => setSafe(null)} session={session}
             at={selJ ? { lat: selJ.lat, lng: selJ.lng, name: selJ.name } : null} onLogin={() => setAskLogin(true)} />}
           {ask && <AskWindow tab={ask} onTab={setAsk} phone={phone} onClose={() => setAsk(null)} session={session} token={init.proposals || undefined}
@@ -786,7 +795,7 @@ export default function App() {
             onGo={(no, name, tab) => { setFav(false); goComplex(no, name, tab); }} />}
           {rt && <RealtorWindow id={rt} phone={phone} session={session} onClose={() => setRt(null)} onMe={() => setMeOpen(true)}
             onGo={(no, name) => { setRt(null); goComplex(no, name); }} />}
-          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")}
+          {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]}
             fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} /></aside>}
           {!phone && !sel && selJ && <aside className="t2-drawer"><JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /></aside>}
           {meOpen && session && <MeModal session={session} onClose={() => setMeOpen(false)} onLogout={() => logout()} />}
@@ -803,7 +812,7 @@ export default function App() {
               <button className="t2-grab" aria-label="목록 크기 바꾸기"
                 onClick={() => setSheet(sheet === "peek" ? "half" : sheet === "half" ? "full" : "peek")}><i /></button>
               <div className="t2-sheet-in">
-                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")}
+                {sel ? <ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]}
                   fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} />
                   : selJ ? <JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /> : panel}
               </div>
@@ -811,8 +820,9 @@ export default function App() {
           )}
         </main>
       </div>
-      {!phone && <FootBar onLegal={setLegal} />}
+      {!phone && <FootBar onLegal={setLegal} onAd={() => setAdInfo(true)} />}
       {legal && <LegalModal kind={legal} onClose={() => setLegal(null)} />}
+      {adInfo && <AdInfoModal onClose={() => setAdInfo(false)} />}
       {phone && (
         <nav className="t2-tabbar">
           <button className={!stats && !safe && !ask && !fav && !rt ? "on" : ""} onClick={closeWins}>지도</button>
@@ -828,7 +838,7 @@ export default function App() {
               {!session ? <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>
                 : <button onClick={() => setMeOpen(true)}>{sessionName(session)} · 내 정보</button>}
               <a href={`${SITE}/lounge`} target="_blank" rel="noreferrer">중개사라운지</a>
-              <FootNote onLegal={(k) => { setMore(false); setLegal(k); }} />
+              <FootNote onLegal={(k) => { setMore(false); setLegal(k); }} onAd={() => { setMore(false); setAdInfo(true); }} />
             </div>
           )}
         </nav>
@@ -1034,7 +1044,7 @@ function DealFilterBar({ flt, onChange }: { flt: Flt; onChange: (f: Flt) => void
 }
 
 // ── 매물찾기: 위 2/3 급매, 아래 1/3 콕집 매물 ─────────────────
-function DealsPanel({ region, inView, onPick, zoomedOut, onRequest }: { region: Region | null; inView: Cx[]; onPick: (c: Cx) => void; zoomedOut: boolean; onRequest: () => void }) {
+function DealsPanel({ region, inView, onPick, zoomedOut, onRequest, ad }: { region: Region | null; inView: Cx[]; onPick: (c: Cx) => void; zoomedOut: boolean; onRequest: () => void; ad?: Ad }) {
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const [onlyView, setOnlyView] = useState(true);
   useEffect(() => {
@@ -1060,6 +1070,7 @@ function DealsPanel({ region, inView, onPick, zoomedOut, onRequest }: { region: 
           <label className="t2-chk"><input type="checkbox" checked={onlyView} onChange={(e) => setOnlyView(e.target.checked)} />지도 안만</label>
         </div>
         <p className="t2-note">최근 90일 실거래 평균보다 3% 이상 싼 매매 호가(평형별 최저가 기준)</p>
+        {ad && <AdRow ad={ad} onGo={(no, name) => onPick({ complex_no: no, name, lat: 0, lng: 0 })} />}
         {onlyView && deals && deals.length > 0 && (zoomedOut || !cxMap.size) && (
           <p className="t2-note warn">지도 안에는 급매가 없어 {region?.sggName || "이 구"} 전체를 보여 드려요.</p>
         )}
@@ -1265,8 +1276,8 @@ type Scope = "dong" | "gu" | "sido" | "nat";
 type Opt = { code: string; name: string };
 // 매물 범위 — 운영 우리동네 중개사 페이지와 같은 6종(by-dong·by-sido·national 의 scope=)
 const MSCOPES: [string, string][] = [["complex", "단지형 (아파트·오피)"], ["house", "주택 (빌라·단독)"], ["comm", "상가·사무실"], ["building", "빌딩·건물"], ["land", "토지·공장"], ["all", "전체"]];
-function RealtorPanel({ region, dong, onRows, onPick, onDong, onRealtor }: { region: Region | null; dong: Opt | null;
-  onRows: (rows: (Rk & { rank: number })[]) => void; onPick: (r: Rk) => void; onDong: (d: Opt, path: string) => void; onRealtor: (id: string) => void }) {
+function RealtorPanel({ region, dong, onRows, onPick, onDong, onRealtor, ad }: { region: Region | null; dong: Opt | null;
+  onRows: (rows: (Rk & { rank: number })[]) => void; onPick: (r: Rk) => void; onDong: (d: Opt, path: string) => void; onRealtor: (id: string) => void; ad?: Ad }) {
   const [scope, setScope] = useState<Scope>("dong");
   const [mode, setMode] = useState<"dong" | "name">("dong");   // 찾는 방법: 동네로 / 사무소 이름으로(운영 페이지와 동일)
   const [mscope, setMscope] = useState("complex");
@@ -1403,6 +1414,7 @@ function RealtorPanel({ region, dong, onRows, onPick, onDong, onRealtor }: { reg
           <p className="t2-note">
             {scope === "dong" ? `기준: 이 동 ${msLabel.replace(/ \(.*\)/, "")} 매물 수 · 지도의 동을 눌러도 바뀌어요` : `기준: ${msLabel.replace(/ \(.*\)/, "")} 매물 수`}
           </p>
+          {ad && (scope === "dong" || scope === "gu") && <AdRow ad={ad} onRealtor={onRealtor} />}
           {rows == null ? <Skel /> : sorted.length === 0 ? <p className="t2-empty">랭킹 자료가 없어요.</p> : (
             <ol className="t2-rank">
               {sorted.map((r, i) => (
