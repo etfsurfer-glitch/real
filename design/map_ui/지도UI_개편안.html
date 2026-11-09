@@ -1,0 +1,741 @@
+<title>콕집 지도 화면 개편안</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 본문 기둥 960px — 한 줄 요약 → 메뉴가 지도 위 어디로 가나 → 통계 페이지 → 매물 목록 → 랭킹 노출 → 예상 화면 7장 → 단계 → 필요한 것 → 위험 → 정할 것
+   색은 콕집 화면 토큰(styles.css)을 그대로 쓴다: 주색 #1268d3, 상승 빨강·하락 파랑 */
+:root{
+  --bg:#f4f6f9; --surface:#ffffff; --ink:#16202e; --muted:#5f6b7a; --line:#e3e8ee;
+  --primary:#1268d3; --primary-soft:#e8f0ff; --warn:#a86411; --warn-bg:#fdf1de;
+  --f-body:"Pretendard","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  /* 예상 화면 안쪽은 실제 콕집 라이트 화면을 그린 것이라 테마와 무관하게 고정 */
+  --m-land:#eef1ec; --m-water:#c6dcef; --m-park:#d6e7cf; --m-road:#ffffff; --m-road2:#f8f8f4; --m-block:#e4e7e1;
+  --m-card:#ffffff; --m-ink:#16202e; --m-muted:#6b7280; --m-line:#e3e8ee; --m-primary:#1268d3; --m-soft:#e8f0ff;
+  --m-up:#d23b3b; --m-up2:#e8697a; --m-flat:#7c8898; --m-dn2:#4b86e8; --m-dn:#1268d3; --m-sale:#d23b3b;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f141b; --surface:#171e27; --ink:#e6ebf2; --muted:#9aa6b6; --line:#2a3340;
+  --primary:#5b9bff; --primary-soft:#16263f; --warn:#e8b25c; --warn-bg:#33270f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141b; --surface:#171e27; --ink:#e6ebf2; --muted:#9aa6b6; --line:#2a3340;
+  --primary:#5b9bff; --primary-soft:#16263f; --warn:#e8b25c; --warn-bg:#33270f; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.65}
+.wrap{max-width:960px;margin:0 auto;padding-block:40px 80px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:48px}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.3}
+h1{font-size:30px;font-weight:800;letter-spacing:-.02em}
+h2{font-size:20px;font-weight:700}
+h3{font-size:15px;font-weight:700}
+p{margin:0}
+section{display:flex;flex-direction:column;gap:16px}
+.eyebrow{font-size:12px;letter-spacing:.06em;color:var(--muted);font-weight:700;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.flag{color:#fff;background:var(--primary);padding:2px 9px;border-radius:999px;letter-spacing:.02em}
+.lede{color:var(--muted);max-width:68ch}
+.small{font-size:13.5px}
+code,.mono{font-family:var(--f-mono);font-size:12.5px;background:var(--primary-soft);padding:1px 5px;border-radius:4px;color:var(--ink);word-break:break-all}
+.idea{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:720px){.idea{grid-template-columns:1fr}}
+.idea div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.idea b{font-size:15px}
+.idea span{font-size:13.5px;color:var(--muted)}
+.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:700px;font-size:13.5px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:700;background:var(--bg)}
+tr:last-child td{border-bottom:0}
+td.why{color:var(--muted)}
+.chip{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.c-map{color:var(--primary);background:var(--primary-soft)}
+.c-float{color:var(--warn);background:var(--warn-bg)}
+.c-page{color:var(--muted);background:var(--bg);border:1px solid var(--line)}
+/* 예상 화면 공통 */
+.shot{display:flex;flex-direction:column;gap:10px}
+.shot figcaption{font-size:13.5px;color:var(--muted);max-width:72ch}
+.shot figcaption b{color:var(--ink)}
+figure{margin:0}
+.mk *,.mk *::before{box-sizing:border-box}
+.mk{container-type:inline-size;position:relative;width:100%;max-width:100%;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--m-land);font-family:var(--f-body);color:var(--m-ink);line-height:1.35}
+.mk.desk{aspect-ratio:16/10}
+.phones{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:640px){.phones{grid-template-columns:1fr}}
+.mk.phone{aspect-ratio:9/19;border-radius:28px;border:8px solid #1d232c;max-width:340px;margin:0 auto}
+.mk svg.map{position:absolute;inset:0;width:100%;height:100%;display:block}
+.abs{position:absolute}
+.card{background:var(--m-card);border-radius:1cqw;box-shadow:0 .3cqw 1.4cqw rgb(16 24 40 / 16%)}
+/* 데스크톱 크기(1cqw = 화면 너비의 1%) */
+.desk .bar{left:1.4cqw;top:1.4cqw;width:27cqw;height:4.6cqw;display:flex;align-items:center;gap:1cqw;padding:0 1.2cqw}
+.logo{font-weight:800;color:var(--m-primary);letter-spacing:-.03em}
+.desk .logo{font-size:1.9cqw}
+.search{flex:1;background:#f3f5f8;border-radius:.8cqw;color:var(--m-muted);display:flex;align-items:center;gap:.6cqw}
+.desk .search{height:2.9cqw;padding:0 1cqw;font-size:1.15cqw}
+.layers{display:flex;background:var(--m-card);border-radius:1cqw;box-shadow:0 .3cqw 1.4cqw rgb(16 24 40 / 16%);padding:.35cqw;gap:.3cqw}
+.desk .layers{left:29.6cqw;top:1.4cqw;height:4.6cqw;align-items:center}
+.layers span{border-radius:.7cqw;font-weight:700;color:var(--m-muted);display:flex;align-items:center}
+.desk .layers span{font-size:1.25cqw;padding:0 1.4cqw;height:3.9cqw}
+.layers span.on{background:var(--m-primary);color:#fff}
+.chips{display:flex;gap:.6cqw;flex-wrap:nowrap}
+.desk .chips{left:29.6cqw;top:7cqw}
+.chips span{background:var(--m-card);border:1px solid var(--m-line);border-radius:99px;white-space:nowrap;box-shadow:0 .2cqw .8cqw rgb(16 24 40 / 10%);font-weight:500}
+.desk .chips span{font-size:1.05cqw;padding:.45cqw 1.1cqw}
+.chips span.on{background:var(--m-ink);color:#fff;border-color:var(--m-ink)}
+.chips span.cond{border-style:dashed;color:var(--m-muted)}
+.util{display:flex;gap:.6cqw;align-items:center}
+.desk .util{right:1.4cqw;top:1.4cqw;height:4.6cqw}
+.util span{background:var(--m-card);border-radius:.8cqw;box-shadow:0 .3cqw 1.4cqw rgb(16 24 40 / 14%);font-weight:700;display:flex;align-items:center}
+.desk .util span{font-size:1.1cqw;padding:0 1.1cqw;height:3.6cqw}
+.util span.lounge{background:var(--m-ink);color:#fff}
+.util span.me{width:3.6cqw;justify-content:center;padding:0;border-radius:99px;color:var(--m-muted)}
+.panel{display:flex;flex-direction:column;overflow:hidden}
+.desk .panel{left:1.4cqw;top:7.4cqw;bottom:1.4cqw;width:27cqw}
+.ph{border-bottom:1px solid var(--m-line);display:flex;flex-direction:column;gap:.3cqw}
+.desk .ph{padding:1.2cqw 1.3cqw}
+.ph b{font-weight:800}
+.desk .ph b{font-size:1.4cqw}
+.ph small{color:var(--m-muted)}
+.desk .ph small{font-size:1cqw}
+.sort{display:flex;gap:.5cqw;margin-top:.4cqw}
+.sort i{font-style:normal;border-radius:99px;border:1px solid var(--m-line);color:var(--m-muted)}
+.desk .sort i{font-size:.95cqw;padding:.2cqw .8cqw}
+.sort i.on{color:var(--m-primary);border-color:var(--m-primary);background:var(--m-soft);font-weight:700}
+.row{display:grid;grid-template-columns:1fr auto;border-bottom:1px solid var(--m-line);align-items:center}
+.desk .row{padding:1cqw 1.3cqw;gap:.2cqw 1cqw}
+.row.sel{background:var(--m-soft)}
+.row .nm{font-weight:700}
+.desk .row .nm{font-size:1.2cqw}
+.row .sub{color:var(--m-muted);grid-column:1}
+.desk .row .sub{font-size:.95cqw}
+.row .pr{text-align:right;grid-row:1/span 2;grid-column:2;display:flex;flex-direction:column;align-items:flex-end;gap:.15cqw;font-variant-numeric:tabular-nums}
+.desk .row .pr b{font-size:1.2cqw}
+.row .pr em{font-style:normal;font-weight:800;color:var(--m-sale)}
+.desk .row .pr em{font-size:1.05cqw}
+/* 단지 핀 */
+.pin{transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center}
+.pin .lb{background:var(--m-card);border:1.5px solid var(--m-primary);border-radius:.6cqw;white-space:nowrap;font-weight:700;display:flex;gap:.4cqw;align-items:center;box-shadow:0 .2cqw .7cqw rgb(16 24 40 / 18%)}
+.desk .pin .lb{font-size:1cqw;padding:.3cqw .6cqw}
+.pin .lb em{font-style:normal;color:#fff;background:var(--m-sale);border-radius:.4cqw}
+.desk .pin .lb em{padding:.05cqw .35cqw}
+.pin .tip{width:0;height:0;border-left:.5cqw solid transparent;border-right:.5cqw solid transparent;border-top:.6cqw solid var(--m-primary)}
+.pin.sel .lb{background:var(--m-primary);color:#fff;transform:scale(1.12)}
+.pin.dim .lb{border-color:#9aa6b6;color:var(--m-muted);font-weight:500}
+.pin.dim .tip{border-top-color:#9aa6b6}
+.dot{transform:translate(-50%,-50%);border-radius:50%;background:var(--m-sale);border:2px solid #fff;box-shadow:0 .1cqw .5cqw rgb(0 0 0 / 25%)}
+.desk .dot{width:1.1cqw;height:1.1cqw}
+/* 오른쪽 단지 서랍 */
+.drawer{display:flex;flex-direction:column;overflow:hidden}
+.desk .drawer{right:1.4cqw;top:7.4cqw;bottom:1.4cqw;width:29cqw}
+.dh{display:flex;flex-direction:column;gap:.35cqw;border-bottom:1px solid var(--m-line)}
+.desk .dh{padding:1.3cqw 1.5cqw}
+.dh .x{position:absolute;color:var(--m-muted)}
+.desk .dh .x{right:1.3cqw;top:1.1cqw;font-size:1.4cqw}
+.desk .dh b{font-size:1.65cqw;font-weight:800}
+.desk .dh small{font-size:1cqw;color:var(--m-muted)}
+.tabs{display:flex;border-bottom:1px solid var(--m-line)}
+.tabs span{flex:1;text-align:center;color:var(--m-muted);font-weight:500}
+.desk .tabs span{font-size:1.05cqw;padding:.8cqw 0}
+.tabs span.on{color:var(--m-primary);font-weight:800;box-shadow:inset 0 -.25cqw 0 var(--m-primary)}
+.kv{display:grid;grid-template-columns:1fr 1fr}
+.desk .kv{padding:1.1cqw 1.5cqw;gap:1cqw}
+.kv div{display:flex;flex-direction:column;gap:.2cqw}
+.kv small{color:var(--m-muted)}
+.desk .kv small{font-size:.95cqw}
+.kv b{font-variant-numeric:tabular-nums;font-weight:800}
+.desk .kv b{font-size:1.45cqw}
+.kv b em{font-style:normal;color:var(--m-sale)}
+.spark{display:block;width:100%}
+.desk .spark{height:7cqw;padding:0 1.5cqw}
+.lst{display:flex;flex-direction:column}
+.lst div{display:flex;justify-content:space-between;border-top:1px solid var(--m-line);font-variant-numeric:tabular-nums}
+.desk .lst div{padding:.75cqw 1.5cqw;font-size:1.02cqw}
+.lst em{font-style:normal;color:var(--m-sale);font-weight:800}
+.acts{margin-top:auto;display:flex;gap:.8cqw;border-top:1px solid var(--m-line)}
+.desk .acts{padding:1.1cqw 1.5cqw}
+.acts span{flex:1;text-align:center;border-radius:.8cqw;font-weight:800;border:1px solid var(--m-line)}
+.desk .acts span{font-size:1.1cqw;padding:.85cqw 0}
+.acts span.p{background:var(--m-primary);color:#fff;border-color:var(--m-primary)}
+/* 떠 있는 콕집요청 */
+.fab{display:flex;align-items:center;gap:.6cqw;background:var(--m-ink);color:#fff;border-radius:99px;font-weight:800;box-shadow:0 .5cqw 1.6cqw rgb(16 24 40 / 30%)}
+.desk .fab{right:32.4cqw;bottom:2cqw;font-size:1.2cqw;padding:1cqw 1.6cqw}
+.fab i{font-style:normal;background:var(--m-primary);border-radius:99px;display:inline-flex}
+.desk .fab i{padding:.1cqw .6cqw;font-size:.95cqw}
+.zoom{display:flex;flex-direction:column;overflow:hidden}
+.desk .zoom{right:32.4cqw;top:13cqw;width:3cqw}
+.zoom span{text-align:center;border-bottom:1px solid var(--m-line);color:var(--m-muted);font-weight:700}
+.desk .zoom span{font-size:1.4cqw;padding:.4cqw 0}
+.zoom span:last-child{border:0}
+/* 묶음 버블(동·구) */
+.bub{transform:translate(-50%,-50%);border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-weight:800;box-shadow:0 .2cqw .8cqw rgb(16 24 40 / 25%);border:2px solid rgb(255 255 255 / 85%);text-align:center;line-height:1.15}
+.desk .bub{width:6.4cqw;height:6.4cqw;font-size:1.15cqw}
+.desk .bub small{font-size:.85cqw;font-weight:500;opacity:.92}
+.legend{display:flex;align-items:center;gap:.6cqw}
+.desk .legend{left:29.6cqw;bottom:1.4cqw;padding:.7cqw 1cqw;font-size:.95cqw}
+.legend i{display:inline-block;border-radius:50%}
+.desk .legend i{width:1cqw;height:1cqw}
+/* 휴대폰 크기 */
+.phone .top{left:3cqw;right:3cqw;top:4cqw;display:flex;flex-direction:column;gap:2.2cqw}
+.phone .bar{display:flex;align-items:center;gap:2.5cqw;padding:2.2cqw 3cqw;border-radius:3cqw}
+.phone .logo{font-size:5.2cqw}
+.phone .search{height:8.5cqw;padding:0 3cqw;font-size:3.6cqw;border-radius:2.4cqw}
+.phone .layers{border-radius:3cqw;padding:1cqw;gap:1cqw}
+.phone .layers span{flex:1;justify-content:center;font-size:3.8cqw;height:8.5cqw;border-radius:2.2cqw}
+.phone .chips{gap:1.8cqw;overflow:hidden}
+.phone .chips span{font-size:3.3cqw;padding:1.3cqw 3cqw}
+.phone .pin .lb{font-size:3.1cqw;padding:.9cqw 1.6cqw;border-radius:1.8cqw;gap:1.2cqw}
+.phone .pin .lb em{padding:.1cqw 1cqw;border-radius:1.2cqw}
+.phone .pin .tip{border-left-width:1.5cqw;border-right-width:1.5cqw;border-top-width:1.8cqw}
+.phone .dot{width:3.2cqw;height:3.2cqw}
+.sheet{left:0;right:0;bottom:15cqw;background:var(--m-card);border-radius:5cqw 5cqw 0 0;box-shadow:0 -1cqw 4cqw rgb(16 24 40 / 16%);display:flex;flex-direction:column}
+.sheet>*{flex-shrink:0}
+.grab{width:11cqw;height:1.3cqw;border-radius:99px;background:#d3d9e1;align-self:center;margin:2.2cqw 0 1cqw}
+.phone .ph{padding:1.5cqw 4.5cqw 3cqw}
+.phone .ph b{font-size:4.5cqw}
+.phone .ph small{font-size:3.2cqw}
+.phone .row{padding:3cqw 4.5cqw;gap:.6cqw 3cqw}
+.phone .row .nm{font-size:3.9cqw}
+.phone .row .sub{font-size:3.1cqw}
+.phone .row .pr b{font-size:3.9cqw}
+.phone .row .pr em{font-size:3.4cqw}
+.tabbar{left:0;right:0;bottom:0;height:15cqw;background:var(--m-card);border-top:1px solid var(--m-line);display:grid;grid-template-columns:repeat(5,1fr);align-items:center;text-align:center}
+.tabbar span{font-size:3cqw;color:var(--m-muted);font-weight:500;display:flex;flex-direction:column;align-items:center;gap:1cqw}
+.tabbar span::before{content:"";width:5.5cqw;height:5.5cqw;border-radius:1.6cqw;background:#dfe4ea}
+.tabbar span.on{color:var(--m-primary);font-weight:800}
+.tabbar span.on::before{background:var(--m-primary)}
+.tabbar span.req{color:var(--m-ink);font-weight:800}
+.tabbar span.req::before{background:var(--m-ink);border-radius:99px;width:9cqw;height:9cqw;margin-top:-5cqw;box-shadow:0 1cqw 2.5cqw rgb(16 24 40 / 30%)}
+.phone .dh{padding:2cqw 4.5cqw 3cqw}
+.phone .dh b{font-size:5.2cqw}
+.phone .dh small{font-size:3.2cqw;color:var(--m-muted)}
+.phone .dh .x{right:4cqw;top:3.5cqw;font-size:4.5cqw}
+.phone .tabs span{font-size:3.4cqw;padding:2.6cqw 0}
+.phone .kv{padding:3.5cqw 4.5cqw;gap:3cqw}
+.phone .kv small{font-size:3.1cqw}
+.phone .kv b{font-size:4.6cqw}
+.phone .spark{height:20cqw;padding:0 4.5cqw}
+.phone .lst div{padding:2.4cqw 4.5cqw;font-size:3.4cqw}
+.phone .acts{padding:3cqw 4.5cqw;gap:2.5cqw}
+.phone .acts span{font-size:3.6cqw;padding:2.8cqw 0;border-radius:2.4cqw}
+.note{position:absolute;background:#16202e;color:#fff;border-radius:.6cqw;font-weight:700;white-space:nowrap}
+.desk .note{font-size:.95cqw;padding:.3cqw .7cqw}
+.phone .note{font-size:2.8cqw;padding:.8cqw 1.8cqw;border-radius:1.4cqw}
+.note::before{content:attr(data-n);display:inline-block;background:var(--m-primary);border-radius:99px;margin-right:.5em;padding:0 .45em}
+/* 매물 목록 2:1 분할 — 위 급매, 아래 콕집 매물 */
+.split-a{flex:2;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.split-b{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:#f7faff;border-top:.35cqw solid var(--m-primary)}
+.split-b .ph{border-bottom-color:#dbe6f7}
+.split-b .ph b{color:var(--m-primary)}
+.kz{display:inline-block;font-style:normal;font-weight:800;color:#fff;background:var(--m-primary);border-radius:.4cqw;vertical-align:middle}
+.desk .kz{font-size:.85cqw;padding:.05cqw .45cqw;margin-right:.4cqw}
+.phone .kz{font-size:2.7cqw;padding:.2cqw 1.2cqw;margin-right:1.2cqw;border-radius:1cqw}
+.row .pr i{font-style:normal;color:var(--m-primary);font-weight:700}
+.desk .row .pr i{font-size:.95cqw}
+.phone .row .pr i{font-size:3cqw}
+.phone .split-b{flex:none;border-top-width:1cqw}
+/* 단지 서랍 · 중개사 탭 */
+.rk-h{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--m-line)}
+.desk .rk-h{padding:.9cqw 1.5cqw;font-size:1cqw;color:var(--m-muted)}
+.rk-h b{color:var(--m-ink);font-weight:800}
+.desk .rk-h b{font-size:1.15cqw}
+.rkr{display:grid;grid-template-columns:auto 1fr auto;align-items:center;border-bottom:1px solid var(--m-line)}
+.desk .rkr{padding:.55cqw 1.5cqw;gap:.2cqw .9cqw}
+.rkr .n{font-weight:800;color:var(--m-primary);grid-row:1/span 2}
+.desk .rkr .n{font-size:1.25cqw;width:1.6cqw}
+.rkr .o{font-weight:700}
+.desk .rkr .o{font-size:1.05cqw}
+.rkr .bm{grid-column:2;height:.45cqw;border-radius:99px;background:var(--m-soft);overflow:hidden}
+.rkr .bm i{display:block;height:100%;background:var(--m-primary)}
+.rkr .c{grid-row:1/span 2;grid-column:3;text-align:right;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;align-items:flex-end}
+.desk .rkr .c b{font-size:1.15cqw}
+.desk .rkr .c small{font-size:.85cqw;color:var(--m-muted)}
+.more{text-align:center;color:var(--m-primary);font-weight:700}
+.desk .more{font-size:.95cqw;padding:.6cqw 0;border-bottom:1px solid var(--m-line)}
+.ad{background:#fafbfc;display:flex;flex-direction:column}
+.desk .ad{padding:.7cqw 1.5cqw .3cqw;gap:.5cqw}
+.ad .lab{color:var(--m-muted);font-weight:700}
+.desk .ad .lab{font-size:.85cqw}
+.adc{display:grid;grid-template-columns:auto 1fr;align-items:center;background:#fff;border:1px solid var(--m-line)}
+.desk .adc{gap:.2cqw .9cqw;padding:.55cqw;border-radius:.7cqw}
+.adc .th{grid-row:1/span 2;background:linear-gradient(135deg,#cfdcef,#e9eef5)}
+.desk .adc .th{width:4.6cqw;height:3.2cqw;border-radius:.5cqw}
+.adc b{font-weight:800}
+.desk .adc b{font-size:1cqw}
+.adc small{color:var(--m-muted)}
+.desk .adc small{font-size:.85cqw}
+.adc em{font-style:normal;font-weight:800;color:var(--m-muted);border:1px solid var(--m-line);border-radius:.3cqw}
+.desk .adc em{font-size:.75cqw;padding:0 .3cqw;margin-right:.3cqw}
+.phone .rk-h{padding:2.6cqw 4.5cqw;font-size:3cqw}
+.phone .rk-h b{font-size:3.8cqw}
+.phone .rkr{padding:1.5cqw 4.5cqw;gap:.8cqw 2.6cqw}
+.phone .rkr .n{font-size:4.2cqw;width:4cqw}
+.phone .rkr .o{font-size:3.5cqw}
+.phone .rkr .bm{height:1.3cqw}
+.phone .rkr .c b{font-size:3.7cqw}
+.phone .rkr .c small{font-size:2.7cqw;color:var(--m-muted)}
+.phone .badge{font-size:2.6cqw;padding:.2cqw 1.2cqw;border-radius:1cqw;margin-left:1cqw}
+.phone .more{font-size:3.1cqw;padding:2cqw 0;border-bottom:1px solid var(--m-line)}
+.phone .ad{padding:2cqw 4.5cqw 2.4cqw;gap:1.6cqw}
+.phone .ad .lab{font-size:2.8cqw}
+.phone .adc{gap:.6cqw 2.6cqw;padding:1.6cqw;border-radius:2cqw}
+.phone .adc .th{width:13cqw;height:9cqw;border-radius:1.4cqw}
+.phone .adc b{font-size:3.3cqw}
+.phone .adc small{font-size:2.7cqw}
+.phone .adc em{font-size:2.4cqw;padding:0 .8cqw;margin-right:1cqw;border-radius:.8cqw}
+/* 중개사 랭킹 핀·목록 */
+.pin .lb b.rk{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:var(--m-ink);color:#fff;font-weight:800}
+.desk .pin .lb b.rk{width:1.5cqw;height:1.5cqw;font-size:.85cqw}
+.pin.top1 .lb{border-color:#c58a12}.pin.top1 .lb b.rk{background:#c58a12}.pin.top1 .tip{border-top-color:#c58a12}
+.row .nm b.rk{display:inline-block;min-width:1.9em;color:var(--m-primary);font-weight:800}
+.row .pr small{color:var(--m-muted);font-weight:500}
+.desk .row .pr small{font-size:.95cqw}
+.badge{display:inline-block;font-style:normal;font-weight:800;color:#8a5a00;background:#fbefd5;border-radius:.4cqw}
+.desk .badge{font-size:.95cqw;padding:.1cqw .5cqw;margin-right:.4cqw}
+/* 단계 */
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.steps li{display:grid;grid-template-columns:70px 1fr;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
+.steps .k{font-family:var(--f-mono);color:var(--primary);font-size:13px;padding-top:2px;font-weight:500}
+.steps p{color:var(--muted);font-size:14px}
+.steps ul{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:14px;display:flex;flex-direction:column;gap:2px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:720px){.two{grid-template-columns:1fr}}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.box ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px;font-size:14px}
+.ask{border:1px solid var(--warn);background:var(--warn-bg);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.ask ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.foot{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="city" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid slice">
+      <rect width="1000" height="620" fill="var(--m-land)"/>
+      <g fill="var(--m-block)">
+        <rect x="40" y="40" width="150" height="110" rx="6"/><rect x="230" y="30" width="170" height="120" rx="6"/>
+        <rect x="440" y="50" width="130" height="100" rx="6"/><rect x="610" y="40" width="160" height="110" rx="6"/>
+        <rect x="810" y="30" width="170" height="130" rx="6"/><rect x="60" y="200" width="140" height="120" rx="6"/>
+        <rect x="250" y="190" width="150" height="110" rx="6"/><rect x="450" y="190" width="120" height="120" rx="6"/>
+        <rect x="620" y="200" width="150" height="100" rx="6"/><rect x="820" y="210" width="150" height="110" rx="6"/>
+        <rect x="70" y="470" width="160" height="110" rx="6"/><rect x="280" y="480" width="150" height="100" rx="6"/>
+        <rect x="480" y="470" width="150" height="120" rx="6"/><rect x="680" y="480" width="140" height="100" rx="6"/>
+        <rect x="860" y="470" width="120" height="120" rx="6"/>
+      </g>
+      <path d="M0 360 C 180 330 300 420 480 395 S 780 330 1000 380 L1000 450 C 800 410 650 470 480 465 S 170 410 0 440 Z" fill="var(--m-water)"/>
+      <g fill="var(--m-park)"><rect x="455" y="205" width="110" height="80" rx="20"/><rect x="830" y="40" width="120" height="80" rx="24"/><ellipse cx="150" cy="520" rx="60" ry="35"/></g>
+      <g stroke="var(--m-road)" stroke-linecap="round" fill="none">
+        <path d="M0 170 H1000" stroke-width="16"/><path d="M215 0 V360 M215 450 V620" stroke-width="14"/>
+        <path d="M595 0 V360 M595 455 V620" stroke-width="14"/><path d="M0 460 C 300 470 700 450 1000 455" stroke-width="10"/>
+        <path d="M420 0 V340" stroke-width="7"/><path d="M790 0 V350" stroke-width="7"/><path d="M0 330 H1000" stroke-width="6" stroke="var(--m-road2)"/>
+        <path d="M445 360 L 470 470" stroke-width="12"/><path d="M820 345 L 840 470" stroke-width="12"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+<header style="display:flex;flex-direction:column;gap:10px">
+  <div class="eyebrow"><span>계획안 · 2026-11-06 개정</span><span class="flag">구현 전 · 예상 화면 포함</span></div>
+  <h1>콕집 지도 화면 개편안</h1>
+  <p class="lede">첫 화면을 지도로 바꾸고, 메뉴 개편안의 그룹 중 위치로 보는 것(매물·시세·중개사 랭킹)은 지도 위 레이어로, 표·그래프로 보는 통계는 별도 통계 페이지로 둡니다. 아파트픽의 지도 첫 화면 구조(지도 전체 + 떠 있는 검색·조건·목록, 단지는 지도 위에서 열기)를 따르되, 콕집은 핀에 가격·급매·변동률 같은 숫자를 싣습니다.</p>
+</header>
+
+<section>
+  <h2>한 줄로 보면</h2>
+  <div class="idea">
+    <div><b>메뉴가 레이어가 된다</b><span>매물찾기·시세분석·중개사랭킹 세 그룹은 페이지가 아니라 지도 위에서 바꿔 끼우는 레이어입니다. 메뉴 개편안의 이름을 그대로 씁니다.</span></div>
+    <div><b>목록은 지금 보는 지도 범위</b><span>왼쪽 목록(휴대폰은 아래 시트)은 화면에 보이는 영역의 급매·콕집 매물·변동률·중개사 랭킹입니다. 지도를 끌면 목록이 바뀝니다.</span></div>
+    <div><b>요청은 항상 한 번에</b><span>콕집요청은 어느 화면에서든 떠 있는 버튼(휴대폰은 하단 가운데)으로 누릅니다. 메뉴 개편안의 '요청 보내기는 항상 쉽게'를 지도에서 지킵니다.</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>메뉴 개편안 7개 그룹(+통계 페이지)이 가는 곳</h2>
+  <div class="tablebox">
+  <table>
+    <thead><tr><th style="width:15%">메뉴 개편안</th><th style="width:13%">지도에서</th><th style="width:34%">어떻게 보이나</th><th>지금 있는 것 재사용</th></tr></thead>
+    <tbody>
+      <tr><td><b>TODAY</b></td><td><span class="chip c-map">첫 상태</span></td><td>접속한 동네에서 지도를 열고, 왼쪽 목록 맨 위에 '우리동네 오늘'(새 급매·신고가·실거래) 요약 카드</td><td class="why">우리동네 화면의 요약 블록, 접속 위치는 지역 추정</td></tr>
+      <tr><td><b>매물찾기</b></td><td><span class="chip c-map">레이어 ①</span></td><td>칩: 급매 · 주인매물(대출·전세·세안고) · 맞춤조건(역·세대수·가격). 핀에 할인율과 호가. 목록은 위 2/3 급매, 아래 1/3 콕집 매물</td><td class="why">급매찾기·주인매물·맞춤단지 API를 지도 범위(bbox)로 호출</td></tr>
+      <tr><td><b>시세분석</b></td><td><span class="chip c-map">레이어 ②</span></td><td>칩: 실거래가 · 호가추이 · 거래량 · 갭·전세가율. 확대하면 단지 핀, 축소하면 동·구 버블에 변동률 색칠. 지도에 맞는 것만 싣고, 목록 끝에 '이 지역 통계 전체 보기'</td><td class="why">실거래가 칩은 실거래 지도와 동·구 버블(<span class="mono">/stats/tx-map/agg</span>, 평당가 변동률) 그대로. 호가추이·거래량·갭 칩은 동·구 집계를 새로 만듦(C)</td></tr>
+      <tr><td><b>통계</b><br><small class="why">(시세분석 전체)</small></td><td><span class="chip c-page">별도 통계 페이지</span></td><td>지금 서비스하는 실거래·호가·거래량·투자 통계를 표·차트 그대로 보는 페이지. 오른쪽 위 '통계'(휴대폰은 하단 탭)로 열고, 지도에서 넘어오면 보던 지역이 미리 골라져 있음</td><td class="why">메뉴 개편안 시세분석 그룹의 화면들(실거래가·매물호가추이·시장흐름·투자분석)과 지역 필터 그대로</td></tr>
+      <tr><td><b>중개사랭킹</b><br><small class="why">(메뉴 개편안의 중개사찾기)</small></td><td><span class="chip c-map">레이어 ③</span></td><td>사무소 핀에 순위 번호와 매물 수. 칩으로 기준(매물 수·업력·직원 수)을 바꾸고, 확대 정도에 따라 동 → 구 → 전국 랭킹으로 넘어감. 다른 레이어에서도 랭킹이 보임(아래)</td><td class="why">우리동네 중개사 동 단위 랭킹(<span class="mono">/stats/realtors/by-dong</span>), 전국·시도 랭킹. 사무소 좌표는 52%만 있어 나머지는 주소 지오코딩 필요(B)</td></tr>
+      <tr><td><b>콕집요청</b></td><td><span class="chip c-float">떠 있는 버튼</span></td><td>오른쪽 아래(휴대폰은 하단 가운데). 누르면 요청 보내기가 바로 열리고, 그 안에 AI 상담사 전환</td><td class="why">요청 보내기·AI 상담사 화면을 지도 위 창으로</td></tr>
+      <tr><td><b>도구</b></td><td><span class="chip c-page">오른쪽 위 메뉴</span></td><td>아파트매수계산기·토론장. 지도 위 창으로 열고 닫으면 지도 자리 그대로</td><td class="why">기존 화면을 지도 위 창으로(아파트픽의 embed 방식)</td></tr>
+      <tr><td><b>중개사라운지</b></td><td><span class="chip c-page">오른쪽 위 버튼</span></td><td>지금처럼 별도 화면. 지도 개편 범위 밖</td><td class="why">변경 없음</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="lede small">단지 상세 화면(90일 방문자 10,672명, 대부분 검색 유입)은 지금 주소 그대로 독립 페이지로 둡니다. 지도에서는 같은 내용을 오른쪽 서랍(휴대폰은 전체 시트)으로 열고, 상세 페이지에는 '지도에서 보기'를 붙입니다.</p>
+</section>
+
+
+<section>
+  <h2>통계는 별도 페이지로 둔다</h2>
+  <p class="lede small">지도는 '어디에 무엇이 있나'를 보는 데 좋지만, 전국·시도 비교, 기간 그래프, 긴 순위 표는 지도 범위에 묶이면 오히려 보기 어렵습니다. 그래서 그동안 서비스한 통계·실거래 정보는 <b>통계 페이지</b>에 지금 모습대로 모으고, 지도와는 양쪽으로 잇습니다.</p>
+  <div class="tablebox">
+  <table>
+    <thead><tr><th style="width:22%">구분</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td><b>지도에 싣는 것</b></td><td class="why">위치가 의미 있는 값만: 단지별 실거래가·호가, 동·구 변동률 버블, 거래량 색칠, 갭·전세가율 색칠.</td></tr>
+      <tr><td><b>통계 페이지에 두는 것</b></td><td class="why">메뉴 개편안의 시세분석 묶음 그대로: 실거래가(최고가·변동률) · 매물호가추이 · 시장흐름(기간별 거래량·단지별 거래량·부동산타임머신) · 투자분석(갭투자·깡통전세지수). 시도·전국 비교표, 기간 그래프, 긴 순위 표.</td></tr>
+      <tr><td><b>지도 → 통계</b></td><td class="why">시세분석 레이어 목록 끝 '이 지역 통계 전체 보기', 버블·단지 서랍의 '통계로 보기'. 보던 지역(시도·시군구·동)과 칩(예: 호가추이)이 통계 페이지 필터에 그대로 넘어갑니다.</td></tr>
+      <tr><td><b>통계 → 지도</b></td><td class="why">통계 표의 지역·단지 줄마다 '지도에서 보기'. 시세분석 레이어가 그 위치·같은 지표로 열립니다(<span class="mono">?layer=시세&amp;at=&amp;z=</span>).</td></tr>
+      <tr><td><b>들어가는 곳</b></td><td class="why">데스크톱 오른쪽 위 '통계' 버튼, 휴대폰 하단 탭 두 번째. 지금 통계 페이지 주소는 그대로라 검색 유입·즐겨찾기·기사 링크가 끊기지 않습니다.</td></tr>
+      <tr><td><b>좋은 점</b></td><td class="why">메뉴 개편 1단계(A)가 곧 통계 페이지의 틀이 되어 버리는 작업이 없고, 지도 쪽은 지도에 맞는 기능만 만들면 돼서 B·C 범위가 줄어듭니다.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>매물 목록: 위 2/3 급매, 아래 1/3 콕집 매물</h2>
+  <p class="lede small">매물찾기 레이어의 목록을 두 칸으로 나눕니다. 위는 지금처럼 수집한 매물 중 급매, 아래는 중개사가 콕집에 직접 올린 <b>콕집 매물</b>입니다. 두 칸 모두 지금 보는 지도 범위를 따라 바뀝니다.</p>
+  <div class="tablebox">
+  <table>
+    <thead><tr><th style="width:22%">항목</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td><b>비율</b></td><td class="why">데스크톱 왼쪽 목록은 높이 2:1(급매 5줄, 콕집 매물 2줄). 휴대폰 시트는 급매 2줄, 콕집 매물 1줄. 시트를 끝까지 올리면 '급매 | 콕집 매물' 탭으로 나뉜 전체 목록.</td></tr>
+      <tr><td><b>지도 핀</b></td><td class="why">콕집 매물이 있는 단지는 핀 옆에 파란 '콕집' 표시. 급매 할인율 표시와 함께 붙을 수 있습니다.</td></tr>
+      <tr><td><b>콕집 매물 표시</b></td><td class="why">'콕집' 배지, 올린 중개사무소(랭킹 배지와 연결), 등록일, 확인 방식(현장 확인·주인 직접 의뢰 등), 시세 대비 위치.</td></tr>
+      <tr><td><b>직접 등록 전·범위에 0건일 때</b></td><td class="why">아래 1/3은 비우지 않고 '원하는 조건을 요청하면 중개사가 찾아 드려요'(콕집요청)와 중개사용 '이 동네에 매물 올리기'(라운지)로 채웁니다.</td></tr>
+      <tr><td><b>필요한 것</b></td><td class="why">중개사 매물 직접 등록(라운지)·콕집 매물 저장소·지도 범위 조회. 직접 등록은 별도 일정이며, 지도는 자리를 먼저 만들어 둡니다.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>중개사 랭킹은 레이어 하나에 가두지 않는다</h2>
+  <p class="lede small">중개사 랭킹은 콕집에만 있는 콘텐츠라 세 번째 레이어 안에만 두지 않고, 사람들이 지나가는 자리마다 보이게 합니다. 기준(매물 수·업력·직원 수)은 순위 옆에 늘 함께 적습니다.</p>
+  <div class="tablebox">
+  <table>
+    <thead><tr><th style="width:22%">어디서</th><th>어떻게 보이나</th></tr></thead>
+    <tbody>
+      <tr><td><b>중개사랭킹 레이어</b></td><td class="why">사무소 핀에 순위 번호. 목록은 지금 보는 범위의 랭킹이고, 확대하면 동, 축소하면 구·전국 랭킹으로 바뀝니다(예상 화면 ③).</td></tr>
+      <tr><td><b>단지 서랍 · 중개사 탭</b></td><td class="why">이 단지 매물을 가진 사무소를 <b>이 단지 보유 매물 수</b> 순으로(건수·비중 막대), 각 사무소에 '잠실동 1위' 같은 동 랭킹 배지. 랭킹 아래는 광고 단지 자리(예상 화면 ④). 지금 단지 상세의 <span class="mono">/complex/{번호}/realtors</span>를 그대로 씁니다.</td></tr>
+      <tr><td><b>TODAY 첫 상태</b></td><td class="why">'우리동네 오늘' 카드 아래 '우리동네 중개사 랭킹 TOP 3'.</td></tr>
+      <tr><td><b>사무소 상세</b></td><td class="why">상단에 동·구·전국 순위를 기준별로. 공유하면 '○○동 1위' 문구가 미리보기에 붙습니다.</td></tr>
+      <tr><td><b>독립 랭킹 페이지</b></td><td class="why">우리동네 중개사·전국·지역 랭킹 주소는 그대로 둡니다. '○○동 부동산 순위' 같은 검색 유입 입구라서입니다.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="lede small"><b>광고 단지 원칙.</b> 랭킹 순서에는 광고를 섞지 않고, 랭킹 아래 칸에만 둡니다. 항목마다 '광고' 표시를 붙이고, 지금 보는 단지 근처(같은 구·반경) 단지만 냅니다. 분양 광고는 사업주체 등 법정 표시 항목을 광고 상세에 넣습니다. 광고 판매·정산은 이 개편 범위 밖이라, 처음에는 자리만 만들고 비어 있으면 칸을 숨깁니다.</p>
+</section>
+
+<section>
+  <h2>예상 화면</h2>
+
+  <figure class="shot">
+    <div class="mk desk" role="img" aria-label="데스크톱 지도 첫 화면: 매물찾기 레이어, 급매 칩 선택, 왼쪽 목록, 오른쪽 단지 서랍">
+      <svg class="map"><use href="#city"/></svg>
+      <div class="abs pin dim" style="left:37%;top:42%"><div class="lb">래미안 9.1억</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:47%;top:31%"><div class="lb"><em>-11%</em>헬리오시티 14.2억</div><div class="tip"></div></div>
+      <div class="abs pin sel" style="left:58%;top:47%"><div class="lb"><em>-14%</em>잠실엘스 21.5억</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:45%;top:76%"><div class="lb"><em>-9%</em>파크리오 18.9억</div><div class="tip"></div></div>
+      <div class="abs pin dim" style="left:57%;top:21%"><div class="lb">트리지움 19.8억</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:39%;top:58%"><div class="lb"><em>-8%</em>리센츠 20.4억</div><div class="tip"></div></div>
+      <div class="abs dot" style="left:52%;top:35%"></div><div class="abs dot" style="left:43%;top:44%"></div><div class="abs dot" style="left:61%;top:70%"></div>
+      <div class="abs card bar"><span class="logo">콕집</span><span class="search">⌕ 단지·지역 검색</span></div>
+      <div class="abs layers"><span class="on">매물찾기</span><span>시세분석</span><span>중개사랭킹</span></div>
+      <div class="abs chips"><span class="on">급매</span><span>주인매물</span><span class="cond">+ 역 10분</span><span class="cond">+ 500세대 이상</span></div>
+      <div class="abs util"><span>TODAY</span><span>통계</span><span>도구 ▾</span><span class="lounge">중개사라운지</span><span class="me">●</span></div>
+      <div class="abs card panel">
+        <div class="split-a">
+        <div class="ph"><b>이 지도 범위 급매 128곳</b><small>송파구 잠실동·신천동 일대 · 오늘 09시 기준</small>
+          <div class="sort"><i class="on">할인율순</i><i>가격순</i><i>최근 등록</i></div></div>
+        <div class="row sel"><span class="nm">잠실엘스 84㎡</span><span class="sub">시세 25.0억 · 12층</span><span class="pr"><b>21.5억</b><em>-14%</em></span></div>
+        <div class="row"><span class="nm">헬리오시티 84㎡</span><span class="sub">시세 16.0억 · 5층</span><span class="pr"><b>14.2억</b><em>-11%</em></span></div>
+        <div class="row"><span class="nm">파크리오 84㎡</span><span class="sub">시세 20.8억 · 21층</span><span class="pr"><b>18.9억</b><em>-9%</em></span></div>
+        <div class="row"><span class="nm">리센츠 84㎡</span><span class="sub">시세 22.2억 · 3층</span><span class="pr"><b>20.4억</b><em>-8%</em></span></div>
+        <div class="row"><span class="nm">트리지움 59㎡</span><span class="sub">시세 17.1억 · 9층</span><span class="pr"><b>15.9억</b><em>-7%</em></span></div>
+        </div>
+        <div class="split-b">
+          <div class="ph"><b>콕집 매물 6건</b><small>중개사가 콕집에 직접 올린 매물 · 이 지도 범위</small></div>
+          <div class="row"><span class="nm"><i class="kz">콕집</i>리센츠 84㎡ 18층</span><span class="sub">A공인중개사 · 어제 등록 · 현장 확인</span><span class="pr"><b>22.3억</b><i>시세 대비 -2%</i></span></div>
+          <div class="row"><span class="nm"><i class="kz">콕집</i>잠실엘스 59㎡ 8층</span><span class="sub">B공인중개사 · 3일 전 · 주인 직접 의뢰</span><span class="pr"><b>18.6억</b><i>시세 수준</i></span></div>
+        </div>
+      </div>
+      <div class="abs card zoom"><span>+</span><span>−</span></div>
+      <div class="abs card drawer">
+        <div class="dh" style="position:relative"><span class="x">✕</span><b>잠실엘스</b><small>송파구 잠실동 · 5,678세대 · 2008년</small></div>
+        <div class="tabs"><span class="on">요약</span><span>매물</span><span>실거래</span><span>중개사</span></div>
+        <div class="kv"><div><small>최근 실거래 84㎡</small><b>25.0억</b></div><div><small>급매 최저 호가</small><b><em>21.5억</em></b></div></div>
+        <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><path d="M0 22 L12 20 L24 21 L36 16 L48 17 L60 12 L72 13 L84 9 L100 10" fill="none" stroke="var(--m-primary)" stroke-width="1.4"/><path d="M0 22 L12 20 L24 21 L36 16 L48 17 L60 12 L72 13 L84 9 L100 10 V30 H0Z" fill="var(--m-soft)"/></svg>
+        <div class="lst"><div><span>84㎡ 12층 · 급매</span><em>21.5억</em></div><div><span>84㎡ 7층 · 주인전세</span><span>23.8억</span></div><div><span>59㎡ 15층</span><span>19.2억</span></div></div>
+        <div class="acts"><span>상세 페이지</span><span class="p">이 단지 요청하기</span></div>
+      </div>
+      <div class="abs fab"><i>요청</i>콕집요청</div>
+      <span class="note" data-n="1" style="left:29.6cqw;top:11.2cqw">레이어 3개 = 메뉴 개편안 그룹</span>
+      <span class="note" data-n="2" style="left:29.6cqw;top:41.6cqw">위 2/3 급매 · 아래 1/3 콕집 매물</span>
+      <span class="note" data-n="3" style="right:33cqw;bottom:6.6cqw">요청은 늘 여기</span>
+    </div>
+    <figcaption><b>① 데스크톱 · 매물찾기 레이어.</b> 첫 화면입니다. 급매 칩이 켜져 있고 핀에 할인율이 붙습니다. 맞춤조건은 점선 칩으로 더합니다(맞춤단지 화면의 조건을 칩으로). 왼쪽 목록은 위 2/3가 급매, 아래 1/3이 <b>콕집 매물</b>(중개사가 콕집에 직접 올린 매물)이고, 둘 다 지금 보는 지도 범위만 보여 줍니다. 단지를 누르면 오른쪽 서랍이 열리고, 서랍 안 '이 단지 요청하기'로 요청 화면이 단지가 채워진 채 열립니다.</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <div class="mk desk" role="img" aria-label="데스크톱 지도: 시세분석 레이어를 축소해 동별 버블에 호가 변동률 색칠">
+      <svg class="map"><use href="#city"/></svg>
+      <div class="abs bub" style="left:37%;top:33%;background:var(--m-dn)">잠실동<small>-2.8%</small></div>
+      <div class="abs bub" style="left:51%;top:31%;background:var(--m-dn2)">신천동<small>-1.6%</small></div>
+      <div class="abs bub" style="left:64%;top:26%;background:var(--m-flat)">방이동<small>+0.4%</small></div>
+      <div class="abs bub" style="left:44%;top:52%;background:var(--m-up2)">자양동<small>+2.1%</small></div>
+      <div class="abs bub" style="left:58%;top:76%;background:var(--m-up)">구의동<small>+5.3%</small></div>
+      <div class="abs bub" style="left:38%;top:80%;background:var(--m-up2)">광장동<small>+1.9%</small></div>
+      <div class="abs bub" style="left:66%;top:54%;background:var(--m-flat)">풍납동<small>-0.9%</small></div>
+      <div class="abs card bar"><span class="logo">콕집</span><span class="search">⌕ 단지·지역 검색</span></div>
+      <div class="abs layers"><span>매물찾기</span><span class="on">시세분석</span><span>중개사랭킹</span></div>
+      <div class="abs chips"><span>실거래가</span><span class="on">호가추이</span><span>거래량</span><span>갭·전세가율</span><span class="cond">기간: 최근 3개월</span></div>
+      <div class="abs util"><span>TODAY</span><span>통계</span><span>도구 ▾</span><span class="lounge">중개사라운지</span><span class="me">●</span></div>
+      <div class="abs card panel">
+        <div class="ph"><b>이 범위 호가 변동 순위</b><small>동일매물 기준 · 최근 3개월</small>
+          <div class="sort"><i class="on">하락 큰 순</i><i>상승 큰 순</i><i>매물 많은 순</i></div></div>
+        <div class="row"><span class="nm">잠실동</span><span class="sub">매물 2,140 · 동일매물 1,320</span><span class="pr"><b style="color:var(--m-dn)">-2.8%</b></span></div>
+        <div class="row"><span class="nm">신천동</span><span class="sub">매물 1,060 · 동일매물 610</span><span class="pr"><b style="color:var(--m-dn)">-1.6%</b></span></div>
+        <div class="row"><span class="nm">풍납동</span><span class="sub">매물 420 · 동일매물 250</span><span class="pr"><b style="color:var(--m-dn)">-0.9%</b></span></div>
+        <div class="row"><span class="nm">방이동</span><span class="sub">매물 610 · 동일매물 380</span><span class="pr"><b>+0.4%</b></span></div>
+        <div class="row"><span class="nm">광장동</span><span class="sub">매물 530 · 동일매물 300</span><span class="pr"><b style="color:var(--m-up)">+1.9%</b></span></div>
+        <div class="more">이 지역 통계 전체 보기 ›</div>
+      </div>
+      <div class="abs card legend"><span><i style="background:var(--m-dn)"></i> 하락</span><span><i style="background:var(--m-flat)"></i> 보합</span><span><i style="background:var(--m-up)"></i> 상승</span><span style="color:var(--m-muted)">· 확대하면 단지 핀</span></div>
+      <div class="abs fab" style="right:2cqw"><i>요청</i>콕집요청</div>
+      <span class="note" data-n="4" style="left:49cqw;top:39.5cqw">멀리서는 동·구 묶음, 가까이서는 단지</span>
+    </div>
+    <figcaption><b>② 데스크톱 · 시세분석 레이어(축소).</b> 지금 실거래 지도의 동·구 묶음 버블을 시세분석 전체 칩에 씁니다. 칩만 바꾸면 같은 버블에 실거래가·호가추이·거래량·갭 값이 바뀌어 칠해집니다. 목록 끝 '이 지역 통계 전체 보기'를 누르면 보던 지역이 골라진 채 통계 페이지가 열립니다. 그림 속 수치는 예시입니다.</figcaption>
+  </figure>
+
+
+  <figure class="shot">
+    <div class="mk desk" role="img" aria-label="데스크톱 지도: 중개사랭킹 레이어, 사무소 핀에 순위 번호, 왼쪽 동 랭킹 목록, 오른쪽 사무소 서랍">
+      <svg class="map"><use href="#city"/></svg>
+      <div class="abs pin sel top1" style="left:50%;top:40%"><div class="lb"><b class="rk">1</b>A공인 312건</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:39%;top:30%"><div class="lb"><b class="rk">2</b>B공인 276건</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:59%;top:24%"><div class="lb"><b class="rk">3</b>C공인 241건</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:42%;top:62%"><div class="lb"><b class="rk">4</b>D공인 198건</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:57%;top:74%"><div class="lb"><b class="rk">5</b>E공인 177건</div><div class="tip"></div></div>
+      <div class="abs pin dim" style="left:62%;top:55%"><div class="lb">F공인 64건</div><div class="tip"></div></div>
+      <div class="abs card bar"><span class="logo">콕집</span><span class="search">⌕ 단지·지역·사무소 검색</span></div>
+      <div class="abs layers"><span>매물찾기</span><span>시세분석</span><span class="on">중개사랭킹</span></div>
+      <div class="abs chips"><span class="on">매물 수</span><span>업력</span><span>직원 수</span><span class="cond">범위: 잠실동 (확대 정도로 자동)</span></div>
+      <div class="abs util"><span>TODAY</span><span>통계</span><span>도구 ▾</span><span class="lounge">중개사라운지</span><span class="me">●</span></div>
+      <div class="abs card panel">
+        <div class="ph"><b>잠실동 중개사 랭킹</b><small>매물 보유 기준 · 사무소 84곳 · 오늘 09시</small>
+          <div class="sort"><i class="on">동</i><i>송파구</i><i>서울</i><i>전국</i></div></div>
+        <div class="row sel"><span class="nm"><b class="rk">1</b>A공인중개사</span><span class="sub">직원 6 · 업력 14년 · 주력 잠실엘스</span><span class="pr"><b>312건</b><small>송파 3위</small></span></div>
+        <div class="row"><span class="nm"><b class="rk">2</b>B공인중개사</span><span class="sub">직원 4 · 업력 9년 · 주력 리센츠</span><span class="pr"><b>276건</b><small>송파 5위</small></span></div>
+        <div class="row"><span class="nm"><b class="rk">3</b>C공인중개사</span><span class="sub">직원 5 · 업력 21년 · 주력 트리지움</span><span class="pr"><b>241건</b><small>송파 8위</small></span></div>
+        <div class="row"><span class="nm"><b class="rk">4</b>D공인중개사</span><span class="sub">직원 3 · 업력 6년 · 주력 파크리오</span><span class="pr"><b>198건</b><small>송파 12위</small></span></div>
+        <div class="row"><span class="nm"><b class="rk">5</b>E공인중개사</span><span class="sub">직원 2 · 업력 11년 · 주력 헬리오시티</span><span class="pr"><b>177건</b><small>송파 15위</small></span></div>
+      </div>
+      <div class="abs card zoom"><span>+</span><span>−</span></div>
+      <div class="abs card drawer">
+        <div class="dh" style="position:relative"><span class="x">✕</span><b>A공인중개사</b><small>송파구 잠실동 · 개설 2012년 · 직원 6명</small>
+          <span style="margin-top:.4cqw"><i class="badge">잠실동 1위</i><i class="badge">송파구 3위</i><i class="badge">서울 41위</i></span></div>
+        <div class="tabs"><span class="on">랭킹</span><span>매물</span><span>단지</span><span>리뷰</span></div>
+        <div class="kv"><div><small>매물 보유</small><b>312건</b></div><div><small>업력 · 직원</small><b>14년 · 6명</b></div></div>
+        <div class="lst"><div><span>매물 수 기준</span><span>잠실동 1위 · 송파 3위</span></div><div><span>업력 기준</span><span>잠실동 7위</span></div><div><span>직원 수 기준</span><span>잠실동 2위</span></div><div><span>주력 단지</span><span>잠실엘스 120 · 리센츠 64</span></div></div>
+        <div class="acts"><span>사무소 상세</span><span class="p">이 동네 요청하기</span></div>
+      </div>
+      <div class="abs fab"><i>요청</i>콕집요청</div>
+      <span class="note" data-n="5" style="left:29.6cqw;top:11.2cqw">기준은 칩으로, 범위는 지도 확대로</span>
+      <span class="note" data-n="6" style="left:3cqw;top:58.5cqw">축소하면 구 → 서울 → 전국 랭킹</span>
+    </div>
+    <figcaption><b>③ 데스크톱 · 중개사랭킹 레이어.</b> 사무소 핀에 순위 번호가 붙고 1위는 금색입니다. 왼쪽 목록은 지금 범위의 랭킹이고, 동·구·서울·전국 단추나 지도 축소로 범위가 넓어집니다. 사무소를 누르면 기준별 순위가 한눈에 보이는 서랍이 열립니다. 사무소 이름과 수치는 예시입니다.</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <div class="mk desk" role="img" aria-label="데스크톱 단지 서랍 중개사 탭: 이 단지 매물 보유 중개사 랭킹, 아래 광고 단지">
+      <svg class="map"><use href="#city"/></svg>
+      <div class="abs pin dim" style="left:37%;top:42%"><div class="lb">래미안 9.1억</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:47%;top:31%"><div class="lb"><em>-11%</em>헬리오시티 14.2억</div><div class="tip"></div></div>
+      <div class="abs pin sel" style="left:58%;top:47%"><div class="lb"><em>-14%</em>잠실엘스 21.5억</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:45%;top:76%"><div class="lb"><em>-9%</em>파크리오 18.9억</div><div class="tip"></div></div>
+      <div class="abs pin dim" style="left:57%;top:21%"><div class="lb">트리지움 19.8억</div><div class="tip"></div></div>
+      <div class="abs pin" style="left:39%;top:58%"><div class="lb"><em>-8%</em>리센츠 20.4억</div><div class="tip"></div></div>
+      <div class="abs dot" style="left:52%;top:35%"></div><div class="abs dot" style="left:43%;top:44%"></div><div class="abs dot" style="left:61%;top:70%"></div>
+      <div class="abs card bar"><span class="logo">콕집</span><span class="search">⌕ 단지·지역 검색</span></div>
+      <div class="abs layers"><span class="on">매물찾기</span><span>시세분석</span><span>중개사랭킹</span></div>
+      <div class="abs chips"><span class="on">급매</span><span>주인매물</span><span class="cond">+ 역 10분</span><span class="cond">+ 500세대 이상</span></div>
+      <div class="abs util"><span>TODAY</span><span>통계</span><span>도구 ▾</span><span class="lounge">중개사라운지</span><span class="me">●</span></div>
+      <div class="abs card panel">
+        <div class="split-a">
+        <div class="ph"><b>이 지도 범위 급매 128곳</b><small>송파구 잠실동·신천동 일대 · 오늘 09시 기준</small>
+          <div class="sort"><i class="on">할인율순</i><i>가격순</i><i>최근 등록</i></div></div>
+        <div class="row sel"><span class="nm">잠실엘스 84㎡</span><span class="sub">시세 25.0억 · 12층</span><span class="pr"><b>21.5억</b><em>-14%</em></span></div>
+        <div class="row"><span class="nm">헬리오시티 84㎡</span><span class="sub">시세 16.0억 · 5층</span><span class="pr"><b>14.2억</b><em>-11%</em></span></div>
+        <div class="row"><span class="nm">파크리오 84㎡</span><span class="sub">시세 20.8억 · 21층</span><span class="pr"><b>18.9억</b><em>-9%</em></span></div>
+        <div class="row"><span class="nm">리센츠 84㎡</span><span class="sub">시세 22.2억 · 3층</span><span class="pr"><b>20.4억</b><em>-8%</em></span></div>
+        <div class="row"><span class="nm">트리지움 59㎡</span><span class="sub">시세 17.1억 · 9층</span><span class="pr"><b>15.9억</b><em>-7%</em></span></div>
+        </div>
+        <div class="split-b">
+          <div class="ph"><b>콕집 매물 6건</b><small>중개사가 콕집에 직접 올린 매물 · 이 지도 범위</small></div>
+          <div class="row"><span class="nm"><i class="kz">콕집</i>리센츠 84㎡ 18층</span><span class="sub">A공인중개사 · 어제 등록 · 현장 확인</span><span class="pr"><b>22.3억</b><i>시세 대비 -2%</i></span></div>
+          <div class="row"><span class="nm"><i class="kz">콕집</i>잠실엘스 59㎡ 8층</span><span class="sub">B공인중개사 · 3일 전 · 주인 직접 의뢰</span><span class="pr"><b>18.6억</b><i>시세 수준</i></span></div>
+        </div>
+      </div>
+      <div class="abs card zoom"><span>+</span><span>−</span></div>
+      <div class="abs card drawer">
+        <div class="dh" style="position:relative"><span class="x">✕</span><b>잠실엘스</b><small>송파구 잠실동 · 5,678세대 · 2008년</small></div>
+        <div class="tabs"><span>요약</span><span>매물</span><span>실거래</span><span class="on">중개사</span></div>
+        <div class="rk-h"><b>이 단지 중개사 랭킹</b><span>매물 214건 · 사무소 23곳</span></div>
+        <div class="rkr"><span class="n">1</span><span class="o">A공인중개사 <i class="badge">잠실동 1위</i></span><span class="bm"><i style="width:100%"></i></span><span class="c"><b>48건</b><small>22%</small></span></div>
+        <div class="rkr"><span class="n">2</span><span class="o">C공인중개사 <i class="badge">잠실동 3위</i></span><span class="bm"><i style="width:65%"></i></span><span class="c"><b>31건</b><small>14%</small></span></div>
+        <div class="rkr"><span class="n">3</span><span class="o">B공인중개사 <i class="badge">잠실동 2위</i></span><span class="bm"><i style="width:52%"></i></span><span class="c"><b>25건</b><small>12%</small></span></div>
+        <div class="more">23곳 전체 보기 ›</div>
+        <div class="ad"><span class="lab">광고 단지</span>
+          <div class="adc"><span class="th"></span><b><em>광고</em>송파 ○○ 리버뷰 (분양)</b><small>잠실에서 2.1km · 2028년 입주 예정</small></div>
+          <div class="adc"><span class="th"></span><b><em>광고</em>△△ 더퍼스트 (신축)</b><small>송파구 문정동 · 84㎡ 즉시 입주</small></div>
+        </div>
+        <div class="acts"><span>상세 페이지</span><span class="p">이 단지 요청하기</span></div>
+      </div>
+      <span class="note" data-n="7" style="right:31.5cqw;top:20cqw">이 단지 매물 수로 줄 세운 랭킹</span>
+      <span class="note" data-n="8" style="right:31.5cqw;top:41cqw">랭킹 아래 = 광고 단지 (늘 '광고' 표시)</span>
+      <div class="abs fab"><i>요청</i>콕집요청</div>
+                      </div>
+    <figcaption><b>④ 데스크톱 · 단지 서랍의 중개사 탭.</b> 단지에서 '중개사'를 누르면 이 단지 매물을 가진 사무소를 <b>이 단지 보유 매물 수</b>로 줄 세운 랭킹이 나옵니다. 막대는 1위 대비, %는 이 단지 전체 매물 중 비중이고, 동 랭킹 배지(잠실동 1위)를 같이 붙입니다. 랭킹 아래에는 '광고' 표시를 단 <b>광고 단지</b> 자리를 둡니다. 휴대폰은 같은 내용이 단지 시트의 중개사 탭에 들어갑니다(⑦). 이름·수치는 예시입니다.</figcaption>
+  </figure>
+
+  <div class="phones">
+    <figure class="shot">
+      <div class="mk phone" role="img" aria-label="휴대폰 지도: 매물찾기 레이어, 아래 목록 시트, 하단 탭바 가운데 요청 버튼">
+        <svg class="map"><use href="#city"/></svg>
+        <div class="abs pin" style="left:30%;top:33%"><div class="lb"><em>-11%</em>헬리오 14.2억</div><div class="tip"></div></div>
+        <div class="abs pin sel" style="left:66%;top:40%"><div class="lb"><em>-14%</em>엘스 21.5억</div><div class="tip"></div></div>
+        <div class="abs pin dim" style="left:40%;top:47%"><div class="lb">리센츠 20.4억</div><div class="tip"></div></div>
+        <div class="abs dot" style="left:78%;top:30%"></div><div class="abs dot" style="left:20%;top:44%"></div>
+        <div class="abs top">
+          <div class="card bar"><span class="logo">콕집</span><span class="search">⌕ 단지·지역 검색</span></div>
+          <div class="layers"><span class="on">매물</span><span>시세</span><span>중개사</span></div>
+          <div class="chips"><span class="on">급매</span><span>주인매물</span><span class="cond">+ 조건</span></div>
+        </div>
+        <div class="abs sheet">
+          <div class="grab"></div>
+          <div class="ph"><b>이 범위 급매 128곳</b><small>할인율순 · 위로 올리면 전체 목록</small></div>
+          <div class="row sel"><span class="nm">잠실엘스 84㎡</span><span class="sub">시세 25.0억 · 12층</span><span class="pr"><b>21.5억</b><em>-14%</em></span></div>
+          <div class="row"><span class="nm">헬리오시티 84㎡</span><span class="sub">시세 16.0억 · 5층</span><span class="pr"><b>14.2억</b><em>-11%</em></span></div>
+          <div class="split-b">
+            <div class="ph"><b>콕집 매물 6건</b><small>중개사가 콕집에 직접 올린 매물</small></div>
+            <div class="row"><span class="nm"><i class="kz">콕집</i>리센츠 84㎡</span><span class="sub">A공인중개사 · 현장 확인</span><span class="pr"><b>22.3억</b><i>-2%</i></span></div>
+          </div>
+        </div>
+        <div class="abs tabbar"><span class="on">지도</span><span>통계</span><span class="req">요청</span><span>TODAY</span><span>더보기</span></div>
+      </div>
+      <figcaption><b>⑤ 휴대폰 · 지도와 목록 시트.</b> 레이어 이름은 짧게(매물·시세·중개사). 목록은 아래 시트로, 위에 급매 두 줄·아래에 콕집 매물 한 줄(2:1)이 보이고 끌어올리면 전체 목록이 됩니다. 하단 탭 가운데가 요청 버튼이라 어느 화면에서든 한 번에 누릅니다.</figcaption>
+    </figure>
+    <figure class="shot">
+      <div class="mk phone" role="img" aria-label="휴대폰 단지 시트: 잠실엘스 요약, 실거래와 급매, 이 단지 요청하기 버튼">
+        <svg class="map"><use href="#city"/></svg>
+        <div class="abs pin sel" style="left:50%;top:15%"><div class="lb"><em>-14%</em>잠실엘스 21.5억</div><div class="tip"></div></div>
+        <div class="abs sheet" style="top:24%">
+          <div class="grab"></div>
+          <div class="dh" style="position:relative"><span class="x">✕</span><b>잠실엘스</b><small>송파구 잠실동 · 5,678세대 · 2008년</small></div>
+          <div class="tabs"><span class="on">요약</span><span>매물</span><span>실거래</span><span>중개사</span></div>
+          <div class="kv"><div><small>최근 실거래 84㎡</small><b>25.0억</b></div><div><small>급매 최저 호가</small><b><em>21.5억</em></b></div></div>
+          <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><path d="M0 22 L12 20 L24 21 L36 16 L48 17 L60 12 L72 13 L84 9 L100 10" fill="none" stroke="var(--m-primary)" stroke-width="1.4"/><path d="M0 22 L12 20 L24 21 L36 16 L48 17 L60 12 L72 13 L84 9 L100 10 V30 H0Z" fill="var(--m-soft)"/></svg>
+          <div class="lst"><div><span>84㎡ 12층 · 급매</span><em>21.5억</em></div><div><span>84㎡ 7층 · 주인전세</span><span>23.8억</span></div></div>
+          <div class="acts"><span>상세 페이지</span><span class="p">이 단지 요청하기</span></div>
+        </div>
+        <div class="abs tabbar"><span class="on">지도</span><span>통계</span><span class="req">요청</span><span>TODAY</span><span>더보기</span></div>
+      </div>
+      <figcaption><b>⑥ 휴대폰 · 단지를 고른 뒤.</b> 핀을 누르면 시트가 단지 요약으로 바뀝니다. 위로 끌면 전체 상세, 아래로 내리면 다시 목록. '상세 페이지'는 지금의 단지 상세 주소로 갑니다.</figcaption>
+    </figure>
+    <figure class="shot">
+      <div class="mk phone" role="img" aria-label="휴대폰 단지 시트 중개사 탭: 이 단지 매물 보유 중개사 랭킹과 아래 광고 단지">
+        <svg class="map"><use href="#city"/></svg>
+        <div class="abs pin sel" style="left:50%;top:9%"><div class="lb"><em>-14%</em>잠실엘스 21.5억</div><div class="tip"></div></div>
+        <div class="abs sheet" style="top:14%">
+          <div class="grab"></div>
+          <div class="dh" style="position:relative"><span class="x">✕</span><b>잠실엘스</b><small>송파구 잠실동 · 5,678세대 · 2008년</small></div>
+          <div class="tabs"><span>요약</span><span>매물</span><span>실거래</span><span class="on">중개사</span></div>
+          <div class="rk-h"><b>이 단지 중개사 랭킹</b><span>매물 214건 · 23곳</span></div>
+          <div class="rkr"><span class="n">1</span><span class="o">A공인중개사<i class="badge">잠실동 1위</i></span><span class="bm"><i style="width:100%"></i></span><span class="c"><b>48건</b><small>22%</small></span></div>
+          <div class="rkr"><span class="n">2</span><span class="o">C공인중개사<i class="badge">잠실동 3위</i></span><span class="bm"><i style="width:65%"></i></span><span class="c"><b>31건</b><small>14%</small></span></div>
+          <div class="rkr"><span class="n">3</span><span class="o">B공인중개사<i class="badge">잠실동 2위</i></span><span class="bm"><i style="width:52%"></i></span><span class="c"><b>25건</b><small>12%</small></span></div>
+          <div class="rkr"><span class="n">4</span><span class="o">G공인중개사</span><span class="bm"><i style="width:40%"></i></span><span class="c"><b>19건</b><small>9%</small></span></div>
+          <div class="rkr"><span class="n">5</span><span class="o">D공인중개사<i class="badge">잠실동 4위</i></span><span class="bm"><i style="width:29%"></i></span><span class="c"><b>14건</b><small>7%</small></span></div>
+          <div class="more">23곳 전체 보기 ›</div>
+          <div class="ad"><span class="lab">광고 단지</span>
+            <div class="adc"><span class="th"></span><b><em>광고</em>송파 ○○ 리버뷰 (분양)</b><small>2.1km · 2028년 입주 예정</small></div>
+            <div class="adc"><span class="th"></span><b><em>광고</em>△△ 더퍼스트 (신축)</b><small>송파구 문정동 · 즉시 입주</small></div>
+          </div>
+          <div class="acts"><span>상세 페이지</span><span class="p">이 단지 요청하기</span></div>
+        </div>
+        <div class="abs tabbar"><span class="on">지도</span><span>통계</span><span class="req">요청</span><span>TODAY</span><span>더보기</span></div>
+      </div>
+      <figcaption><b>⑦ 휴대폰 · 단지 시트의 중개사 탭.</b> 데스크톱 ④와 같은 내용을 시트에 담습니다. 이 단지 보유 매물 수 순 랭킹 5곳(동 랭킹 배지·비중 막대) → 전체 보기 → '광고' 표시를 단 광고 단지. 사무소를 누르면 사무소 상세로, '전체 보기'는 시트를 끝까지 올려 23곳 목록을 보여 줍니다. 이름·수치는 예시입니다.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <h2>단계</h2>
+  <p class="lede small">메뉴 개편 1단계와 지도 전환을 묶되, 홈을 지도로 바꾸는 일은 맨 뒤에 둡니다. 각 단계는 따로 되돌릴 수 있습니다.</p>
+  <ol class="steps">
+    <li><span class="k">A</span><div><h3>메뉴 개편 1단계 (개편안 그대로)</h3><p>정리된 시세분석 묶음이 그대로 통계 페이지가 됩니다. 상단 7개 그룹으로 정리합니다. 그룹 이름(매물찾기·시세분석·중개사랭킹)이 지도 레이어 이름과 같아서, 지도로 넘어갈 때 사용자가 다시 배울 것이 없습니다.</p></div></li>
+    <li><span class="k">B</span><div><h3>지도 셸, 관리자만 보기</h3><p>새 주소 <span class="mono">/map</span>(또는 <span class="mono">?ui=map</span> 플래그) 뒤에서 만듭니다. 지금 숨겨 둔 매물지도는 숨김 그대로 두고 코드만 참고합니다.</p>
+      <ul><li>지도 전체 + 떠 있는 검색·레이어·칩·목록·서랍·요청 버튼</li><li>시세분석 레이어 먼저, 실거래가 칩부터: 실거래 지도와 동·구 버블 API가 이미 있어 가장 빨리 됩니다</li><li>통계 페이지 연결: 통계 화면이 주소 파라미터로 지역·지표를 받아 미리 고르게 하고, 표 줄에 '지도에서 보기'</li><li>중개사랭킹 레이어도 같이: 목록은 동 단위 랭킹(<span class="mono">/stats/realtors/by-dong</span>)·전국·시도 랭킹을 그대로 씁니다. 구 단위 랭킹 API는 새로 필요합니다</li><li>사무소 핀 좌표: 동 랭킹 대상 111,699곳 중 좌표 있는 곳은 57,985곳(52%, 네이버 프로필 좌표). 나머지는 등록 주소를 VWorld 지오코더로 미리 채워 둡니다(비단지 지번 복원과 같은 캐시 방식). 다 채워지기 전에는 좌표 없는 사무소는 목록에만 나옵니다</li><li>공유 링크 형식 <span class="mono">?layer=&amp;at=위도,경도&amp;z=&amp;id=</span></li></ul></div></li>
+    <li><span class="k">C</span><div><h3>매물찾기 레이어 + 랭킹 배지</h3><p>급매·주인매물·맞춤조건을 지도 범위로 부르는 API, 동·구 묶음 집계(급매 수·할인율, 시세분석의 호가추이·거래량·갭 칩 포함)를 새로 만듭니다. 같은 때 단지 서랍 중개사 탭·TODAY TOP 3·사무소 상세에 랭킹 배지를 붙입니다. 목록 아래 1/3 콕집 매물 칸은 이때 자리를 만들고, 직접 등록이 열리기 전에는 요청·매물 올리기 안내로 채웁니다.</p>
+      <ul><li>묶음 집계는 매일 미리 만들어 두고 읽기만(본 DB에 긴 읽기를 걸지 않음)</li><li>한 화면 핀 상한(약 150개), 축소 시 묶음으로</li></ul></div></li>
+    <li><span class="k">D</span><div><h3>휴대폰 하단 탭</h3><p>지도 · 통계 · 요청 · TODAY · 더보기(도구·내 정보·중개사라운지). 요청은 가운데 큰 버튼. 앱(TWA·iOS)에서도 같은 화면입니다.</p></div></li>
+    <li><span class="k">E</span><div><h3>홈을 지도로 전환</h3><p>B~D를 관리자·일부 사용자로 써 본 뒤 <span class="mono">/</span>를 지도로 바꿉니다. 지금 홈은 'TODAY' 탭으로 남습니다. 전환 후 4주 지표로 유지·되돌림을 정합니다.</p></div></li>
+  </ol>
+</section>
+
+<section>
+  <div class="two">
+    <div class="box">
+      <h3>새로 만들어야 하는 것</h3>
+      <ul>
+        <li>지도 셸 화면(데스크톱 떠 있는 카드 + 휴대폰 시트·탭바)</li>
+        <li>지도 범위 목록 API: 급매·주인매물·맞춤조건(bbox 조건)</li><li>랭킹 배지: 단지 서랍·TODAY·사무소 상세에 동·구·전국 순위</li><li>콕집 매물 칸: 중개사 직접 등록(라운지)·저장소·지도 범위 조회</li><li>단지 서랍 중개사 탭 아래 광고 단지 칸(광고 등록·노출 관리)</li><li>중개사무소 좌표 채우기(약 5.4만 곳 지오코딩)와 구 단위 랭킹</li><li>통계 페이지 ↔ 지도 연결(지역·지표 파라미터, '지도에서 보기')</li>
+        <li>동·구 묶음 집계: 급매 수·평균 할인율, 호가 변동률, 갭·전세가율</li>
+        <li>단지 서랍: 단지 상세의 요약·매물·실거래·중개사 탭을 가볍게</li>
+        <li>요청 창: 단지가 채워진 채 열리는 요청 보내기</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>그대로 쓰는 것</h3>
+      <ul>
+        <li>카카오 지도(실거래 지도·사무소 지도에서 이미 사용)</li>
+        <li>실거래 지도와 동·구 버블 API</li><li>우리동네 중개사 동 랭킹·전국·시도 랭킹 데이터, 단지별 중개사 매물 수(<span class="mono">/complex/{번호}/realtors</span>)</li>
+        <li>급매·주인매물·맞춤단지 계산 로직</li>
+        <li>단지 상세 페이지(주소 유지, 검색 유입 보존)</li>
+        <li>메뉴 개편안의 그룹·이름</li><li>지금의 통계·실거래 페이지 전부(통계 페이지로 묶어 주소 유지)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>위험과 대응</h2>
+  <div class="tablebox">
+  <table>
+    <thead><tr><th style="width:24%">위험</th><th>대응</th></tr></thead>
+    <tbody>
+      <tr><td>검색 유입 감소</td><td class="why">단지 상세·실거래 순위 등 지금 주소는 모두 독립 페이지로 유지합니다. 지도는 그 위에 얹는 첫 화면일 뿐입니다.</td></tr>
+      <tr><td>휴대폰에서 느림</td><td class="why">핀 상한·묶음 집계 미리 만들기·처음엔 동 묶음만 불러오기. 지도 화면 첫 표시 3초 안을 합격선으로 둡니다.</td></tr>
+      <tr><td>카카오 지도 호출 한도</td><td class="why">홈 방문 전체가 지도를 열게 되므로 하루 호출량을 미리 계산해 한도와 맞춥니다.</td></tr>
+      <tr><td>본 DB 부하</td><td class="why">지도 범위 질의는 미리 만든 집계·캐시에서만 읽습니다. 본 DB에 긴 읽기를 걸지 않습니다.</td></tr>
+      <tr><td>중개사 핀 빈자리</td><td class="why">좌표 없는 사무소(48%)가 지도에서 빠져 랭킹이 틀려 보일 수 있습니다. 목록은 좌표와 무관하게 전체 순위를 보여 주고, 지오코딩을 B 전에 끝냅니다.</td></tr>
+      <tr><td>광고와 랭킹 혼동</td><td class="why">광고는 랭킹 칸 아래 별도 칸에만, 항목마다 '광고' 표시. 사무소 광고(돈 내면 위로)는 하지 않습니다.</td></tr>
+      <tr><td>목록에 익숙한 사용자</td><td class="why">목록 시트를 끝까지 올리면 전체 목록. 표·그래프로 보고 싶은 사람은 통계 페이지에서 지금과 같은 화면을 그대로 씁니다.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <div class="ask">
+    <h2 style="font-size:17px">정할 것</h2>
+    <ol>
+      <li><b>첫 레이어.</b> 매물찾기(급매)를 제안합니다. 메뉴 화면 중 방문자 1위입니다. 만드는 순서는 데이터가 이미 있는 시세분석·중개사랭킹이 먼저입니다.</li>
+      <li><b>홈 전환 시점(E).</b> 관리자·일부 사용자로 써 본 뒤 정하는 것을 제안합니다.</li>
+      <li><b>휴대폰 하단 탭 도입.</b> 요청 버튼을 하단 가운데에 고정하려면 필요합니다. 구성은 지도 · 통계 · 요청 · TODAY · 더보기를 제안합니다.</li>
+      <li><b>그룹 이름 '중개사찾기' → '중개사랭킹'.</b> 랭킹이 콘텐츠라는 게 이름에서 보이게 바꾸는 것을 제안합니다. 메뉴 개편안에도 같이 반영됩니다.</li>
+      <li><b>메뉴 개편 1단계를 지도보다 먼저 할지.</b> 따로 해도 되고, 지도 셸과 한 번에 내도 됩니다.</li>
+    </ol>
+  </div>
+</section>
+
+<p class="foot">계획안과 예상 화면이며 홈페이지·코드는 바꾸지 않았습니다. 예상 화면 속 단지·가격·변동률은 배치를 보여 주기 위한 예시 값입니다.</p>
+</div>

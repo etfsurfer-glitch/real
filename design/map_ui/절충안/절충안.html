@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>콕집 화면 개편 절충안</title>
+<style>
+@font-face{font-family:P;src:url("file:///Users/hcode/auto/naverreal/design/fonts/Pretendard-Regular.ttf");font-weight:400}
+@font-face{font-family:P;src:url("file:///Users/hcode/auto/naverreal/design/fonts/Pretendard-Medium.ttf");font-weight:500}
+@font-face{font-family:P;src:url("file:///Users/hcode/auto/naverreal/design/fonts/Pretendard-SemiBold.ttf");font-weight:600}
+@font-face{font-family:P;src:url("file:///Users/hcode/auto/naverreal/design/fonts/Pretendard-Bold.ttf");font-weight:700}
+@font-face{font-family:P;src:url("file:///Users/hcode/auto/naverreal/design/fonts/Pretendard-ExtraBold.ttf");font-weight:800}
+@page{size:A4;margin:18mm 16mm 20mm 16mm}
+:root{--ink:#17202e;--mut:#5b6472;--navy:#13294b;--blue:#1f5fbf;--line:#d9dee6;--soft:#f3f5f8;--red:#c43a3a;--green:#1f9d63;--amber:#b7791f;--purple:#6b4fbb}
+*{box-sizing:border-box}
+body{font-family:P,system-ui,sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;margin:0}
+h1{font-size:24pt;font-weight:800;color:var(--navy);margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:14.5pt;font-weight:800;color:var(--navy);margin:22px 0 8px;padding-bottom:5px;border-bottom:2px solid var(--navy);break-after:avoid}
+h3{font-size:11.5pt;font-weight:700;margin:14px 0 5px;break-after:avoid}
+p{margin:0 0 7px}
+.sub{color:var(--mut);font-size:10pt;margin-bottom:14px}
+.meta{display:flex;gap:14px;color:var(--mut);font-size:9.5pt;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px 0;margin:10px 0 18px}
+table{width:100%;border-collapse:collapse;margin:6px 0 10px;font-size:9.6pt;break-inside:auto}
+th,td{border:1px solid var(--line);padding:5px 7px;vertical-align:top;text-align:left}
+th{background:var(--soft);font-weight:700;color:var(--navy)}
+tr{break-inside:avoid}
+td.k{font-weight:700;background:#fafbfd;width:19%}
+.tag{display:inline-block;font-size:8.5pt;font-weight:700;padding:1px 6px;border-radius:3px;color:#fff;vertical-align:1px}
+.tag.m{background:var(--blue)}.tag.c{background:var(--purple)}.tag.n{background:var(--green)}.tag.w{background:var(--amber)}.tag.r{background:var(--red)}
+.box{border:1px solid var(--line);border-left:4px solid var(--navy);background:var(--soft);padding:9px 12px;margin:10px 0;break-inside:avoid}
+.box b{color:var(--navy)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{border:1px solid var(--line);padding:10px 12px;break-inside:avoid}
+.card h4{margin:0 0 6px;font-size:10.5pt;color:var(--navy)}
+ul{margin:2px 0 8px;padding-left:18px}li{margin:2px 0}
+.small{font-size:9pt;color:var(--mut)}
+.shell{border:1px solid var(--line);background:#fff;padding:10px;font-size:9.2pt;break-inside:avoid}
+.shell .bar{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.shell .pill{border:1px solid var(--line);padding:2px 8px;border-radius:2px;background:#fff}
+.shell .pill.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.shell .btn{margin-left:auto;display:flex;gap:6px}
+.shell .btn span{padding:2px 8px;border:1px solid var(--navy);color:var(--navy)}
+.shell .map{height:70px;background:repeating-linear-gradient(45deg,#f6f8fb 0 8px,#eef1f6 8px 16px);display:flex;align-items:flex-end;justify-content:space-between;padding:6px}
+.shell .map i{font-style:normal;background:#fff;border:1px solid var(--line);padding:1px 6px}
+.shell .req{background:var(--red);color:#fff;padding:2px 8px;font-weight:700}
+.stage{display:grid;grid-template-columns:34px 1fr;gap:10px;margin:8px 0;break-inside:avoid}
+.stage .n{width:34px;height:34px;border-radius:50%;background:var(--navy);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:13pt}
+.stage h4{margin:4px 0 3px;font-size:10.8pt}
+.foot{margin-top:26px;padding-top:8px;border-top:1px solid var(--line);font-size:9pt;color:var(--mut)}
+.pb{break-before:page}
+</style></head><body>
+
+<h1>콕집 화면 개편 절충안</h1>
+<div class="sub">지도 화면 개편안(2026-11-06)과 공동대표 메뉴 다이어트·매물장 개선안을 하나로 합친 안</div>
+<div class="meta"><span>작성 2026-11-09</span><span>콕집 CTO</span><span>대상: 공동대표·개발</span><span>상태: 검토용(구현 전)</span></div>
+
+<div class="box"><b>한 줄 결론.</b> 두 안은 같은 층의 경쟁안이 아니다. 공동대표 안은 <b>무엇을 어떻게 묶을지</b>(정보 구조), 지도 개편안은 <b>그 묶음을 어떻게 보여줄지</b>(표현)를 다룬다. 지도 개편안의 A단계 "메뉴 개편 1단계"에 들어갈 묶음을 공동대표의 5개 카테고리로 교체하고, 공동대표 안에만 있는 <b>등기·전세안심</b>을 지도 레이어가 아닌 상단 버튼으로 얹으면 두 안이 거의 손실 없이 합쳐진다. 매물장 개선 4건은 지도 범위 밖이라 비즈앱 트랙으로 따로 간다.</div>
+
+<h2>1. 두 안이 각각 말하는 것</h2>
+<div class="cols">
+<div class="card"><h4><span class="tag m">지도</span> 지도 화면 개편안</h4>
+<ul>
+<li>첫 화면을 지도로 바꾼다. 목록은 지금 보는 지도 범위를 따라 바뀐다.</li>
+<li>매물찾기·시세분석·중개사랭킹 세 그룹은 페이지가 아니라 지도 위 <b>레이어</b>다.</li>
+<li>표·그래프 통계는 별도 <b>통계 페이지</b>에 지금 모습대로 두고 지도와 양방향으로 잇는다.</li>
+<li>콕집요청은 어느 화면에서든 <b>떠 있는 버튼</b> 하나로 누른다.</li>
+<li>중개사 랭킹을 단지 서랍·TODAY·사무소 상세 곳곳에 배지로 노출하고, 랭킹 아래에 광고 단지 자리를 만든다.</li>
+<li>목록 아래 1/3은 중개사가 직접 올린 콕집 매물 칸으로 예약한다.</li>
+<li>현재 상태: testv2.koczip.com에 세 레이어·서랍·역/학교 표시·사무소 핀까지 구현됨.</li>
+</ul></div>
+<div class="card"><h4><span class="tag c">대표</span> 공동대표 메뉴 다이어트·매물장 개선안</h4>
+<ul>
+<li>상단 메뉴 12개를 5개 카테고리로 묶는다: ①급매·집찾기 ②등기·전세안심(신규) ③실거래·시세분석 ④콕집AI·매물의뢰 ⑤중개사·커뮤니티.</li>
+<li>실거래 19개+ 항목을 4개 탭(실거래가·매물호가추이·시장흐름·투자분석)으로, 중개사랭킹 4개를 정렬 필터 하나로 통합.</li>
+<li>특수조건 매물(주인전세·세안고·대출)을 매물호가 맨 아래에서 1번 카테고리 전면으로 승격.</li>
+<li><b>등기·전세안심</b>: 무료 등기분석 + 등기변동 실시간 알림(휴대폰 인증) + 깡통전세지수 + 매수계산기·안전특약. 인스타 광고 랜딩이자 회원 DB 확보 장치.</li>
+<li>매물장(비즈앱) 4건: 항목형 광고 입력, 네이버 광고 업로드 항목 맞추기, 조건검색, 내 매물 점검 신설.</li>
+</ul></div>
+</div>
+
+<h2>2. 항목별 대조</h2>
+<table>
+<tr><th style="width:21%">공동대표 안</th><th style="width:27%">지도 개편안의 대응</th><th style="width:12%">관계</th><th>절충</th></tr>
+<tr><td class="k">급매·집찾기<br><span class="small">급매찾기·조건별 매물·맞춤단지·단지/지역비교</span></td><td>매물찾기 레이어(급매·주인매물·맞춤조건 칩), 비교는 도구</td><td><span class="tag n">같음</span></td><td>레이어 이름만 공동대표 명칭으로. 단지·지역비교는 서랍의 "비교에 담기"로 지도에서 진입하고 페이지는 유지.</td></tr>
+<tr><td class="k">조건별 매물(대출·전세·세안고) 승격</td><td>주인매물 칩(매물찾기 레이어 안)</td><td><span class="tag n">같음</span></td><td>칩으로 이미 전면 노출. 명칭은 "주인매물"보다 공동대표의 "조건별 매물"이 더 넓어 이쪽 채택. 설명문의 "갭투자"는 홍보 문구라 분류에서 뺐으니 "세안고·주인전세·매도인 대출"로 고쳐 쓴다.</td></tr>
+<tr><td class="k">실거래·시세분석 4탭</td><td>별도 통계 페이지, 4묶음 이름까지 동일 + 시세분석 레이어(위치 있는 값만)</td><td><span class="tag n">같음</span></td><td>통계 페이지 = 공동대표 4탭 그대로. 지도에는 단지 핀·동/구 버블로 같은 지표를 싣고 "이 지역 통계 전체 보기"로 넘어간다.</td></tr>
+<tr><td class="k">콕집AI·매물의뢰<br><span class="small">AI 상담사·중개사에게 매물의뢰·내 요청 보기</span></td><td>떠 있는 요청 버튼, 안에서 AI 상담 전환</td><td><span class="tag n">같음</span></td><td>버튼 이름을 "매물의뢰"로. 누르면 ①중개사에게 매물의뢰 ②AI 상담사 ③내 요청 보기 세 갈래. 공동대표가 복원한 직접 의뢰 진입로를 첫 번째에 둔다.</td></tr>
+<tr><td class="k">중개사·커뮤니티<br><span class="small">우리동네 중개사·우수중개사 랭킹·토론장</span></td><td>중개사랭킹 레이어(기준은 칩, 범위는 확대로) + 토론장은 도구</td><td><span class="tag w">일부</span></td><td>랭킹 통합은 레이어가 이미 해냄(동→구→전국은 축소로). 토론장 자리만 갈림. 아래 3절.</td></tr>
+<tr><td class="k">등기·전세안심(신규)</td><td>없음. 깡통전세지수는 통계 투자분석, 매수계산기는 도구에 흩어짐</td><td><span class="tag r">공동대표만</span></td><td>지도 레이어가 아니라 상단 오른쪽 <b>안심</b> 버튼으로 얹는다. 위치 정보가 아니라 레이어로 만들 이유가 없다. 아래 3절·5절.</td></tr>
+<tr><td class="k">TODAY 흡수<br><span class="small">전국급매→급매찾기, 우리단지찾기→맞춤단지, 우리동네→우리동네 중개사</span></td><td>TODAY = 지도의 첫 상태(접속 동네 + 우리동네 오늘 카드)</td><td><span class="tag n">같음</span></td><td>TODAY 메뉴 삭제. 지도 첫 화면 목록 맨 위 카드로 남고, 옛 주소는 리다이렉트.</td></tr>
+<tr><td class="k">매물장 개선 4건</td><td>범위 밖</td><td><span class="tag r">공동대표만</span></td><td>비즈앱 트랙으로 분리. 6절.</td></tr>
+<tr><td class="k">—</td><td>콕집 매물 칸, 광고 단지 자리, 랭킹 배지, 지도↔통계 파라미터, 공유 링크</td><td><span class="tag m">지도만</span></td><td>그대로 유지. 공동대표 안과 충돌 없음.</td></tr>
+</table>
+
+<h2>3. 실제로 갈리는 결정과 절충</h2>
+<table>
+<tr><th style="width:17%">쟁점</th><th style="width:24%">지도 개편안</th><th style="width:24%">공동대표 안</th><th>절충</th></tr>
+<tr><td class="k">깡통전세지수 자리</td><td>통계 페이지 투자분석 탭</td><td>등기·전세안심 카테고리의 주력 메뉴</td><td><b>공동대표 안 채택.</b> 사업 목적(안전 진단→회원 확보)이 분명하다. 통계 투자분석에는 링크 한 줄만 남긴다.</td></tr>
+<tr><td class="k">매수계산기 자리</td><td>도구 메뉴(지도 위 창)</td><td>등기·전세안심의 "안전특약·매수계산기"</td><td><b>공동대표 안 채택.</b> 안심 버튼 안에 넣고 지도 위 창으로 연다. 도구 메뉴는 비어서 없어진다.</td></tr>
+<tr><td class="k">토론장 자리</td><td>도구 메뉴</td><td>중개사·커뮤니티</td><td><b>공동대표 안 채택, 단 지도에서는 중개사랭킹 레이어 목록 하단 "이 동네 이야기" 링크</b>로 진입. 토론장 자체는 지도 위 창. 도구 메뉴가 사라지므로 어차피 자리가 필요하다.</td></tr>
+<tr><td class="k">카테고리 이름</td><td>매물찾기·시세분석·중개사랭킹(휴대폰 2글자: 매물·시세·중개사)</td><td>급매·집찾기·실거래·시세분석·중개사·커뮤니티</td><td><b>짧은 쪽으로.</b> 상단 메뉴와 레이어 이름이 같아야 한다는 지도안 원칙 유지. 데스크톱 "매물찾기·시세분석·중개사", 휴대폰 "매물·시세·중개사". 공동대표의 긴 이름은 각 레이어의 설명문·검색 유입용 페이지 제목으로 쓴다.</td></tr>
+<tr><td class="k">첫 화면</td><td>지도</td><td>언급 없음(메뉴·페이지 전제)</td><td><b>지도안 유지, 단 맨 마지막 단계.</b> 메뉴 묶음은 먼저 바꾸고, 홈 전환은 testv2 검증 뒤 되돌릴 수 있게 플래그로.</td></tr>
+<tr><td class="k">우수중개사 랭킹 통합</td><td>레이어 칩(매물 수·업력·직원 수) + 축소로 동→구→전국</td><td>단일 페이지 + 정렬 필터</td><td><b>둘 다.</b> 지도에선 레이어, 검색 유입용 독립 랭킹 페이지는 주소 유지하고 정렬 필터 하나로 합친다(구 단위 랭킹 API 신규).</td></tr>
+</table>
+
+<h2>4. 절충안 최종 구조</h2>
+<p>데스크톱 상단은 왼쪽에 지도 레이어 셋, 오른쪽에 지도 밖 기능 셋, 오른쪽 아래에 요청 버튼. 공동대표의 5개 카테고리가 전부 들어간다.</p>
+<div class="shell">
+<div class="bar"><span style="font-weight:800;color:var(--navy)">콕집</span><span class="pill">⌕ 단지·지역·사무소 검색</span><span class="pill on">매물찾기</span><span class="pill">시세분석</span><span class="pill">중개사</span>
+<div class="btn"><span>안심</span><span>통계</span><span>중개사라운지</span><span>로그인</span></div></div>
+<div class="bar"><span class="pill on">급매</span><span class="pill">조건별 매물</span><span class="pill">+ 역 10분</span><span class="pill">+ 500세대</span></div>
+<div class="map"><i>왼쪽 목록: 이 지도 범위 급매 ↑ 2/3 · 콕집 매물 ↓ 1/3</i><span class="req">매물의뢰</span></div>
+</div>
+<table>
+<tr><th style="width:21%">공동대표 카테고리</th><th style="width:22%">절충안에서의 자리</th><th>내용</th></tr>
+<tr><td class="k">① 급매·집찾기</td><td>레이어 <b>매물찾기</b></td><td>칩: 급매 · 조건별 매물(세안고·주인전세·매도인 대출) · 맞춤조건(역·세대수·가격·학군). 목록 위 2/3 급매, 아래 1/3 콕집 매물. 단지 서랍에서 "비교에 담기"→단지·지역비교 페이지.</td></tr>
+<tr><td class="k">② 등기·전세안심</td><td>상단 버튼 <b>안심</b>(지도 위 창)</td><td>탭 4개: 등기변동 알림 · 등기분석 · 깡통전세지수 · 매수계산기·안전특약. 휴대폰은 하단 탭 4번째(지도·통계·의뢰·안심·더보기). 광고 랜딩 주소 /safe 는 이 창이 열린 지도로 연결.</td></tr>
+<tr><td class="k">③ 실거래·시세분석</td><td>레이어 <b>시세분석</b> + 버튼 <b>통계</b></td><td>지도: 실거래가·호가추이·거래량·갭/전세가율 칩, 확대=단지 핀, 축소=동/구 버블. 통계 페이지: 공동대표 4탭(실거래가·매물호가추이·시장흐름·투자분석) 그대로, 지역·지표가 양방향으로 넘어감.</td></tr>
+<tr><td class="k">④ 콕집AI·매물의뢰</td><td>떠 있는 버튼 <b>매물의뢰</b></td><td>누르면 중개사에게 매물의뢰 · AI 상담사 · 내 요청 보기. 단지 서랍·사무소 팝업의 "이 단지/동네 요청하기"는 단지·동이 채워진 채 같은 창.</td></tr>
+<tr><td class="k">⑤ 중개사·커뮤니티</td><td>레이어 <b>중개사</b></td><td>사무소 핀(순위 번호·1위 금색·같은 자리 묶음), 기준 칩(매물 수·업력·직원 수), 범위는 시·도→시·군·구→동 고르기 또는 지도 축소. 목록 하단 "이 동네 이야기"→토론장(지도 위 창). 독립 랭킹 페이지는 주소 유지·정렬 필터로 통합.</td></tr>
+<tr><td class="k">TODAY(흡수)</td><td>지도 첫 상태</td><td>접속 동네로 지도 열고 목록 맨 위 "우리동네 오늘" 카드(새 급매·신고가·실거래) + 우리동네 중개사 TOP 3.</td></tr>
+<tr><td class="k">중개사라운지</td><td>상단 버튼(별도 화면)</td><td>변경 없음. 비즈앱 트랙.</td></tr>
+</table>
+
+<h2>5. 등기·전세안심은 열 수 있지만 조건이 있다</h2>
+<p>공동대표 안의 유일한 신규 콘텐츠다. 절반은 이미 만들어져 있고, 절반은 원가 결정이 필요하다.</p>
+<table>
+<tr><th style="width:20%">항목</th><th style="width:14%">현재</th><th>상태·조건</th></tr>
+<tr><td class="k">등기변동 알림</td><td><span class="tag n">구축됨</span></td><td>회원용 /iros 가 관리자 미리보기로 닫혀 있다. 서버 플래그와 라우트 게이트만 풀면 열린다. 휴대폰 인증(SMS OTP)도 있다. 이상 조회 탐지·텔레그램 경보까지 붙어 있다.</td></tr>
+<tr><td class="k">알림 채널</td><td><span class="tag w">부분</span></td><td>지금은 웹푸시. 안드로이드 앱·PWA는 받고 아이폰 앱은 못 받는다(네이티브 푸시 없음). 공동대표 안의 카톡·문자로 가려면 알림톡 템플릿 신규 승인과 건당 비용이 붙는다. 알림톡 발송 인프라는 있다.</td></tr>
+<tr><td class="k">조회 한도</td><td><span class="tag r">병목</span></td><td>등기소 쪽 하루 500회·분당 3회·동시 1건, 조회 1건 약 9초, 회원 하루 3회, 자동 감시 300건 상한. <b>인스타 광고로 대량 유입을 받으면 첫날 한도에 걸린다.</b> 광고 집행 전에 한도 확장(세션·키 추가)을 등기소 API 쪽과 먼저 합의해야 한다.</td></tr>
+<tr><td class="k">무료 등기분석<br><span class="small">근저당·전세권·가압류·신탁</span></td><td><span class="tag r">없음</span></td><td>현재 API는 최근 2개월 신청사건의 변동 여부만 준다. 등기부 전체 권리관계를 읽으려면 등기소 열람 비용이 건당 발생하고 콕집 키의 권한도 바꿔야 한다. "무료"로 열지는 건당 원가·일 한도·어뷰징 대응을 보고 결정. <b>1차에는 "변동 감시 무료 + 권리분석은 요약 리포트(유료 또는 회원 월 N회)"</b>로 열고, 원가가 확인되면 넓힌다.</td></tr>
+<tr><td class="k">안전특약 가이드</td><td><span class="tag w">콘텐츠</span></td><td>계약서 작성 기능의 특약 문구를 꺼내 쓰면 된다. 법률 면책 문구 필수.</td></tr>
+</table>
+<div class="box"><b>절충.</b> 안심 버튼은 1차에 <b>등기변동 알림·깡통전세지수·매수계산기·안전특약</b> 네 가지로 열고, 등기분석 탭은 "준비 중·알림 신청"으로 둔다. 광고 랜딩은 등기변동 알림 신청 흐름(주소→휴대폰 인증→감시 등록)으로 잡아 회원 DB 목적을 먼저 달성한다. 한도 확장이 되면 등기분석을 켠다.</div>
+
+<h2>6. 매물장 개선안(비즈앱 트랙)</h2>
+<table>
+<tr><th style="width:22%">공동대표 안</th><th style="width:16%">현재</th><th>처리</th></tr>
+<tr><td class="k">항목형 광고 입력</td><td>자연어·붙여넣기만</td><td>빠른 입력에 <b>항목형 모드</b> 추가: 주소찾기→거래조건(매매·임대)→기본 항목을 넣으면 나머지는 단지 DB·주소로 자동 채움. 공동대표 피드백대로 중개사에겐 이쪽이 익숙하다.</td></tr>
+<tr><td class="k">네이버 광고 업로드 항목</td><td>첨부 없음</td><td>제안서의 "유첨"이 파일에 들어 있지 않다. <b>첨부를 받아야</b> 입력 항목·연결 키를 한 번에 설계할 수 있다.</td></tr>
+<tr><td class="k">조건검색·문장형 검색</td><td>목록만</td><td>매물장에 지역·금액(보증금/월세)·용도 필터 + 문장형 검색 한 칸. 매물이 많아지면 내 매물도 기억 안 난다는 문제 해결.</td></tr>
+<tr><td class="k">내 매물 점검</td><td>사무소 전체 점검만</td><td>매물장 물건 ↔ 네이버 매물의 <b>연결 키</b>(매물번호)를 먼저 만들고, 그중 업로드된 것만 점검하는 "내 매물 점검"을 신설. 직원 3명만 돼도 헷갈린다는 요구에 맞춘다.</td></tr>
+</table>
+
+<h2>7. 단계와 순서</h2>
+<div class="stage"><div class="n">A</div><div><h4>메뉴 묶기 (공동대표 안 그대로, 지도 없이)</h4><p>운영 koczip.com 상단 메뉴를 5개 카테고리로 교체. 특수조건 매물 승격, 실거래 4탭, 중개사랭킹 정렬 통합, TODAY 흡수·리다이렉트. 데이터·API 변경 없음. <b>하루</b>. 이 묶음이 곧 통계 페이지와 지도 레이어의 틀이 되어 버리는 작업이 없다.</p></div></div>
+<div class="stage"><div class="n">B</div><div><h4>안심 버튼 1차 + 광고 랜딩</h4><p>등기변동 알림 회원 오픈, 깡통전세지수·매수계산기·안전특약 묶기, /safe 랜딩. 알림톡 템플릿 신청·등기소 한도 확장 협의 병행. <b>일주일</b>(한도 협의 제외).</p></div></div>
+<div class="stage"><div class="n">C</div><div><h4>testv2 이름·구조 맞추기</h4><p>레이어·칩 이름을 A단계 명칭으로, 매물의뢰 버튼 세 갈래, 안심·통계 버튼, 지도↔통계 파라미터 연결, 구 단위 랭킹 API. 이미 구현된 세 레이어 위에서 <b>이름과 연결만</b> 바꾸는 일.</p></div></div>
+<div class="stage"><div class="n">D</div><div><h4>매물장 개선(비즈앱)</h4><p>항목형 입력→조건검색→내 매물 점검 순. 네이버 업로드 항목 첨부를 받은 뒤 착수.</p></div></div>
+<div class="stage"><div class="n">E</div><div><h4>홈을 지도로</h4><p>testv2 검증 뒤 운영 홈 전환. 플래그로 되돌릴 수 있게. 단지 상세·통계·랭킹 페이지 주소는 그대로 두어 검색 유입이 끊기지 않는다.</p></div></div>
+
+<h2>8. 결정이 필요한 것</h2>
+<ul>
+<li>카테고리 이름: 짧은 이름(매물찾기·시세분석·중개사·안심·통계·매물의뢰)으로 가는 데 동의하는지.</li>
+<li>무료 등기분석의 범위: 1차 "변동 감시 무료 + 분석은 준비 중"으로 여는 데 동의하는지, 원가 확인 뒤 무료 여부 재결정.</li>
+<li>등기소 한도 확장 협의를 누가 언제 하는지. 인스타 광고 집행은 그 뒤.</li>
+<li>네이버 광고 업로드 항목 첨부 전달.</li>
+</ul>
+
+<div class="foot">콕집 내부 검토 문서 · 2026-11-09 · 그림의 사무소 이름과 수치는 예시</div>
+</body></html>

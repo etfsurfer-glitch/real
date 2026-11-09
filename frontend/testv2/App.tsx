@@ -6,6 +6,8 @@ import { loadKakao, wonShort, geocodeRegion } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
 import { ComplexDrawer, JibunDrawer, Skel, Dd, SPECIAL_KINDS, type DrawerTab, type Jibun } from "./Drawer";
 import { useSession, authHeaders, LoginBox, logout, sessionName } from "./Request";
+import { StatsWindow, statsKeyOf, type StatsKey } from "./Stats";
+import { SafeWindow, type SafeTab } from "./Safe";
 
 const API = "https://api.koczip.com";
 const SITE = "https://koczip.com";
@@ -88,10 +90,11 @@ type Rk = { realtor_id: string; realtor_name: string; listings: number; total_li
 // 지도 핀용 랭킹 행(순위 포함)
 type RkPin = Rk & { rank: number; lat: number; lng: number };
 
-const LAYERS: { key: Layer; label: string }[] = [
-  { key: "deals", label: "매물찾기" },
-  { key: "price", label: "시세분석" },
-  { key: "realtor", label: "중개사랭킹" },
+// 레이어 이름 = 절충안 상단 묶음 이름. 휴대폰은 짧게.
+const LAYERS: { key: Layer; label: string; short: string }[] = [
+  { key: "deals", label: "매물찾기", short: "매물" },
+  { key: "price", label: "시세분석", short: "시세" },
+  { key: "realtor", label: "중개사", short: "중개사" },
 ];
 
 const pct = (r: number | null | undefined, digits = 1) =>
@@ -112,13 +115,14 @@ function useIsPhone() {
   return m;
 }
 
-// 공유 링크: ?layer=&lat=&lng=&lv=&cx=
+// 공유 링크: ?layer=&lat=&lng=&lv=&cx=&stats=묶음.항목&safe=탭
 function readUrl() {
   const p = new URLSearchParams(location.search);
   const layer = (["deals", "price", "realtor"].includes(p.get("layer") || "") ? p.get("layer") : "deals") as Layer;
   const pm = (["tx", "hoga", "vol", "gap", "rh"].includes(p.get("m") || "") ? p.get("m") : "tx") as PriceMetric;
   const lat = parseFloat(p.get("lat") || ""), lng = parseFloat(p.get("lng") || ""), lv = parseInt(p.get("lv") || "");
-  return { layer, pm, lat: isNaN(lat) ? 37.5045 : lat, lng: isNaN(lng) ? 127.1095 : lng, lv: isNaN(lv) ? 5 : lv, cx: p.get("cx") };
+  const safe = (["alert", "ledger", "jeonse", "calc"].includes(p.get("safe") || "") ? p.get("safe") : null) as SafeTab | null;
+  return { layer, pm, lat: isNaN(lat) ? 37.5045 : lat, lng: isNaN(lng) ? 127.1095 : lng, lv: isNaN(lv) ? 5 : lv, cx: p.get("cx"), stats: statsKeyOf(p.get("stats")), safe };
 }
 
 export default function App() {
@@ -155,6 +159,10 @@ export default function App() {
   const [hint, setHint] = useState("");
   const [sheet, setSheet] = useState<"peek" | "half" | "full">("half");
   const [more, setMore] = useState(false);
+  // 지도 위 창: 통계(옛 실거래·매물호가·거래량·투자 통계를 다시 만든 것) · 안심(등기·전세안심) · 매물의뢰 갈래
+  const [stats, setStats] = useState<StatsKey | null>(init.stats);
+  const [safe, setSafe] = useState<SafeTab | null>(init.safe);
+  const [reqOpen, setReqOpen] = useState(false);
   const mapEl = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const ovs = useRef<any[]>([]);
@@ -230,8 +238,10 @@ export default function App() {
     const p = new URLSearchParams({ layer, lat: view.lat.toFixed(5), lng: view.lng.toFixed(5), lv: String(view.level) });
     if (layer === "price" && pm !== "tx") p.set("m", pm);
     if (sel) p.set("cx", sel.complex_no);
+    if (stats) p.set("stats", `${stats.g}.${stats.i}`);
+    if (safe) p.set("safe", safe);
     history.replaceState(null, "", "?" + p.toString());
-  }, [layer, view, sel, pm]);
+  }, [layer, view, sel, pm, stats, safe]);
 
   // 지도 가운데 → 동·구
   useEffect(() => {
@@ -635,7 +645,8 @@ export default function App() {
 
   return (
     <div className={"t2" + (phone ? " phone" : " desk")}>
-      <TopBar phone={phone} favs={favs} session={!!session} user={session ? sessionName(session) : null} onLogout={() => logout()} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)} onPick={(c) => {
+      <TopBar phone={phone} favs={favs} session={!!session} user={session ? sessionName(session) : null} onLogout={() => logout()} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)}
+        statsOn={!!stats} safeOn={!!safe} onStats={() => { setSafe(null); setStats((s) => (s ? null : { g: "price", i: "top" })); }} onSafe={() => { setStats(null); setSafe((s) => (s ? null : "alert")); }} onPick={(c) => {
         const m = mapRef.current;
         if (m && c.lat) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(c.lat, c.lng)); }
         pickComplex(c, false);
@@ -651,7 +662,7 @@ export default function App() {
             <div className="t2-layers" role="tablist">
               {LAYERS.map((l) => (
                 <button key={l.key} role="tab" aria-selected={layer === l.key} className={layer === l.key ? "on" : ""}
-                  onClick={() => { setLayer(l.key); setSel(null); }}>{l.label}</button>
+                  onClick={() => { setLayer(l.key); setSel(null); }}>{phone ? l.short : l.label}</button>
               ))}
             </div>
             {layer === "deals" && <DealFilterBar flt={flt} onChange={setFlt} />}
@@ -677,7 +688,20 @@ export default function App() {
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() - 1)} aria-label="확대">+</button>
             <button onClick={() => mapRef.current?.setLevel(mapRef.current.getLevel() + 1)} aria-label="축소">−</button>
           </div>
-          {!phone && <a className={"t2-fab" + (sel || selJ ? " narrow" : "")} href={`${SITE}/request`} target="_blank" rel="noreferrer">콕집에 요청하기</a>}
+          {/* 매물의뢰 — 절충안의 떠 있는 버튼. 세 갈래: 중개사에게 매물의뢰 · AI 상담사 · 내 요청 보기 */}
+          {!phone && !stats && !safe && (
+            <div className={"t2-fabwrap" + (sel || selJ ? " narrow" : "")}>
+              {reqOpen && <ReqMenu onClose={() => setReqOpen(false)} />}
+              <button className="t2-fab" onClick={() => setReqOpen(!reqOpen)} aria-expanded={reqOpen}>매물의뢰</button>
+            </div>
+          )}
+          {stats && <StatsWindow open={stats} onKey={setStats} phone={phone} onClose={() => setStats(null)}
+            region={{ sido: region ? region.dong.slice(0, 2) + "00000000" : "", sgg: region?.sgg || "", dong: "" }}
+            onPick={(no, name) => { setStats(null); goComplex(no, name); }}
+            onMapLayer={() => { setStats(null); setLayer("price"); setPm("tx"); }}
+            onSafe={() => { setStats(null); setSafe("jeonse"); }} />}
+          {safe && <SafeWindow tab={safe} onTab={setSafe} phone={phone} onClose={() => setSafe(null)} session={session}
+            at={selJ ? { lat: selJ.lat, lng: selJ.lng, name: selJ.name } : null} onLogin={() => setAskLogin(true)} />}
           {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)}
             fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} /></aside>}
           {!phone && !sel && selJ && <aside className="t2-drawer"><JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /></aside>}
@@ -704,15 +728,14 @@ export default function App() {
       </div>
       {phone && (
         <nav className="t2-tabbar">
-          <a className="on" href="/">지도</a>
-          <a href={`${SITE}/tx-stats`} target="_blank" rel="noreferrer">통계</a>
-          <a className="req" href={`${SITE}/request`} target="_blank" rel="noreferrer">요청</a>
-          <a href={`${SITE}/today`} target="_blank" rel="noreferrer">TODAY</a>
+          <button className={!stats && !safe ? "on" : ""} onClick={() => { setStats(null); setSafe(null); setReqOpen(false); }}>지도</button>
+          <button className={stats ? "on" : ""} onClick={() => { setSafe(null); setReqOpen(false); setStats({ g: "price", i: "top" }); }}>통계</button>
+          <button className="req" onClick={() => setReqOpen(!reqOpen)}>의뢰</button>
+          <button className={safe ? "on" : ""} onClick={() => { setStats(null); setReqOpen(false); setSafe("alert"); }}>안심</button>
           <button onClick={() => setMore(!more)}>더보기</button>
+          {reqOpen && <div className="t2-more req" onClick={() => setReqOpen(false)}><ReqMenu onClose={() => setReqOpen(false)} /></div>}
           {more && (
             <div className="t2-more" onClick={() => setMore(false)}>
-              <a href={`${SITE}/buy-calculator`} target="_blank" rel="noreferrer">도구 · 매수 계산기</a>
-              <a href={`${SITE}/jeonse-check`} target="_blank" rel="noreferrer">도구 · 전세 안전 점검</a>
               {favs && favs.length > 0 && favs.map((f) => <button key={f.complex_no} onClick={() => goComplex(f.complex_no, f.complex_name)}>관심단지 · {f.complex_name}</button>)}
               {!session ? <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>
                 : <button onClick={() => logout()}>{sessionName(session)} · 로그아웃</button>}
@@ -726,12 +749,30 @@ export default function App() {
   );
 }
 
+// ── 매물의뢰 갈래 메뉴 ───────────────────────────────
+// 요청 보내기·AI 상담사는 운영 화면으로 간다(지도 안으로 옮기는 건 다음 단계). 단지·사무소에서 여는 요청은 서랍의 RequestModal.
+function ReqMenu({ onClose }: { onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
+    const t = setTimeout(() => document.addEventListener("mousedown", h), 0);
+    return () => { clearTimeout(t); document.removeEventListener("mousedown", h); };
+  }, [onClose]);
+  return (
+    <div className="t2-reqmenu" ref={ref}>
+      <a href={`${SITE}/request`} target="_blank" rel="noreferrer"><b>중개사에게 매물의뢰</b><span>지역·예산·조건을 적으면 동네 중개사가 매물을 찾아 제안해요</span></a>
+      <a href={`${SITE}/ai`} target="_blank" rel="noreferrer"><b>AI 상담사</b><span>"강남 30평대 급매 찾아줘"처럼 말로 물어보기</span></a>
+      <a href={`${SITE}/me/requests`} target="_blank" rel="noreferrer"><b>내 요청 보기</b><span>보낸 의뢰와 중개사 제안 확인</span></a>
+    </div>
+  );
+}
+
 // ── 상단 바 ─────────────────────────────────────────
-function TopBar({ phone, onPick, favs, session, user, onLogout, onGo, onAddr, onLogin }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
-  session: boolean; user: string | null; onLogout: () => void; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void }) {
+function TopBar({ phone, onPick, favs, session, user, onLogout, onGo, onAddr, onLogin, statsOn, safeOn, onStats, onSafe }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
+  session: boolean; user: string | null; onLogout: () => void; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void;
+  statsOn: boolean; safeOn: boolean; onStats: () => void; onSafe: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<any[]>([]);
-  const [tools, setTools] = useState(false);
   const [favOpen, setFavOpen] = useState(false);
   const [addrErr, setAddrErr] = useState("");
   // 주소·장소: 카카오 지오코더(주소 → 실패 시 장소 키워드). 단지 이름 결과 아래에 한 줄로 붙는다.
@@ -772,18 +813,9 @@ function TopBar({ phone, onPick, favs, session, user, onLogout, onGo, onAddr, on
       </div>
       {!phone && (
         <nav className="t2-util">
-          <a href={`${SITE}/today`} target="_blank" rel="noreferrer">TODAY</a>
-          <a href={`${SITE}/tx-stats`} target="_blank" rel="noreferrer">통계</a>
-          <span className="t2-dd">
-            <button onClick={() => setTools(!tools)} aria-expanded={tools}>도구 ▾</button>
-            {tools && (
-              <span className="t2-ddm" onClick={() => setTools(false)}>
-                <a href={`${SITE}/buy-calculator`} target="_blank" rel="noreferrer">매수 계산기</a>
-                <a href={`${SITE}/jeonse-check`} target="_blank" rel="noreferrer">전세 안전 점검</a>
-                <a href={`${SITE}/ai`} target="_blank" rel="noreferrer">AI 질문</a>
-              </span>
-            )}
-          </span>
+          {/* 지도 밖 기능 셋(절충안): 안심 · 통계 · 중개사라운지. 안심·통계는 지도 위 창 */}
+          <button className={"t2-utilbtn" + (safeOn ? " on" : "")} onClick={onSafe}>안심</button>
+          <button className={"t2-utilbtn" + (statsOn ? " on" : "")} onClick={onStats}>통계</button>
           <span className="t2-dd" onMouseLeave={() => setFavOpen(false)}>
             <button className={"t2-favbtn" + (favs?.length ? " has" : "")} onClick={() => setFavOpen(!favOpen)} aria-expanded={favOpen}>관심단지{favs?.length ? ` ${favs.length}` : ""}</button>
             {favOpen && (
