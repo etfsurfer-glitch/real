@@ -69,7 +69,7 @@ export function RealtorWindow({ id, onClose, phone, session, onGo, onMe }: {
   const tenure = regYear && regYear > 1900 ? new Date().getFullYear() - regYear + 1 : null;
   const emp = d?.vworld?.employees;
   const licPct = emp && emp.total > 0 ? Math.round((emp.licensed / emp.total) * 100) : null;
-  const office = d?.vworld?.phone || d?.naver?.tel || null; const cell = d?.naver?.cell || null;
+  const office = d?.vworld?.phone || d?.naver?.tel || null; const cell = d?.naver?.cell && tel(d.naver.cell) !== tel(office) ? d.naver.cell : null;   // 대표번호와 같으면 한 번만
   const rep = d?.vworld?.representative || d?.naver?.representative || null;
   const addr = d?.vworld?.address || d?.naver?.address || null;
   const matched = !!d?.vworld?.sys_regno && !d.vworld.match_type.startsWith("multi") && d.vworld.match_type !== "none";

@@ -516,7 +516,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* 지도 확대·축소 단추는 지도 왼쪽 아래(카카오 축척 표시 위). 휴대폰은 시트 바로 위 왼쪽, 시트를 끝까지 올리면 숨김 */
 .t2-zoom, .t2-zoom.narrow { top: auto; right: auto; left: 12px; bottom: 40px; }
-.phone .t2-zoom { top: auto; left: 8px; bottom: calc(52% + 10px); }
+.phone .t2-zoom { top: auto; left: 8px; right: auto; bottom: calc(52% + 10px); z-index: 4; }   /* right:auto 가 없으면 211행의 right:8px 와 합쳐져 화면 폭 전체로 늘어난다(폰 점검에서 발견) */
 .phone .t2-zoom.sh-peek { bottom: 130px; }
 .phone .t2-zoom.sh-full { display: none; }
 
