@@ -10927,6 +10927,113 @@ def kok_listings(swlat: float = 0, swlng: float = 0, nelat: float = 0, nelng: fl
     return {"count": len(items), "items": items[:limit], "by_complex": by_cx}
 
 
+# ── 콕집매물 상세의 '우리 계산' 부분 ─────────────────────────────────────────
+# 받아 쓴 값은 광고 자체의 표시 내용(가격·면적·층·설명·관리비 신고)에 한정하고,
+# 단지 사실·공시가격·세금·중개보수·평당가는 우리 자료(complexes·공시 API)와 우리 산식으로 낸다.
+_HEAT_NAME = {"HT001": "개별난방", "HT002": "중앙난방", "HT005": "지역난방"}   # 실측 매핑(잠실주공5·파크리오·송도아트윈=HT005 지역난방)
+
+
+def _kok_complex_facts(d, complex_no: str, area_name: str | None) -> dict:
+    cx = d.execute("SELECT total_household_count, total_building_count, high_floor, low_floor, parking_possible_count, parking_per_household, "
+                   "construction_company, heat_method_code, use_approve_ymd FROM complexes WHERE complex_no=?", (complex_no,)).fetchone()
+    if not cx:
+        return {}
+    sub = d.execute("SELECT station_name, lines, walk_min FROM complex_subway WHERE complex_no=?", (complex_no,)).fetchone()
+    ar = d.execute("SELECT household_count, entrance_type FROM complex_areas WHERE complex_no=? AND pyeong_name=?", (complex_no, area_name or "")).fetchone()
+    return {"heat": _HEAT_NAME.get(cx[7] or "", ""), "builder": cx[6] or "", "households": cx[0], "dongs": cx[1],
+            "highest_floor": cx[2], "lowest_floor": cx[3], "parking_total": cx[4], "parking_per": cx[5],
+            "households_type": ar[0] if ar else None, "entrance": (ar[1] if ar else "") or "",
+            "subway": f"{sub[0]}({sub[1]}) 도보 {sub[2]}분" if sub else "", "approve_ymd": cx[8] or ""}
+
+
+def _kok_gongsi(d, c, complex_no: str, dong: str, excl: float | None) -> dict | None:
+    """공동주택 공시가격 — 국토교통부 공시를 VWorld NED(우리 키)로 받아 단지(pnu)·연도별로 캐시. 동·전용면적이 맞는 호의 범위."""
+    import datetime as _dt
+    cx = d.execute("SELECT latitude, longitude FROM complexes WHERE complex_no=?", (complex_no,)).fetchone()
+    if not cx or not cx[0]:
+        return None
+    year = _dt.date.today().year
+    c.execute("CREATE TABLE IF NOT EXISTS kok_gongsi_cache(complex_no TEXT, year INTEGER, pnu TEXT, units TEXT, fetched_at TEXT DEFAULT (datetime('now','+9 hours')), PRIMARY KEY(complex_no, year))")
+    units = None
+    for y in (year, year - 1):
+        row = c.execute("SELECT units FROM kok_gongsi_cache WHERE complex_no=? AND year=?", (complex_no, y)).fetchone()
+        if row:
+            units = _authjson.loads(row[0]); year = y
+            if units:
+                break
+            continue
+        p = _vw_pnu(cx[1], cx[0])
+        if not p:
+            return None
+        import urllib.parse
+        got: list = []
+        for page in range(1, 6):
+            q = urllib.parse.urlencode({"key": _VW_KEYS[0], "domain": VWORLD_DOMAIN, "pnu": p["pnu"], "stdrYear": str(y), "format": "json", "numOfRows": "1000", "pageNo": str(page)})
+            try:
+                res = _vworld_get(f"https://api.vworld.kr/ned/data/getApartHousingPriceAttr?{q}")
+                root = next(iter(res.values())) if res else {}
+                f = root.get("field", []) if isinstance(root, dict) else []
+                f = f if isinstance(f, list) else [f]
+            except Exception:  # noqa: BLE001
+                f = []
+            got.extend({"d": str(x.get("dongNm") or ""), "h": str(x.get("hoNm") or ""), "a": float(x.get("prvuseAr") or 0), "p": int(x.get("pblntfPc") or 0), "f": str(x.get("floorNm") or "")} for x in f)
+            if len(f) < 1000:
+                break
+        c.execute("INSERT OR REPLACE INTO kok_gongsi_cache(complex_no, year, pnu, units) VALUES(?,?,?,?)", (complex_no, y, p["pnu"], _authjson.dumps(got)))
+        c.commit()
+        units = got; year = y
+        if units:
+            break
+    if not units:
+        return None
+    dg = _re.sub(r"\D", "", dong or "")
+    sel = [u for u in units if u["p"] > 0 and (not excl or abs(u["a"] - float(excl)) <= 1.5) and (not dg or _re.sub(r"\D", "", u["d"]).endswith(dg))]
+    scope = "같은 동·같은 전용면적"
+    if not sel:
+        sel = [u for u in units if u["p"] > 0 and (not excl or abs(u["a"] - float(excl)) <= 1.5)]; scope = "같은 전용면적(단지 전체)"
+    if not sel:
+        return {"year": year, "n": 0}
+    ps = sorted(u["p"] for u in sel)
+    return {"year": year, "n": len(ps), "min": ps[0], "max": ps[-1], "median": ps[len(ps) // 2], "scope": scope,
+            "source": "국토교통부 공동주택가격 공시(국가공간정보포털)"}
+
+
+def _kok_property_tax(gongsi: int, one_house: bool) -> dict:
+    """재산세(주택) — 지방세법 제111조 누진세율 + 1세대 1주택 특례세율·공정시장가액비율(2026 기준 43~45%, 일반 60%).
+    도시지역분(과표×0.14%)·지방교육세(재산세×20%) 포함. 종부세는 합산 기준이라 여기서 내지 않는다."""
+    ratio = (0.43 if gongsi <= 3e8 else 0.44 if gongsi <= 6e8 else 0.45) if one_house else 0.60
+    base = gongsi * ratio
+    if one_house and gongsi <= 9e8:   # 특례세율(0.05%p 인하)
+        tax = base * 0.0005 if base <= 6e7 else 3e4 + (base - 6e7) * 0.001 if base <= 1.5e8 else 12e4 + (base - 1.5e8) * 0.002 if base <= 3e8 else 42e4 + (base - 3e8) * 0.0035
+    else:
+        tax = base * 0.001 if base <= 6e7 else 6e4 + (base - 6e7) * 0.0015 if base <= 1.5e8 else 19.5e4 + (base - 1.5e8) * 0.0025 if base <= 3e8 else 57e4 + (base - 3e8) * 0.004
+    city = base * 0.0014
+    edu = tax * 0.2
+    return {"ratio": ratio, "property": int(tax), "city": int(city), "edu": int(edu), "total": int(tax + city + edu)}
+
+
+def _kok_acquire(price: int, excl: float | None) -> dict:
+    """취득 비용(1주택 기준) — 취득세 1~3% 누진(6억 이하 1%, 6~9억 (가격×2/3억−3)%, 9억 초과 3%), 지방교육세 10%,
+    농어촌특별세 전용 85㎡ 초과만 0.2%, 중개보수 상한(공인중개사법 시행규칙 요율, 2021.10). 생애최초·다주택은 다르다."""
+    if price <= 6e8:
+        rate = 0.01
+    elif price <= 9e8:
+        rate = max(0.01, min(0.03, round((price * 2 / 3e8 - 3) / 100, 4)))
+    else:
+        rate = 0.03
+    acq = int(price * rate)
+    edu = acq // 10
+    rural = int(price * 0.002) if excl and excl > 85 else 0
+    for mx, permille, limit in ((5e7, 6, 250_000), (2e8, 5, 800_000), (9e8, 4, None), (12e8, 5, None), (15e8, 6, None), (float("inf"), 7, None)):
+        if price < mx:
+            broker = int(price * permille // 1000)
+            if limit:
+                broker = min(broker, limit)
+            broker_rate = permille / 10
+            break
+    return {"rate": rate, "acq": acq, "edu": edu, "rural": rural, "broker": broker, "broker_rate": broker_rate, "total": acq + edu + rural + broker, "basis": "1주택(무주택자 매수) 기준 · 생애최초 감면 미반영"}
+
+
 # ── 콕집매물(중개사 연동) 상세 — 광고 중 매물 한 건의 전체 정보. 상세는 수집 계정으로 그때 가져와 15분 캐시 ──
 _KOK_DETAIL_CACHE: dict = {}
 
@@ -10960,6 +11067,9 @@ def kok_realtor_listing_detail(article_no: str):
            "verification": r[17] or "", "lat": r[19], "lng": r[20], "approve_ymd": r[21] or "", "parking_per_household": r[22],
            "owner_verified": False, "photos": [], "description": "", "move_in": "", "rooms": None, "baths": None, "mgmt_cost": None, "mgmt_info": None,
            "direction_base": "", "finance_price": None, "violation": "", "exclusive_rate": "",
+           "complex_facts": _kok_complex_facts(d, r[1], r[4]),
+           "py_price": {"supply": int(r[9] / (r[5] / 3.3058)) if r[9] and r[5] else None, "excl": int(r[9] / (r[6] / 3.3058)) if r[9] and r[6] else None} if r[3] == "A1" else None,
+           "acquire": _kok_acquire(int(r[9] or 0), r[6]) if r[3] == "A1" and r[9] else None,
            "realtor": {"realtor_id": r[11], "name": r[12], "regno": regno[0] if regno else "", **{k: v for k, v in (_office_brief(r[11]) or {}).items() if k in ("address", "representative", "tel", "cell")}}}
     # 상세(사진·설명·입주·방/욕실·관리비·방향 기준) — 실패해도 기본 정보는 나간다
     hit = _KOK_DETAIL_CACHE.get(article_no)
@@ -11006,8 +11116,6 @@ def kok_realtor_listing_detail(article_no: str):
         })
         # ── 더 꺼낼 것: 단지 사실(난방·시공사·세대·주차), 월별 관리비 실적, 같은 집 광고 수, 공시가격·보유세, 취득 비용 ──
         mc = ad.get("maintenanceCost") or {}
-        lp = det.get("landPrice") or {}
-        tax = det.get("articleTax") or {}
         addi = det.get("articleAddition") or {}
         cost = det.get("administrationCostInfo") or {}
         inc = {"01": "공용관리비", "11": "전기료", "12": "수도료", "13": "가스사용료", "14": "난방비", "15": "인터넷", "16": "TV", "99": "기타"}
@@ -11019,11 +11127,6 @@ def kok_realtor_listing_detail(article_no: str):
             except (TypeError, ValueError):
                 return None
         out.update({
-            "complex_facts": {"heat": " · ".join(x for x in [ad.get("aptHeatMethodTypeName"), ad.get("aptHeatFuelTypeName")] if x),
-                              "builder": ad.get("aptConstructionCompanyName") or "", "households": _i(ad.get("aptHouseholdCount")),
-                              "households_type": _i(ad.get("householdCountByPtp")), "parking_total": _i(ad.get("aptParkingCount")),
-                              "dongs": ad.get("totalDongCount"), "subway_walk": ad.get("walkingTimeToNearSubway"),
-                              "entrance": fac.get("entranceTypeName") or "", "highest_floor": (det.get("articleFloor") or {}).get("complexHighestFloor")},
             "mgmt_history": {"avg": _i(mc.get("averageTotalPrice")), "summer": _i(mc.get("summerTotalPrice")), "winter": _i(mc.get("winterTotalPrice")),
                              "avg_common": _i(mc.get("averageCommonPrice")),
                              "months": [{"ym": x.get("basisYearMonth"), "total": _i(x.get("totalPrice")), "common": _i(x.get("commonPrice")), "heat": _i(x.get("heatPrice")), "etc": _i(x.get("etcPrice"))}
@@ -11033,16 +11136,20 @@ def kok_realtor_listing_detail(article_no: str):
             "same_addr": {"count": addi.get("sameAddrCnt"), "direct": addi.get("sameAddrDirectCnt"), "min": addi.get("sameAddrMinPrc"), "max": addi.get("sameAddrMaxPrc")},
             "price_change": addi.get("priceChangeState") or "",
             "expose_end": ad.get("exposeEndYMD") or "",
-            "public_price": {"price": _i(lp.get("price")), "prev": _i(lp.get("prevPrice")), "year": lp.get("stdYear"),
-                             "property_tax": _i((lp.get("landPriceTax") or {}).get("propertyTotalTax")),
-                             "comprehensive_tax": _i((lp.get("landPriceTax") or {}).get("realEstateTotalTax"))} if lp.get("price") else None,
-            "acquire": {"acq_tax": _i(tax.get("acquisitionTax")), "edu_tax": _i(tax.get("eduTax")), "special_tax": _i(tax.get("specialTax")),
-                        "broker_fee": _i(tax.get("brokerFee")), "broker_rate": tax.get("maxBrokerFee"), "total": _i(tax.get("totalPrice"))} if tax.get("totalPrice") else None,
-            "price_per_py": _i(pr.get("priceBySpace")),
         })
         out["realtor"].update({k: v for k, v in {"name": rt.get("realtorName"), "representative": rt.get("representativeName"),
                                                  "regno": rt.get("establishRegistrationNo"), "tel": rt.get("representativeTelNo"),
                                                  "cell": rt.get("cellPhoneNo"), "address": rt.get("address")}.items() if v})
+    # 공시가격(국토부 공시, 우리 키로 조회) + 재산세(우리 산식). 전용면적이 상세에서 보정됐을 수 있어 마지막에
+    try:
+        with _open_db() as d, _reviews_db() as c:
+            g = _kok_gongsi(d, c, r[1], out.get("dong") or "", out.get("excl_m2"))
+        out["public_price"] = g
+        if g and g.get("median"):
+            out["property_tax"] = {"one_house": _kok_property_tax(g["median"], True), "general": _kok_property_tax(g["median"], False), "basis": g["median"]}
+    except Exception as e:  # noqa: BLE001
+        _log_event("kok_gongsi_error", query=str(e)[:200])
+        out["public_price"] = None
     return out
 
 

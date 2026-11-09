@@ -288,13 +288,14 @@ type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: nu
   mgmt_cost?: number | null; mgmt_info?: { type?: string; details?: { name: string; amount?: number | string | null; unable?: boolean }[] } | null; direction_base?: string;
   finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
   realtor?: { realtor_id: string; name?: string; regno?: string; address?: string; representative?: string; tel?: string; cell?: string };
-  complex_facts?: { heat?: string; builder?: string; households?: number | null; households_type?: number | null; parking_total?: number | null; dongs?: number; subway_walk?: number; entrance?: string; highest_floor?: string };
+  complex_facts?: { heat?: string; builder?: string; households?: number | null; households_type?: number | null; parking_total?: number | null; parking_per?: number | null; dongs?: number; subway?: string; entrance?: string; highest_floor?: number | string; lowest_floor?: number | string; approve_ymd?: string };
+  py_price?: { supply: number | null; excl: number | null } | null;
+  property_tax?: { one_house: { ratio: number; property: number; city: number; edu: number; total: number }; general: { ratio: number; property: number; city: number; edu: number; total: number }; basis: number } | null;
   mgmt_history?: { avg: number | null; summer: number | null; winter: number | null; avg_common: number | null; months: { ym: string; total: number | null; common: number | null; heat: number | null; etc: number | null }[] } | null;
   mgmt_declared?: { amount: number | null; criteria: string; note: string; includes: string[] } | null;
   same_addr?: { count?: number; direct?: number; min?: string; max?: string }; price_change?: string; expose_end?: string;
-  public_price?: { price: number | null; prev: number | null; year?: number; property_tax: number | null; comprehensive_tax: number | null } | null;
-  acquire?: { acq_tax: number | null; edu_tax: number | null; special_tax: number | null; broker_fee: number | null; broker_rate?: number; total: number | null } | null;
-  price_per_py?: number | null };
+  public_price?: { year: number; n: number; min?: number; max?: number; median?: number; scope?: string; source?: string } | null;
+  acquire?: { rate: number; acq: number; edu: number; rural: number; broker: number; broker_rate: number; total: number; basis: string } | null };
 const man = (v?: number | null) => (v == null ? "-" : `${Math.round(v / 1e4).toLocaleString()}만`);
 // 계절 평균 — 월별 공시 합계로 봄(3~5)·여름(6~8)·가을(9~11)·겨울(12~2)을 직접 낸다. 자료가 없는 계절은 비운다.
 const SEASONS: { k: string; l: string; m: number[] }[] = [{ k: "spring", l: "봄", m: [3, 4, 5] }, { k: "summer", l: "여름", m: [6, 7, 8] }, { k: "autumn", l: "가을", m: [9, 10, 11] }, { k: "winter", l: "겨울", m: [12, 1, 2] }];
@@ -354,22 +355,23 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
               <table className="t2-tbl t2-kl-mo"><thead><tr><th>월</th><th className="num">합계</th><th className="num">공용</th><th className="num">난방</th><th className="num">기타</th></tr></thead>
                 <tbody>{d.mgmt_history.months.map((m) => <tr key={m.ym}><td>{m.ym.slice(2, 4)}.{m.ym.slice(4, 6)}</td><td className="num"><b>{man(m.total)}</b></td><td className="num">{man(m.common)}</td><td className="num">{man(m.heat)}</td><td className="num">{man(m.etc)}</td></tr>)}</tbody></table></div>
           )}
-          {d.complex_facts && (
-            <div className="t2-kl-sec"><h3>단지 사실</h3>
+          {d.complex_facts && d.complex_facts.households && (
+            <div className="t2-kl-sec"><h3>단지 사실 <small>콕집 단지 자료</small></h3>
               <table className="t2-tbl t2-kl-tbl"><tbody>
-                {d.complex_facts.heat && <tr><th>난방</th><td>{d.complex_facts.heat}</td></tr>}
-                {d.complex_facts.builder && <tr><th>시공사</th><td>{d.complex_facts.builder}</td></tr>}
-                <tr><th>세대·동</th><td>{d.complex_facts.households ? `${d.complex_facts.households.toLocaleString()}세대` : "-"}{d.complex_facts.dongs ? ` · ${d.complex_facts.dongs}개 동` : ""}{d.complex_facts.households_type ? ` · 이 평형 ${d.complex_facts.households_type}세대` : ""}{d.complex_facts.highest_floor ? ` · 최고 ${d.complex_facts.highest_floor}층` : ""}</td></tr>
-                <tr><th>주차</th><td>{d.complex_facts.parking_total ? `총 ${d.complex_facts.parking_total.toLocaleString()}대` : "-"}{d.parking_per_household ? ` · 세대당 ${d.parking_per_household}대` : ""}</td></tr>
-                {(d.complex_facts.entrance || d.complex_facts.subway_walk) && <tr><th>현관·역</th><td>{[d.complex_facts.entrance, d.complex_facts.subway_walk ? `가까운 역 도보 ${d.complex_facts.subway_walk}분` : ""].filter(Boolean).join(" · ")}</td></tr>}
+                {(d.complex_facts.heat || d.complex_facts.builder) && <tr><th>난방·시공</th><td>{[d.complex_facts.heat, d.complex_facts.builder].filter(Boolean).join(" · ")}</td></tr>}
+                <tr><th>세대·동</th><td>{`${d.complex_facts.households.toLocaleString()}세대`}{d.complex_facts.dongs ? ` · ${d.complex_facts.dongs}개 동` : ""}{d.complex_facts.households_type ? ` · 이 평형 ${d.complex_facts.households_type}세대` : ""}{d.complex_facts.highest_floor ? ` · ${d.complex_facts.lowest_floor && d.complex_facts.lowest_floor !== d.complex_facts.highest_floor ? `${d.complex_facts.lowest_floor}~` : ""}${d.complex_facts.highest_floor}층` : ""}</td></tr>
+                <tr><th>주차</th><td>{d.complex_facts.parking_total ? `총 ${d.complex_facts.parking_total.toLocaleString()}대` : "-"}{d.complex_facts.parking_per ? ` · 세대당 ${d.complex_facts.parking_per}대` : ""}</td></tr>
+                {(d.complex_facts.entrance || d.complex_facts.subway) && <tr><th>현관·역</th><td>{[d.complex_facts.entrance, d.complex_facts.subway].filter(Boolean).join(" · ")}</td></tr>}
               </tbody></table></div>
           )}
-          {(d.public_price || d.acquire || d.price_per_py) && (
-            <div className="t2-kl-sec"><h3>돈 계산 <small>참고용 · 조건에 따라 달라져요</small></h3>
+          {(d.public_price || d.acquire || d.py_price) && (
+            <div className="t2-kl-sec"><h3>돈 계산 <small>콕집 산식 · 참고용</small></h3>
               <table className="t2-tbl t2-kl-tbl"><tbody>
-                {d.price_per_py ? <tr><th>평당가</th><td>{Math.round(d.price_per_py).toLocaleString()}만원</td></tr> : null}
-                {d.public_price && <tr><th>공시가격</th><td>{eokS(d.public_price.price)}{d.public_price.year ? ` (${d.public_price.year})` : ""}{d.public_price.prev ? ` · 전년 ${eokS(d.public_price.prev)}` : ""}{d.public_price.property_tax ? <small className="blk">재산세 등 연 {d.public_price.property_tax.toLocaleString()}원{d.public_price.comprehensive_tax ? ` · 종부세 ${d.public_price.comprehensive_tax.toLocaleString()}원` : ""}</small> : null}</td></tr>}
-                {d.acquire && <tr><th>취득 비용</th><td><b>{eokS(d.acquire.total)}</b><small className="blk">취득세 {eokS(d.acquire.acq_tax)}{d.acquire.edu_tax ? ` · 교육세 ${man(d.acquire.edu_tax)}` : ""}{d.acquire.special_tax ? ` · 농특세 ${man(d.acquire.special_tax)}` : ""}{d.acquire.broker_fee ? ` · 중개보수 상한 ${eokS(d.acquire.broker_fee)}${d.acquire.broker_rate ? `(${d.acquire.broker_rate}%)` : ""}` : ""}</small></td></tr>}
+                {d.py_price && (d.py_price.supply || d.py_price.excl) ? <tr><th>평당가</th><td>{d.py_price.supply ? `공급 기준 ${Math.round(d.py_price.supply / 1e4).toLocaleString()}만원` : ""}{d.py_price.excl ? `${d.py_price.supply ? " · " : ""}전용 기준 ${Math.round(d.py_price.excl / 1e4).toLocaleString()}만원` : ""}</td></tr> : null}
+                {d.public_price && (d.public_price.n > 0 ? <tr><th>공시가격</th><td>{d.public_price.min === d.public_price.max ? eokS(d.public_price.median) : `${eokS(d.public_price.min)} ~ ${eokS(d.public_price.max)}`} <small>({d.public_price.year}년 · {d.public_price.scope} {d.public_price.n}호)</small><small className="blk">{d.public_price.source}</small></td></tr>
+                  : <tr><th>공시가격</th><td className="mut">{d.public_price.year}년 공시에서 이 동·면적을 찾지 못했어요</td></tr>)}
+                {d.property_tax && <tr><th>보유세</th><td><b>1주택 연 {d.property_tax.one_house.total.toLocaleString()}원</b> <small>(재산세 {d.property_tax.one_house.property.toLocaleString()} · 도시지역분 {d.property_tax.one_house.city.toLocaleString()} · 지방교육세 {d.property_tax.one_house.edu.toLocaleString()})</small><small className="blk">1주택 외 연 {d.property_tax.general.total.toLocaleString()}원 · 공시 중앙값 {eokS(d.property_tax.basis)} 기준, 종부세 별도</small></td></tr>}
+                {d.acquire && <tr><th>취득 비용</th><td><b>{eokS(d.acquire.total)}</b><small className="blk">취득세 {eokS(d.acquire.acq)}({(d.acquire.rate * 100).toFixed(2).replace(/\.?0+$/, "")}%) · 지방교육세 {man(d.acquire.edu)}{d.acquire.rural ? ` · 농특세 ${man(d.acquire.rural)}` : ""} · 중개보수 상한 {eokS(d.acquire.broker)}({d.acquire.broker_rate}%)</small><small className="blk">{d.acquire.basis}</small></td></tr>}
               </tbody></table></div>
           )}
           {d.description && (
