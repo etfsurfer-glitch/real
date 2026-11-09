@@ -3616,6 +3616,10 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
     }.get(scope, "SUM(m.total_listings)")
     import datetime as _dt
     cur_year = _dt.date.today().year
+    # 시군구 코드(5자리+00000)를 주면 그 구에 소재한 사무소 전체 — 지도 시험판 '구' 범위
+    gu = len(cortar) == 10 and cortar.endswith("00000")
+    where = "substr(rd.cortar_no,1,5) = ?" if gu else "rd.cortar_no = ?"
+    wparam = cortar[:5] if gu else cortar
     with _open_db() as c:
         dn = c.execute("SELECT cortar_name FROM regions WHERE cortar_no=? LIMIT 1", (cortar,)).fetchone()
         # vworld 등록 중개사 전체(사무소 소재 동). 사무소(sys_regno)당 1행 — realtor_match를
@@ -3636,9 +3640,9 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
             FROM realtor_dong rd
             JOIN vworld_brokers v ON v.sys_regno = rd.sys_regno
             LEFT JOIN naver_realtors nr ON nr.realtor_id = rd.realtor_id
-            WHERE rd.cortar_no = ?
+            WHERE {where}
             GROUP BY rd.sys_regno
-            """, (cortar,)).fetchall()
+            """, (wparam,)).fetchall()
     items = []
     for r in rows:
         est = int(r[6]) if (r[6] and r[6].isdigit()) else None
@@ -26042,6 +26046,12 @@ def request_create(body: dict, user: dict = Depends(current_user)):
         c.commit()
 
     _req_notify(rid, ids, names)
+    # 손님 본인에게 접수 문자 — 접수내역·받은 제안을 로그인 없이 보는 링크(cust_token). 본인이 방금 보낸
+    # 요청의 접수 확인이라 정보성(광고 표기·허용시간 제한 없음). 실패해도 접수는 유효하다.
+    try:
+        _threading.Thread(target=_cust_receipt_sms, args=(rid, pr[0], cust_tok), daemon=True).start()
+    except Exception as e:  # noqa: BLE001
+        print(f"[req] 손님 접수문자 기동 실패: {str(e)[:100]}", file=_sys.stderr, flush=True)
     # 미가입 사무소 문자는 사무소마다 왕복이 있어 응답을 붙잡지 않도록 백그라운드로
     # 넘긴다(허용시간 밖이면 아무것도 안 보내고 크론이 아침에 처리한다).
     try:
@@ -26051,6 +26061,29 @@ def request_create(body: dict, user: dict = Depends(current_user)):
     return {"ok": True, "id": rid, "sent_to": len(ids),
             "proposals_url": f"https://koczip.com/proposals/{cust_tok}",
             "offices": [{"realtor_id": i, "name": names.get(i)} for i in ids]}
+
+
+def _cust_receipt_sms(req_id: int, phone: str, cust_tok: str) -> None:
+    """손님에게 접수 확인 문자. 조건 요약 + 전달 사무소 수 + 접수내역·제안 링크(로그인 없음)."""
+    try:
+        digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
+        if len(digits) < 10:
+            return
+        with _reviews_db() as c:
+            q = c.execute("SELECT region_name,asset,trade,area_txt,budget_txt,target_count "
+                          "FROM koczip_requests WHERE id=?", (req_id,)).fetchone()
+        if not q:
+            return
+        cond = " · ".join(x for x in [q[0] or "", f"{_ASSET_LB.get(q[1], q[1])} {_TRADE_LB.get(q[2], q[2])}",
+                                     q[3] or "", q[4] or ""] if x)
+        msg = (f"[콕집] 매물요청 접수 #{req_id}\n{cond}\n"
+               f"중개사무소 {q[5]}곳에 조건만 전달했어요(이름·전화번호 제외).\n\n"
+               f"접수내역·받은 제안(로그인 없이):\nhttps://koczip.com/proposals/{cust_tok}\n\n"
+               f"제안이 오면 다시 문자로 알려 드려요.")
+        r = _aligo_send_sms(digits, msg, "콕집 매물요청 접수")
+        print(f"[req] 손님 접수문자 #{req_id}: {r}", file=_sys.stderr, flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[req] 손님 접수문자 #{req_id} 실패: {str(e)[:120]}", file=_sys.stderr, flush=True)
 
 
 def _req_notify(rid: int, ids: list, names: dict) -> None:

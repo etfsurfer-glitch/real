@@ -373,17 +373,25 @@ type Offer = { name: string; message: string; contact: string; listings: OfferLi
 type Req = { id: number; region: string; asset: string; trade: string; area: string; budget: string; memo: string; status: string; at: string; target_count: number; offices: { name: string; status: string; at: string | null }[]; offers: Offer[] };
 const PY = 3.305785;
 
-function MineTab({ session, onNew, onGo }: { session: Session | null; onNew: () => void; onGo: (p: string) => void }) {
+function MineTab({ session, onNew, onGo, token }: { session: Session | null; onNew: () => void; onGo: (p: string) => void; token?: string }) {
   const [items, setItems] = useState<Req[] | null>(null);
   const [err, setErr] = useState("");
   const load = () => {
+    // 문자로 받은 링크(?proposals=토큰): 로그인 없이 그 요청 하나의 접수내역과 제안을 본다
+    if (token) {
+      setErr("");
+      getJson(`/proposals/${encodeURIComponent(token)}`).then((d) => setItems([{ id: d.id, region: d.region, asset: d.asset, trade: d.trade, area: d.area, budget: d.budget, memo: d.memo,
+        status: "", at: d.at, target_count: d.sent_to, offices: Array.from({ length: d.sent_to || 0 }, () => ({ name: "", status: "", at: null })), offers: d.offers || [] }]))
+        .catch(() => { setItems([]); setErr("링크를 찾을 수 없어요. 문자의 주소를 그대로 열어 주세요."); });
+      return;
+    }
     if (!session) return;
     setErr("");
     fetch(`${API}/me/requests`, { headers: authHeaders(session) }).then((r) => { if (!r.ok) throw new Error(r.status === 401 ? "세션이 끝났어요. 다시 로그인해 주세요." : `불러오지 못했어요 (${r.status})`); return r.json(); })
       .then((d) => setItems(d.items || [])).catch((e: Error) => { setItems([]); setErr(e.message); });
   };
-  useEffect(load, [session]);   // eslint-disable-line react-hooks/exhaustive-deps
-  if (!session) return <LoginBox why="로그인하면 보낸 요청과 중개사무소 제안을 볼 수 있어요." />;
+  useEffect(load, [session, token]);   // eslint-disable-line react-hooks/exhaustive-deps
+  if (!session && !token) return <LoginBox why="로그인하면 보낸 요청과 중개사무소 제안을 볼 수 있어요." />;
   if (err) return <><p className="t2-sempty">{err}</p><button className="t2-cta1" onClick={load}>다시 시도</button></>;
   if (!items) return <div className="t2-sload"><i /><i /><i /></div>;
   if (items.length === 0) return (
@@ -391,6 +399,7 @@ function MineTab({ session, onNew, onGo }: { session: Session | null; onNew: () 
   );
   return (
     <div className="t2-ask">
+      {token && <p className="t2-snote">문자로 받은 링크로 보는 접수내역이에요. 로그인하면 보낸 요청 전체를 볼 수 있어요.</p>}
       {items.map((r) => (
         <div className="t2-myreq" key={r.id}>
           <div className="t2-sh"><h3>{r.region || "지역 미지정"} <small>{r.asset} · {r.trade} · {(r.at || "").slice(0, 10).replace(/-/g, ".")}</small></h3>
@@ -427,8 +436,8 @@ function MineTab({ session, onNew, onGo }: { session: Session | null; onNew: () 
 }
 
 // ── 창 ─────────────────────────────────────────────
-export function AskWindow({ tab, onTab, onClose, phone, session, region, onGo }: {
-  tab: AskTab; onTab: (t: AskTab) => void; onClose: () => void; phone: boolean; session: Session | null; region: RegionSel;
+export function AskWindow({ tab, onTab, onClose, phone, session, region, onGo, token }: {
+  tab: AskTab; onTab: (t: AskTab) => void; onClose: () => void; phone: boolean; session: Session | null; region: RegionSel; token?: string;
   onGo: (path: string, text?: string) => void;   // 답변 속 내부 링크(/complex/…)는 지도에서 열고, 나머지는 운영 새 탭
 }) {
   const [prefillQ, setPrefillQ] = useState("");
@@ -455,7 +464,7 @@ export function AskWindow({ tab, onTab, onClose, phone, session, region, onGo }:
           <div className="t2-win-in narrow">
             <h3 className="t2-win-ttl">{ASK_TABS.find((t) => t.k === tab)?.l}</h3>
             {tab === "req" && <ReqTab session={session} region={region} prefillQ={prefillQ} onSent={() => onTab("mine")} />}
-            {tab === "mine" && <MineTab session={session} onNew={() => onTab("req")} onGo={go} />}
+            {tab === "mine" && <MineTab session={session} onNew={() => onTab("req")} onGo={go} token={token} />}
           </div>
         </div>
       )}

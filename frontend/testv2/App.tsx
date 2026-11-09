@@ -141,7 +141,7 @@ function readUrl() {
   const pm = (["tx", "hoga", "vol", "gap", "rh"].includes(p.get("m") || "") ? p.get("m") : "tx") as PriceMetric;
   const lat = parseFloat(p.get("lat") || ""), lng = parseFloat(p.get("lng") || ""), lv = parseInt(p.get("lv") || "");
   const safe = (["alert", "ledger", "jeonse", "calc"].includes(p.get("safe") || "") ? p.get("safe") : null) as SafeTab | null;
-  return { layer, pm, lat: isNaN(lat) ? 37.5045 : lat, lng: isNaN(lng) ? 127.1095 : lng, lv: isNaN(lv) ? 5 : lv, cx: p.get("cx"), stats: statsKeyOf(p.get("stats")), safe, ask: askTabOf(p.get("ask")), fav: p.get("fav") === "1", rt: p.get("rt") || null };
+  return { layer, pm, lat: isNaN(lat) ? 37.5045 : lat, lng: isNaN(lng) ? 127.1095 : lng, lv: isNaN(lv) ? 5 : lv, cx: p.get("cx"), stats: statsKeyOf(p.get("stats")), safe, ask: p.get("proposals") ? "mine" as AskTab : askTabOf(p.get("ask")), proposals: p.get("proposals") || "", fav: p.get("fav") === "1", rt: p.get("rt") || null };
 }
 
 export default function App() {
@@ -271,6 +271,7 @@ export default function App() {
     if (stats) p.set("stats", `${stats.g}.${stats.i}`);
     if (safe) p.set("safe", safe);
     if (ask) p.set("ask", ask);
+    if (ask === "mine" && init.proposals) p.set("proposals", init.proposals);
     if (fav) p.set("fav", "1");
     if (rt) p.set("rt", rt);
     history.replaceState(null, "", "?" + p.toString());
@@ -758,7 +759,7 @@ export default function App() {
             onSafe={() => { setStats(null); setSafe("jeonse"); }} />}
           {safe && <SafeWindow tab={safe} onTab={setSafe} phone={phone} onClose={() => setSafe(null)} session={session}
             at={selJ ? { lat: selJ.lat, lng: selJ.lng, name: selJ.name } : null} onLogin={() => setAskLogin(true)} />}
-          {ask && <AskWindow tab={ask} onTab={setAsk} phone={phone} onClose={() => setAsk(null)} session={session}
+          {ask && <AskWindow tab={ask} onTab={setAsk} phone={phone} onClose={() => setAsk(null)} session={session} token={init.proposals || undefined}
             region={{ sido: region ? region.dong.slice(0, 2) + "00000000" : "", sgg: region?.sgg || "", dong: region?.dong || "" }}
             onGo={(path, text) => {
               const m = /^\/complex\/(\d+)/.exec(path);
@@ -1291,6 +1292,9 @@ function RealtorPanel({ region, dong, onRows, onPick, onDong, onRealtor }: { reg
     setRows(null);
     if (scope === "dong" && code) {
       getJson(`/stats/realtors/by-dong?cortar=${code}&scope=${mscope}&limit=200`).then((j) => { setApiName(j.dong_name || ""); setRows(j.items || []); }).catch(() => setRows([]));
+    } else if (scope === "gu" && pSgg) {
+      // 구 범위 = by-dong 에 시군구 코드(xxxxx00000)를 주면 그 구에 소재한 사무소 전체
+      getJson(`/stats/realtors/by-dong?cortar=${pSgg}&scope=${mscope}&limit=300`).then((j) => { setApiName(j.dong_name || ""); setRows(j.items || []); }).catch(() => setRows([]));
     } else if (scope === "sido" && sidoName) {
       getJson(`/stats/realtors/by-sido?limit=50&scope=${mscope}`).then((j) => {
         const g = j.groups?.[sidoName] || [];
@@ -1300,7 +1304,7 @@ function RealtorPanel({ region, dong, onRows, onPick, onDong, onRealtor }: { reg
       getJson(`/stats/realtors/national?limit=50&scope=${mscope}`).then((j) =>
         setRows((j.items || []).map((r: any) => ({ ...r, listings: r.count })))).catch(() => setRows([]));
     } else setRows([]);
-  }, [scope, code, sidoName, mscope]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scope, code, sidoName, mscope, pSgg]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(() => {
     const xs = [...(rows || [])];
@@ -1387,9 +1391,7 @@ function RealtorPanel({ region, dong, onRows, onPick, onDong, onRealtor }: { reg
           <p className="t2-note">
             {scope === "dong" ? `기준: 이 동 ${msLabel.replace(/ \(.*\)/, "")} 매물 수 · 지도의 동을 눌러도 바뀌어요` : `기준: ${msLabel.replace(/ \(.*\)/, "")} 매물 수`}
           </p>
-          {scope === "gu" ? (
-            <p className="t2-empty">구 단위 랭킹은 새 API 가 필요해요(B단계). 동·시도·전국으로 볼 수 있어요.</p>
-          ) : rows == null ? <Skel /> : sorted.length === 0 ? <p className="t2-empty">랭킹 자료가 없어요.</p> : (
+          {rows == null ? <Skel /> : sorted.length === 0 ? <p className="t2-empty">랭킹 자료가 없어요.</p> : (
             <ol className="t2-rank">
               {sorted.map((r, i) => (
                 <li key={r.realtor_id + i} className={i === 0 ? "top1" : ""}>
