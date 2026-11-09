@@ -608,6 +608,15 @@ export default function App() {
     if (m) { if (m.getLevel() > 4) m.setLevel(4); m.panTo(new window.kakao.maps.LatLng(g.lat, g.lng)); if (phone) setTimeout(() => m.panBy(0, Math.round(window.innerHeight * 0.24)), 350); }
     setRkSel(rkKey(g));
   }, [phone, rkDong, region]);
+  // 패널에서 동을 고르면 그 동 랭킹으로 고정하고 지도를 그 동으로 옮긴다(동 중심은 카카오 주소 검색)
+  const pickDong = useCallback((d: { code: string; name: string }, path: string) => {
+    setRkDong(d);
+    geocodeRegion(path).then((g) => {
+      const m = mapRef.current; if (!g || !m) return;
+      m.setLevel(5); m.setCenter(new window.kakao.maps.LatLng(g.lat, g.lng));
+      if (phone) m.panBy(0, Math.round(window.innerHeight * 0.24));
+    }).catch(() => {});
+  }, [phone]);
 
   useEffect(() => { setRkDong(null); }, [region?.sgg]);
 
@@ -620,7 +629,7 @@ export default function App() {
       {layer === "price" && !isJibun(pa) && pm === "rh" && <RecordHighPanel rows={rhs} region={region} win={pw} onWin={setPw} loading={aggLoading} onMetric={setPm} onPick={pickComplex} />}
       {layer === "price" && !isJibun(pa) && pm !== "rh" && <PricePanel region={region} agg={agg} level={view?.level ?? 5} metric={pm} onMetric={setPm}
         win={pw} onWin={setPw} loading={aggLoading} meta={aggMeta} onPick={pickComplex} />}
-      {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} onRows={setRkRows} onPick={pickRealtor} />}
+      {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} onRows={setRkRows} onPick={pickRealtor} onDong={pickDong} />}
     </>
   );
 
@@ -1087,28 +1096,58 @@ function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading,
 
 // ── 중개사랭킹 ─────────────────────────────────────
 type Scope = "dong" | "gu" | "sido" | "nat";
-function RealtorPanel({ region, dong, onRows, onPick }: { region: Region | null; dong: { code: string; name: string } | null;
-  onRows: (rows: (Rk & { rank: number })[]) => void; onPick: (r: Rk) => void }) {
+type Opt = { code: string; name: string };
+// 매물 범위 — 운영 우리동네 중개사 페이지와 같은 6종(by-dong·by-sido·national 의 scope=)
+const MSCOPES: [string, string][] = [["complex", "단지형 (아파트·오피)"], ["house", "주택 (빌라·단독)"], ["comm", "상가·사무실"], ["building", "빌딩·건물"], ["land", "토지·공장"], ["all", "전체"]];
+function RealtorPanel({ region, dong, onRows, onPick, onDong }: { region: Region | null; dong: Opt | null;
+  onRows: (rows: (Rk & { rank: number })[]) => void; onPick: (r: Rk) => void; onDong: (d: Opt, path: string) => void }) {
   const [scope, setScope] = useState<Scope>("dong");
+  const [mode, setMode] = useState<"dong" | "name">("dong");   // 찾는 방법: 동네로 / 사무소 이름으로(운영 페이지와 동일)
+  const [mscope, setMscope] = useState("complex");
   const [sort, setSort] = useState<"listings" | "staff" | "tenure">("listings");
   const [rows, setRows] = useState<Rk[] | null>(null);
   const [apiName, setApiName] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
+  // 지역 고르기(시·도 → 시·군·구 → 읍·면·동) — 운영과 같은 목록 API. 기본값은 지도가 보는 곳.
+  const [sidos, setSidos] = useState<Opt[]>([]);
+  const [sggs, setSggs] = useState<Opt[]>([]);
+  const [dongs, setDongs] = useState<Opt[]>([]);
+  const [pSido, setPSido] = useState("");
+  const [pSgg, setPSgg] = useState("");
+  useEffect(() => { getJson(`/stats/changes/sido-list`).then((j) => setSidos(j.items || [])).catch(() => {}); }, []);
+  useEffect(() => { if (region && !dong) { setPSido(region.dong.slice(0, 2) + "00000000"); setPSgg(region.sgg); } }, [region?.sgg, dong]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!pSido) return; getJson(`/stats/sigungu-list?sido=${pSido}`).then((j) => setSggs(j.items || [])).catch(() => setSggs([])); }, [pSido]);
+  useEffect(() => { if (!pSgg) { setDongs([]); return; } getJson(`/stats/dong-list?sigungu=${pSgg}`).then((j) => setDongs(j.items || [])).catch(() => setDongs([])); }, [pSgg]);
+  const sidoName = sidos.find((s) => s.code === pSido)?.name || region?.sidoName || "시·도";
+  const sggName = sggs.find((s) => s.code === pSgg)?.name || (pSgg && pSgg === region?.sgg ? region?.sggName : "") || "시·군·구";
   const code = dong?.code || region?.dong;
   const name = dong?.name || region?.dongName || apiName;
+  // 사무소 이름 검색(/stats/realtors/search)
+  const [q, setQ] = useState("");
+  const [qRes, setQRes] = useState<any[] | null>(null);
+  useEffect(() => {
+    const t = q.trim();
+    if (!t) { setQRes(null); return; }
+    const id = window.setTimeout(() => {
+      getJson(`/stats/realtors/search?q=${encodeURIComponent(t)}&limit=40`).then((j) => setQRes(j.items || [])).catch(() => setQRes([]));
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [q]);
+
   useEffect(() => {
     setRows(null);
     if (scope === "dong" && code) {
-      getJson(`/stats/realtors/by-dong?cortar=${code}&scope=complex&limit=200`).then((j) => { setApiName(j.dong_name || ""); setRows(j.items || []); }).catch(() => setRows([]));
-    } else if (scope === "sido" && region) {
-      getJson(`/stats/realtors/by-sido?limit=50&scope=complex`).then((j) => {
-        const g = j.groups?.[region.sidoName] || [];
+      getJson(`/stats/realtors/by-dong?cortar=${code}&scope=${mscope}&limit=200`).then((j) => { setApiName(j.dong_name || ""); setRows(j.items || []); }).catch(() => setRows([]));
+    } else if (scope === "sido" && sidoName) {
+      getJson(`/stats/realtors/by-sido?limit=50&scope=${mscope}`).then((j) => {
+        const g = j.groups?.[sidoName] || [];
         setRows(g.map((r: any) => ({ ...r, listings: r.count })));
       }).catch(() => setRows([]));
     } else if (scope === "nat") {
-      getJson(`/stats/realtors/national?limit=50&scope=complex`).then((j) =>
+      getJson(`/stats/realtors/national?limit=50&scope=${mscope}`).then((j) =>
         setRows((j.items || []).map((r: any) => ({ ...r, listings: r.count })))).catch(() => setRows([]));
     } else setRows([]);
-  }, [scope, code, region?.sidoName]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scope, code, sidoName, mscope]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(() => {
     const xs = [...(rows || [])];
@@ -1118,48 +1157,105 @@ function RealtorPanel({ region, dong, onRows, onPick }: { region: Region | null;
     return xs.slice(0, 50);
   }, [rows, sort]);
   const max = Math.max(1, ...sorted.map((r) => r.listings));
-  const title = scope === "dong" ? name : scope === "gu" ? region?.sggName : scope === "sido" ? region?.sidoName : "전국";
+  const title = scope === "dong" ? name : scope === "gu" ? sggName : scope === "sido" ? sidoName : "전국";
   // 지도 핀은 동 랭킹만(시도·전국은 사무소가 너무 흩어져 있어 목록만)
-  useEffect(() => { onRows(scope === "dong" ? sorted.map((r, i) => ({ ...r, rank: i + 1 })) : []); }, [sorted, scope]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onRows(scope === "dong" && mode === "dong" ? sorted.map((r, i) => ({ ...r, rank: i + 1 })) : []); }, [sorted, scope, mode]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const opt = (l: string, on: boolean, f: () => void) => <button key={l} className={on ? "on" : ""} onClick={f}>{l}</button>;
+  const msLabel = MSCOPES.find((m) => m[0] === mscope)?.[1] || "매물 범위";
 
   return (
     <div className="t2-pad">
-      <div className="t2-seg">
-        {([["dong", "동"], ["gu", region?.sggName || "구"], ["sido", region?.sidoName || "시도"], ["nat", "전국"]] as [Scope, string][]).map(([k, l]) => (
-          <button key={k} className={scope === k ? "on" : ""} onClick={() => setScope(k)}>{l}</button>
-        ))}
+      <div className="t2-modes">
+        <button className={mode === "dong" ? "on" : ""} onClick={() => { setMode("dong"); setQ(""); }}>우리 동네로</button>
+        <button className={mode === "name" ? "on" : ""} onClick={() => setMode("name")}>사무소 이름으로</button>
       </div>
-      <div className="t2-ph"><h2>{title} 중개사 랭킹</h2></div>
-      {scope === "dong" && (
-        <div className="t2-chips sm">
-          {([["listings", "매물 수"], ["staff", "직원 수"], ["tenure", "업력"]] as const).map(([k, l]) => (
-            <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{l}순</button>
-          ))}
-        </div>
+      {mode === "name" ? (
+        <>
+          <div className="t2-nsearch">
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="중개사무소 이름 (예: 래미안, 자이…)" />
+            {q && <button onClick={() => setQ("")} aria-label="지우기">×</button>}
+          </div>
+          {!q.trim() ? <p className="t2-empty">중개사무소 이름을 입력하면 전국에서 찾아요.</p>
+            : qRes == null ? <Skel />
+            : qRes.length === 0 ? <p className="t2-empty">일치하는 중개사무소가 없어요.</p> : (
+              <>
+                <p className="t2-note">'{q.trim()}' {qRes.length}곳 · 단지형 매물 수순</p>
+                <ol className="t2-rank">
+                  {qRes.map((r, i) => (
+                    <li key={(r.realtor_id || r.realtor_name) + i}>
+                      <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id || "")}`} target="_blank" rel="noreferrer">
+                        <span className="n">{i + 1}</span>
+                        <span className="o"><b>{r.realtor_name || "공인중개사"}</b>
+                          <em>{[r.location, r.representative ? `대표 ${r.representative}` : "", r.staff_count ? `직원 ${r.staff_count}명` : "", r.established_year ? `${String(r.established_year).slice(0, 4)}년 개업` : ""].filter(Boolean).join(" · ")}</em></span>
+                        <span className="bm" />
+                        <span className="c">{(r.count || 0).toLocaleString()}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            )}
+        </>
+      ) : (
+        <>
+          <div className="t2-seg">
+            {([["dong", "동"], ["gu", "구"], ["sido", "시도"], ["nat", "전국"]] as [Scope, string][]).map(([k, l]) => (
+              <button key={k} className={scope === k ? "on" : ""} onClick={() => setScope(k)}>{l}</button>
+            ))}
+          </div>
+          <div className="t2-rsel" onMouseLeave={() => setOpen(null)}>
+            {scope !== "nat" && (
+              <Dd id="sido" open={open} setOpen={setOpen} label={sidoName} active={false}>
+                {sidos.map((s) => opt(s.name, s.code === pSido, () => { setPSido(s.code); setPSgg(""); }))}
+              </Dd>
+            )}
+            {(scope === "dong" || scope === "gu") && (
+              <Dd id="sgg" open={open} setOpen={setOpen} label={sggName} active={false}>
+                {sggs.length ? sggs.map((s) => opt(s.name, s.code === pSgg, () => setPSgg(s.code))) : <span className="t2-ddm-note">시·도를 먼저 고르세요</span>}
+              </Dd>
+            )}
+            {scope === "dong" && (
+              <Dd id="dong" open={open} setOpen={setOpen} label={name || "읍·면·동"} active={!!dong}>
+                {dongs.length ? dongs.map((d) => opt(d.name, d.code === code, () => onDong(d, `${sidoName} ${sggName} ${d.name}`))) : <span className="t2-ddm-note">시·군·구를 먼저 고르세요</span>}
+              </Dd>
+            )}
+            <Dd id="ms" open={open} setOpen={setOpen} label={msLabel} active={mscope !== "complex"}>
+              {MSCOPES.map(([v, l]) => opt(l, mscope === v, () => setMscope(v)))}
+            </Dd>
+          </div>
+          <div className="t2-ph"><h2>{title} 중개사 랭킹</h2></div>
+          {scope === "dong" && (
+            <div className="t2-chips sm">
+              {([["listings", "매물 수"], ["staff", "직원 수"], ["tenure", "업력"]] as const).map(([k, l]) => (
+                <button key={k} className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{l}순</button>
+              ))}
+            </div>
+          )}
+          <p className="t2-note">
+            {scope === "dong" ? `기준: 이 동 ${msLabel.replace(/ \(.*\)/, "")} 매물 수 · 지도의 동을 눌러도 바뀌어요` : `기준: ${msLabel.replace(/ \(.*\)/, "")} 매물 수`}
+          </p>
+          {scope === "gu" ? (
+            <p className="t2-empty">구 단위 랭킹은 새 API 가 필요해요(B단계). 동·시도·전국으로 볼 수 있어요.</p>
+          ) : rows == null ? <Skel /> : sorted.length === 0 ? <p className="t2-empty">랭킹 자료가 없어요.</p> : (
+            <ol className="t2-rank">
+              {sorted.map((r, i) => (
+                <li key={r.realtor_id + i} className={i === 0 ? "top1" : ""}>
+                  <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id)}`} target="_blank" rel="noreferrer"
+                    onClick={scope === "dong" ? (e) => { e.preventDefault(); onPick(r); } : undefined}>
+                    <span className="n">{i + 1}</span>
+                    <span className="o"><b>{r.realtor_name}</b>
+                      <em>{[r.staff_count ? `직원 ${r.staff_count}명` : "", r.tenure_years ? `업력 ${r.tenure_years}년` :
+                        r.established_year ? `${r.established_year}년 개업` : ""].filter(Boolean).join(" · ")}</em></span>
+                    <span className="bm"><i style={{ width: `${(r.listings / max) * 100}%` }} /></span>
+                    <span className="c">{r.listings.toLocaleString()}</span>
+                  </a>
+                </li>
+              ))}
+            </ol>
+          )}
+          {scope === "dong" && <p className="t2-foot">줄을 누르면 지도의 사무소 핀이 열려요. 같은 건물의 사무소는 한 핀에 묶여요. 네이버 프로필 좌표가 없는 곳은 등록 주소로 찾아 찍어요.</p>}
+        </>
       )}
-      <p className="t2-note">
-        {scope === "dong" ? "기준: 이 동 단지형 매물 수 · 지도에서 다른 동을 누르면 바뀌어요" : "기준: 단지형 매물 수"}
-      </p>
-      {scope === "gu" ? (
-        <p className="t2-empty">구 단위 랭킹은 새 API 가 필요해요(B단계). 동·시도·전국으로 볼 수 있어요.</p>
-      ) : rows == null ? <Skel /> : sorted.length === 0 ? <p className="t2-empty">랭킹 자료가 없어요.</p> : (
-        <ol className="t2-rank">
-          {sorted.map((r, i) => (
-            <li key={r.realtor_id + i} className={i === 0 ? "top1" : ""}>
-              <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id)}`} target="_blank" rel="noreferrer"
-                onClick={scope === "dong" ? (e) => { e.preventDefault(); onPick(r); } : undefined}>
-                <span className="n">{i + 1}</span>
-                <span className="o"><b>{r.realtor_name}</b>
-                  <em>{[r.staff_count ? `직원 ${r.staff_count}명` : "", r.tenure_years ? `업력 ${r.tenure_years}년` :
-                    r.established_year ? `${r.established_year}년 개업` : ""].filter(Boolean).join(" · ")}</em></span>
-                <span className="bm"><i style={{ width: `${(r.listings / max) * 100}%` }} /></span>
-                <span className="c">{r.listings.toLocaleString()}</span>
-              </a>
-            </li>
-          ))}
-        </ol>
-      )}
-      {scope === "dong" && <p className="t2-foot">줄을 누르면 지도의 사무소 핀이 열려요. 같은 건물의 사무소는 한 핀에 묶여요. 네이버 프로필 좌표가 없는 곳은 등록 주소로 찾아 찍어요.</p>}
     </div>
   );
 }

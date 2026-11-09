@@ -558,3 +558,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .t2-rpop-f { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
 .t2-rpop-f .t2-telbtn { flex: 0 0 auto; }
 .t2-rpop-f .t2-lnk { margin-left: auto; font-size: 12px; }
+
+/* 중개사랭킹 패널: 찾는 방법 토글 · 지역/매물 범위 드롭다운 줄 · 이름 검색 */
+.t2-modes { display: flex; gap: 14px; margin: 2px 0 10px; border-bottom: 1px solid var(--c-border-soft); }
+.t2-modes button { border: 0; background: none; padding: 6px 2px 8px; font-size: 13.5px; font-weight: 700; color: var(--c-text-soft); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.t2-modes button.on { color: var(--c-primary); border-bottom-color: var(--c-primary); }
+.t2-rsel { display: flex; flex-wrap: wrap; gap: 2px 4px; margin: -4px 0 8px -6px; }
+.t2-rsel .t2-ddm { max-height: 320px; overflow: auto; }
+.t2-nsearch { position: relative; margin-bottom: 10px; }
+.t2-nsearch input { width: 100%; height: 38px; border: 1px solid var(--c-border); border-radius: var(--r-sm); padding: 0 34px 0 12px; font-size: 14px; background: #f7f9fc; }
+.t2-nsearch input:focus { outline: 0; border-color: var(--c-primary); background: #fff; }
+.t2-nsearch button { position: absolute; right: 6px; top: 6px; width: 26px; height: 26px; border: 0; background: none; font-size: 18px; color: var(--c-muted); }
