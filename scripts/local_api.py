@@ -10755,18 +10755,31 @@ def map_listings(swlat: float, swlng: float, nelat: float, nelng: float,
             f"WHERE cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ? AND {' AND '.join(cw)} "
             f"GROUP BY cx.complex_no ORDER BY COUNT(l.article_no) DESC LIMIT ?",
             [*lp, swlat, nelat, swlng, nelng, *cp, limit]).fetchall()
-        # 핀에 적는 '최저가 매물의 평형' — MIN() 하나만 둔 별도 쿼리라야 bare column(area2_m2·area_name)이 그 행에서 온다
-        # (위 쿼리는 MIN·MAX 가 여럿이라 임의 행이 된다).
+        # 핀에 적는 '대표 평형' = 필터에 맞는 매물이 있는 평형 중 **세대수가 가장 많은 평형**(complex_areas.household_count).
+        # 예전엔 최저가 매물의 평형이라 파크리오처럼 소형(35㎡)이 대표로 잡혔다(2026-11-09 사용자 지적).
+        # 세대수 자료가 없으면 매물 수가 가장 많은 평형. 가격은 그 평형의 최저 호가, 실거래도 그 평형(±1.5㎡).
         area: dict = {}
         ids_all = [r[0] for r in rows]
+        per: dict = {}        # (no, area_name) → (min_price, area2_m2, n_listings)
         for i in range(0, len(ids_all), 500):
             chunk = ids_all[i:i + 500]
-            for no, a2, an, _mp in c.execute(
-                    f"SELECT l.complex_no, l.area2_m2, l.area_name, MIN(l.deal_or_warrant_price) FROM listings_current l "
-                    f"WHERE l.complex_no IN ({','.join('?' * len(chunk))}) AND {' AND '.join(lw)} GROUP BY l.complex_no",
+            for no, an, a2, mp, nl in c.execute(
+                    f"SELECT l.complex_no, l.area_name, MIN(l.area2_m2), MIN(l.deal_or_warrant_price), COUNT(*) FROM listings_current l "
+                    f"WHERE l.complex_no IN ({','.join('?' * len(chunk))}) AND {' AND '.join(lw)} GROUP BY l.complex_no, l.area_name",
                     [*chunk, *lp]):
-                area[no] = (a2, an)
-        rows = [(*r, *area.get(r[0], (None, None))) for r in rows]
+                per[(no, an)] = (mp, a2, nl)
+            hh = {(no, pn): (h or 0) for no, pn, h in c.execute(
+                f"SELECT complex_no, pyeong_name, household_count FROM complex_areas WHERE complex_no IN ({','.join('?' * len(chunk))})", chunk)}
+            best: dict = {}
+            for (no, an), (mp, a2, nl) in per.items():
+                if no not in chunk:
+                    continue
+                key = (hh.get((no, an), 0), nl, -(mp or 0))
+                if no not in best or key > best[no][0]:
+                    best[no] = (key, a2, an, mp)
+            for no, (_k, a2, an, mp) in best.items():
+                area[no] = (a2, an, mp)
+        rows = [(*r, *area.get(r[0], (None, None, None))) for r in rows]
         # 핀 '실 N억': 그 평형(±1.5㎡)의 최근 1년 실거래 중 가장 최근 1건(해제 제외). 매매·전세만, 월세는 없음.
         real: dict = {}
         if trade in ("A1", "B1") and rows:
@@ -10797,7 +10810,7 @@ def map_listings(swlat: float, swlng: float, nelat: float, nelng: float,
         {"complex_no": r[0], "name": r[1], "lat": r[2], "lng": r[3], "type": r[4], "households": r[5],
          "approve_year": int(r[6]) if r[6] and str(r[6]).isdigit() else None,
          "n": r[7], "min_price": r[8], "max_price": r[9], "min_rent": r[10], "units": round(r[11] or 0),
-         "min_area": r[12], "min_area_name": r[13],
+         "min_area": r[12], "min_area_name": r[13], "rep_price": r[14],
          "real_price": real.get(r[0], (None, None))[0], "real_ymd": real.get(r[0], (None, None))[1]}
         for r in rows]}
 

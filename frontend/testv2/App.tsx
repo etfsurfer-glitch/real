@@ -372,10 +372,10 @@ export default function App() {
         }
         const spn = new Map<string, number>();
         for (const d of sj?.items || []) spn.set(d.complex_no, (spn.get(d.complex_no) || 0) + 1);
-        let items: (Cx & { n: number; u: number; minp: number | null; maxp: number | null; minr: number | null; area: number | null; areaName: string | null;
+        let items: (Cx & { n: number; u: number; minp: number | null; maxp: number | null; minr: number | null; area: number | null; areaName: string | null; repp: number | null;
           real: number | null; realYmd: string | null; disc?: number; dq?: Dq; sp?: number })[] = (ml.items || []).map((m: any) => ({
           complex_no: m.complex_no, name: m.name, lat: m.lat, lng: m.lng, households: m.households, listings: m.n,
-          n: m.n, u: Math.round(m.units || 0), minp: m.min_price, maxp: m.max_price, minr: m.min_rent, area: m.min_area, areaName: m.min_area_name,
+          n: m.n, u: Math.round(m.units || 0), minp: m.min_price, maxp: m.max_price, minr: m.min_rent, area: m.min_area, areaName: m.min_area_name, repp: m.rep_price ?? null,
           real: m.real_price, realYmd: m.real_ymd, disc: disc.get(m.complex_no), dq: dq.get(m.complex_no), sp: spn.get(m.complex_no),
         }));
         if (flt.only) items = items.filter((c) => c.disc);   // 급매만: 급매가 있는 단지만 남긴다
@@ -390,7 +390,9 @@ export default function App() {
         const tlf = flt.trade === "B1" ? "전세" : flt.trade === "B2" ? "월세" : "매매";
         for (const c of items) {
           const on = c.complex_no === selNo;
-          const price = c.minp ? wonShort(c.minp) + (flt.trade === "B2" && c.minr ? `/${Math.round(c.minr / 1e4)}` : "") : "-";
+          // 몸통 가격 = 대표 평형(세대수 최다)의 최저 호가. 팝업의 범위는 단지 전체 최저~최고.
+          const pp = c.repp ?? c.minp;
+          const price = pp ? wonShort(pp) + (flt.trade === "B2" && c.minr ? `/${Math.round(c.minr / 1e4)}` : "") : "-";
           const hd = [c.area ? areaLabel(c.area) : (c.areaName ? `${c.areaName}타입` : "매물"), c.disc ? `급매 ${pct(c.disc, 0)}` : "", c.sp ? `${spl} ${c.sp}` : ""].filter(Boolean).join(" · ");
           const range = c.minp ? (c.maxp && c.maxp !== c.minp ? `${wonShort(c.minp)} ~ ${wonShort(c.maxp)}` : wonShort(c.minp)) : "-";
           const deal = c.dq ? `<b>급매</b> ${esc(c.dq.area_name)}타입 ${wonShort(c.dq.asking_min)} <i>실거래 평균 대비 ${pct(c.dq.discount, 0)}</i>` : `<b>급매</b> 없음`;
@@ -1089,6 +1091,8 @@ function DealsPanel({ region, inView, onPick, zoomedOut, onRequest }: { region: 
 
 // ── 시세분석 ───────────────────────────────────────
 const eok = (v: number) => (v >= 1e8 ? `${(v / 1e8).toFixed(1)}억` : `${Math.round(v / 1e4).toLocaleString()}만`);
+const VOL_MIN = 10;   // 거래량 변동률을 보여 줄 최소 건수(두 기간 모두)
+const volOk = (a: { n: number; n_prev?: number | null; change?: number | null }) => a.change != null && (a.n ?? 0) >= VOL_MIN && (a.n_prev ?? 0) >= VOL_MIN;
 const signPct = (v: number | null | undefined) => (v == null ? "-" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`);
 const chgCls = (v: number | null | undefined) => (v == null ? "flat" : v > 0.5 ? "up" : v < -0.5 ? "down" : "flat");
 
@@ -1096,7 +1100,9 @@ const chgCls = (v: number | null | undefined) => (v == null ? "flat" : v > 0.5 ?
 function bubble(m: PriceMetric, a: Agg): { cls: string; main: string; sub: string } {
   if (m === "tx") return { cls: chgCls(a.change), main: signPct(a.change), sub: `${Math.round((a.ppy ?? 0) / 1e4).toLocaleString()}만/평` };
   if (m === "hoga") return { cls: chgCls(a.change), main: signPct(a.change), sub: `매물 ${a.n.toLocaleString()}건` };
-  if (m === "vol") return { cls: chgCls(a.change), main: a.change == null ? `${a.n}건` : signPct(a.change), sub: `${a.n}건 (전 ${a.n_prev ?? 0})` };
+  // 거래량: 두 기간 모두 VOL_MIN 건 이상일 때만 %(표본이 적으면 +200%·-100% 같은 극단값이 되므로), 미달이면 '전→지금 건'을 회색으로
+  if (m === "vol") return volOk(a) ? { cls: chgCls(a.change), main: signPct(a.change), sub: `${a.n}건 (전 ${a.n_prev ?? 0})` }
+    : { cls: "flat", main: `${a.n_prev ?? 0}→${a.n}건`, sub: `${VOL_MIN}건 미만` };
   const r = a.rate ?? 0;
   return { cls: r >= 70 ? "gap hi" : r >= 55 ? "gap" : "gap lo", main: `${r.toFixed(0)}%`, sub: `갭 ${eok(a.gap84 ?? 0)}` };
 }
@@ -1194,6 +1200,7 @@ function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading,
   const rows = useMemo(() => {
     const r = [...agg];
     if (metric === "gap") r.sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0));
+    else if (metric === "vol") r.sort((a, b) => (Number(volOk(b)) - Number(volOk(a))) || ((volOk(a) ? (b.change ?? -999) - (a.change ?? -999) : b.n - a.n)));   // %가 있는 곳 먼저, 나머지는 건수순
     else r.sort((a, b) => (b.change ?? -999) - (a.change ?? -999));
     return r;
   }, [agg, metric]);
@@ -1201,7 +1208,7 @@ function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading,
   // 기간 설명 — 신고 기한(계약 후 30일)을 지표마다 다르게 다룬다.
   const note =
     metric === "tx" ? <>아파트 매매, 계약일 기준 최근 {win}일 vs 그 전 {win}일 평당가. 가격 평균은 신고 지연에 둔감해 오늘까지 세되, 최근 {REPORT_LAG}일 계약은 신고가 진행 중(약 70% 반영). <span className="up">빨강 상승</span> · <span className="down">파랑 하락</span></>
-    : metric === "vol" ? <>신고 기한({REPORT_LAG}일)이 지난 계약만 셉니다: {REPORT_LAG}일 전부터 거꾸로 {win}일 vs 그 전 {win}일. 최근 {REPORT_LAG}일 계약은 '신고 중'으로 따로 — 지금 세면 30%쯤 모자라 보이기 때문.</>
+    : metric === "vol" ? <>신고 기한({REPORT_LAG}일)이 지난 계약만 셉니다: {REPORT_LAG}일 전부터 거꾸로 {win}일 vs 그 전 {win}일. 최근 {REPORT_LAG}일 계약은 '신고 중'으로 따로 — 지금 세면 30%쯤 모자라 보이기 때문. 두 기간 모두 {VOL_MIN}건 이상일 때만 %로, 미달이면 건수로 보여요.</>
     : metric === "gap" ? <>최근 {win}일 매매·전세 평당 평균의 차이. 갭 금액은 84㎡ 기준 환산, 색은 전세가율(전세÷매매). 매매·전세 각 3건 이상인 곳만.</>
     : <>매물 호가(같은 단지·평형 셀만 비교): {meta.baseline ?? "60일 전"} → {meta.snapshot ?? "오늘"}. 매물 스냅샷 보관 때문에 60일 고정.</>;
   return (
