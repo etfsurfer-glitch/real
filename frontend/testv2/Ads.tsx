@@ -1,5 +1,5 @@
 // 지도 광고 자리(5곳)와 광고 안내 모달. 광고가 없으면 자리를 그리지 않는다. 랭킹·급매 순위와 섞지 않고 '광고' 꼬리표를 단다.
-import { useEffect, useState } from "react";
+import { Component, useEffect, useState, type ReactNode } from "react";
 import { API, getJson } from "./Drawer";
 
 export type Ad = { id: number; slot: string; scope: string; code: string; title: string; sub: string; url: string; image_url: string;
@@ -63,8 +63,19 @@ const PRODUCTS: { k: string; name: string; where: string; who: string; price: st
   { k: "info_life", name: "생활 광고", where: "단지 서랍 단지정보 탭 맨 아래 한 줄", who: "인테리어·이사·청소·가전", price: "구 1곳 월 8만원", unit: "전국 월 40만원", img: "info_life", cap: "단지 서랍 단지정보 탭 — 맨 아래 한 줄" },
 ];
 
+// 안내 창 안에서 오류가 나도 회색 바탕만 남지 않게 — 오류 글과 문의 버튼은 보여 준다
+class AdGuard extends Component<{ children: ReactNode }, { err: string }> {
+  state = { err: "" };
+  static getDerivedStateFromError(e: unknown) { return { err: String((e as Error)?.message || e) }; }
+  render() { return this.state.err ? <div style={{ padding: 20 }}><p className="t2-err">광고 안내를 그리지 못했어요: {this.state.err}</p><a className="t2-cta1 kakao" href={CS_URL} target="_blank" rel="noreferrer">카카오톡 문의</a></div> : this.props.children; }
+}
+
 export function AdInfoModal({ onClose }: { onClose: () => void }) {
-  const phone = typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches;
+  return <AdGuard><AdInfoBody onClose={onClose} /></AdGuard>;
+}
+
+function AdInfoBody({ onClose }: { onClose: () => void }) {
+  const phone = typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(max-width: 760px)").matches;
   const [cur, setCur] = useState(PRODUCTS[0]);        // PC: 마우스를 올린 상품의 실제 화면
   const [big, setBig] = useState<typeof PRODUCTS[0] | null>(null);   // 휴대폰: 누른 상품의 화면을 크게
   const bundle = { ...PRODUCTS[0], name: "분양 묶음", cap: "광고 핀 + 급매 목록 첫 칸 + 통계 창 띠 (사진은 광고 핀)" };
