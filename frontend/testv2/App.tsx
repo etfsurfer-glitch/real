@@ -450,19 +450,35 @@ export default function App() {
     const link = (lat: number, lng: number, color: string, m: number, delay: number) => {
       if (!origin) return;
       const o = origin;
+      // 그릴 땐 굵고 진하게(눈에 띄게), 다 닿으면 점이 사라지고 선은 얕게 가라앉는다
       const pl = new k.maps.Polyline({ path: [new k.maps.LatLng(o.lat, o.lng), new k.maps.LatLng(o.lat, o.lng)],
-        strokeWeight: 1.5, strokeColor: color, strokeOpacity: 0.55, strokeStyle: "dot", zIndex: 1 });
+        strokeWeight: 3, strokeColor: color, strokeOpacity: 0.95, strokeStyle: "dot", zIndex: 1 });
       add(pl);
-      let t0 = 0;
-      const step = (now: number) => {
+      const dotEl = document.createElement("div"); dotEl.innerHTML = `<div class="t2-dot" style="--pc:${color}"></div>`;
+      const dot = new k.maps.CustomOverlay({ position: new k.maps.LatLng(o.lat, o.lng), content: dotEl, xAnchor: 0.5, yAnchor: 0.5, zIndex: 5 });
+      let t0 = 0, t1 = 0;
+      const settle = (now: number) => {
         if (off) return;
+        if (!t1) t1 = now;
+        const p = Math.min(1, (now - t1) / 700);
+        pl.setOptions({ strokeWeight: 3 - 1.5 * p, strokeOpacity: 0.95 - 0.4 * p });
+        if (p < 1) requestAnimationFrame(settle);
+      };
+      const step = (now: number) => {
+        if (off) { dot.setMap(null); return; }
         if (!t0) t0 = now;
         const p = Math.min(1, (now - t0) / DRAW), e = 1 - (1 - p) * (1 - p);
-        pl.setPath([new k.maps.LatLng(o.lat, o.lng), new k.maps.LatLng(o.lat + (lat - o.lat) * e, o.lng + (lng - o.lng) * e)]);
+        const end = new k.maps.LatLng(o.lat + (lat - o.lat) * e, o.lng + (lng - o.lng) * e);
+        pl.setPath([new k.maps.LatLng(o.lat, o.lng), end]);
+        dot.setPosition(end);
         if (p < 1) requestAnimationFrame(step);
-        else put((o.lat + lat) / 2, (o.lng + lng) / 2, `<div class="t2-dist" style="--pc:${color}">${m >= 1000 ? (m / 1000).toFixed(1) + "km" : m + "m"}</div>`, 2);
+        else {
+          dot.setMap(null);
+          put((o.lat + lat) / 2, (o.lng + lng) / 2, `<div class="t2-dist" style="--pc:${color}">${m >= 1000 ? (m / 1000).toFixed(1) + "km" : m + "m"}</div>`, 2);
+          requestAnimationFrame(settle);
+        }
       };
-      setTimeout(() => requestAnimationFrame(step), delay);
+      setTimeout(() => { if (off) return; add(dot); requestAnimationFrame(step); }, delay);
     };
     // 표식 하나 = 선 + 아이콘(선이 닿을 때쯤 등장)
     const mark = (lat: number, lng: number, cls: string, color: string, icon: string, name: string, sub: string, m: number) => {

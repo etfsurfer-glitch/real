@@ -519,3 +519,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .phone .t2-zoom { top: auto; left: 8px; bottom: calc(52% + 10px); }
 .phone .t2-zoom.sh-peek { bottom: 130px; }
 .phone .t2-zoom.sh-full { display: none; }
+
+/* 점선이 뻗어 나갈 때 앞머리에 달려가는 점 */
+.t2-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--pc, #1268d3); border: 2px solid #fff; box-shadow: 0 0 0 3px rgba(0, 0, 0, .08), 0 1px 3px rgba(0, 0, 0, .35); }
+/* 고른 단지는 이름도 크고 진하게, 꼬리표 둘레로 테두리가 한 번 퍼진다 */
+.t2-pin.lst.on b { font-size: 14px; font-weight: 900; color: #0b2a5c; -webkit-text-stroke: 3.5px #fff; }
+.t2-pin.lst.on i::before { content: ""; position: absolute; inset: -4px; border-radius: 10px; border: 2px solid #0b2a5c; opacity: 0; animation: t2selring .8s ease-out 1; }
+@keyframes t2selring { from { transform: scale(.9); opacity: .9; } to { transform: scale(1.7); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .t2-pin.lst.on i::before { animation: none; } }
