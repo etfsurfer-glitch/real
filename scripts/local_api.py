@@ -3598,7 +3598,7 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
         raise HTTPException(400, "cortar required")
     if limit < 1 or limit > 2000:
         limit = 1000
-    ck = f"realtor_dong:{cortar}:{sort}:{scope}:{limit}"
+    ck = f"realtor_dong2:{cortar}:{sort}:{scope}:{limit}"   # v2: 좌표·주소·대표 포함(지도 핀)
     cached = _cache_get(ck)
     if cached is not None:
         return cached
@@ -3631,9 +3631,11 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
                              WHERE m.sys_regno=rd.sys_regno), 0) AS total_n,
                    (SELECT COUNT(*) FROM vworld_employees e WHERE e.sys_regno=rd.sys_regno) AS staff,
                    substr(v.registered_ymd,1,4) AS est_yr,
-                   v.phone
+                   v.phone,
+                   nr.latitude, nr.longitude, COALESCE(nr.address, v.address) AS addr, v.representative
             FROM realtor_dong rd
             JOIN vworld_brokers v ON v.sys_regno = rd.sys_regno
+            LEFT JOIN naver_realtors nr ON nr.realtor_id = rd.realtor_id
             WHERE rd.cortar_no = ?
             GROUP BY rd.sys_regno
             """, (cortar,)).fetchall()
@@ -3645,6 +3647,8 @@ def realtors_by_dong(cortar: str, sort: str = "listings", scope: str = "complex"
             "listings": r[3] or 0, "total_listings": r[4] or 0, "staff_count": r[5] or None,
             "established_year": est, "tenure_years": (cur_year - est) if est else None,
             "phone": r[7], "naver_linked": r[0] is not None,
+            # 지도 핀용(네이버 프로필 좌표, 없으면 null → 프런트가 주소로 지오코딩)
+            "lat": r[8] or None, "lng": r[9] or None, "address": r[10], "representative": r[11],
         })
     key = {"staff": lambda x: x["staff_count"] or 0,
            "tenure": lambda x: x["tenure_years"] or 0}.get(sort, lambda x: x["listings"])

@@ -83,7 +83,10 @@ const fltQs = (f: Flt) => new URLSearchParams({ types: f.types.join(","), trade:
 // 모여야 유의미하다. 기본 3개월, 더 넓게는 6·12개월. 호가는 스냅샷 보관 때문에 60일 고정.
 const PRICE_WINDOWS: { d: number; l: string }[] = [{ d: 90, l: "3개월" }, { d: 180, l: "6개월" }, { d: 365, l: "12개월" }];
 const REPORT_LAG = 30;
-type Rk = { realtor_id: string; realtor_name: string; listings: number; staff_count?: number; tenure_years?: number; established_year?: number | string };
+type Rk = { realtor_id: string; realtor_name: string; listings: number; total_listings?: number; staff_count?: number; tenure_years?: number; established_year?: number | string;
+  phone?: string; lat?: number | null; lng?: number | null; address?: string | null; representative?: string | null };
+// 지도 핀용 랭킹 행(순위 포함)
+type RkPin = Rk & { rank: number; lat: number; lng: number };
 
 const LAYERS: { key: Layer; label: string }[] = [
   { key: "deals", label: "매물찾기" },
@@ -143,6 +146,11 @@ export default function App() {
   const [askLogin, setAskLogin] = useState(false);
   const [flt, setFlt] = useState<Flt>(FLT0);
   const [rkDong, setRkDong] = useState<{ code: string; name: string } | null>(null);
+  // 중개사랭킹 지도 핀: 패널이 정렬한 상위 사무소(순위 포함) + 고른 핀(같은 자리 묶음 키)
+  const [rkRows, setRkRows] = useState<(Rk & { rank: number })[]>([]);
+  const [rkSel, setRkSel] = useState<string | null>(null);
+  const geoRef = useRef(new Map<string, { lat: number; lng: number } | null>());   // 주소 → 좌표(좌표 없는 사무소는 카카오 주소 검색)
+  const [geoTick, setGeoTick] = useState(0);
   const [mapErr, setMapErr] = useState("");
   const [hint, setHint] = useState("");
   const [sheet, setSheet] = useState<"peek" | "half" | "full">("half");
@@ -520,6 +528,87 @@ export default function App() {
 
   useEffect(() => { if (layer !== "deals") setHint(""); }, [layer]);
 
+  // ── 중개사랭킹: 사무소 핀 + 지도 안 팝업 ─────────────────────────
+  // 좌표 없는 사무소(네이버 프로필 좌표 없음)는 등록 주소로 카카오 주소 검색을 돌려 채운다(한 번 받은 건 기억).
+  useEffect(() => {
+    if (layer !== "realtor") return;
+    let off = false;
+    const todo = rkRows.filter((r) => !(r.lat && r.lng) && r.address && !geoRef.current.has(r.address)).slice(0, 60);
+    if (!todo.length) return;
+    (async () => {
+      let n = 0;
+      for (const r of todo) {
+        if (off) return;
+        geoRef.current.set(r.address!, null);
+        const hit = await geocodeRegion(r.address!.replace(/\(.*?\)/g, " ").replace(/\s+\S*호\b.*$/, "").trim()).catch(() => null);
+        geoRef.current.set(r.address!, hit);
+        if (++n % 5 === 0 || n === todo.length) setGeoTick((t) => t + 1);
+      }
+    })();
+    return () => { off = true; };
+  }, [layer, rkRows]);
+  const rkPins = useMemo<RkPin[]>(() => {
+    if (layer !== "realtor") return [];
+    const out: RkPin[] = [];
+    for (const r of rkRows) {
+      const g = r.lat && r.lng ? { lat: r.lat, lng: r.lng } : r.address ? geoRef.current.get(r.address) : null;
+      if (g) out.push({ ...r, lat: g.lat, lng: g.lng });
+    }
+    return out;
+  }, [layer, rkRows, geoTick]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const rkKey = (p: { lat: number; lng: number }) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
+  const rkOvs = useRef<any[]>([]);
+  useEffect(() => {
+    const map = mapRef.current, k = window.kakao;
+    rkOvs.current.forEach((o) => o.setMap(null)); rkOvs.current = [];
+    if (layer !== "realtor" || !map || !k || !rkPins.length) return;
+    const add = (o: any) => { o.setMap(map); rkOvs.current.push(o); };
+    // 같은 자리(같은 건물·주소)의 사무소는 한 핀으로 묶는다
+    const groups = new Map<string, RkPin[]>();
+    for (const p of rkPins) { const key = rkKey(p); (groups.get(key) || groups.set(key, []).get(key)!).push(p); }
+    const dongName = rkDong?.name || region?.dongName || "동";
+    for (const [key, g] of groups) {
+      g.sort((a, b) => a.rank - b.rank);
+      const top = g[0], on = rkSel === key;
+      const el = document.createElement("div");
+      el.innerHTML = `<div class="t2-rpin${top.rank === 1 ? " gold" : ""}${g.length > 1 ? " multi" : ""}${on ? " on" : ""}"><i>${top.rank}${g.length > 1 ? `<small>+${g.length - 1}</small>` : ""}</i><b>${esc(g.length > 1 ? `${shortName(top.realtor_name)} 외 ${g.length - 1}` : shortName(top.realtor_name))}</b></div>`;
+      el.addEventListener("click", (e) => { e.stopPropagation(); setRkSel((s) => (s === key ? null : key)); });
+      add(new k.maps.CustomOverlay({ position: new k.maps.LatLng(top.lat, top.lng), content: el, xAnchor: 0.5, yAnchor: 0.5, clickable: true, zIndex: on ? 40 : 10 + Math.max(0, 50 - top.rank) }));
+      if (!on) continue;
+      // 팝업: 묶인 사무소 전부, 순위·매물·직원·업력·대표·주소·전화·상세
+      const pop = document.createElement("div");
+      pop.innerHTML = `<div class="t2-rpop">
+        <div class="t2-rpop-h"><b>${esc(dongName)} 중개사</b><span>${g.length}곳 · 같은 자리</span><button class="t2-x" aria-label="닫기">×</button></div>
+        <div class="t2-rpop-b">${g.map((r) => `
+          <div class="t2-rpop-r">
+            <div class="t2-rpop-t"><span class="rk${r.rank === 1 ? " gold" : ""}">${r.rank}위</span><b>${esc(r.realtor_name)}</b></div>
+            <div class="t2-rpop-k"><span><em>매물</em>${r.listings.toLocaleString()}건${r.total_listings && r.total_listings > r.listings ? ` <small>전체 ${r.total_listings.toLocaleString()}</small>` : ""}</span><span><em>직원</em>${r.staff_count ?? "-"}명</span><span><em>업력</em>${r.tenure_years ? `${r.tenure_years}년` : "-"}${r.established_year ? ` <small>${r.established_year} 개업</small>` : ""}</span></div>
+            <div class="t2-rpop-a">${r.representative ? `대표 ${esc(r.representative)} · ` : ""}${esc(String(r.address || "").replace(/\s*\(.*?\)\s*$/, ""))}</div>
+            <div class="t2-rpop-f">${r.phone ? `<a class="t2-telbtn" href="tel:${r.phone.replace(/[^0-9+]/g, "")}">전화 ${esc(r.phone)}</a>` : ""}<a class="t2-lnk" href="${SITE}/realtor/${encodeURIComponent(r.realtor_id)}" target="_blank" rel="noreferrer">사무소 상세 ↗</a></div>
+          </div>`).join("")}</div></div>`;
+      pop.querySelector(".t2-x")?.addEventListener("click", (e) => { e.stopPropagation(); setRkSel(null); });
+      pop.addEventListener("click", (e) => e.stopPropagation());
+      add(new k.maps.CustomOverlay({ position: new k.maps.LatLng(top.lat, top.lng), content: pop, xAnchor: 0.5, yAnchor: 1, clickable: true, zIndex: 60 }));
+    }
+  }, [layer, rkPins, rkSel, rkDong?.name, region?.dongName]);
+  // 레이어가 바뀌거나 보던 동이 '다른' 동으로 바뀌면 팝업을 닫는다(줄 클릭으로 동을 처음 고정할 땐 유지)
+  useEffect(() => { setRkSel(null); }, [layer]);
+  const prevDong = useRef<string | null>(null);
+  useEffect(() => {
+    const c = rkDong?.code || null;
+    if (prevDong.current && c !== prevDong.current) setRkSel(null);
+    prevDong.current = c;
+  }, [rkDong?.code]);
+  // 패널 줄을 누르면 그 사무소로 지도를 옮기고 팝업을 연다. 지도가 옆 동으로 넘어가도 보던 동 랭킹이 바뀌지 않게 동을 고정.
+  const pickRealtor = useCallback((r: Rk) => {
+    const g = r.lat && r.lng ? { lat: r.lat, lng: r.lng } : r.address ? geoRef.current.get(r.address) : null;
+    if (!g) { setHint("이 사무소는 지도에 찍을 좌표가 아직 없어요"); setTimeout(() => setHint(""), 2500); return; }
+    if (!rkDong && region?.dong) setRkDong({ code: region.dong, name: region.dongName });
+    const m = mapRef.current;
+    if (m) { if (m.getLevel() > 4) m.setLevel(4); m.panTo(new window.kakao.maps.LatLng(g.lat, g.lng)); if (phone) setTimeout(() => m.panBy(0, Math.round(window.innerHeight * 0.24)), 350); }
+    setRkSel(rkKey(g));
+  }, [phone, rkDong, region]);
+
   useEffect(() => { setRkDong(null); }, [region?.sgg]);
 
   // ── 화면 ─────────────────────────────────────────
@@ -531,7 +620,7 @@ export default function App() {
       {layer === "price" && !isJibun(pa) && pm === "rh" && <RecordHighPanel rows={rhs} region={region} win={pw} onWin={setPw} loading={aggLoading} onMetric={setPm} onPick={pickComplex} />}
       {layer === "price" && !isJibun(pa) && pm !== "rh" && <PricePanel region={region} agg={agg} level={view?.level ?? 5} metric={pm} onMetric={setPm}
         win={pw} onWin={setPw} loading={aggLoading} meta={aggMeta} onPick={pickComplex} />}
-      {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} />}
+      {layer === "realtor" && <RealtorPanel region={region} dong={rkDong} onRows={setRkRows} onPick={pickRealtor} />}
     </>
   );
 
@@ -998,7 +1087,8 @@ function PricePanel({ region, agg, level, metric, onMetric, win, onWin, loading,
 
 // ── 중개사랭킹 ─────────────────────────────────────
 type Scope = "dong" | "gu" | "sido" | "nat";
-function RealtorPanel({ region, dong }: { region: Region | null; dong: { code: string; name: string } | null }) {
+function RealtorPanel({ region, dong, onRows, onPick }: { region: Region | null; dong: { code: string; name: string } | null;
+  onRows: (rows: (Rk & { rank: number })[]) => void; onPick: (r: Rk) => void }) {
   const [scope, setScope] = useState<Scope>("dong");
   const [sort, setSort] = useState<"listings" | "staff" | "tenure">("listings");
   const [rows, setRows] = useState<Rk[] | null>(null);
@@ -1029,6 +1119,8 @@ function RealtorPanel({ region, dong }: { region: Region | null; dong: { code: s
   }, [rows, sort]);
   const max = Math.max(1, ...sorted.map((r) => r.listings));
   const title = scope === "dong" ? name : scope === "gu" ? region?.sggName : scope === "sido" ? region?.sidoName : "전국";
+  // 지도 핀은 동 랭킹만(시도·전국은 사무소가 너무 흩어져 있어 목록만)
+  useEffect(() => { onRows(scope === "dong" ? sorted.map((r, i) => ({ ...r, rank: i + 1 })) : []); }, [sorted, scope]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="t2-pad">
@@ -1054,7 +1146,8 @@ function RealtorPanel({ region, dong }: { region: Region | null; dong: { code: s
         <ol className="t2-rank">
           {sorted.map((r, i) => (
             <li key={r.realtor_id + i} className={i === 0 ? "top1" : ""}>
-              <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id)}`} target="_blank" rel="noreferrer">
+              <a href={`${SITE}/realtor/${encodeURIComponent(r.realtor_id)}`} target="_blank" rel="noreferrer"
+                onClick={scope === "dong" ? (e) => { e.preventDefault(); onPick(r); } : undefined}>
                 <span className="n">{i + 1}</span>
                 <span className="o"><b>{r.realtor_name}</b>
                   <em>{[r.staff_count ? `직원 ${r.staff_count}명` : "", r.tenure_years ? `업력 ${r.tenure_years}년` :
@@ -1066,7 +1159,7 @@ function RealtorPanel({ region, dong }: { region: Region | null; dong: { code: s
           ))}
         </ol>
       )}
-      <p className="t2-foot">사무소 위치 핀은 좌표를 채운 뒤(B단계) 지도에 올라와요. 지금은 동 버블로 고릅니다.</p>
+      {scope === "dong" && <p className="t2-foot">줄을 누르면 지도의 사무소 핀이 열려요. 같은 건물의 사무소는 한 핀에 묶여요. 네이버 프로필 좌표가 없는 곳은 등록 주소로 찾아 찍어요.</p>}
     </div>
   );
 }
