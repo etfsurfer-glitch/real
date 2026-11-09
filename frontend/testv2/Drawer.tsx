@@ -1,6 +1,6 @@
 // 단지 서랍 — 요약(역대 최고가·최근 실거래·실매물·역·학교) · 급매 · 실거래(매매+분양권·전세·월세, 신고가·등기·갱신권) ·
 // 호가추이(매물수·평균 호가) · 인근단지 · 중개사 · 단지정보(건축물대장·평형별 호가·같은 건물).
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type React from "react";
 import { ComposedChart, Scatter, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { wonShort } from "../src/lib/kakaomap";
@@ -49,13 +49,21 @@ type Summary = {
 export function Dd({ id, open, setOpen, label, active, children }: { id: string; open: string | null; setOpen: (v: string | null) => void; label: string; active: boolean; children: ReactNode }) {
   // 메뉴는 버튼 자리에서 fixed 로 띄운다 — 바·서랍의 overflow 에 잘리지 않게
   const [pos, setPos] = useState({ l: 0, t: 0 });
+  // 열려 있을 때 바깥을 누르면 닫는다(메뉴가 fixed 라 부모의 mouseleave 에 기대지 않게)
+  const rootRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (open !== id) return;
+    const h = (e: MouseEvent) => { if (!rootRef.current?.contains(e.target as Node)) setOpen(null); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open, id, setOpen]);
   const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     setPos({ l: Math.max(8, Math.min(r.left, window.innerWidth - 200)), t: r.bottom + 4 });
     setOpen(open === id ? null : id);
   };
   return (
-    <span className="t2-dd">
+    <span className="t2-dd" ref={rootRef}>
       <button className={"t2-fdd" + (active ? " on" : "")} aria-expanded={open === id} onClick={toggle}>{label}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
       {open === id && <span className="t2-ddm" style={{ "--dd-l": `${pos.l}px`, "--dd-t": `${pos.t}px` } as React.CSSProperties} onClick={() => setOpen(null)}>{children}</span>}
     </span>

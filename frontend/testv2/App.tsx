@@ -1203,7 +1203,7 @@ function RealtorPanel({ region, dong, onRows, onPick, onDong }: { region: Region
               <button key={k} className={scope === k ? "on" : ""} onClick={() => setScope(k)}>{l}</button>
             ))}
           </div>
-          <div className="t2-rsel" onMouseLeave={() => setOpen(null)}>
+          <div className="t2-rsel">
             {scope !== "nat" && (
               <Dd id="sido" open={open} setOpen={setOpen} label={sidoName} active={false}>
                 {sidos.map((s) => opt(s.name, s.code === pSido, () => { setPSido(s.code); setPSgg(""); }))}
