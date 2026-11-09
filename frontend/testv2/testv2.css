@@ -1132,6 +1132,8 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-pf-tl .pt.now i { background: var(--c-text); }
 .t2-pf-tl .pt.far i { background: #fff; border: 2px solid #c7ced8; width: 6px; height: 6px; }
 .t2-pf-tl .pt b { font-size: 11.5px; letter-spacing: -0.02em; }
+.t2-pf-tl .pt.first { transform: none; align-items: flex-start; margin-left: -5px; }
+.t2-pf-tl .pt.last { transform: translateX(-100%); align-items: flex-end; margin-left: 5px; }
 .t2-pf-tl .pt small { font-size: 10.5px; color: var(--c-muted); }
 /* 걸어서 */
 .t2-pf-walk { position: relative; margin: 4px 6px 0; padding-top: 14px; }

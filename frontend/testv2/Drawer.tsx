@@ -862,8 +862,8 @@ function InfoTab({ no, asset, agg, areas, sum, onPick, ad }: { no: string; asset
           {tl && (
             <div className="t2-pf-tl" aria-label="허가부터 30년까지">
               <div className="line"><i className="done" style={{ left: `${tl.x(tl.pts[0].v)}%`, width: `${tl.x(tl.now) - tl.x(tl.pts[0].v)}%` }} /></div>
-              {tl.pts.map(({ k, v, sub }) => (
-                <span key={k} className={"pt" + (k === "오늘" ? " now" : k === "30년" ? " far" : "")} style={{ left: `${tl.x(v)}%` }}>
+              {tl.pts.map(({ k, v, sub }, i) => (
+                <span key={k} className={"pt" + (k === "오늘" ? " now" : k === "30년" ? " far" : "") + (i === 0 ? " first" : i === tl.pts.length - 1 ? " last" : "")} style={{ left: `${tl.x(v)}%` }}>
                   <i /><b>{k}</b><small>{sub}</small>
                 </span>
               ))}

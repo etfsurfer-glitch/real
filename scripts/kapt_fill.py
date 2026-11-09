@@ -16,6 +16,7 @@ MONTHS = 12                # 단지당 채울 달 수(화면이 보여 주는 �
 MAX_SEC = 100 * 60         # 배치 벽시계 상한
 _t0 = time.time()
 _fail_streak = 0
+_long_waits = 0
 
 
 def _cmn_used() -> int:
@@ -32,7 +33,7 @@ def _stop_reason() -> str | None:
 
 
 def _fetch(code: str, ym: str) -> bool:
-    """한 달 받기. 일시 오류(429 등으로 키가 잠시 건너뜀 표시)면 쉬었다가 다시. 세 번 연속 실패면 False."""
+    """한 달 받기. 일시 오류(제공기관 HTTP 오류·429)면 쉬었다가 다시. 세 번 연속 실패면 False."""
     global _fail_streak
     for _ in range(3):
         if api._kapt_fetch_month(code, ym) is not None:
@@ -43,8 +44,15 @@ def _fetch(code: str, ym: str) -> bool:
                 return False
         _fail_streak += 1
         if _fail_streak >= 3:
-            return False
-        time.sleep(90)
+            # 제공기관이 통째로 내려간 때(자정 무렵 정비 등): 10분씩 최대 3번 기다려 본다
+            global _long_waits
+            if _long_waits >= 3 or time.time() - _t0 > MAX_SEC - 600:
+                return False
+            _long_waits += 1; _fail_streak = 0
+            print(f"  provider down? waiting 10 min ({_long_waits}/3)", flush=True)
+            time.sleep(600)
+        else:
+            time.sleep(30)
         api._KAPT_SKIP.clear()
     return False
 
