@@ -192,6 +192,12 @@ export default function App() {
   const [meOpen, setMeOpen] = useState(false);   // 내 정보(닉네임·휴대폰 인증·로그아웃) 작은 창
   const [legal, setLegal] = useState<LegalKind | null>(null);   // 이용약관·개인정보처리방침 모달
   const [adInfo, setAdInfo] = useState(false);   // 광고 안내(상품·가격·문의)
+  // 관리자로 로그인하면 상단·내 정보·더보기에 운영 관리 페이지(koczip.com/admin) 링크
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    if (!session) { setIsAdmin(false); return; }
+    fetch(`${API}/me`, { headers: authHeaders(session) }).then((r) => (r.ok ? r.json() : null)).then((j) => setIsAdmin(!!j?.is_admin)).catch(() => setIsAdmin(false));
+  }, [session]);
   const [rt, setRt] = useState<string | null>(init.rt);
   const closeWins = () => { setStats(null); setSafe(null); setAsk(null); setFav(false); setRt(null); setReqOpen(false); };
   const openAsk = (t: AskTab) => { closeWins(); setAsk(t); };
@@ -716,7 +722,7 @@ export default function App() {
   return (
     <div className={"t2" + (phone ? " phone" : " desk")}>
       <TopBar phone={phone} favs={favs} session={!!session} user={session ? sessionName(session) : null} onMe={() => setMeOpen(true)} onGo={goComplex} onAddr={(lat, lng) => goTo(lat, lng, 4)} onLogin={() => setAskLogin(true)}
-        statsOn={!!stats} safeOn={!!safe} onStats={() => { const was = !!stats; closeWins(); if (!was) setStats({ g: "price", i: "top" }); }} onSafe={() => { const was = !!safe; closeWins(); if (!was) setSafe("alert"); }} onFavDash={openFav} onPick={(c) => {
+        statsOn={!!stats} safeOn={!!safe} onStats={() => { const was = !!stats; closeWins(); if (!was) setStats({ g: "price", i: "top" }); }} onSafe={() => { const was = !!safe; closeWins(); if (!was) setSafe("alert"); }} onFavDash={openFav} admin={isAdmin} onPick={(c) => {
         const m = mapRef.current;
         if (m && c.lat) { m.setLevel(4); m.setCenter(new window.kakao.maps.LatLng(c.lat, c.lng)); }
         pickComplex(c, false);
@@ -798,7 +804,7 @@ export default function App() {
           {!phone && sel && <aside className="t2-drawer"><ComplexDrawer cx={sel} initialTab={drawerTab} onClose={() => setSel(null)} onPick={(c) => pickComplex(c, true)} onRealtor={openRt} onMine={() => openAsk("mine")} adTop={ads.realtor_top[0]} adLife={ads.info_life[0]}
             fav={favs ? favs.some((f) => f.complex_no === sel.complex_no) : null} onFav={() => toggleFav(sel)} /></aside>}
           {!phone && !sel && selJ && <aside className="t2-drawer"><JibunDrawer j={selJ} months={Math.round(pw / 30)} onClose={() => setSelJ(null)} /></aside>}
-          {meOpen && session && <MeModal session={session} onClose={() => setMeOpen(false)} onLogout={() => logout()} />}
+          {meOpen && session && <MeModal session={session} onClose={() => setMeOpen(false)} onLogout={() => logout()} admin={isAdmin} />}
           {askLogin && (
             <div className="t2-modal" role="dialog" aria-modal="true" onClick={() => setAskLogin(false)}>
               <div className="t2-modal-in sm" onClick={(e) => e.stopPropagation()}>
@@ -834,6 +840,7 @@ export default function App() {
           {more && (
             <div className="t2-more" onClick={() => setMore(false)}>
               {favs && favs.length > 0 && favs.map((f) => <button key={f.complex_no} onClick={() => goComplex(f.complex_no, f.complex_name)}>관심단지 · {f.complex_name}</button>)}
+              {isAdmin && <a href={`${SITE}/admin`} target="_blank" rel="noreferrer">관리 페이지</a>}
               {session && <button onClick={openFav}>관심단지 대시보드</button>}
               {!session ? <button onClick={() => setAskLogin(true)}>로그인 · 관심단지</button>
                 : <button onClick={() => setMeOpen(true)}>{sessionName(session)} · 내 정보</button>}
@@ -866,9 +873,9 @@ function ReqMenu({ onClose, onPick }: { onClose: () => void; onPick: (t: AskTab)
 }
 
 // ── 상단 바 ─────────────────────────────────────────
-function TopBar({ phone, onPick, favs, session, user, onMe, onGo, onAddr, onLogin, statsOn, safeOn, onStats, onSafe, onFavDash }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
+function TopBar({ phone, onPick, favs, session, user, onMe, onGo, onAddr, onLogin, statsOn, safeOn, onStats, onSafe, onFavDash, admin }: { phone: boolean; onPick: (c: Cx) => void; favs: { complex_no: string; complex_name: string }[] | null;
   session: boolean; user: string | null; onMe: () => void; onGo: (no: string, name: string) => void; onAddr: (lat: number, lng: number) => void; onLogin: () => void;
-  statsOn: boolean; safeOn: boolean; onStats: () => void; onSafe: () => void; onFavDash: () => void }) {
+  statsOn: boolean; safeOn: boolean; onStats: () => void; onSafe: () => void; onFavDash: () => void; admin: boolean }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<any[]>([]);
   const [favOpen, setFavOpen] = useState(false);
@@ -912,6 +919,7 @@ function TopBar({ phone, onPick, favs, session, user, onMe, onGo, onAddr, onLogi
       {!phone && (
         <nav className="t2-util">
           {/* 지도 밖 기능 셋(절충안): 안심 · 통계 · 중개사라운지. 안심·통계는 지도 위 창 */}
+          {admin && <a className="t2-utilbtn admin" href={`${SITE}/admin`} target="_blank" rel="noreferrer">관리</a>}
           <button className={"t2-utilbtn" + (safeOn ? " on" : "")} onClick={onSafe}>안심</button>
           <button className={"t2-utilbtn" + (statsOn ? " on" : "")} onClick={onStats}>통계</button>
           <span className="t2-dd" onMouseLeave={() => setFavOpen(false)}>

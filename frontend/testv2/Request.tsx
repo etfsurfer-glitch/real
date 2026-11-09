@@ -118,7 +118,7 @@ export function PhoneBlock({ session, onDone }: { session: Session; onDone: () =
 }
 
 // ── 내 정보(작은 창): 닉네임 · 휴대폰 인증 · 로그아웃 — 운영 설정 페이지 대신 지도 안에서 ──
-export function MeModal({ session, onClose, onLogout }: { session: Session; onClose: () => void; onLogout: () => void }) {
+export function MeModal({ session, onClose, onLogout, admin }: { session: Session; onClose: () => void; onLogout: () => void; admin?: boolean }) {
   const [me, setMe] = useState<{ phone_verified?: boolean; nickname?: string | null; member_no?: number | null } | null>(null);
   const [nick, setNick] = useState("");
   const [chk, setChk] = useState<{ available: boolean; reason?: string | null } | null>(null);
@@ -147,6 +147,7 @@ export function MeModal({ session, onClose, onLogout }: { session: Session; onCl
       <div className="t2-modal-in" onClick={(e) => e.stopPropagation()}>
         <div className="t2-ph"><h2>내 정보</h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
         <p className="t2-to"><b>{sessionName(session)}</b> · {session.user?.email || ""}{me?.member_no ? ` · 회원번호 ${me.member_no}` : ""}</p>
+        {admin && <a className="t2-cta1" style={{ textDecoration: "none" }} href="https://koczip.com/admin" target="_blank" rel="noreferrer">관리 페이지 열기</a>}
         <div className="t2-me-sec">
           <h3>닉네임 <small>글·리뷰·AI 호칭에 써요. 한글·영문·숫자·_ 2~12자</small></h3>
           <div className="row">

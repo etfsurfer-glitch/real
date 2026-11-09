@@ -984,3 +984,4 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-adex-i .t2-adrow, .t2-adex-i .t2-adband { cursor: default; margin: 4px 0 0; }
 .t2-adex-i .t2-pin2 { cursor: default; }
 .t2.phone .t2-adex { grid-template-columns: 1fr; }
+.t2-util .t2-utilbtn.admin { color: var(--c-up); font-weight: 800; text-decoration: none; }
