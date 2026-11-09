@@ -54,20 +54,27 @@ export function AdBand({ ad }: { ad: Ad }) {
 // ── 광고 안내(상품·가격·문의) ──
 const AD_MAIL = "mailto:runtoonline@gmail.com?subject=" + encodeURIComponent("콕집 광고문의");
 const CS_URL = "https://pf.kakao.com/_ackPX/chat";
-const PRODUCTS: { k: string; name: string; where: string; who: string; price: string; unit: string }[] = [
-  { k: "pin", name: "광고 핀", where: "매물찾기 지도 위 금색 핀. 누르면 분양 안내 페이지 또는 단지로", who: "분양·입주 현장, 모델하우스", price: "구 1곳 월 20만원", unit: "시·도 전체 월 120만원 · 구당 핀 최대 3곳 순환" },
-  { k: "realtor_top", name: "중개사무소 상단 노출", where: "중개사 랭킹 1위 위 고정 1칸 + 그 동 단지 서랍 중개사 탭 맨 위", who: "공인중개사무소", price: "동 1곳 월 5만원", unit: "동마다 1곳 독점 · 구 전체 월 30만원" },
-  { k: "deals_top", name: "급매 목록 첫 칸", where: "매물찾기 왼쪽 급매 목록(휴대폰은 아래 시트) 맨 위 한 줄", who: "그 지역 단지·사무소·분양", price: "구 1곳 월 15만원", unit: "구당 1칸" },
-  { k: "stats_band", name: "통계 창 띠", where: "실거래·호가·거래량·투자 통계 18개 화면 아래 가로 한 줄", who: "금융·분양·부동산 서비스", price: "월 25만원", unit: "전국 노출 · 2곳 순환" },
-  { k: "info_life", name: "생활 광고", where: "단지 서랍 단지정보 탭 맨 아래 한 줄", who: "인테리어·이사·청소·가전", price: "구 1곳 월 8만원", unit: "전국 월 40만원" },
+// img: 실제 서비스 화면 캡처(testv2/public/adex, 시험 광고를 넣고 찍음). PC 는 표 행에 마우스를 올리면 오른쪽에, 휴대폰은 행을 누르면 크게.
+const PRODUCTS: { k: string; name: string; where: string; who: string; price: string; unit: string; img: string; cap: string }[] = [
+  { k: "pin", name: "광고 핀", where: "매물찾기 지도 위 금색 핀. 누르면 분양 안내 페이지 또는 단지로", who: "분양·입주 현장, 모델하우스", price: "구 1곳 월 20만원", unit: "시·도 전체 월 120만원 · 구당 핀 최대 3곳 순환", img: "pin", cap: "매물찾기 지도 — 금색 머리띠 '광고' 핀" },
+  { k: "realtor_top", name: "중개사무소 상단 노출", where: "중개사 랭킹 1위 위 고정 1칸 + 그 동 단지 서랍 중개사 탭 맨 위", who: "공인중개사무소", price: "동 1곳 월 5만원", unit: "동마다 1곳 독점 · 구 전체 월 30만원", img: "realtor_top", cap: "중개사 레이어 — 랭킹 1위 위 고정 칸" },
+  { k: "deals_top", name: "급매 목록 첫 칸", where: "매물찾기 왼쪽 급매 목록(휴대폰은 아래 시트) 맨 위 한 줄", who: "그 지역 단지·사무소·분양", price: "구 1곳 월 15만원", unit: "구당 1칸", img: "deals_top", cap: "매물찾기 — 급매 목록 첫 칸" },
+  { k: "stats_band", name: "통계 창 띠", where: "실거래·호가·거래량·투자 통계 18개 화면 아래 가로 한 줄", who: "금융·분양·부동산 서비스", price: "월 25만원", unit: "전국 노출 · 2곳 순환", img: "stats_band", cap: "통계 창 — 표 아래 가로 띠" },
+  { k: "info_life", name: "생활 광고", where: "단지 서랍 단지정보 탭 맨 아래 한 줄", who: "인테리어·이사·청소·가전", price: "구 1곳 월 8만원", unit: "전국 월 40만원", img: "info_life", cap: "단지 서랍 단지정보 탭 — 맨 아래 한 줄" },
 ];
 
 export function AdInfoModal({ onClose }: { onClose: () => void }) {
+  const phone = typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches;
+  const [cur, setCur] = useState(PRODUCTS[0]);        // PC: 마우스를 올린 상품의 실제 화면
+  const [big, setBig] = useState<typeof PRODUCTS[0] | null>(null);   // 휴대폰: 누른 상품의 화면을 크게
+  const bundle = { ...PRODUCTS[0], name: "분양 묶음", cap: "광고 핀 + 급매 목록 첫 칸 + 통계 창 띠 (사진은 광고 핀)" };
+  const rowProps = (p: typeof PRODUCTS[0]) => ({ onMouseEnter: () => { if (!phone) setCur(p); }, onClick: () => { if (phone) setBig(p); }, className: cur.k === p.k && cur.name === p.name && !phone ? "on" : "" });
   return (
     <div className="t2-modal" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="t2-modal-in legal" onClick={(e) => e.stopPropagation()}>
+      <div className={"t2-modal-in legal" + (phone ? "" : " adwide")} onClick={(e) => e.stopPropagation()}>
         <div className="t2-ph"><h2>광고 안내</h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
-        <div className="t2-adinfo">
+        <div className={"t2-adinfo" + (phone ? "" : " cols")}>
+        <div>
           <p className="t2-safe-lead">콕집 지도는 매물·실거래·중개사 자료를 보러 오는 사람에게 광고를 보여 줘요. 광고는 모두 <b>'광고' 표시</b>를 달고, 급매 순위·중개사 랭킹과 섞지 않아요.</p>
           {(_settings.visitors || _settings.pageviews || _settings.complex_views) && (
             <div className="t2-kpis">
@@ -76,22 +83,12 @@ export function AdInfoModal({ onClose }: { onClose: () => void }) {
               {_settings.complex_views && <div><span>하루 단지 조회</span><b>{_settings.complex_views}</b><small>단지 서랍·핀</small></div>}
             </div>
           )}
-          <h3 className="t2-sh" style={{ display: "block" }}>이렇게 보여요</h3>
-          <div className="t2-adex">
-            <div className="t2-adex-i"><small>광고 핀 · 지도 위</small>
-              <div className="t2-pin2 ad" style={{ margin: "6px auto 10px", display: "inline-flex" }}><span className="hd">광고 · 2027년 입주</span><b>OO 분양 현장</b><em>OO건설</em></div></div>
-            <div className="t2-adex-i"><small>중개사 상단 노출 · 랭킹 위</small>
-              <div className="t2-adrow"><span className="t2-adtag">광고</span><span className="t"><b>OO 공인중개사사무소</b><em>잠실 전문 · 매매·전세 상담</em></span><small>OO부동산</small></div></div>
-            <div className="t2-adex-i"><small>급매 목록 첫 칸</small>
-              <div className="t2-adrow"><span className="t2-adtag">광고</span><span className="t"><b>OO아파트 분양 안내</b><em>34평 9억대 · 견본주택 운영 중</em></span><small>OO건설</small></div></div>
-            <div className="t2-adex-i"><small>통계 창 띠 · 생활 광고</small>
-              <div className="t2-adband" style={{ margin: 0 }}><span className="t2-adtag">광고</span><span className="t"><b>OO인테리어 송파점</b><em>34평 리모델링 견적 무료</em></span><small>OO인테리어</small></div></div>
-          </div>
-          <table className="t2-tbl t2-adprice">
+          <p className="t2-snote">{phone ? "상품을 누르면 실제 화면을 보여 드려요." : "상품에 마우스를 올리면 오른쪽에 실제 화면이 보여요."}</p>
+          <table className="t2-tbl t2-adprice hover">
             <thead><tr><th>상품</th><th>자리</th><th>맞는 광고주</th><th className="num">가격(월, 부가세 별도)</th></tr></thead>
             <tbody>
-              {PRODUCTS.map((p) => <tr key={p.k}><td><b>{p.name}</b></td><td style={{ whiteSpace: "normal" }}>{p.where}</td><td style={{ whiteSpace: "normal" }}>{p.who}</td><td className="num" style={{ whiteSpace: "normal" }}><b>{p.price}</b><small className="blk">{p.unit}</small></td></tr>)}
-              <tr className="sum"><td><b>분양 묶음</b></td><td style={{ whiteSpace: "normal" }}>광고 핀 + 급매 목록 첫 칸 + 통계 창 띠</td><td style={{ whiteSpace: "normal" }}>분양·입주 현장</td><td className="num"><b>구 1곳 월 45만원</b><small className="blk">따로 하면 60만원</small></td></tr>
+              {PRODUCTS.map((p) => <tr key={p.k} {...rowProps(p)}><td><b>{p.name}</b></td><td style={{ whiteSpace: "normal" }}>{p.where}</td><td style={{ whiteSpace: "normal" }}>{p.who}</td><td className="num" style={{ whiteSpace: "normal" }}><b>{p.price}</b><small className="blk">{p.unit}</small></td></tr>)}
+              <tr {...rowProps(bundle)} className={"sum " + rowProps(bundle).className}><td><b>분양 묶음</b></td><td style={{ whiteSpace: "normal" }}>광고 핀 + 급매 목록 첫 칸 + 통계 창 띠</td><td style={{ whiteSpace: "normal" }}>분양·입주 현장</td><td className="num"><b>구 1곳 월 45만원</b><small className="blk">따로 하면 60만원</small></td></tr>
             </tbody>
           </table>
           <h3 className="t2-sh" style={{ display: "block" }}>조건</h3>
@@ -107,7 +104,24 @@ export function AdInfoModal({ onClose }: { onClose: () => void }) {
           </div>
           <p className="t2-snote">런투온라인 · 대표 황인찬 · runtoonline@gmail.com · 070-7954-4114</p>
         </div>
+        {!phone && (
+          <aside className="t2-adprev">
+            <div className="t2-adprev-h"><b>{cur.name}</b><small>{cur.cap}</small></div>
+            <img src={`/adex/${cur.img}.png`} alt={cur.name} />
+            <p className="t2-snote">실제 지도 화면 캡처예요. 광고 글은 예시.</p>
+          </aside>
+        )}
+        </div>
       </div>
+      {big && (
+        <div className="t2-modal t2-adbig" onClick={(e) => { e.stopPropagation(); setBig(null); }}>
+          <div className="t2-adbig-in" onClick={(e) => e.stopPropagation()}>
+            <div className="t2-ph"><h3>{big.name}</h3><button className="t2-x" onClick={() => setBig(null)} aria-label="닫기">×</button></div>
+            <p className="t2-snote" style={{ marginTop: 0 }}>{big.cap}</p>
+            <img src={`/adex/${big.img}.png`} alt={big.name} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

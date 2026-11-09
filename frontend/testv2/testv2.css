@@ -985,3 +985,16 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-adex-i .t2-pin2 { cursor: default; }
 .t2.phone .t2-adex { grid-template-columns: 1fr; }
 .t2-util .t2-utilbtn.admin { color: var(--c-up); font-weight: 800; text-decoration: none; }
+/* 광고 안내 — 실제 화면 미리보기 */
+.t2-modal-in.legal.adwide { width: min(1180px, 100%); }
+.t2-adinfo.cols { display: grid; grid-template-columns: 1fr 400px; gap: 24px; align-items: start; }
+.t2-adprev { position: sticky; top: 0; border-left: 1px solid var(--c-border-soft); padding-left: 20px; }
+.t2-adprev-h { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 10px; }
+.t2-adprev-h b { font-size: 15px; } .t2-adprev-h small { font-size: 12px; color: var(--c-muted); }
+.t2-adprev img { width: 100%; border: 1px solid var(--c-border); border-radius: 6px; display: block; }
+.t2-adprice.hover tbody tr { cursor: pointer; }
+.t2-adprice.hover tbody tr:hover td, .t2-adprice.hover tbody tr.on td { background: #fffbea; }
+.t2-adbig { z-index: 120; }
+.t2-adbig-in { width: min(900px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; background: #fff; border-radius: var(--r-lg); padding: 14px; }
+.t2-adbig-in h3 { margin: 0; font-size: 16px; }
+.t2-adbig-in img { width: 100%; border: 1px solid var(--c-border); border-radius: 6px; display: block; }
