@@ -419,30 +419,6 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
             <tr><th>사용승인</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.parking_per_household ? ` · 세대당 주차 ${d.parking_per_household}대` : d.parking ? ` · 주차 ${d.parking}` : ""}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
           </tbody></table>
           {d.description && <div className="t2-kok-desc"><div className="t2-pf-h"><h3>중개사가 콕집에 쓴 설명</h3></div><p>{d.description}</p></div>}
-          {(!mg || mg.status === "pending") && (
-            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt)</small></h3>
-              <p className="mut">관리비 공개자료를 받아오는 중이에요…</p></div>
-          )}
-          {mg && mg.status === "none" && (
-            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt)</small></h3>
-              <p className="mut">{mg.reason || "이 단지의 관리비 공개자료가 없어요"}</p></div>
-          )}
-          {mg && mg.months && mg.months.length > 0 && (
-            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt) · {mg.area_basis} {mg.area ? Math.round(mg.area) : ""}㎡ 기준 · {mg.n}개월{mg.status === "partial" ? " · 더 받는 중" : ""}</small></h3>
-              <div className="t2-kpis small four">
-                {seasonAvg(mg.months).map((sn) => <div key={sn.k}><span>{sn.l}{sn.n ? ` ${sn.n}개월` : ""}</span><b>{man(sn.avg)}</b></div>)}
-              </div>
-              <p className="t2-snote" style={{ margin: "0 0 6px" }}>월평균 {man(mg.avg)} = 공용관리비 {man(mg.avg_common)} + 개별사용료 {man(mg.avg_indiv)} + 장기수선충당금 {man(mg.avg_ltf)}</p>
-              <table className="t2-tbl t2-kl-mo"><thead><tr><th>월</th><th className="num">합계</th><th className="num">공용관리비</th><th className="num">개별사용료</th><th className="num">장충금</th></tr></thead>
-                <tbody>{mg.months.map((m) => <tr key={m.ym}><td>{m.ym.slice(2, 4)}.{m.ym.slice(4, 6)}</td><td className="num"><b>{man(m.total)}</b></td><td className="num">{man(m.common)}</td><td className="num">{man(m.indiv)}</td><td className="num">{man(m.ltf)}</td></tr>)}</tbody></table>
-              {mg.items && mg.items.length > 0 && (
-                <>
-                  <button className="t2-lnk" onClick={() => setMgItems(!mgItems)}>{mgItems ? "항목별 접기" : `항목별 월평균 보기 (${mg.items.length}항목)`}</button>
-                  {mgItems && <table className="t2-tbl t2-kl-mo"><tbody>{mg.items.map((x) => <tr key={x.name}><td>{x.name}</td><td className="num">{won(x.avg)}</td></tr>)}</tbody></table>}
-                </>
-              )}
-            </div>
-          )}
           {/* 단지 — 콕집 단지 자료 + K-apt 관리 현황을 한 묶음으로. 큰 숫자 넷 뒤에 짧은 정의 목록 */}
           {d.complex_facts && d.complex_facts.households && (() => {
             const f = d.complex_facts!, fa = mg?.facility; const hh = f.households || 0;
@@ -467,6 +443,30 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
               </>
             );
           })()}
+          {(!mg || mg.status === "pending") && (
+            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt)</small></h3>
+              <p className="mut">관리비 공개자료를 받아오는 중이에요…</p></div>
+          )}
+          {mg && mg.status === "none" && (
+            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt)</small></h3>
+              <p className="mut">{mg.reason || "이 단지의 관리비 공개자료가 없어요"}</p></div>
+          )}
+          {mg && mg.months && mg.months.length > 0 && (
+            <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt) · {mg.area_basis} {mg.area ? Math.round(mg.area) : ""}㎡ 기준 · {mg.n}개월{mg.status === "partial" ? " · 더 받는 중" : ""}</small></h3>
+              <div className="t2-kpis small four">
+                {seasonAvg(mg.months).map((sn) => <div key={sn.k}><span>{sn.l}{sn.n ? ` ${sn.n}개월` : ""}</span><b>{man(sn.avg)}</b></div>)}
+              </div>
+              <p className="t2-snote" style={{ margin: "0 0 6px" }}>월평균 {man(mg.avg)} = 공용관리비 {man(mg.avg_common)} + 개별사용료 {man(mg.avg_indiv)} + 장기수선충당금 {man(mg.avg_ltf)}</p>
+              <table className="t2-tbl t2-kl-mo"><thead><tr><th>월</th><th className="num">합계</th><th className="num">공용관리비</th><th className="num">개별사용료</th><th className="num">장충금</th></tr></thead>
+                <tbody>{mg.months.map((m) => <tr key={m.ym}><td>{m.ym.slice(2, 4)}.{m.ym.slice(4, 6)}</td><td className="num"><b>{man(m.total)}</b></td><td className="num">{man(m.common)}</td><td className="num">{man(m.indiv)}</td><td className="num">{man(m.ltf)}</td></tr>)}</tbody></table>
+              {mg.items && mg.items.length > 0 && (
+                <>
+                  <button className="t2-lnk" onClick={() => setMgItems(!mgItems)}>{mgItems ? "항목별 접기" : `항목별 월평균 보기 (${mg.items.length}항목)`}</button>
+                  {mgItems && <table className="t2-tbl t2-kl-mo"><tbody>{mg.items.map((x) => <tr key={x.name}><td>{x.name}</td><td className="num">{won(x.avg)}</td></tr>)}</tbody></table>}
+                </>
+              )}
+            </div>
+          )}
           {/* 거래 비용 — 묶음(살 때·해마다) 머리줄에 합계, 그 아래 세목(취득세·재산세…)을 한 줄씩. 숫자는 오른쪽 정렬 */}
           {(d.public_price || d.acquire || d.py_price) && (() => {
             const pct = (r: number) => `${(r * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
