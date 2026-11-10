@@ -12357,6 +12357,7 @@ def lounge_roster_delete(lid: int, user: dict = Depends(current_user)):
     with _ro.connect(DB_PATH.parent) as c:
         if not c.execute("SELECT 1 FROM roster_lists WHERE id=? AND realtor_id=?", (lid, rid)).fetchone():
             raise HTTPException(404, "명단을 찾을 수 없어요")
+        c.execute("DELETE FROM roster_reveals WHERE unit_id IN (SELECT id FROM roster_units WHERE list_id=?)", (lid,))
         c.execute("DELETE FROM roster_units WHERE list_id=?", (lid,)); c.execute("DELETE FROM roster_lists WHERE id=?", (lid,)); c.commit()
     return {"ok": True}
 

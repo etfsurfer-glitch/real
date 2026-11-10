@@ -8,6 +8,10 @@
 법적 전제(화면에 고지·동의): 명단의 적법 수집·보유 책임은 사무소에 있고, 콕집은 사무소의 위탁을 받아
 보관·대조만 한다. 다른 사무소에 보이지 않는다. 연락처는 누를 때만 복호화하고 그 사실을 기록한다.
 업로드 뒤 180일이 지나면 자동 삭제한다(다시 올리면 연장).
+
+고객원장과의 분리(2026-11-11 원칙): 명단은 고객원장(reviews.sqlite 의 biz_customers·biz_needs)과 **완전히 다른
+DB**다. 이 모듈은 roster.sqlite 와 읽기 전용 광고 DB 만 연다. 고객원장을 읽지도 쓰지도 않고, 명단 행을 고객원장으로
+옮기거나 고객원장 행을 명단에 넣는 경로를 두지 않는다. 암호화 키도 별도(roster.key). 지운 행은 secure_delete 로 덮어쓴다.
 """
 from __future__ import annotations
 import base64, hashlib, io, json, os, re, sqlite3, time
@@ -38,7 +42,10 @@ def db_path(data_dir: Path) -> Path:
 
 
 def connect(data_dir: Path) -> sqlite3.Connection:
-    c = sqlite3.connect(db_path(data_dir), timeout=30)
+    p = db_path(data_dir)
+    assert p.name == "roster.sqlite"   # 고객원장(reviews.sqlite)과 섞이지 않게 — 다른 파일을 열지 않는다
+    c = sqlite3.connect(p, timeout=30)
+    c.execute("PRAGMA secure_delete=ON")
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.executescript(SCHEMA)
@@ -305,6 +312,7 @@ def save_list(c: sqlite3.Connection, data_dir: Path, realtor_id: str, user_id: s
 def purge_expired(c: sqlite3.Connection) -> int:
     ids = [r[0] for r in c.execute("SELECT id FROM roster_lists WHERE expires_at < date('now','+9 hours')")]
     for i in ids:
+        c.execute("DELETE FROM roster_reveals WHERE unit_id IN (SELECT id FROM roster_units WHERE list_id=?)", (i,))
         c.execute("DELETE FROM roster_units WHERE list_id=?", (i,))
         c.execute("DELETE FROM roster_lists WHERE id=?", (i,))
     c.commit()
@@ -414,3 +422,13 @@ def match(c: sqlite3.Connection, main_db: sqlite3.Connection, data_dir: Path, re
     out_units.sort(key=lambda x: (x["grade"] != "층 일치", x["complex_name"], int(re.sub(r"\D", "", x["dong"]) or 0), x["floor"]))
     return {"units": out_units, "n_units": len(out_units), "n_exact": sum(1 for x in out_units if x["grade"] == "층 일치"),
             "n_houses": sum(len(x["houses"]) for x in out_units), "n_ads": n_ads, "n_roster": len(units)}
+
+
+if __name__ == "__main__":   # daily_run step 11h: 만료 명단 삭제
+    import sys
+    _dd = Path(__file__).resolve().parent.parent / "data"
+    if "--purge" in sys.argv:
+        if not db_path(_dd).exists():
+            print("roster: 명단 없음"); sys.exit(0)
+        with connect(_dd) as _c:
+            print(f"roster: 만료 명단 {purge_expired(_c)}개 삭제")

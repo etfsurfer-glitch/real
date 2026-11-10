@@ -9,6 +9,7 @@ import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
 import { KokPanel } from "../components/KokOptinModal";
 import { KokScreen } from "./BizKok";
+import { RosterScreen } from "./BizRoster";
 import { Loading } from "../components/Loading";
 import { enablePush, disablePush, pushOptedIn, pushSupported } from "../lib/push";
 import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp, Presentation, MapPin, X, Send } from "lucide-react";
@@ -33,11 +34,11 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // 콕집 중개사 앱(/biz) — 라운지 기능을 '매물장 중심의 중개사 다이어리'로 재구성한 전용 셸.
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
-type Screen = "kok" | "diary" | "ledger" | "match" | "calendar" | "contract" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
+type Screen = "kok" | "roster" | "diary" | "ledger" | "match" | "calendar" | "contract" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
             | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze" | "verify" | "brief" | "rank" | "requests";
 
 const SCREENS: Record<Screen, { title: string }> = {
-  kok: { title: "콕집매물" }, diary: { title: "사무실 매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
+  kok: { title: "콕집매물" }, roster: { title: "명단 대조" }, diary: { title: "사무실 매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
   calendar: { title: "계약캘린더" },
   contract: { title: "계약" },
   contracts: { title: "계약관리" }, audit: { title: "매물점검" },
@@ -221,6 +222,7 @@ export default function BizApp() {
   const dispatch = (screen && SCREENS[screen]) ? (
     <>
       {screen === "kok" && (st.is_admin ? <KokScreen authH={authH} office={office} /> : <p className="muted" style={{ padding: 20 }}>준비 중인 기능이에요.</p>)}
+      {screen === "roster" && (st.is_admin ? <RosterScreen authH={authH} /> : <p className="muted" style={{ padding: 20 }}>준비 중인 기능이에요.</p>)}
       {screen === "diary" && <ListingsTab authH={authH} office={office} />}
       {screen === "rank" && <MyRankTab authH={authH} />}
       {screen === "analyze" && <AnalyzeTab />}
@@ -490,14 +492,14 @@ type BizTab = "home" | "listings" | "customers" | "contracts" | "more";
 function tabForScreen(screen?: string): BizTab {
   if (!screen) return "home";
   if (screen === "kok" || screen === "diary" || screen === "audit" || screen === "analyze" || screen === "brief" || screen === "rank") return "listings";
-  if (screen === "ledger" || screen === "match" || screen === "leads") return "customers";
+  if (screen === "ledger" || screen === "match" || screen === "leads" || screen === "roster") return "customers";
   if (screen === "contract" || screen === "contracts" || screen === "calendar" || screen === "verify" || screen === "wcontracts") return "contracts";
   return "more";
 }
 
 // 라우트 전용 셸 래퍼 — BizApp 밖의 /biz 라우트(계약서 작성 등)도 레일/탭바 셸에 담는다.
 // 표가 주인공인 화면 — 1120px 읽기 폭에 가두면 열이 잘리고 양옆만 빈다(2026-10-06 민원).
-const RAIL_WIDE = new Set(["kok", "diary", "audit", "rank", "ledger", "analyze"]);
+const RAIL_WIDE = new Set(["kok", "roster", "diary", "audit", "rank", "ledger", "analyze"]);
 
 export function BizRouteShell({ screen, children }: { screen: string; children: React.ReactNode }) {
   const { on: useRail, mini } = useRailShell();
@@ -673,6 +675,7 @@ function BizHome({ office, authH, role, staffName, hideChrome, kokEntry }: {
       {!hideChrome && <BizTop settings />}
       <div className="biz-body">
       {kokEntry && <KokPanel authH={authH} />}
+      {kokEntry && <p className="kokm-note" style={{ margin: "0 0 10px" }}><Link to="/biz/roster">명단 대조</Link> — 입주자·소유자 명단 ↔ 광고 (관리자 시험 중)</p>}
         <div className="biz-greet">
           <div className="biz-greet-name"><b>{role === "owner" ? `${office.representative || "대표"} 대표님` : `${staffName || "직원"}님`}</b>, 안녕하세요</div>
           <div className="biz-greet-office">{office.realtor_name}</div>
