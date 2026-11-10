@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS kok_listings(
   trade TEXT NOT NULL, price INTEGER, rent INTEGER, area_name TEXT, supply_m2 REAL, excl_m2 REAL, floor INTEGER, direction TEXT,
   rooms TEXT, baths TEXT, move_in TEXT, finance_price INTEGER, violation TEXT,
   first_seen TEXT, kok_since TEXT, status TEXT DEFAULT 'active', closed_at TEXT,
-  detail_fetched_at TEXT, synced_at TEXT, floor_label TEXT, created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')));
+  detail_fetched_at TEXT, synced_at TEXT, floor_label TEXT, total_floor INTEGER, direction_base TEXT, mgmt_fee INTEGER, mgmt_type TEXT, mgmt_items TEXT, created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')));
 CREATE INDEX IF NOT EXISTS kok_listings_cx ON kok_listings(complex_no, status);
 CREATE INDEX IF NOT EXISTS kok_listings_rt ON kok_listings(realtor_id, status);
 CREATE INDEX IF NOT EXISTS kok_listings_geo ON kok_listings(status, lat, lng);
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS kok_direct_listings(
   trade TEXT NOT NULL, price INTEGER, rent INTEGER, area_name TEXT, supply_m2 REAL, excl_m2 REAL, land_m2 REAL,
   floor INTEGER, total_floor INTEGER, direction TEXT, move_in TEXT, mgmt_fee INTEGER, rooms TEXT, baths TEXT,
   photos TEXT, description TEXT, keywords TEXT, status TEXT DEFAULT 'active', closed_at TEXT,
-  created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')), expires_at TEXT);
+  created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')), expires_at TEXT, direction_base TEXT, mgmt_items TEXT, approve_ymd TEXT, parking TEXT, land_use TEXT);
 CREATE INDEX IF NOT EXISTS kok_direct_rt ON kok_direct_listings(realtor_id, status);
 CREATE INDEX IF NOT EXISTS kok_direct_geo ON kok_direct_listings(status, lat, lng);
 CREATE INDEX IF NOT EXISTS kok_direct_cx ON kok_direct_listings(complex_no, status);
@@ -83,9 +83,12 @@ def kok_db() -> sqlite3.Connection:
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.executescript(SCHEMA)
-    for tbl, col in (("kok_owner_listings", "keywords"), ("kok_listings", "floor_label")):
+    for tbl, col, typ in (("kok_owner_listings", "keywords", "TEXT"), ("kok_listings", "floor_label", "TEXT"), ("kok_listings", "total_floor", "INTEGER"),
+                          ("kok_listings", "direction_base", "TEXT"), ("kok_listings", "mgmt_fee", "INTEGER"), ("kok_listings", "mgmt_type", "TEXT"), ("kok_listings", "mgmt_items", "TEXT"),
+                          ("kok_direct_listings", "direction_base", "TEXT"), ("kok_direct_listings", "mgmt_items", "TEXT"), ("kok_direct_listings", "approve_ymd", "TEXT"),
+                          ("kok_direct_listings", "parking", "TEXT"), ("kok_direct_listings", "land_use", "TEXT")):
         if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
-            c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT")
+            c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
     c.commit()
     return c
 
@@ -112,6 +115,13 @@ def migrate() -> None:
             k.executemany(f"INSERT INTO {t}({','.join(cols)}) VALUES({','.join('?' * len(cols))})", rows)
             print(t, len(rows), "행 옮김")
         k.commit()
+
+
+def _int_or_none(v) -> int | None:
+    try:
+        return int(float(v)) if str(v).strip() not in ("", "None") else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _kok_since(agreed_at: str | None, first_seen: str | None) -> str:
@@ -149,18 +159,18 @@ def sync(realtor_id: str | None = None, fetch_details: bool = True) -> dict:
                     fl = None
                 k.execute(
                     "INSERT INTO kok_listings(article_no, realtor_id, realtor_name, complex_no, complex_name, dong, lat, lng, trade, price, rent, area_name, "
-                    "supply_m2, excl_m2, floor, direction, first_seen, kok_since, status, synced_at, floor_label) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?) "
+                    "supply_m2, excl_m2, floor, direction, first_seen, kok_since, status, synced_at, floor_label, total_floor) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,?) "
                     "ON CONFLICT(article_no) DO UPDATE SET realtor_name=excluded.realtor_name, complex_name=excluded.complex_name, "
                     "dong=COALESCE(NULLIF(kok_listings.dong,''), excluded.dong), lat=excluded.lat, lng=excluded.lng, trade=excluded.trade, price=excluded.price, rent=excluded.rent, "
                     "area_name=excluded.area_name, supply_m2=COALESCE(kok_listings.supply_m2, excluded.supply_m2), excl_m2=COALESCE(kok_listings.excl_m2, excluded.excl_m2), "
                     "floor=COALESCE(kok_listings.floor, excluded.floor), direction=COALESCE(NULLIF(kok_listings.direction,''), excluded.direction), "
                     "first_seen=COALESCE(kok_listings.first_seen, excluded.first_seen), kok_since=excluded.kok_since, "
-                    "status='active', closed_at=NULL, synced_at=excluded.synced_at, updated_at=excluded.synced_at, floor_label=excluded.floor_label",
+                    "status='active', closed_at=NULL, synced_at=excluded.synced_at, updated_at=excluded.synced_at, floor_label=excluded.floor_label, total_floor=COALESCE(excluded.total_floor, kok_listings.total_floor)",
                     (r["article_no"], rid, r["realtor_name"], r["complex_no"], r["complex_name"], (r["building_name"] or "").replace("동", ""),
                      r["latitude"], r["longitude"], r["trade_type"], r["deal_or_warrant_price"], r["rent_price"], r["area_name"],
                      r["area1_m2"], r["area2_m2"], fl, r["direction"] or "", r["first_seen_date"], _kok_since(agreed, r["first_seen_date"]), now,
-                     (str(r["floor_info"] or "").split("/")[0] or None)))
+                     (str(r["floor_info"] or "").split("/")[0] or None), _int_or_none(str(r["floor_info"] or "").split("/")[-1])))
                 up += 1
             stale = [x[0] for x in k.execute("SELECT article_no FROM kok_listings WHERE realtor_id=? AND status='active'", (rid,)) if x[0] not in seen]
             for a in stale:
@@ -204,12 +214,22 @@ def _fetch_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
         sp = det.get("articleSpace") or {}
         pr = det.get("articlePrice") or {}
         move_in = " ".join(x for x in [ad.get("moveInTypeName") or "", "협의 가능" if ad.get("moveInDiscussionPossibleYN") == "Y" else ""] if x).strip()
+        cost = det.get("administrationCostInfo") or {}
+        mgmt_fee = _int_or_none(ad.get("monthlyManagementCost"))
+        if not mgmt_fee:
+            mgmt_fee = _int_or_none((cost.get("etcFeeDetails") or {}).get("etcFeeAmount"))
+        # 비목은 이름과 금액만(표시 의무 항목). 금액 확인 불가(amountCodeType 02)는 None 으로 남긴다
+        items = [{"name": x.get("detailCodeTypeName") or x.get("detailCodeType"), "amount": None if x.get("amountCodeType") == "02" else _int_or_none(x.get("amount"))}
+                 for x in (cost.get("fixedFeeDetails") or []) if x.get("detailCodeTypeName") or x.get("detailCodeType")]
+        total_floor = _int_or_none(ad.get("totalFloorCount") or (str(ad.get("floorInfo") or "").split("/")[-1] if "/" in str(ad.get("floorInfo") or "") else None))
         k.execute(
-            "UPDATE kok_listings SET rooms=?, baths=?, move_in=?, direction=COALESCE(NULLIF(?,''), direction), supply_m2=COALESCE(?, supply_m2), excl_m2=COALESCE(?, excl_m2), "
-            "finance_price=?, violation=?, dong=COALESCE(NULLIF(?,''), dong), detail_fetched_at=datetime('now','+9 hours'), updated_at=datetime('now','+9 hours') WHERE article_no=?",
-            (str(ad.get("roomCount") or "") or None, str(ad.get("bathroomCount") or "") or None, move_in, fac.get("directionTypeName") or "",
+            "UPDATE kok_listings SET rooms=?, baths=?, move_in=?, direction=COALESCE(NULLIF(?,''), direction), direction_base=?, supply_m2=COALESCE(?, supply_m2), excl_m2=COALESCE(?, excl_m2), "
+            "finance_price=?, violation=?, dong=COALESCE(NULLIF(?,''), dong), mgmt_fee=?, mgmt_type=?, mgmt_items=?, total_floor=COALESCE(?, total_floor), "
+            "detail_fetched_at=datetime('now','+9 hours'), updated_at=datetime('now','+9 hours') WHERE article_no=?",
+            (str(ad.get("roomCount") or "") or None, str(ad.get("bathroomCount") or "") or None, move_in, fac.get("directionTypeName") or "", fac.get("directionBaseTypeName") or None,
              sp.get("supplySpace"), sp.get("exclusiveSpace"), (int(pr["financePrice"]) * 10000) if str(pr.get("financePrice") or "").isdigit() else None,
-             ad.get("violationBuildingYN") or "", (ad.get("buildingName") or "").replace("동", ""), r["article_no"]))
+             ad.get("violationBuildingYN") or "", (ad.get("buildingName") or "").replace("동", ""),
+             mgmt_fee, str(cost.get("chargeCodeType") or "") or None, json.dumps(items, ensure_ascii=False) if items else None, total_floor, r["article_no"]))
         n += 1
         if n % 50 == 0:
             k.commit()

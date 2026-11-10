@@ -10852,6 +10852,7 @@ def _kok_listing_item(r, ex=None) -> dict:
             "trade": r["trade"], "area_name": r["area_name"], "excl_m2": r["excl_m2"], "supply_m2": r["supply_m2"],
             "floor_text": (f"{r['floor']}층" if r["floor"] else (f"{r['floor_label']}층" if ("floor_label" in r.keys() and r["floor_label"] in ("고", "중", "저")) else "")),
             "direction": r["direction"] or "", "dong": r["dong"] or "",
+            "total_floor": r["total_floor"] if "total_floor" in r.keys() else None, "direction_base": (r["direction_base"] or "") if "direction_base" in r.keys() else "",
             "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
             "realtor_id": r["realtor_id"], "realtor_name": r["realtor_name"], "kok_since": r["kok_since"], "owner_verified": False,
             "photos": [f"/kok/photo/{x}" for x in ph], "keywords": _kok_loads(ex["keywords"], []) if ex is not None else [],
@@ -11517,6 +11518,20 @@ def kok_mgmt(complex_no: str, supply: float | None = None, excl: float | None = 
         return {"status": "none", "reason": "관리비 공개자료를 지금 받지 못했어요"}
 
 
+_KOK_MGMT_TYPE = {"01": "정액", "02": "정액 · 비목 미표시", "03": "그 밖의 방식", "04": "금액 확인 불가"}
+
+
+def _kok_mgmt_declared(r) -> dict | None:
+    """중개사가 표시한 관리비(금액·비목 숫자만) — 표시·광고 의무 항목. K-apt 공개자료와 별개로 항상 싣는다."""
+    keys = r.keys()
+    fee = r["mgmt_fee"] if "mgmt_fee" in keys else None
+    items = _kok_loads(r["mgmt_items"], []) if "mgmt_items" in keys else []
+    typ = (r["mgmt_type"] or "") if "mgmt_type" in keys else ""
+    if not fee and not items and not typ:
+        return None
+    return {"fee": fee, "type": typ, "type_label": _KOK_MGMT_TYPE.get(typ, ""), "items": [{"name": x.get("name"), "amount": x.get("amount")} for x in items if isinstance(x, dict)]}
+
+
 def _kok_extras(k, article_no: str) -> dict:
     e = k.execute("SELECT photos, description, keywords FROM kok_realtor_extras WHERE article_no=?", (article_no,)).fetchone()
     if not e:
@@ -11535,16 +11550,23 @@ def kok_realtor_listing_detail(article_no: str):
             raise HTTPException(404, "내려간 매물이에요")
         ex = _kok_extras(k, article_no)
     with _open_db() as d:
-        cx = d.execute("SELECT cortar_no, use_approve_ymd, parking_per_household FROM complexes WHERE complex_no=?", (r["complex_no"],)).fetchone()
+        cx = d.execute("SELECT cortar_no, use_approve_ymd, parking_per_household, real_estate_type FROM complexes WHERE complex_no=?", (r["complex_no"],)).fetchone()
         cortar = cx[0] if cx else ""
+        try:
+            _ad = _kok_complex_addr(d, r["complex_no"])
+            address = _ad.get("jibun") or _ad.get("road") or ""
+        except HTTPException:
+            address = ""
         reg = d.execute("SELECT (SELECT cortar_name FROM regions WHERE cortar_no=substr(?,1,2)||'00000000'),"
                         "(SELECT cortar_name FROM regions WHERE cortar_no=substr(?,1,5)||'00000'),"
                         "(SELECT cortar_name FROM regions WHERE cortar_no=?)", (cortar, cortar, cortar)).fetchone() if cortar else None
         regno = d.execute("SELECT b.ra_regno FROM realtor_match m JOIN vworld_brokers b ON b.sys_regno=m.sys_regno WHERE m.realtor_id=? LIMIT 1", (r["realtor_id"],)).fetchone()
         facts = _kok_complex_facts(d, r["complex_no"], r["area_name"])
     price, supply, excl = r["price"], r["supply_m2"], r["excl_m2"]
+    ptype = (cx[3] if cx else "") or "APT"
     out = _kok_listing_item(r, None) | ex | {
         "region": " ".join(x for x in (reg or ()) if x), "rooms": r["rooms"], "baths": r["baths"], "move_in": r["move_in"] or "",
+        "address": address, "ptype": ptype, "ptype_name": _KOK_PTYPES.get(ptype, ptype), "mgmt_declared": _kok_mgmt_declared(r),
         "finance_price": r["finance_price"], "violation": r["violation"] or "", "approve_ymd": (cx[1] if cx else "") or "",
         "parking_per_household": cx[2] if cx else None, "complex_facts": facts,
         "py_price": {"supply": int(price / (supply / 3.3058)) if price and supply else None, "excl": int(price / (excl / 3.3058)) if price and excl else None} if r["trade"] == "A1" else None,
@@ -11591,7 +11613,7 @@ def kok_direct_listing_detail(did: str):
     ob = _office_brief(r["realtor_id"]) or {}
     price, supply, excl = r["price"], r["supply_m2"], r["excl_m2"]
     out.update({
-        "complex_facts": facts, "approve_ymd": (cx[0] if cx else "") or "", "parking_per_household": cx[1] if cx else None,
+        "complex_facts": facts, "approve_ymd": ((r["approve_ymd"] if "approve_ymd" in r.keys() else "") or (cx[0] if cx else "") or ""), "parking_per_household": cx[1] if cx else None,
         "py_price": {"supply": int(price / (supply / 3.3058)) if price and supply else None, "excl": int(price / (excl / 3.3058)) if price and excl else None} if r["trade"] == "A1" else None,
         "acquire": _kok_acquire(int(price or 0), excl) if r["trade"] == "A1" and price and r["ptype"] in _KOK_HOUSING else None,
         "realtor": {"realtor_id": r["realtor_id"], "name": ob.get("realtor_name") or "", "regno": regno[0] if regno else "",
@@ -11821,9 +11843,19 @@ def _kok_direct_item(r) -> dict:
             "area_name": r["area_name"] or "", "supply_m2": r["supply_m2"], "excl_m2": r["excl_m2"], "land_m2": r["land_m2"],
             "floor_text": (f"{r['floor']}층" if r["floor"] else ""), "floor": r["floor"], "total_floor": r["total_floor"], "direction": r["direction"] or "", "dong": r["dong"] or "",
             "move_in": r["move_in"] or "", "mgmt_fee": r["mgmt_fee"], "rooms": r["rooms"], "baths": r["baths"],
+            "direction_base": (r["direction_base"] or "") if "direction_base" in r.keys() else "",
+            "mgmt_declared": _kok_mgmt_declared_direct(r),
             "realtor_id": r["realtor_id"], "realtor_name": (_office_brief(r["realtor_id"]) or {}).get("realtor_name") or "",
             "kok_since": (r["created_at"] or "")[:10], "owner_verified": False, "status": r["status"],
             "photos": [f"/kok/photo/{x}" for x in ph], "keywords": _kok_loads(r["keywords"], []), "description": r["description"] or ""}
+
+
+def _kok_mgmt_declared_direct(r) -> dict | None:
+    fee = r["mgmt_fee"]
+    items = _kok_loads(r["mgmt_items"], []) if "mgmt_items" in r.keys() else []
+    if not fee and not items:
+        return None
+    return {"fee": fee, "type": "", "type_label": "", "items": [{"name": x.get("name"), "amount": x.get("amount")} for x in items if isinstance(x, dict)]}
 
 
 def _kok_direct_items(k, where: str, params: list, limit: int) -> list:

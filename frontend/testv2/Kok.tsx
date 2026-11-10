@@ -348,7 +348,8 @@ export const useKokTick = () => useMemo(() => Date.now(), []);
 
 // ── 중개사 연동 매물 상세 — 단지 서랍 옆 패널(PC) / 창(휴대폰) ──
 type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: number | null; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
-  direction_base?: string;
+  direction_base?: string; address?: string; ptype_name?: string; total_floor?: number | null;
+  mgmt_declared?: { fee: number | null; type: string; type_label: string; items: { name: string; amount: number | null }[] } | null;
   finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
   realtor?: { realtor_id: string; name?: string; regno?: string; address?: string; representative?: string; tel?: string; cell?: string };
   complex_facts?: { heat?: string; builder?: string; households?: number | null; households_type?: number | null; parking_total?: number | null; parking_per?: number | null; dongs?: number; subway?: string; entrance?: string; highest_floor?: number | string; lowest_floor?: number | string; approve_ymd?: string };
@@ -395,6 +396,7 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
     <div className="t2-kl">
       <div className="t2-ph"><h2>{d?.name || it.name}{(d?.dong || it.dong) ? ` ${d?.dong || it.dong}동` : ""} <small>{TRADE_L[it.trade]}</small></h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
       <p className="t2-favmeta"><i className="t2-kok-badge rt">{d?.realtor?.name || it.realtor_name || "중개사무소"}</i>{d?.kok_since && <> 콕집 등록 {d.kok_since.replace(/-/g, ".")}</>}</p>
+      {d && (d.ptype_name || d.address) && <p className="t2-kl-addr">{[d.ptype_name, d.address].filter(Boolean).join(" · ")}</p>}
       {err && <p className="t2-sempty">{err}</p>}
       {!d && !err && <Skel />}
       {d && (
@@ -404,9 +406,15 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
           <div className="t2-kl-price"><b>{d.price_text}</b>{d.finance_price ? <small>융자금 {Math.round(d.finance_price / 1e8 * 10) / 10}억</small> : null}</div>
           <table className="t2-tbl t2-kl-tbl"><tbody>
             <tr><th>면적</th><td>{d.excl_m2 ? areaLabel(d.excl_m2) : d.area_name}{d.supply_m2 ? ` · 공급 ${Math.round(d.supply_m2)}㎡` : ""}{d.area_name ? ` · ${d.area_name}타입` : ""}{d.exclusive_rate ? ` · 전용률 ${d.exclusive_rate}%` : ""}</td></tr>
-            <tr><th>층 · 방향</th><td>{[d.floor_text, d.direction ? `${d.direction}${d.direction_base ? `(${d.direction_base})` : ""}` : ""].filter(Boolean).join(" · ") || "-"}</td></tr>
+            <tr><th>층 · 방향</th><td>{[d.floor_text ? `${d.floor_text}${d.total_floor ? ` / 총 ${d.total_floor}층` : ""}` : (d.total_floor ? `총 ${d.total_floor}층` : ""),
+              d.direction ? `${d.direction}${d.direction_base ? ` · ${d.direction_base}${/기준$/.test(d.direction_base) ? "" : " 기준"}` : ""}` : ""].filter(Boolean).join(" · ") || "-"}</td></tr>
             <tr><th>방 · 욕실</th><td>{d.rooms || d.baths ? `방 ${d.rooms ?? "-"} · 욕실 ${d.baths ?? "-"}` : "-"}</td></tr>
             <tr><th>입주</th><td>{d.move_in || "-"}</td></tr>
+            {d.mgmt_declared && (() => {
+              const g = d.mgmt_declared!; const man = (v: number | null) => (v == null ? "확인 불가" : `${Math.round(v / 1e4).toLocaleString()}만`);
+              const head = g.fee ? `월 ${Math.round(g.fee / 1e4).toLocaleString()}만원` : g.type_label || "-";
+              return <tr><th>관리비</th><td>{head}{g.type_label && g.fee ? ` · ${g.type_label}` : ""}{g.items.length > 0 && <small className="blk">{g.items.map((x) => `${x.name} ${man(x.amount)}`).join(" · ")}</small>}<small className="blk">중개사 표시 금액 · 실제 부과 내역은 아래 공개자료</small></td></tr>;
+            })()}
             <tr><th>사용승인</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.parking_per_household ? ` · 세대당 주차 ${d.parking_per_household}대` : ""}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
           </tbody></table>
           {d.description && <div className="t2-kok-desc"><div className="t2-pf-h"><h3>중개사가 콕집에 쓴 설명</h3></div><p>{d.description}</p></div>}
