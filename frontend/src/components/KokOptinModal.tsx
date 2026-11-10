@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { X, MapPin } from "lucide-react";
 import { KokTermsBody } from "../pages/KokTerms";
 
@@ -111,14 +112,15 @@ export function KokStatusBar({ st, authH, onChanged, onOpen }: { st: St; authH: 
       <MapPin size={16} style={{ color: "#1268d3", flexShrink: 0 }} />
       <span style={{ flex: 1 }}><b>콕집매물 연동 중</b> · {st.listings.total.toLocaleString()}건이 콕집 지도에 표시돼요{st.synced_at ? ` · ${st.synced_at.slice(5, 16)} 반영` : ""}{st.agreed_at ? ` · ${st.agreed_at.slice(0, 10)} 동의` : ""}</span>
       {st.needs_reagree && <button className="auth-btn kakao" style={{ padding: "6px 12px", fontSize: 13 }} onClick={onOpen}>바뀐 약관 동의</button>}
+      <Link to="/biz/kok" className="auth-btn" style={{ padding: "6px 12px", fontSize: 13, textDecoration: "none" }}>콕집매물 관리</Link>
       <button className="auth-btn" style={{ padding: "6px 12px", fontSize: 13 }} disabled={busy} onClick={off}>해제</button>
     </div>
   );
 }
 
 // 내 콕집매물 — 동기화된 광고 목록에 사진·설명·키워드를 콕집용으로 직접 쓴다(광고 문구는 안 옮김)
-function KokMyListings({ authH }: { authH: () => Record<string, string> }) {
-  const [open, setOpen] = useState(false);
+export function KokMyListings({ authH, defaultOpen }: { authH: () => Record<string, string>; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(!!defaultOpen);
   const [items, setItems] = useState<MyItem[] | null>(null);
   const [synced, setSynced] = useState<string | null>(null);
   const [edit, setEdit] = useState<string | null>(null);
@@ -156,7 +158,7 @@ function KokMyListings({ authH }: { authH: () => Record<string, string> }) {
   );
 }
 
-function MyExtrasEditor({ authH, it, onSaved }: { authH: () => Record<string, string>; it: MyItem; onSaved: () => void }) {
+export function MyExtrasEditor({ authH, it, onSaved }: { authH: () => Record<string, string>; it: Pick<MyItem, "id" | "photos" | "description" | "keywords">; onSaved: () => void }) {
   const [photos, setPhotos] = useState<string[]>(it.photos.map((u) => u.replace(/^.*\/kok\/photo\//, "")));
   const [desc, setDesc] = useState(it.description || "");
   const [kw, setKw] = useState(it.keywords.join(", "));
@@ -209,7 +211,6 @@ export function KokPanel({ authH }: { authH: () => Record<string, string> }) {
   return (
     <>
       <KokStatusBar st={st} authH={authH} onChanged={reload} onOpen={() => setOpen(true)} />
-      {st.opted && <KokMyListings authH={authH} />}
       {open && <KokOptinModal authH={authH} realtorId={st.realtor_id} st={st} onClose={() => setOpen(false)} onDone={() => { setOpen(false); reload(); }} />}
     </>
   );

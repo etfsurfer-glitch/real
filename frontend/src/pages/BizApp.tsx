@@ -8,6 +8,7 @@ import AppleLoginButton from "../components/AppleLoginButton";
 import { enableCallDetect } from "../lib/callDetect";
 import { PhoneModal } from "../components/PhoneVerify";
 import { KokPanel } from "../components/KokOptinModal";
+import { KokScreen } from "./BizKok";
 import { Loading } from "../components/Loading";
 import { enablePush, disablePush, pushOptedIn, pushSupported } from "../lib/push";
 import { Building2, ClipboardList, ShieldCheck, MessageSquare, Globe, Star, Pencil, Bell, BellRing, ChevronLeft, LayoutDashboard, CheckCircle2, LogOut, Store, Users, Home, CalendarDays, FileText, Settings, Phone, User, Sparkles, LayoutGrid, TrendingUp, Presentation, MapPin, X, Send } from "lucide-react";
@@ -32,11 +33,11 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 // 콕집 중개사 앱(/biz) — 라운지 기능을 '매물장 중심의 중개사 다이어리'로 재구성한 전용 셸.
 // TWA(콕집 중개사 앱)의 start_url. 소비자용 크롬 없이 독립 동작.
 
-type Screen = "diary" | "ledger" | "match" | "calendar" | "contract" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
+type Screen = "kok" | "diary" | "ledger" | "match" | "calendar" | "contract" | "contracts" | "audit" | "leads" | "homepage" | "favs" | "fav-offices"
             | "office" | "edit" | "dash" | "staff" | "settings" | "calls" | "more" | "analyze" | "verify" | "brief" | "rank" | "requests";
 
 const SCREENS: Record<Screen, { title: string }> = {
-  diary: { title: "사무실 매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
+  kok: { title: "콕집매물" }, diary: { title: "사무실 매물장" }, ledger: { title: "고객원장" }, match: { title: "고객·물건매칭" },
   calendar: { title: "계약캘린더" },
   contract: { title: "계약" },
   contracts: { title: "계약관리" }, audit: { title: "매물점검" },
@@ -219,6 +220,7 @@ export default function BizApp() {
   // 화면 디스패치(서브네비 제외) — 레일·탭바 셸이 공용으로 담는다.
   const dispatch = (screen && SCREENS[screen]) ? (
     <>
+      {screen === "kok" && <KokScreen authH={authH} office={office} />}
       {screen === "diary" && <ListingsTab authH={authH} office={office} />}
       {screen === "rank" && <MyRankTab authH={authH} />}
       {screen === "analyze" && <AnalyzeTab />}
@@ -487,7 +489,7 @@ function BizSettings({ office, authH, method, onUnlink }: {
 type BizTab = "home" | "listings" | "customers" | "contracts" | "more";
 function tabForScreen(screen?: string): BizTab {
   if (!screen) return "home";
-  if (screen === "diary" || screen === "audit" || screen === "analyze" || screen === "brief" || screen === "rank") return "listings";
+  if (screen === "kok" || screen === "diary" || screen === "audit" || screen === "analyze" || screen === "brief" || screen === "rank") return "listings";
   if (screen === "ledger" || screen === "match" || screen === "leads") return "customers";
   if (screen === "contract" || screen === "contracts" || screen === "calendar" || screen === "verify" || screen === "wcontracts") return "contracts";
   return "more";
@@ -495,7 +497,7 @@ function tabForScreen(screen?: string): BizTab {
 
 // 라우트 전용 셸 래퍼 — BizApp 밖의 /biz 라우트(계약서 작성 등)도 레일/탭바 셸에 담는다.
 // 표가 주인공인 화면 — 1120px 읽기 폭에 가두면 열이 잘리고 양옆만 빈다(2026-10-06 민원).
-const RAIL_WIDE = new Set(["diary", "audit", "rank", "ledger", "analyze"]);
+const RAIL_WIDE = new Set(["kok", "diary", "audit", "rank", "ledger", "analyze"]);
 
 export function BizRouteShell({ screen, children }: { screen: string; children: React.ReactNode }) {
   const { on: useRail, mini } = useRailShell();
@@ -1205,6 +1207,7 @@ function MoreHub({ authH, hasHomepage, role, onLogout }: {
   return (
     <>
       <div className="biz-grid">
+        <BizBtn to="/biz/kok" icon={<MapPin size={22} />} label="콕집매물" desc="전환·전용 등록·관리·점검" primary />
         <BizBtn to="/biz/diary" icon={<ClipboardList size={22} />} label="매물장" desc="내 매물 다이어리" primary />
         <BizBtn to="/biz/ledger" icon={<Users size={22} />} label="고객원장" desc="손님 요건·내놓은 물건" primary />
         <BizBtn to="/biz/match" icon={<Sparkles size={22} />} label="고객·물건매칭" desc="손님 조건에 맞는 매물 찾기" primary />

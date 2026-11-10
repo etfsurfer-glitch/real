@@ -61,6 +61,17 @@ CREATE INDEX IF NOT EXISTS kok_listings_geo ON kok_listings(status, lat, lng);
 CREATE TABLE IF NOT EXISTS kok_realtor_extras(
   article_no TEXT PRIMARY KEY, realtor_id TEXT NOT NULL, user_id TEXT, photos TEXT, description TEXT, keywords TEXT,
   updated_at TEXT DEFAULT (datetime('now','+9 hours')));
+-- 중개사가 콕집에만 올리는 매물(광고와 무관, 모든 유형). 단지형은 complex_no, 비단지는 주소+좌표
+CREATE TABLE IF NOT EXISTS kok_direct_listings(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, realtor_id TEXT NOT NULL, user_id TEXT,
+  ptype TEXT NOT NULL, complex_no TEXT, complex_name TEXT, address TEXT, dong TEXT, ho TEXT, lat REAL, lng REAL, cortar_no TEXT,
+  trade TEXT NOT NULL, price INTEGER, rent INTEGER, area_name TEXT, supply_m2 REAL, excl_m2 REAL, land_m2 REAL,
+  floor INTEGER, total_floor INTEGER, direction TEXT, move_in TEXT, mgmt_fee INTEGER, rooms TEXT, baths TEXT,
+  photos TEXT, description TEXT, keywords TEXT, status TEXT DEFAULT 'active', closed_at TEXT,
+  created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')), expires_at TEXT);
+CREATE INDEX IF NOT EXISTS kok_direct_rt ON kok_direct_listings(realtor_id, status);
+CREATE INDEX IF NOT EXISTS kok_direct_geo ON kok_direct_listings(status, lat, lng);
+CREATE INDEX IF NOT EXISTS kok_direct_cx ON kok_direct_listings(complex_no, status);
 CREATE TABLE IF NOT EXISTS kok_sync_log(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ran_at TEXT DEFAULT (datetime('now','+9 hours')), scope TEXT,
   realtors INTEGER, upserted INTEGER, closed INTEGER, details INTEGER, seconds REAL, note TEXT);

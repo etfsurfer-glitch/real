@@ -27,6 +27,7 @@ export type BizSection = "listings" | "customers" | "contracts" | "more";
 
 export const BIZ_NAV: Record<BizSection, BizNavItem[]> = {
   listings: [
+    { key: "kok", to: "/biz/kok", label: "콕집매물" },
     { key: "diary", to: "/biz/diary", label: "사무실 매물장" },
     { key: "rank", to: "/biz/rank", label: "매물순위" },
     { key: "analyze", to: "/biz/analyze", label: "실거래분석" },
