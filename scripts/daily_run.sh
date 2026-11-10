@@ -132,6 +132,8 @@ step "step 11e: kapt_fill (공동주택 관리비 공개자료)" nice -n 10 $PY 
 # 11f) 콕집매물 동기화 — 동의 사무소의 광고 중 매물을 수집 DB(읽기만)에서 콕집매물 DB(data/kok.sqlite)로 한 방향 복사.
 #      안 보인 매물은 closed 표시(삭제 안 함), 상세(방·욕실·입주)는 여기서 받아 둔다. 화면은 kok.sqlite 만 읽는다.
 step "step 11f: kok_sync (콕집매물 DB 동기화)" nice -n 10 $PY -u scripts/kok_sync.py; koksync_exit=$?
+# 11g) 알리고 문자 잔액 — 100건 미만이면 텔레그램(잔액 0건으로 인증 문자가 조용히 실패한 2026-11-10 사고 재발 방지)
+step "step 11g: aligo_remain_check (문자 잔액)" $PY -u scripts/aligo_remain_check.py; aligo_exit=$?
 
 # 11c) KST/UTC 정합 회귀검사 — SQLite date('now')는 UTC라 업무일자(deal_ymd 등)와
 #      비교하면 매일 00~09시에 하루 밀린다(실측: 최근1일 실거래 684 vs 정상 213).

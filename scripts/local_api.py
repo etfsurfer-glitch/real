@@ -16248,7 +16248,18 @@ def phone_send_code(body: PhoneSendBody, user: dict = Depends(current_user)):
     if res is None:
         out["dev_code"] = code   # 알리고 미설정 — 개발용으로 코드 노출
     elif str(res.get("result_code")) != "1":
-        raise HTTPException(502, f"문자 발송 실패: {res.get('message')}")
+        # 발송이 안 됐으면 1분 재요청 제한을 풀고(사용자가 바로 다시 누를 수 있게), 운영자에게 알린다.
+        # 2026-11-10 신규 회원이 라운지 인증에서 잔액 0건으로 3번 막혔는데 아무 알림이 없었다.
+        with _reviews_db() as c:
+            c.execute("UPDATE phone_otp SET sent_at=datetime('now','-2 minutes') WHERE user_id=?", (user["id"],))
+            c.commit()
+        try:
+            from scripts.tg_notify import tg_send_async
+            tg_send_async(f"⚠️ 인증 문자 발송 실패 — {res.get('message')}\n· 수신 {phone[:3]}****{phone[-4:]} · 알리고 잔액·발신번호 확인 필요")
+        except Exception:  # noqa: BLE001
+            pass
+        _log_event("sms_send_fail", query=str(res.get("message"))[:120])
+        raise HTTPException(502, "인증 문자를 보내지 못했어요. 잠시 뒤 다시 시도해 주세요. 계속 안 되면 고객센터로 알려 주세요.")
     return out
 
 
