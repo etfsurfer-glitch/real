@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS kok_listings(
   trade TEXT NOT NULL, price INTEGER, rent INTEGER, area_name TEXT, supply_m2 REAL, excl_m2 REAL, floor INTEGER, direction TEXT,
   rooms TEXT, baths TEXT, move_in TEXT, finance_price INTEGER, violation TEXT,
   first_seen TEXT, kok_since TEXT, status TEXT DEFAULT 'active', closed_at TEXT,
-  detail_fetched_at TEXT, synced_at TEXT, created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')));
+  detail_fetched_at TEXT, synced_at TEXT, floor_label TEXT, created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')));
 CREATE INDEX IF NOT EXISTS kok_listings_cx ON kok_listings(complex_no, status);
 CREATE INDEX IF NOT EXISTS kok_listings_rt ON kok_listings(realtor_id, status);
 CREATE INDEX IF NOT EXISTS kok_listings_geo ON kok_listings(status, lat, lng);
@@ -83,9 +83,9 @@ def kok_db() -> sqlite3.Connection:
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.executescript(SCHEMA)
-    for col, ddl in (("keywords", "ALTER TABLE kok_owner_listings ADD COLUMN keywords TEXT"),):
-        if col not in {r[1] for r in c.execute("PRAGMA table_info(kok_owner_listings)")}:
-            c.execute(ddl)
+    for tbl, col in (("kok_owner_listings", "keywords"), ("kok_listings", "floor_label")):
+        if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
+            c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT")
     c.commit()
     return c
 
@@ -149,17 +149,18 @@ def sync(realtor_id: str | None = None, fetch_details: bool = True) -> dict:
                     fl = None
                 k.execute(
                     "INSERT INTO kok_listings(article_no, realtor_id, realtor_name, complex_no, complex_name, dong, lat, lng, trade, price, rent, area_name, "
-                    "supply_m2, excl_m2, floor, direction, first_seen, kok_since, status, synced_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?) "
+                    "supply_m2, excl_m2, floor, direction, first_seen, kok_since, status, synced_at, floor_label) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?) "
                     "ON CONFLICT(article_no) DO UPDATE SET realtor_name=excluded.realtor_name, complex_name=excluded.complex_name, "
                     "dong=COALESCE(NULLIF(kok_listings.dong,''), excluded.dong), lat=excluded.lat, lng=excluded.lng, trade=excluded.trade, price=excluded.price, rent=excluded.rent, "
                     "area_name=excluded.area_name, supply_m2=COALESCE(kok_listings.supply_m2, excluded.supply_m2), excl_m2=COALESCE(kok_listings.excl_m2, excluded.excl_m2), "
                     "floor=COALESCE(kok_listings.floor, excluded.floor), direction=COALESCE(NULLIF(kok_listings.direction,''), excluded.direction), "
                     "first_seen=COALESCE(kok_listings.first_seen, excluded.first_seen), kok_since=excluded.kok_since, "
-                    "status='active', closed_at=NULL, synced_at=excluded.synced_at, updated_at=excluded.synced_at",
+                    "status='active', closed_at=NULL, synced_at=excluded.synced_at, updated_at=excluded.synced_at, floor_label=excluded.floor_label",
                     (r["article_no"], rid, r["realtor_name"], r["complex_no"], r["complex_name"], (r["building_name"] or "").replace("동", ""),
                      r["latitude"], r["longitude"], r["trade_type"], r["deal_or_warrant_price"], r["rent_price"], r["area_name"],
-                     r["area1_m2"], r["area2_m2"], fl, r["direction"] or "", r["first_seen_date"], _kok_since(agreed, r["first_seen_date"]), now))
+                     r["area1_m2"], r["area2_m2"], fl, r["direction"] or "", r["first_seen_date"], _kok_since(agreed, r["first_seen_date"]), now,
+                     (str(r["floor_info"] or "").split("/")[0] or None)))
                 up += 1
             stale = [x[0] for x in k.execute("SELECT article_no FROM kok_listings WHERE realtor_id=? AND status='active'", (rid,)) if x[0] not in seen]
             for a in stale:

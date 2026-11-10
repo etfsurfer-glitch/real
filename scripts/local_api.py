@@ -10850,7 +10850,8 @@ def _kok_listing_item(r, ex=None) -> dict:
     ph = _kok_loads(ex["photos"], []) if ex is not None else []
     return {"id": f"R{r['article_no']}", "kind": "realtor", "complex_no": r["complex_no"], "name": r["complex_name"], "lat": r["lat"], "lng": r["lng"],
             "trade": r["trade"], "area_name": r["area_name"], "excl_m2": r["excl_m2"], "supply_m2": r["supply_m2"],
-            "floor_text": (f"{r['floor']}층" if r["floor"] else ""), "direction": r["direction"] or "", "dong": r["dong"] or "",
+            "floor_text": (f"{r['floor']}층" if r["floor"] else (f"{r['floor_label']}층" if ("floor_label" in r.keys() and r["floor_label"] in ("고", "중", "저")) else "")),
+            "direction": r["direction"] or "", "dong": r["dong"] or "",
             "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
             "realtor_id": r["realtor_id"], "realtor_name": r["realtor_name"], "kok_since": r["kok_since"], "owner_verified": False,
             "photos": [f"/kok/photo/{x}" for x in ph], "keywords": _kok_loads(ex["keywords"], []) if ex is not None else [],
@@ -11983,7 +11984,8 @@ def _kok_audit_rows(rid: str) -> tuple[list[dict], dict]:
                      "complex_no": r["complex_no"], "address": "", "trade": r["trade"], "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
                      "excl": r["excl_m2"], "supply": r["supply_m2"], "land": None, "floor": r["floor"], "direction": r["direction"] or "", "move_in": r["move_in"] or "",
                      "mgmt": None, "rooms": r["rooms"], "baths": r["baths"], "photos": len(_kok_loads(r["e_photos"], [])), "desc": bool(r["e_description"]),
-                     "kw": len(_kok_loads(r["e_keywords"], [])), "since": r["kok_since"] or "", "area_name": r["area_name"] or ""})
+                     "kw": len(_kok_loads(r["e_keywords"], [])), "since": r["kok_since"] or "", "area_name": r["area_name"] or "",
+                     "floor_label": r["floor_label"] if "floor_label" in r.keys() else None})
     for r in direct:
         rows.append({"id": f"D{r['id']}", "source": "direct", "ptype": r["ptype"], "name": r["complex_name"] or r["address"] or "", "dong": r["dong"] or "",
                      "complex_no": r["complex_no"] or "", "address": r["address"] or "", "trade": r["trade"], "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
@@ -12043,7 +12045,10 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
             elif not r["excl"]:
                 iss.append({"code": "area", "level": "fail", "msg": "전용면적이 없어요"})
             if pt in _KOK_FLOORED and not r["floor"]:
-                iss.append({"code": "floor", "level": "warn", "msg": "층이 없어요 — 표시·광고 의무 항목"})
+                if r.get("floor_label") in ("고", "중", "저"):
+                    iss.append({"code": "floor_vague", "level": "info", "msg": f"층을 '{r['floor_label']}층'으로만 표시 — 매매는 해당 층을 밝히는 게 원칙, 임대차는 임대인 요청 시 고·중·저 가능"})
+                else:
+                    iss.append({"code": "floor", "level": "warn", "msg": "층이 없어요 — 표시·광고 의무 항목"})
             if pt in _KOK_HOUSING and not r["direction"]:
                 iss.append({"code": "direction", "level": "warn", "msg": "방향이 없어요 — 표시·광고 의무 항목"})
             if pt in _KOK_HOUSING and not r["move_in"]:

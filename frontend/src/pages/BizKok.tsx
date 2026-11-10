@@ -313,7 +313,7 @@ function Seg({ value, onChange, opts }: { value: string; onChange: (v: string) =
 
 // ── ④ 점검 ─────────────────────────────────────────────────────────────
 const LEVEL_L: Record<string, string> = { fail: "위반 가능", warn: "확인 필요", info: "권장", ok: "이상 없음" };
-const CODE_L: Record<string, string> = { price: "가격 없음", rent: "월세 없음", area: "면적 없음", floor: "층 없음", direction: "방향 없음", move_in: "입주일 없음", mgmt: "관리비 없음", area_mismatch: "평형 불일치",
+const CODE_L: Record<string, string> = { price: "가격 없음", rent: "월세 없음", area: "면적 없음", floor: "층 없음", floor_vague: "층 고·중·저만", direction: "방향 없음", move_in: "입주일 없음", mgmt: "관리비 없음", area_mismatch: "평형 불일치",
   price_outlier: "실거래 대비 이상", dup: "같은 집 중복", stale: "오래된 등록", photo: "사진 없음", desc: "설명 없음", kw: "키워드 없음", office_regno: "사무소 등록번호", office_tel: "사무소 연락처" };
 function AuditTab({ authH, office, onFix }: { authH: () => Record<string, string>; office: Office; onFix: (id: string) => void }) {
   const [a, setA] = useState<Audit | null>(null); const [busy, setBusy] = useState(false); const [lv, setLv] = useState<"all" | "fail" | "warn" | "info">("all");
