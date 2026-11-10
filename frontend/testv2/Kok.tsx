@@ -284,7 +284,7 @@ function OwnerForm({ session, onDone, onCancel }: { session: Session; onDone: ()
 export const useKokTick = () => useMemo(() => Date.now(), []);
 
 // ── 중개사 연동 매물 상세 — 단지 서랍 옆 패널(PC) / 창(휴대폰) ──
-type RDetail = KokItem & { region?: string; confirm_ymd?: string; kok_since?: string; supply_m2?: number | null; description?: string; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
+type RDetail = KokItem & { region?: string; confirm_ymd?: string; kok_since?: string; supply_m2?: number | null; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
   mgmt_cost?: number | null; mgmt_info?: { type?: string; details?: { name: string; amount?: number | string | null; unable?: boolean }[] } | null; direction_base?: string;
   finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
   realtor?: { realtor_id: string; name?: string; regno?: string; address?: string; representative?: string; tel?: string; cell?: string };
@@ -315,10 +315,9 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
   const [d, setD] = useState<RDetail | null>(null);
   const [err, setErr] = useState("");
   const [pi, setPi] = useState(0);
-  const [more, setMore] = useState(false);
   const [mg, setMg] = useState<Mgmt | null>(null);
   const [mgItems, setMgItems] = useState(false);
-  useEffect(() => { setD(null); setErr(""); setPi(0); setMore(false); setMg(null); setMgItems(false); getJson(`/kok/listings/${it.id}`).then(setD).catch((e) => setErr(typeof e === "number" && e === 404 ? "광고가 내려간 매물이에요." : "불러오지 못했어요.")); }, [it.id]);
+  useEffect(() => { setD(null); setErr(""); setPi(0); setMg(null); setMgItems(false); getJson(`/kok/listings/${it.id}`).then(setD).catch((e) => setErr(typeof e === "number" && e === 404 ? "광고가 내려간 매물이에요." : "불러오지 못했어요.")); }, [it.id]);
   // 관리비는 따로 받는다(첫 단지는 몇 초 걸림). 아직 채워지는 중이면 몇 번 다시 본다.
   useEffect(() => {
     if (!d) return;
@@ -422,13 +421,7 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
               {d.public_price?.source && <p className="t2-pf-src">{d.public_price.source}</p>}
             </>
           )}
-          {/* 중개사 설명은 접어 둔다(광고 문구는 우리 것이 아니라 앞세우지 않음) */}
-          {d.description && (
-            <div className="t2-kl-desc">
-              <button className="t2-lnk" onClick={() => setMore(!more)}>{more ? "중개사 설명 접기" : "중개사 설명 보기"}</button>
-              {more && <p>{d.description}</p>}
-            </div>
-          )}
+          {/* 광고 설명문은 보여 주지 않는다(광고 쪽 문구를 그대로 옮기면 콕집 표시의 신뢰가 깎임) */}
           {d.realtor && (
             <>
               <div className="t2-pf-h"><h3>{d.realtor.name || "중개사무소"}</h3><small>{[d.realtor.representative ? `대표 ${d.realtor.representative}` : "", d.realtor.regno ? `등록 ${d.realtor.regno}` : ""].filter(Boolean).join(" · ")}</small></div>

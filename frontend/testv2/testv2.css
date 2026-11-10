@@ -1050,9 +1050,6 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-kl-tbl td { white-space: normal; }
 .t2-kl-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 0; }
 .t2-kl-tags span { font-size: 11.5px; font-weight: 700; color: var(--c-text-soft); background: #eef2f7; border-radius: 4px; padding: 2px 7px; }
-.t2-kl-desc { margin: 12px 0 0; }
-.t2-kl-desc p { margin: 0 0 4px; font-size: 13.5px; line-height: 1.65; white-space: pre-wrap; color: var(--c-text-soft); }
-.t2-kl-desc p.clip { max-height: 7.5em; overflow: hidden; }
 .t2-kl-rt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--c-border-soft); }
 .t2-kl-rt .t2-sh { margin: 0 0 4px; }
 .t2-kl .t2-kok-photos img { max-height: 260px; }

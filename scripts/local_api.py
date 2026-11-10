@@ -11487,7 +11487,7 @@ def kok_realtor_listing_detail(article_no: str):
         rt = det.get("articleRealtor") or {}
         cost = det.get("administrationCostInfo") or {}
         out.update({
-            "description": (ad.get("detailDescription") or "").strip()[:3000],
+            # 광고 설명문(detailDescription)은 내보내지 않는다 — 광고 쪽 문구를 그대로 옮기지 않음(콕집 기준 표시만)
             "feature": out["feature"] or (ad.get("articleFeatureDesc") or ""),
             "tags": out["tags"] or (ad.get("tagList") or []),
             "move_in": " ".join(x for x in [ad.get("moveInTypeName") or "", "협의 가능" if ad.get("moveInDiscussionPossibleYN") == "Y" else ""] if x).strip(),
