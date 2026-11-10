@@ -10887,7 +10887,9 @@ def lounge_kok_optin(body: dict, user: dict = Depends(current_user)):
     with _kok_db() as k:
         k.execute("INSERT INTO kok_realtor_optin(realtor_id, user_id, terms_version, active) VALUES(?,?,?,1) "
                   "ON CONFLICT(realtor_id) DO UPDATE SET active=1, user_id=excluded.user_id, terms_version=excluded.terms_version, "
-                  "agreed_at=datetime('now','+9 hours'), updated_at=datetime('now','+9 hours')", (rid, user["id"], KOK_TERMS_VERSION))
+                  # 바뀐 약관 재동의는 첫 동의일(=콕집 등록일 기준)을 바꾸지 않는다. 해제 뒤 다시 켤 때만 새 날짜
+                  "agreed_at=CASE WHEN kok_realtor_optin.active=1 THEN kok_realtor_optin.agreed_at ELSE datetime('now','+9 hours') END, "
+                  "updated_at=datetime('now','+9 hours')", (rid, user["id"], KOK_TERMS_VERSION))
         k.commit()
     _log_event("kok_optin", realtor_id=rid)
     _kok_sync_bg(rid)
