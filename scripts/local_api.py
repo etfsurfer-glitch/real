@@ -10820,6 +10820,17 @@ def _kok_office_ok(realtor_id: str) -> tuple[bool, list[str]]:
     return res
 
 
+# 테스트 기간 공개 범위 — 이 사무소들만 공개 화면(지도 시험판)에 내보낸다. 끝나면 .env 에서 빈 값으로(=전체 공개).
+_KOK_EXPOSE_DEFAULT = "a7156668"
+
+
+def _kok_public_ok(realtor_id: str) -> bool:
+    allow = (os.getenv("KOK_EXPOSE_REALTORS", _KOK_EXPOSE_DEFAULT) or "").strip()
+    if allow and allow != "*" and realtor_id not in {x.strip() for x in allow.split(",") if x.strip()}:
+        return False
+    return _kok_office_ok(realtor_id)[0]
+
+
 def _kok_hold_labels(v) -> list[str]:
     from scripts.kok_sync import HOLD_LABEL
     return [HOLD_LABEL.get(x, x) for x in _kok_loads(v, [])]
@@ -11010,7 +11021,7 @@ def _kok_realtor_items(k, where: str, params: list, limit: int) -> list:
         f"WHERE l.status='active' AND COALESCE(l.publish_state,'live')='live' AND {where} ORDER BY l.kok_since DESC, l.price DESC LIMIT ?", [*params, limit]).fetchall()
     out = []
     for r in rows:
-        if not _kok_office_ok(r["realtor_id"])[0]:
+        if not _kok_public_ok(r["realtor_id"]):
             continue
         ex = {"photos": r["e_photos"], "keywords": r["e_keywords"], "description": r["e_description"]} if r["e_photos"] or r["e_keywords"] or r["e_description"] else None
         out.append(_kok_listing_item(r, ex))
@@ -11583,7 +11594,7 @@ def kok_realtor_listing_detail(article_no: str):
             raise HTTPException(404, "콕집매물이 아니에요")
         if r["status"] != "active":
             raise HTTPException(404, "내려간 매물이에요")
-        if (r["publish_state"] or "live") != "live" or not _kok_office_ok(r["realtor_id"])[0]:
+        if (r["publish_state"] or "live") != "live" or not _kok_public_ok(r["realtor_id"]):
             raise HTTPException(404, "표시 항목을 채우는 중인 매물이에요")
         ex = _kok_extras(k, article_no)
     with _open_db() as d:
@@ -11642,7 +11653,7 @@ def kok_direct_listing_detail(did: str):
             raise HTTPException(404, "not found")
         if r["status"] != "active":
             raise HTTPException(404, "내려간 매물이에요")
-        if (r["publish_state"] or "live") != "live" or not _kok_office_ok(r["realtor_id"])[0]:
+        if (r["publish_state"] or "live") != "live" or not _kok_public_ok(r["realtor_id"]):
             raise HTTPException(404, "표시 항목을 채우는 중인 매물이에요")
     out = _kok_direct_item(r)
     with _open_db() as d:
@@ -11904,7 +11915,7 @@ def _kok_mgmt_declared_direct(r) -> dict | None:
 def _kok_direct_items(k, where: str, params: list, limit: int) -> list:
     rows = k.execute(f"SELECT l.* FROM kok_direct_listings l JOIN kok_realtor_optin o ON o.realtor_id=l.realtor_id AND o.active=1 "
                      f"WHERE l.status='active' AND COALESCE(l.publish_state,'live')='live' AND {where} ORDER BY l.created_at DESC LIMIT ?", [*params, limit]).fetchall()
-    return [_kok_direct_item(r) for r in rows if _kok_office_ok(r["realtor_id"])[0]]
+    return [_kok_direct_item(r) for r in rows if _kok_public_ok(r["realtor_id"])]
 
 
 def _kok_rid(user: dict) -> str:

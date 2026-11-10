@@ -220,7 +220,7 @@ export default function BizApp() {
   // 화면 디스패치(서브네비 제외) — 레일·탭바 셸이 공용으로 담는다.
   const dispatch = (screen && SCREENS[screen]) ? (
     <>
-      {screen === "kok" && <KokScreen authH={authH} office={office} />}
+      {screen === "kok" && (st.is_admin ? <KokScreen authH={authH} office={office} /> : <p className="muted" style={{ padding: 20 }}>준비 중인 기능이에요.</p>)}
       {screen === "diary" && <ListingsTab authH={authH} office={office} />}
       {screen === "rank" && <MyRankTab authH={authH} />}
       {screen === "analyze" && <AnalyzeTab />}
@@ -247,7 +247,7 @@ export default function BizApp() {
       {screen === "more" && <MoreHub authH={authH} hasHomepage={!!st.has_homepage} role={st.role ?? "owner"} onLogout={logout} />}
     </>
   ) : null;
-  const homeBody = <BizHome office={office} authH={authH} role={st.role ?? "owner"} staffName={st.staff_name ?? null} hideChrome={useRail} />;
+  const homeBody = <BizHome office={office} authH={authH} role={st.role ?? "owner"} staffName={st.staff_name ?? null} hideChrome={useRail} kokEntry={!!st.is_admin} />;
 
   // ── 데스크톱 레일 셸(플래그 ?ui=rail) — 같은 메뉴·같은 화면을 사이드바로 ──
   if (useRail) {
@@ -615,9 +615,10 @@ const eokLabel = (won: number) => {
   return man ? `${eok}억 ${man.toLocaleString()}` : `${eok}억`;
 };
 
-function BizHome({ office, authH, role, staffName, hideChrome }: {
+function BizHome({ office, authH, role, staffName, hideChrome, kokEntry }: {
   office: Office; authH: () => Record<string, string>; role: string; staffName: string | null;
   hideChrome?: boolean;  // 레일 셸에선 상단바·하단탭바 숨김(레일이 대체)
+  kokEntry?: boolean;    // 콕집매물 진입점(테스트 기간엔 관리자만) — 미완성 상태로 중개사에게 동의를 받으면 안 된다
 }) {
   const [leadNew, setLeadNew] = useState(0);
   const [total, setTotal] = useState<number | null>(null);
@@ -671,7 +672,7 @@ function BizHome({ office, authH, role, staffName, hideChrome }: {
     <div className="biz-shell">
       {!hideChrome && <BizTop settings />}
       <div className="biz-body">
-      <KokPanel authH={authH} />
+      {kokEntry && <KokPanel authH={authH} />}
         <div className="biz-greet">
           <div className="biz-greet-name"><b>{role === "owner" ? `${office.representative || "대표"} 대표님` : `${staffName || "직원"}님`}</b>, 안녕하세요</div>
           <div className="biz-greet-office">{office.realtor_name}</div>
@@ -1207,7 +1208,6 @@ function MoreHub({ authH, hasHomepage, role, onLogout }: {
   return (
     <>
       <div className="biz-grid">
-        <BizBtn to="/biz/kok" icon={<MapPin size={22} />} label="콕집매물" desc="전환·전용 등록·관리·점검" primary />
         <BizBtn to="/biz/diary" icon={<ClipboardList size={22} />} label="매물장" desc="내 매물 다이어리" primary />
         <BizBtn to="/biz/ledger" icon={<Users size={22} />} label="고객원장" desc="손님 요건·내놓은 물건" primary />
         <BizBtn to="/biz/match" icon={<Sparkles size={22} />} label="고객·물건매칭" desc="손님 조건에 맞는 매물 찾기" primary />
