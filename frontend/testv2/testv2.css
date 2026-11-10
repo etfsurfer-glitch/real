@@ -1153,3 +1153,13 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
   .t2-pf-area { grid-template-columns: 8px 86px 1fr; grid-template-areas: "sw t h" "sw p p" "sw d j"; }
   .t2-pf-area .h { text-align: right; }
 }
+
+/* 콕집매물 — 등록자가 콕집에 직접 쓴 키워드·설명·편집기 */
+.t2-kok-kw { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.t2-kok-kw i { font-style: normal; font-size: 11px; font-weight: 700; color: var(--c-primary); background: var(--c-primary-tint); padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
+.t2-kok-kw.big { margin: 0 0 8px; } .t2-kok-kw.big i { font-size: 12.5px; padding: 2px 8px; }
+.t2-kok-desc p { font-size: 14px; line-height: 1.65; white-space: pre-wrap; color: var(--c-text-soft); margin: 0 0 6px; }
+.t2-kok-edit { margin: 8px 0 4px; padding-top: 10px; border-top: 1px dashed var(--c-border); display: flex; flex-direction: column; gap: 8px; }
+.t2-kok-edit input, .t2-kok-edit textarea, .t2-kok-kwin { font: inherit; font-size: 13.5px; color: var(--c-text); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 8px 10px; width: 100%; box-sizing: border-box; resize: vertical; }
+.t2-kok-edit .row { display: flex; gap: 8px; }
+.t2-kok-edit small.mut { font-size: 11.5px; color: var(--c-muted); }

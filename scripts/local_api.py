@@ -10740,32 +10740,71 @@ def admin_map_ads_delete(ad_id: int, _admin: dict = Depends(admin_user)):
 #   ② 일반 회원(직거래) — 휴대폰 인증 번호 그대로, 단지·동·호·이름을 등기소 조회(_iros_check)에 넣어
 #   소유자·등기신청인 이름이 맞을 때만(200) 등록할 수 있다. 다르면 422 → 등록 불가.
 # 노출은 지도 시험판(testv2)뿐. 운영 소비자 화면엔 아직 붙이지 않는다.
-KOK_TERMS_VERSION = "2026-11-09"
+KOK_TERMS_VERSION = "2026-11-10"
 KOK_IMG_DIR: Path = DB_PATH.parent / "kok_listing_photos"
 KOK_IMG_DIR.mkdir(parents=True, exist_ok=True)
 _KOK_OWNER_MAX_ACTIVE = 2
 _KOK_DAYS = 30
+KOK_DB: Path = DB_PATH.parent / "kok.sqlite"   # 콕집매물 자체 DB — 수집 DB 와 분리. 중개사 연동분은 scripts/kok_sync.py 가 한 방향으로 채운다
 
 
-def _ensure_kok(c) -> None:
-    c.executescript("""
-    CREATE TABLE IF NOT EXISTS kok_realtor_optin(
-      realtor_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, terms_version TEXT, active INTEGER DEFAULT 1,
-      agreed_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')));
-    CREATE TABLE IF NOT EXISTS kok_owner_listings(
-      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, phone TEXT, owner_name TEXT,
-      complex_no TEXT NOT NULL, complex_name TEXT, dong TEXT, ho TEXT, address TEXT,
-      trade TEXT NOT NULL, price INTEGER, rent INTEGER, area_name TEXT, excl_m2 REAL, floor INTEGER, total_floor INTEGER,
-      floor_consent INTEGER DEFAULT 1, direction TEXT, move_in TEXT, mgmt_fee INTEGER, feature TEXT, detail TEXT,
-      contact_mode TEXT DEFAULT 'kok', photos TEXT, owner_verified INTEGER DEFAULT 0, iros_check_id INTEGER, iros_pin TEXT,
-      status TEXT DEFAULT 'active', view_count INTEGER DEFAULT 0, report_count INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')),
-      expires_at TEXT);
-    CREATE INDEX IF NOT EXISTS kok_owner_cx ON kok_owner_listings(complex_no, status);
-    CREATE TABLE IF NOT EXISTS kok_inquiries(
-      id INTEGER PRIMARY KEY AUTOINCREMENT, listing_id INTEGER NOT NULL, from_user TEXT, from_phone TEXT, message TEXT,
-      created_at TEXT DEFAULT (datetime('now','+9 hours')));
-    """)
+def _kok_db() -> sqlite3.Connection:
+    from scripts.kok_sync import kok_db as _kdb   # 스키마는 한 곳(kok_sync)에서만 정의
+    return _kdb()
+
+
+def _kok_sync_bg(realtor_id: str) -> None:
+    """사무소가 동의한 직후 그 사무소만 바로 동기화(백그라운드). 전체는 daily_run step 11f."""
+    import subprocess as _sp
+    def run():
+        try:
+            _sp.run([sys.executable, str(Path(__file__).resolve().parent / "kok_sync.py"), "--realtor", realtor_id], timeout=1800, capture_output=True)
+        except Exception as e:  # noqa: BLE001
+            _log_event("kok_sync_error", query=str(e)[:200])
+    _threading.Thread(target=run, daemon=True).start()
+
+
+def _kok_keywords(v) -> list[str]:
+    out: list[str] = []
+    for x in (v if isinstance(v, list) else str(v or "").split(",")):
+        t = str(x).strip()[:12]
+        if t and t not in out:
+            out.append(t)
+        if len(out) >= 8:
+            break
+    return out
+
+
+def _kok_photo_names(v) -> list[str]:
+    return [x for x in (v or []) if isinstance(x, str) and _re.match(r"^[A-Za-z0-9_\-]+\.jpg$", x)][:10]
+
+
+def _kok_store_photo(data: bytes, prefix: str) -> str:
+    """사진 — 서버에서 얼굴·글자 모자이크 뒤 마스킹본만 저장. 직거래·중개사 공용."""
+    if len(data) > 12_000_000:
+        raise HTTPException(400, "사진이 너무 큽니다(최대 12MB)")
+    try:
+        from scripts.photo_mask import mask_image, MaskError
+        masked, _stat = mask_image(data)
+    except MaskError as e:
+        raise HTTPException(400, f"사진 처리 실패: {e}")
+    except Exception as e:  # noqa: BLE001
+        _log_event("kok_photo_mask_error", query=str(e)[:200])
+        raise HTTPException(500, "사진 자동 모자이크에 실패해 저장하지 않았어요. 다시 시도해 주세요.")
+    name = f"{prefix}_{_hashlib.sha1(masked[:4096]).hexdigest()[:16]}.jpg"
+    (KOK_IMG_DIR / name).write_bytes(masked)
+    return name
+
+
+def _kok_loads(v, default):
+    try:
+        return _authjson.loads(v) if v else default
+    except Exception:  # noqa: BLE001
+        return default
+
+
+def _ensure_kok(c) -> None:   # 호환용 — 스키마는 _kok_db()(scripts/kok_sync.kok_db)가 보장한다
+    return None
 
 
 def _kok_price_text(trade: str, price, rent) -> str:
@@ -10805,17 +10844,35 @@ def kok_terms():
     return {"version": KOK_TERMS_VERSION}
 
 
-# ── 중개사: 라운지에서 동의 → 자동연동 ──
+# ── 중개사: 라운지에서 동의 → 콕집매물 DB 로 동기화(매일 + 동의 직후) ──
+def _kok_listing_item(r, ex=None) -> dict:
+    """kok_listings 행 → 목록 항목. 등록자가 콕집에 쓴 사진·키워드가 있으면 같이."""
+    ph = _kok_loads(ex["photos"], []) if ex is not None else []
+    return {"id": f"R{r['article_no']}", "kind": "realtor", "complex_no": r["complex_no"], "name": r["complex_name"], "lat": r["lat"], "lng": r["lng"],
+            "trade": r["trade"], "area_name": r["area_name"], "excl_m2": r["excl_m2"], "supply_m2": r["supply_m2"],
+            "floor_text": (f"{r['floor']}층" if r["floor"] else ""), "direction": r["direction"] or "", "dong": r["dong"] or "",
+            "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
+            "realtor_id": r["realtor_id"], "realtor_name": r["realtor_name"], "kok_since": r["kok_since"], "owner_verified": False,
+            "photos": [f"/kok/photo/{x}" for x in ph], "keywords": _kok_loads(ex["keywords"], []) if ex is not None else [],
+            "description": (ex["description"] or "") if ex is not None else "", "status": r["status"]}
+
+
 @app.get("/lounge/kok/status")
 def lounge_kok_status(user: dict = Depends(current_user)):
     with _reviews_db() as c:
         rid = _require_member(c, user["id"])
-        _ensure_kok(c)
-        o = c.execute("SELECT active, agreed_at, terms_version, user_id FROM kok_realtor_optin WHERE realtor_id=?", (rid,)).fetchone()
-    with _open_db() as d:
-        n = d.execute("SELECT COUNT(*), SUM(trade_type='A1'), SUM(trade_type='B1'), SUM(trade_type='B2') FROM listings_current WHERE realtor_id=?", (rid,)).fetchone()
-    return {"realtor_id": rid, "opted": bool(o and o["active"]), "agreed_at": o["agreed_at"] if o else None,
+    with _kok_db() as k:
+        o = k.execute("SELECT active, agreed_at, terms_version, user_id FROM kok_realtor_optin WHERE realtor_id=?", (rid,)).fetchone()
+        opted = bool(o and o["active"])
+        if opted:
+            n = k.execute("SELECT COUNT(*), SUM(trade='A1'), SUM(trade='B1'), SUM(trade='B2') FROM kok_listings WHERE realtor_id=? AND status='active'", (rid,)).fetchone()
+        last = k.execute("SELECT ran_at FROM kok_sync_log WHERE scope IN ('all', ?) ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
+    if not opted:   # 동의 전엔 '지금 광고 중 N건' 미리보기 — 수집 DB 읽기만
+        with _open_db() as d:
+            n = d.execute("SELECT COUNT(*), SUM(trade_type='A1'), SUM(trade_type='B1'), SUM(trade_type='B2') FROM listings_current WHERE realtor_id=?", (rid,)).fetchone()
+    return {"realtor_id": rid, "opted": opted, "agreed_at": o["agreed_at"] if o else None,
             "terms_version": KOK_TERMS_VERSION, "needs_reagree": bool(o and o["active"] and o["terms_version"] != KOK_TERMS_VERSION),
+            "synced_at": last["ran_at"] if last else None,
             "listings": {"total": n[0] or 0, "A1": n[1] or 0, "B1": n[2] or 0, "B2": n[3] or 0}}
 
 
@@ -10825,12 +10882,13 @@ def lounge_kok_optin(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "약관에 동의해야 등록할 수 있어요")
     with _reviews_db() as c:
         rid = _require_member(c, user["id"])
-        _ensure_kok(c)
-        c.execute("INSERT INTO kok_realtor_optin(realtor_id, user_id, terms_version, active) VALUES(?,?,?,1) "
+    with _kok_db() as k:
+        k.execute("INSERT INTO kok_realtor_optin(realtor_id, user_id, terms_version, active) VALUES(?,?,?,1) "
                   "ON CONFLICT(realtor_id) DO UPDATE SET active=1, user_id=excluded.user_id, terms_version=excluded.terms_version, "
                   "agreed_at=datetime('now','+9 hours'), updated_at=datetime('now','+9 hours')", (rid, user["id"], KOK_TERMS_VERSION))
-        c.commit()
+        k.commit()
     _log_event("kok_optin", realtor_id=rid)
+    _kok_sync_bg(rid)
     return {"ok": True, "realtor_id": rid, "terms_version": KOK_TERMS_VERSION}
 
 
@@ -10838,11 +10896,54 @@ def lounge_kok_optin(body: dict, user: dict = Depends(current_user)):
 def lounge_kok_optout(user: dict = Depends(current_user)):
     with _reviews_db() as c:
         rid = _require_member(c, user["id"])
-        _ensure_kok(c)
-        c.execute("UPDATE kok_realtor_optin SET active=0, updated_at=datetime('now','+9 hours') WHERE realtor_id=?", (rid,))
-        c.commit()
+    with _kok_db() as k:
+        k.execute("UPDATE kok_realtor_optin SET active=0, updated_at=datetime('now','+9 hours') WHERE realtor_id=?", (rid,))
+        k.execute("UPDATE kok_listings SET status='closed', closed_at=datetime('now','+9 hours'), updated_at=datetime('now','+9 hours') WHERE realtor_id=? AND status='active'", (rid,))
+        k.commit()
     _log_event("kok_optout", realtor_id=rid)
     return {"ok": True}
+
+
+@app.get("/lounge/kok/listings")
+def lounge_kok_listings(user: dict = Depends(current_user)):
+    """내 콕집매물(동기화된 광고) + 내가 콕집에 쓴 사진·설명·키워드."""
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+    with _kok_db() as k:
+        rows = k.execute("SELECT * FROM kok_listings WHERE realtor_id=? AND status='active' ORDER BY kok_since DESC, price DESC LIMIT 500", (rid,)).fetchall()
+        ex = {e["article_no"]: e for e in k.execute("SELECT * FROM kok_realtor_extras WHERE realtor_id=?", (rid,))}
+        last = k.execute("SELECT ran_at FROM kok_sync_log WHERE scope IN ('all', ?) ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
+        closed = k.execute("SELECT COUNT(*) FROM kok_listings WHERE realtor_id=? AND status='closed'", (rid,)).fetchone()[0]
+    return {"items": [_kok_listing_item(r, ex.get(r["article_no"])) for r in rows], "synced_at": last["ran_at"] if last else None, "closed": closed}
+
+
+@app.post("/lounge/kok/listings/{article_no}/extras")
+def lounge_kok_extras(article_no: str, body: dict, user: dict = Depends(current_user)):
+    """콕집에만 올리는 사진·설명·키워드 — 광고 문구와 별개로 중개사가 직접 쓴다."""
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+    photos = _kok_photo_names(body.get("photos"))
+    desc = str(body.get("description") or "").strip()[:1000]
+    kws = _kok_keywords(body.get("keywords"))
+    with _kok_db() as k:
+        r = k.execute("SELECT realtor_id FROM kok_listings WHERE article_no=?", (article_no,)).fetchone()
+        if not r or r["realtor_id"] != rid:
+            raise HTTPException(404, "내 콕집매물이 아니에요")
+        k.execute("INSERT INTO kok_realtor_extras(article_no, realtor_id, user_id, photos, description, keywords) VALUES(?,?,?,?,?,?) "
+                  "ON CONFLICT(article_no) DO UPDATE SET photos=excluded.photos, description=excluded.description, keywords=excluded.keywords, "
+                  "user_id=excluded.user_id, updated_at=datetime('now','+9 hours')",
+                  (article_no, rid, user["id"], _authjson.dumps(photos), desc, _authjson.dumps(kws, ensure_ascii=False)))
+        k.commit()
+    _log_event("kok_extras", realtor_id=rid)
+    return {"ok": True, "photos": [f"/kok/photo/{x}" for x in photos], "description": desc, "keywords": kws}
+
+
+@app.post("/lounge/kok/photo")
+async def lounge_kok_photo(document: UploadFile = File(...), user: dict = Depends(current_user)):
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+    name = _kok_store_photo(await document.read(), f"r{_hashlib.sha1(rid.encode()).hexdigest()[:8]}")
+    return {"ok": True, "photo": name, "url": f"/kok/photo/{name}"}
 
 
 # ── 공개 조회 ──
@@ -10859,31 +10960,23 @@ def _kok_owner_pub(r, with_contact: bool = False) -> dict:
            "area_name": r["area_name"], "excl_m2": r["excl_m2"], "floor_text": floor_text, "direction": r["direction"] or "",
            "dong": r["dong"] or "", "move_in": r["move_in"] or "", "mgmt_fee": r["mgmt_fee"], "feature": r["feature"] or "",
            "detail": r["detail"] or "", "photos": [f"/kok/photo/{p}" for p in ph], "owner_verified": bool(r["owner_verified"]),
-           "contact_mode": r["contact_mode"], "created_at": r["created_at"], "expires_at": r["expires_at"], "status": r["status"]}
+           "contact_mode": r["contact_mode"], "created_at": r["created_at"], "expires_at": r["expires_at"], "status": r["status"],
+           "keywords": _kok_loads(r["keywords"] if "keywords" in r.keys() else None, [])}
     if with_contact or r["contact_mode"] == "phone":
         out["phone"] = r["phone"]
     return out
 
 
-def _kok_realtor_items(d, where: str, params: list, limit: int) -> list:
-    """동의한 사무소의 광고 중 매물 → 콕집매물 항목. 동의 사무소 집합은 reviews.sqlite 에서 읽어 온다."""
-    with _reviews_db() as c:
-        _ensure_kok(c)
-        rids = [r[0] for r in c.execute("SELECT realtor_id FROM kok_realtor_optin WHERE active=1")]
-    if not rids:
-        return []
-    ph = ",".join("?" * len(rids))
-    rows = d.execute(
-        f"SELECT l.article_no, l.complex_no, cx.complex_name, cx.latitude, cx.longitude, l.trade_type, l.area_name, l.area2_m2, l.floor_info, "
-        f"l.direction, l.deal_or_warrant_price, l.rent_price, l.realtor_id, l.realtor_name, l.article_confirm_ymd, l.article_feature_desc, l.tag_list_json "
-        f"FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no WHERE l.realtor_id IN ({ph}) AND {where} "
-        f"ORDER BY l.article_confirm_ymd DESC LIMIT ?", [*rids, *params, limit]).fetchall()
+def _kok_realtor_items(k, where: str, params: list, limit: int) -> list:
+    """콕집매물 DB(kok_listings)에서 동의 유지 중인 사무소의 active 매물. 수집 DB 는 보지 않는다."""
+    rows = k.execute(
+        f"SELECT l.*, e.photos AS e_photos, e.keywords AS e_keywords, e.description AS e_description FROM kok_listings l "
+        f"JOIN kok_realtor_optin o ON o.realtor_id=l.realtor_id AND o.active=1 LEFT JOIN kok_realtor_extras e ON e.article_no=l.article_no "
+        f"WHERE l.status='active' AND {where} ORDER BY l.kok_since DESC, l.price DESC LIMIT ?", [*params, limit]).fetchall()
     out = []
     for r in rows:
-        out.append({"id": f"R{r[0]}", "kind": "realtor", "complex_no": r[1], "name": r[2], "lat": r[3], "lng": r[4], "trade": r[5],
-                    "area_name": r[6], "excl_m2": r[7], "floor_text": (f"{r[8]}층" if r[8] else ""), "direction": r[9] or "",
-                    "price": r[10], "rent": r[11], "price_text": _kok_price_text(r[5], r[10], r[11]),
-                    "realtor_id": r[12], "realtor_name": r[13], "confirm_ymd": r[14], "feature": r[15] or "", "owner_verified": False})
+        ex = {"photos": r["e_photos"], "keywords": r["e_keywords"], "description": r["e_description"]} if r["e_photos"] or r["e_keywords"] or r["e_description"] else None
+        out.append(_kok_listing_item(r, ex))
     return out
 
 
@@ -10896,14 +10989,13 @@ def kok_listings(swlat: float = 0, swlng: float = 0, nelat: float = 0, nelng: fl
         if complex_no:
             w, p = "l.complex_no=?", [complex_no]
         elif nelat:
-            w, p = "cx.latitude BETWEEN ? AND ? AND cx.longitude BETWEEN ? AND ?", [swlat, nelat, swlng, nelng]
+            w, p = "l.lat BETWEEN ? AND ? AND l.lng BETWEEN ? AND ?", [swlat, nelat, swlng, nelng]
         else:
             raise HTTPException(400, "bbox 또는 complex_no")
         if trade in ("A1", "B1", "B2"):
-            w += " AND l.trade_type=?"; p.append(trade)
-        items.extend(_kok_realtor_items(d, w, p, limit))
-        with _reviews_db() as c:
-            _ensure_kok(c)
+            w += " AND l.trade=?"; p.append(trade)
+        with _kok_db() as c:
+            items.extend(_kok_realtor_items(c, w, p, limit))
             if complex_no:
                 rows = c.execute("SELECT * FROM kok_owner_listings WHERE status='active' AND complex_no=? AND (expires_at IS NULL OR expires_at>=datetime('now','+9 hours')) ORDER BY id DESC", (complex_no,)).fetchall()
             else:
@@ -11423,100 +11515,53 @@ def kok_mgmt(complex_no: str, supply: float | None = None, excl: float | None = 
         return {"status": "none", "reason": "관리비 공개자료를 지금 받지 못했어요"}
 
 
-_KOK_DETAIL_CACHE: dict = {}
+def _kok_extras(k, article_no: str) -> dict:
+    e = k.execute("SELECT photos, description, keywords FROM kok_realtor_extras WHERE article_no=?", (article_no,)).fetchone()
+    if not e:
+        return {"photos": [], "description": "", "keywords": []}
+    return {"photos": [f"/kok/photo/{x}" for x in _kok_loads(e["photos"], [])], "description": e["description"] or "", "keywords": _kok_loads(e["keywords"], [])}
 
 
 @app.get("/kok/listings/R{article_no}")
 def kok_realtor_listing_detail(article_no: str):
+    """중개사 연동 콕집매물 상세 — 콕집매물 DB(kok_listings + 중개사가 쓴 extras)와 우리 참조 자료(단지·공시·세금)만. 광고 쪽 실시간 호출 없음."""
+    with _kok_db() as k:
+        r = k.execute("SELECT l.*, o.active AS opt_active FROM kok_listings l LEFT JOIN kok_realtor_optin o ON o.realtor_id=l.realtor_id WHERE l.article_no=?", (article_no,)).fetchone()
+        if not r or not r["opt_active"]:
+            raise HTTPException(404, "콕집매물이 아니에요")
+        if r["status"] != "active":
+            raise HTTPException(404, "내려간 매물이에요")
+        ex = _kok_extras(k, article_no)
     with _open_db() as d:
-        r = d.execute(
-            "SELECT l.article_no, l.complex_no, cx.complex_name, l.trade_type, l.area_name, l.area1_m2, l.area2_m2, l.floor_info, l.direction, "
-            "l.deal_or_warrant_price, l.rent_price, l.realtor_id, l.realtor_name, l.article_confirm_ymd, l.article_feature_desc, l.tag_list_json, "
-            "l.building_name, l.verification_type, cx.cortar_no, cx.latitude, cx.longitude, cx.use_approve_ymd, cx.parking_per_household, a.first_seen_date "
-            "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no LEFT JOIN articles a ON a.article_no=l.article_no WHERE l.article_no=?", (article_no,)).fetchone()
-        if not r:
-            raise HTTPException(404, "광고가 내려간 매물이에요")
+        cx = d.execute("SELECT cortar_no, use_approve_ymd, parking_per_household FROM complexes WHERE complex_no=?", (r["complex_no"],)).fetchone()
+        cortar = cx[0] if cx else ""
         reg = d.execute("SELECT (SELECT cortar_name FROM regions WHERE cortar_no=substr(?,1,2)||'00000000'),"
                         "(SELECT cortar_name FROM regions WHERE cortar_no=substr(?,1,5)||'00000'),"
-                        "(SELECT cortar_name FROM regions WHERE cortar_no=?)", (r[18], r[18], r[18])).fetchone()
-        regno = d.execute("SELECT b.ra_regno FROM realtor_match m JOIN vworld_brokers b ON b.sys_regno=m.sys_regno WHERE m.realtor_id=? LIMIT 1", (r[11],)).fetchone()
-    with _reviews_db() as c:
-        _ensure_kok(c)
-        opted = c.execute("SELECT agreed_at FROM kok_realtor_optin WHERE realtor_id=? AND active=1", (r[11],)).fetchone()
-    if not opted:
-        raise HTTPException(404, "콕집매물이 아니에요")
-    # 콕집에 올라온 날 = 사무소가 콕집매물 연동에 동의한 날과 이 광고가 처음 보인 날 중 늦은 쪽(광고 쪽 확인일자는 쓰지 않는다)
-    kok_since = max(str(opted[0] or "")[:10], str(r[23] or "")[:10])
+                        "(SELECT cortar_name FROM regions WHERE cortar_no=?)", (cortar, cortar, cortar)).fetchone() if cortar else None
+        regno = d.execute("SELECT b.ra_regno FROM realtor_match m JOIN vworld_brokers b ON b.sys_regno=m.sys_regno WHERE m.realtor_id=? LIMIT 1", (r["realtor_id"],)).fetchone()
+        facts = _kok_complex_facts(d, r["complex_no"], r["area_name"])
+    price, supply, excl = r["price"], r["supply_m2"], r["excl_m2"]
+    out = _kok_listing_item(r, None) | ex | {
+        "region": " ".join(x for x in (reg or ()) if x), "rooms": r["rooms"], "baths": r["baths"], "move_in": r["move_in"] or "",
+        "finance_price": r["finance_price"], "violation": r["violation"] or "", "approve_ymd": (cx[1] if cx else "") or "",
+        "parking_per_household": cx[2] if cx else None, "complex_facts": facts,
+        "py_price": {"supply": int(price / (supply / 3.3058)) if price and supply else None, "excl": int(price / (excl / 3.3058)) if price and excl else None} if r["trade"] == "A1" else None,
+        "acquire": _kok_acquire(int(price or 0), excl) if r["trade"] == "A1" and price else None,
+        "realtor": {"realtor_id": r["realtor_id"], "name": r["realtor_name"], "regno": regno[0] if regno else "",
+                    **{kk: v for kk, v in (_office_brief(r["realtor_id"]) or {}).items() if kk in ("address", "representative", "tel", "cell")}}}
+    ob = _office_brief(r["realtor_id"]) or {}
+    if ob.get("realtor_name"):
+        out["realtor"]["name"] = ob["realtor_name"]
+    # 전용률 = 전용면적 ÷ 공급면적, 콕집 계산
     try:
-        tags = _authjson.loads(r[15] or "[]")
-    except Exception:  # noqa: BLE001
-        tags = []
-    out = {"id": f"R{r[0]}", "kind": "realtor", "complex_no": r[1], "name": r[2], "region": " ".join(x for x in (reg or ()) if x), "dong": (r[16] or "").replace("동", ""),
-           "trade": r[3], "price": r[9], "rent": r[10], "price_text": _kok_price_text(r[3], r[9], r[10]), "area_name": r[4], "supply_m2": r[5], "excl_m2": r[6],
-           "floor_text": f"{r[7]}층" if r[7] else "", "direction": r[8] or "", "confirm_ymd": r[13] or "", "kok_since": kok_since, "feature": r[14] or "", "tags": tags,
-           "verification": r[17] or "", "lat": r[19], "lng": r[20], "approve_ymd": r[21] or "", "parking_per_household": r[22],
-           "owner_verified": False, "description": "", "move_in": "", "rooms": None, "baths": None,
-           "direction_base": "", "finance_price": None, "violation": "", "exclusive_rate": "",
-           "complex_facts": _kok_complex_facts(d, r[1], r[4]),
-           "py_price": {"supply": int(r[9] / (r[5] / 3.3058)) if r[9] and r[5] else None, "excl": int(r[9] / (r[6] / 3.3058)) if r[9] and r[6] else None} if r[3] == "A1" else None,
-           "acquire": _kok_acquire(int(r[9] or 0), r[6]) if r[3] == "A1" and r[9] else None,
-           "realtor": {"realtor_id": r[11], "name": r[12], "regno": regno[0] if regno else "", **{k: v for k, v in (_office_brief(r[11]) or {}).items() if k in ("address", "representative", "tel", "cell")}}}
-    # 상세(사진·설명·입주·방/욕실·관리비·방향 기준) — 실패해도 기본 정보는 나간다
-    hit = _KOK_DETAIL_CACHE.get(article_no)
-    det = None
-    if hit and _time.monotonic() - hit[0] < 900:
-        det = hit[1]
-    else:
-        try:
-            from collector.article_detail import fetch_article_detail
-            from collector.creds import ensure_creds
-            st_, det = fetch_article_detail(article_no, r[1], ensure_creds())
-            if st_ != 200:
-                det = None
-            _KOK_DETAIL_CACHE[article_no] = (_time.monotonic(), det)
-            if len(_KOK_DETAIL_CACHE) > 2000:
-                _KOK_DETAIL_CACHE.clear()
-        except Exception as e:  # noqa: BLE001
-            _log_event("kok_detail_fetch_error", query=str(e)[:200])
-            det = None
-    if det:
-        ad = det.get("articleDetail") or {}
-        fac = det.get("articleFacility") or {}
-        sp = det.get("articleSpace") or {}
-        pr = det.get("articlePrice") or {}
-        rt = det.get("articleRealtor") or {}
-        out.update({
-            # 광고 설명문(detailDescription)은 내보내지 않는다 — 광고 쪽 문구를 그대로 옮기지 않음(콕집 기준 표시만)
-            "feature": out["feature"] or (ad.get("articleFeatureDesc") or ""),
-            "tags": out["tags"] or (ad.get("tagList") or []),
-            "move_in": " ".join(x for x in [ad.get("moveInTypeName") or "", "협의 가능" if ad.get("moveInDiscussionPossibleYN") == "Y" else ""] if x).strip(),
-            "rooms": ad.get("roomCount"), "baths": ad.get("bathroomCount"),
-            # 광고 쪽 관리비(부과방식·신고액·메모)는 내보내지 않는다 — 관리비는 /kok/mgmt 의 K-apt 공개자료로만
-            "direction": fac.get("directionTypeName") or out["direction"], "direction_base": fac.get("directionBaseTypeName") or "",
-            "supply_m2": sp.get("supplySpace") or out["supply_m2"], "excl_m2": sp.get("exclusiveSpace") or out["excl_m2"],
-            "finance_price": (int(pr["financePrice"]) * 10000) if pr.get("financePrice") else None,
-            "violation": ad.get("violationBuildingYN") or "", "dong": (ad.get("buildingName") or out["dong"] or "").replace("동", ""),
-            "parking_per_household": ad.get("parkingPerHouseholdCount") or out["parking_per_household"],
-        })
-        addi = det.get("articleAddition") or {}
-        out.update({
-            "same_addr": {"count": addi.get("sameAddrCnt"), "direct": addi.get("sameAddrDirectCnt"), "min": addi.get("sameAddrMinPrc"), "max": addi.get("sameAddrMaxPrc")},
-            "price_change": addi.get("priceChangeState") or "",
-            "expose_end": ad.get("exposeEndYMD") or "",
-        })
-        out["realtor"].update({k: v for k, v in {"name": rt.get("realtorName"), "representative": rt.get("representativeName"),
-                                                 "regno": rt.get("establishRegistrationNo"), "tel": rt.get("representativeTelNo"),
-                                                 "cell": rt.get("cellPhoneNo"), "address": rt.get("address")}.items() if v})
-    # 전용률 = 전용면적 ÷ 공급면적, 콕집 계산(광고 쪽 값은 쓰지 않는다)
-    try:
-        sm, em = float(out.get("supply_m2") or 0), float(out.get("excl_m2") or 0)
+        sm, em = float(supply or 0), float(excl or 0)
         out["exclusive_rate"] = f"{em / sm * 100:.1f}".rstrip("0").rstrip(".") if sm > 0 and 0 < em <= sm else ""
     except (TypeError, ValueError):
         out["exclusive_rate"] = ""
-    # 공시가격(국토부 공시, 우리 키로 조회) + 재산세(우리 산식). 전용면적이 상세에서 보정됐을 수 있어 마지막에
+    # 공시가격(국토부 공시, 우리 키로 조회) + 재산세(우리 산식)
     try:
-        with _open_db() as d, _reviews_db() as c:
-            g = _kok_gongsi(d, c, r[1], out.get("dong") or "", out.get("excl_m2"))
+        with _open_db() as d, _kok_db() as k:
+            g = _kok_gongsi(d, k, r["complex_no"], out.get("dong") or "", excl)
         out["public_price"] = g
         if g and g.get("median"):
             out["property_tax"] = {"one_house": _kok_property_tax(g["median"], True), "general": _kok_property_tax(g["median"], False), "basis": g["median"]}
@@ -11530,8 +11575,7 @@ def kok_realtor_listing_detail(article_no: str):
 def kok_listing_detail(kid: str):
     if not kid.startswith("K") or not kid[1:].isdigit():
         raise HTTPException(404, "not found")
-    with _reviews_db() as c:
-        _ensure_kok(c)
+    with _kok_db() as c:
         r = c.execute("SELECT * FROM kok_owner_listings WHERE id=? AND status='active'", (int(kid[1:]),)).fetchone()
         if not r:
             raise HTTPException(404, "내려간 매물이에요")
@@ -11558,12 +11602,12 @@ def kok_inquiry(kid: str, body: dict, user: dict = Depends(current_user)):
     msg = str(body.get("message") or "").strip()[:500]
     if len(msg) < 5:
         raise HTTPException(400, "문의 내용을 5자 이상 적어 주세요")
-    with _reviews_db() as c:
-        _ensure_kok(c)
+    with _reviews_db() as rc:
+        ph = _my_phone(rc, user["id"])
+    with _kok_db() as c:
         r = c.execute("SELECT id, user_id, complex_name FROM kok_owner_listings WHERE id=? AND status='active'", (int(kid[1:]),)).fetchone()
         if not r:
             raise HTTPException(404, "내려간 매물이에요")
-        ph = _my_phone(c, user["id"])
         if not ph:
             raise HTTPException(403, "휴대폰 인증 뒤 문의할 수 있어요")
         c.execute("INSERT INTO kok_inquiries(listing_id, from_user, from_phone, message) VALUES(?,?,?,?)", (r["id"], user["id"], ph, msg))
@@ -11646,22 +11690,21 @@ def kok_owner_create(body: dict, user: dict = Depends(current_user)):
     complex_no = str(body.get("complex_no") or "")
     with _open_db() as d:
         a = _kok_complex_addr(d, complex_no)
-    with _reviews_db() as c:
-        _ensure_kok(c)
+    with _kok_db() as c:
         n = c.execute("SELECT COUNT(*) FROM kok_owner_listings WHERE user_id=? AND status='active'", (uid,)).fetchone()[0]
         if n >= _KOK_OWNER_MAX_ACTIVE:
             raise HTTPException(400, f"직거래 매물은 한 번에 {_KOK_OWNER_MAX_ACTIVE}건까지 올릴 수 있어요")
-        photos = [p for p in (body.get("photos") or []) if isinstance(p, str) and _re.match(r"^[A-Za-z0-9_\-]+\.jpg$", p)][:10]
+        photos = _kok_photo_names(body.get("photos"))
         cur = c.execute(
             "INSERT INTO kok_owner_listings(user_id, phone, owner_name, complex_no, complex_name, dong, ho, address, trade, price, rent, area_name, excl_m2, "
             "floor, total_floor, floor_consent, direction, move_in, mgmt_fee, feature, detail, contact_mode, photos, owner_verified, iros_check_id, iros_pin, "
-            "status, expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,'active',datetime('now','+9 hours',?))",
+            "status, expires_at, keywords) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,'active',datetime('now','+9 hours',?),?)",
             (uid, ph, ck["name"], complex_no, a["name"], ck["dong"], ck["ho"], ck["address"], trade, price, int(body.get("rent") or 0),
              str(body.get("area_name") or "")[:20], float(body.get("excl_m2") or 0) or None, int(body.get("floor") or 0) or None,
              int(body.get("total_floor") or 0) or None, 1 if body.get("floor_consent", True) else 0, str(body.get("direction") or "")[:10],
              str(body.get("move_in") or "")[:30], int(body.get("mgmt_fee") or 0) or None, str(body.get("feature") or "")[:40],
              str(body.get("detail") or "")[:1000], "phone" if body.get("contact_mode") == "phone" else "kok", _authjson.dumps(photos),
-             cid, ck["pin"], f"+{_KOK_DAYS} days"))
+             cid, ck["pin"], f"+{_KOK_DAYS} days", _authjson.dumps(_kok_keywords(body.get("keywords")), ensure_ascii=False)))
         c.commit()
         r = c.execute("SELECT * FROM kok_owner_listings WHERE id=?", (cur.lastrowid,)).fetchone()
     _log_event("kok_owner_create", complex_no=complex_no)
@@ -11670,8 +11713,7 @@ def kok_owner_create(body: dict, user: dict = Depends(current_user)):
 
 @app.get("/kok/owner/listings")
 def kok_owner_mine(user: dict = Depends(current_user)):
-    with _reviews_db() as c:
-        _ensure_kok(c)
+    with _kok_db() as c:
         rows = c.execute("SELECT * FROM kok_owner_listings WHERE user_id=? AND status<>'deleted' ORDER BY id DESC", (user["id"],)).fetchall()
         items = []
         for r in rows:
@@ -11683,8 +11725,7 @@ def kok_owner_mine(user: dict = Depends(current_user)):
 
 @app.post("/kok/owner/listings/{lid}/close")
 def kok_owner_close(lid: int, user: dict = Depends(current_user)):
-    with _reviews_db() as c:
-        _ensure_kok(c)
+    with _kok_db() as c:
         c.execute("UPDATE kok_owner_listings SET status='closed', updated_at=datetime('now','+9 hours') WHERE id=? AND user_id=?", (lid, user["id"]))
         c.commit()
     return {"ok": True}
@@ -11692,8 +11733,7 @@ def kok_owner_close(lid: int, user: dict = Depends(current_user)):
 
 @app.post("/kok/owner/listings/{lid}/extend")
 def kok_owner_extend(lid: int, user: dict = Depends(current_user)):
-    with _reviews_db() as c:
-        _ensure_kok(c)
+    with _kok_db() as c:
         c.execute("UPDATE kok_owner_listings SET expires_at=datetime('now','+9 hours',?), status='active', updated_at=datetime('now','+9 hours') WHERE id=? AND user_id=?",
                   (f"+{_KOK_DAYS} days", lid, user["id"]))
         c.commit()
@@ -11702,36 +11742,39 @@ def kok_owner_extend(lid: int, user: dict = Depends(current_user)):
 
 @app.post("/kok/owner/photo")
 async def kok_owner_photo(document: UploadFile = File(...), user: dict = Depends(current_user)):
-    """사진 — 서버에서 얼굴·글자 모자이크 뒤 마스킹본만 저장(직접등록 매물과 같은 흐름)."""
     uid, _ph = _kok_owner_user(user)
-    data = await document.read()
-    if len(data) > 12_000_000:
-        raise HTTPException(400, "사진이 너무 큽니다(최대 12MB)")
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-        from scripts.photo_mask import mask_image, MaskError
-        masked, _stat = mask_image(data)
-    except MaskError as e:
-        raise HTTPException(400, f"사진 처리 실패: {e}")
-    except Exception as e:  # noqa: BLE001
-        _log_event("kok_photo_mask_error", query=str(e)[:200])
-        raise HTTPException(500, "사진 자동 모자이크에 실패해 저장하지 않았어요. 다시 시도해 주세요.")
-    name = f"o{uid[:8]}_{_hashlib.sha1(masked[:4096]).hexdigest()[:16]}.jpg"
-    (KOK_IMG_DIR / name).write_bytes(masked)
+    name = _kok_store_photo(await document.read(), f"o{uid[:8]}")
     return {"ok": True, "photo": name, "url": f"/kok/photo/{name}"}
+
+
+@app.post("/kok/owner/listings/{lid}/extras")
+def kok_owner_extras(lid: int, body: dict, user: dict = Depends(current_user)):
+    """직거래 매물의 사진·설명·한 줄 특징·키워드 고치기(올린 뒤에도)."""
+    photos = _kok_photo_names(body.get("photos"))
+    with _kok_db() as c:
+        r = c.execute("SELECT id FROM kok_owner_listings WHERE id=? AND user_id=? AND status<>'deleted'", (lid, user["id"])).fetchone()
+        if not r:
+            raise HTTPException(404, "내 매물이 아니에요")
+        c.execute("UPDATE kok_owner_listings SET photos=?, detail=?, feature=?, keywords=?, updated_at=datetime('now','+9 hours') WHERE id=?",
+                  (_authjson.dumps(photos), str(body.get("detail") or "")[:1000], str(body.get("feature") or "")[:40],
+                   _authjson.dumps(_kok_keywords(body.get("keywords")), ensure_ascii=False), lid))
+        c.commit()
+    return {"ok": True}
 
 
 # ── 관리자 ──
 @app.get("/admin/kok")
 def admin_kok(_admin: dict = Depends(admin_user)):
-    with _reviews_db() as c:
-        _ensure_kok(c)
+    with _kok_db() as c:
         opt = [dict(r) for r in c.execute("SELECT * FROM kok_realtor_optin ORDER BY agreed_at DESC")]
         own = [_kok_owner_pub(r, with_contact=True) | {"user_id": r["user_id"], "owner_name": r["owner_name"], "ho": r["ho"], "view_count": r["view_count"]}
                for r in c.execute("SELECT * FROM kok_owner_listings ORDER BY id DESC LIMIT 300")]
+        cnt = {r["realtor_id"]: (r[1], r[2]) for r in c.execute("SELECT realtor_id, SUM(status='active'), SUM(status='closed') FROM kok_listings GROUP BY realtor_id")}
+        last = c.execute("SELECT * FROM kok_sync_log ORDER BY id DESC LIMIT 1").fetchone()
     for o in opt:
         o["office"] = _office_brief(o["realtor_id"]) or {}
-    return {"realtors": opt, "owner_listings": own}
+        o["active_listings"], o["closed_listings"] = cnt.get(o["realtor_id"], (0, 0))
+    return {"realtors": opt, "owner_listings": own, "last_sync": dict(last) if last else None}
 
 
 @app.post("/admin/kok/owner/{lid}/status")
@@ -11739,8 +11782,7 @@ def admin_kok_owner_status(lid: int, body: dict, _admin: dict = Depends(admin_us
     st = body.get("status")
     if st not in ("active", "closed", "blocked"):
         raise HTTPException(400, "status")
-    with _reviews_db() as c:
-        _ensure_kok(c)
+    with _kok_db() as c:
         c.execute("UPDATE kok_owner_listings SET status=?, updated_at=datetime('now','+9 hours') WHERE id=?", (st, lid))
         c.commit()
     return {"ok": True}

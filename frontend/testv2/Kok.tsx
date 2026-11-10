@@ -11,7 +11,8 @@ export type KokItem = { id: string; kind: "owner" | "realtor"; complex_no: strin
   price: number; rent: number; price_text: string; area_name: string; excl_m2: number | null; floor_text: string; direction: string;
   realtor_id?: string; realtor_name?: string; owner_verified: boolean; photos?: string[]; feature?: string; detail?: string; dong?: string;
   move_in?: string; mgmt_fee?: number | null; contact_mode?: string; phone?: string; created_at?: string; expires_at?: string; status?: string;
-  inquiries?: { id: number; from_phone: string; message: string; created_at: string }[] };
+  inquiries?: { id: number; from_phone: string; message: string; created_at: string }[]; keywords?: string[]; description?: string; kok_since?: string };
+const photoName = (u: string) => u.replace(/^.*\/kok\/photo\//, "");
 const TRADE_L: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 const DIRS = ["남향", "남동향", "남서향", "동향", "서향", "북향", "북동향", "북서향"];
 
@@ -37,7 +38,8 @@ export function KokRow({ it, onOpen }: { it: KokItem; onOpen: (it: KokItem) => v
         <span className="t">
           <b>{it.name}{it.dong ? ` ${it.dong}동` : ""}</b>
           <em>{[TRADE_L[it.trade], it.excl_m2 ? areaLabel(it.excl_m2) : it.area_name, it.floor_text, it.direction].filter(Boolean).join(" · ")}</em>
-          <small>{it.kind === "owner" ? <><i className="t2-kok-badge own">직거래</i>{it.owner_verified && <i className="t2-kok-badge ok">소유자 확인</i>}</> : <i className="t2-kok-badge rt">{it.realtor_name || "중개사무소"}</i>}</small>
+          <small>{it.kind === "owner" ? <><i className="t2-kok-badge own">직거래</i>{it.owner_verified && <i className="t2-kok-badge ok">소유자 확인</i>}</> : <i className="t2-kok-badge rt">{it.realtor_name || "중개사무소"}</i>}
+            {it.keywords && it.keywords.length > 0 && <span className="t2-kok-kw">{it.keywords.slice(0, 3).map((k) => <i key={k}>{k}</i>)}</span>}</small>
         </span>
         <span className="p"><b>{it.price_text}</b></span>
       </button>
@@ -55,11 +57,71 @@ export function KokPanelList({ items, onOpen, onGo }: { items: KokItem[]; onOpen
   );
 }
 
+// 사진 넘겨 보기 — 콕집에 직접 올린 사진만(우리 저장소)
+export function KokPhotos({ photos }: { photos: string[] }) {
+  const [pi, setPi] = useState(0);
+  if (photos.length === 0) return null;
+  const i = Math.min(pi, photos.length - 1);
+  return (
+    <div className="t2-kok-photos">
+      <img src={`${API}${photos[i]}`} alt="" />
+      {photos.length > 1 && <div className="thumbs">{photos.map((p, k) => <img key={p} src={`${API}${p}`} alt="" className={k === i ? "on" : ""} onClick={() => setPi(k)} />)}</div>}
+    </div>
+  );
+}
+
+// 사진·설명·키워드 — 등록자가 콕집에 직접 쓰는 부분. 직거래(소유자)와 중개사 연동분이 같은 편집기를 쓴다.
+export function KokExtrasEditor({ session, init, uploadPath, savePath, withFeature, onSaved, onCancel }: {
+  session: Session; init: { photos?: string[]; feature?: string; detail?: string; keywords?: string[] };
+  uploadPath: string; savePath: string; withFeature?: boolean; onSaved: () => void; onCancel: () => void;
+}) {
+  const [photos, setPhotos] = useState<string[]>((init.photos || []).map(photoName));
+  const [feature, setFeature] = useState(init.feature || "");
+  const [detail, setDetail] = useState(init.detail || "");
+  const [kw, setKw] = useState((init.keywords || []).join(", "));
+  const [up, setUp] = useState(false); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+  const addPhoto = async (f: File) => {
+    if (photos.length >= 10) return; setUp(true); setErr("");
+    const fd = new FormData(); fd.append("document", f);
+    try { const r = await fetch(`${API}${uploadPath}`, { method: "POST", headers: authHeaders(session), body: fd }); const j = await r.json(); if (r.ok && j.photo) setPhotos((p) => [...p, j.photo]); else setErr(typeof j.detail === "string" ? j.detail : "사진을 올리지 못했어요"); }
+    catch { setErr("사진을 올리지 못했어요"); } finally { setUp(false); }
+  };
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      const body: Record<string, unknown> = { photos, keywords: kw.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 8) };
+      if (withFeature) { body.feature = feature; body.detail = detail; } else body.description = detail;
+      const r = await fetch(`${API}${savePath}`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(session) }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "저장하지 못했어요");
+      onSaved();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="t2-kok-edit">
+      <div className="t2-kok-upl">
+        {photos.map((p) => <span key={p} className="ph"><img src={`${API}/kok/photo/${p}`} alt="" /><button onClick={() => setPhotos((x) => x.filter((y) => y !== p))} aria-label="지우기">×</button></span>)}
+        {photos.length < 10 && <button className="add" disabled={up} onClick={() => fileRef.current?.click()}>{up ? "올리는 중…" : "+ 사진"}</button>}
+        <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) addPhoto(f); e.target.value = ""; }} />
+      </div>
+      <small className="mut">사진은 얼굴·글자가 자동으로 가려진 뒤 저장돼요 · 최대 10장</small>
+      {withFeature && <input value={feature} onChange={(e) => setFeature(e.target.value.slice(0, 40))} placeholder="한 줄 특징 (40자)" />}
+      <textarea rows={4} maxLength={1000} value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="콕집에 보일 설명 (1000자) — 집 상태, 수리 내역, 협의 가능한 점" />
+      <input value={kw} onChange={(e) => setKw(e.target.value)} placeholder="키워드, 쉼표로 (최대 8개 · 예: 올수리, 남향, 역 3분)" />
+      {err && <p className="t2-err">{err}</p>}
+      <div className="row">
+        <button className="t2-cta1" style={{ marginTop: 0 }} disabled={busy} onClick={save}>{busy ? "저장 중…" : "저장"}</button>
+        <button className="t2-cta1 ghost" style={{ marginTop: 0, flex: "0 0 100px" }} onClick={onCancel}>취소</button>
+      </div>
+    </div>
+  );
+}
+
 // 직거래 매물 상세(지도 안 작은 창) — 사진·조건·소유자 확인·문의
 export function KokDetail({ it, session, onClose, onLogin, onGo }: { it: KokItem; session: Session | null; onClose: () => void; onLogin: () => void; onGo: (no: string, name: string) => void }) {
   const [d, setD] = useState<KokItem>(it);
   const [msg, setMsg] = useState(""); const [sent, setSent] = useState(false); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
-  const [pi, setPi] = useState(0);
   useEffect(() => { getJson(`/kok/listings/${it.id}`).then(setD).catch(() => {}); }, [it.id]);
   const inquire = async () => {
     if (!session) return;
@@ -77,12 +139,8 @@ export function KokDetail({ it, session, onClose, onLogin, onGo }: { it: KokItem
       <div className="t2-modal-in legal" style={{ width: "min(640px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="t2-ph"><h2>{d.name}{d.dong ? ` ${d.dong}동` : ""} <small>{TRADE_L[d.trade]}</small></h2><button className="t2-x" onClick={onClose} aria-label="닫기">×</button></div>
         <p className="t2-favmeta"><i className="t2-kok-badge own">직거래</i>{d.owner_verified && <i className="t2-kok-badge ok">등기 소유자 확인</i>} 올린 날 {(d.created_at || "").slice(0, 10)} · {(d.expires_at || "").slice(0, 10)}까지</p>
-        {ph.length > 0 && (
-          <div className="t2-kok-photos">
-            <img src={`${API}${ph[pi]}`} alt="" />
-            {ph.length > 1 && <div className="thumbs">{ph.map((p, i) => <img key={p} src={`${API}${p}`} alt="" className={i === pi ? "on" : ""} onClick={() => setPi(i)} />)}</div>}
-          </div>
-        )}
+        {d.keywords && d.keywords.length > 0 && <p className="t2-kok-kw big">{d.keywords.map((k) => <i key={k}>{k}</i>)}</p>}
+        <KokPhotos photos={ph} />
         <div className="t2-kpis">
           <div><span>{TRADE_L[d.trade]}</span><b>{d.price_text}</b></div>
           <div><span>면적</span><b>{d.excl_m2 ? areaLabel(d.excl_m2) : d.area_name || "-"}</b>{d.area_name && d.excl_m2 ? <small>{d.area_name}타입</small> : null}</div>
@@ -119,6 +177,7 @@ export function OwnerTab({ session, onGo }: { session: Session | null; onLogin?:
   const [me, setMe] = useState<{ phone_verified?: boolean; phone?: string } | null>(null);
   const [mine, setMine] = useState<KokItem[] | null>(null);
   const [mode, setMode] = useState<"list" | "new">("list");
+  const [editId, setEditId] = useState<string | null>(null);
   const loadMine = () => { if (!session) return; fetch(`${API}/kok/owner/listings`, { headers: authHeaders(session) }).then((r) => (r.ok ? r.json() : { items: [] })).then((j) => setMine(j.items || [])).catch(() => setMine([])); };
   useEffect(() => {
     if (!session) { setMe(null); setMine(null); return; }
@@ -144,6 +203,9 @@ export function OwnerTab({ session, onGo }: { session: Session | null; onLogin?:
                 {it.status === "active" ? <button className="t2-lnk mut" onClick={async () => { if (!window.confirm("이 매물을 내릴까요?")) return; await fetch(`${API}/kok/owner/listings/${it.id.slice(1)}/close`, { method: "POST", headers: authHeaders(session) }); loadMine(); }}>내리기</button>
                   : it.status !== "blocked" && <button className="t2-lnk" onClick={async () => { await fetch(`${API}/kok/owner/listings/${it.id.slice(1)}/extend`, { method: "POST", headers: authHeaders(session) }); loadMine(); }}>다시 올리기(30일)</button>}
               </div>
+              {it.status !== "blocked" && (editId === it.id
+                ? <KokExtrasEditor session={session} init={{ photos: it.photos, feature: it.feature, detail: it.detail, keywords: it.keywords }} uploadPath="/kok/owner/photo" savePath={`/kok/owner/listings/${it.id.slice(1)}/extras`} withFeature onSaved={() => { setEditId(null); loadMine(); }} onCancel={() => setEditId(null)} />
+                : <div className="t2-kok-mine"><button className="t2-lnk" onClick={() => setEditId(it.id)}>사진·설명·키워드 고치기</button></div>)}
               {it.inquiries && it.inquiries.length > 0 && (
                 <table className="t2-tbl"><tbody>{it.inquiries.map((q) => <tr key={q.id}><td className="mut">{q.created_at.slice(5, 16)}</td><td><a className="t2-lnk" href={`tel:${q.from_phone}`}>{q.from_phone}</a></td><td style={{ whiteSpace: "normal" }}>{q.message}</td></tr>)}</tbody></table>
               )}
@@ -165,7 +227,7 @@ function OwnerForm({ session, onDone, onCancel }: { session: Session; onDone: ()
   const [trade, setTrade] = useState("A1"); const [priceEok, setPriceEok] = useState(""); const [rentMan, setRentMan] = useState("");
   const [floor, setFloor] = useState(""); const [total, setTotal] = useState(""); const [consent, setConsent] = useState(true);
   const [dir, setDir] = useState(""); const [moveIn, setMoveIn] = useState("협의"); const [mgmt, setMgmt] = useState("");
-  const [feature, setFeature] = useState(""); const [detail, setDetail] = useState(""); const [contact, setContact] = useState<"kok" | "phone">("kok");
+  const [feature, setFeature] = useState(""); const [detail, setDetail] = useState(""); const [kw, setKw] = useState(""); const [contact, setContact] = useState<"kok" | "phone">("kok");
   const [photos, setPhotos] = useState<string[]>([]); const [up, setUp] = useState(false);
   const [agree, setAgree] = useState(false); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
   const [dd, setDd] = useState<string | null>(null);
@@ -198,7 +260,7 @@ function OwnerForm({ session, onDone, onCancel }: { session: Session; onDone: ()
     try {
       const r = await fetch(`${API}/kok/owner/listings`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(session) },
         body: JSON.stringify({ check_id: vf.check_id, complex_no: cx.complex_no, trade, price, rent: Math.round(parseFloat(rentMan || "0") * 1e4), area_name: area?.pyeong_name || "", excl_m2: area?.exclusive_area || null,
-          floor: parseInt(floor || "0"), total_floor: parseInt(total || "0"), floor_consent: consent, direction: dir, move_in: moveIn, mgmt_fee: Math.round(parseFloat(mgmt || "0") * 1e4), feature, detail, contact_mode: contact, photos, agree }) });
+          floor: parseInt(floor || "0"), total_floor: parseInt(total || "0"), floor_consent: consent, direction: dir, move_in: moveIn, mgmt_fee: Math.round(parseFloat(mgmt || "0") * 1e4), feature, detail, keywords: kw.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 8), contact_mode: contact, photos, agree }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "올리지 못했어요");
       onDone();
@@ -253,6 +315,7 @@ function OwnerForm({ session, onDone, onCancel }: { session: Session; onDone: ()
               <label>한 줄 특징 <small>40자</small><input value={feature} onChange={(e) => setFeature(e.target.value.slice(0, 40))} placeholder="예: 올수리 · 남향 · 초등학교 3분" /></label>
             </div>
             <label className="t2-fld">상세 설명 <small>1000자 · 평 대신 ㎡를 써 주세요</small><textarea rows={4} maxLength={1000} value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="집 상태, 수리 내역, 입주 가능 시기, 협의 가능한 점 등" /></label>
+            <label className="t2-fld" style={{ marginTop: 8 }}>키워드 <small>쉼표로 최대 8개 · 목록에 작은 표로 보여요</small><input className="t2-kok-kwin" value={kw} onChange={(e) => setKw(e.target.value)} placeholder="올수리, 남향, 역 3분" /></label>
           </div>
           <div className="t2-ask-sec">
             <h3><i>3</i>사진 <small>최대 10장 · 얼굴·글자는 자동으로 가려져요</small></h3>
@@ -284,7 +347,7 @@ function OwnerForm({ session, onDone, onCancel }: { session: Session; onDone: ()
 export const useKokTick = () => useMemo(() => Date.now(), []);
 
 // ── 중개사 연동 매물 상세 — 단지 서랍 옆 패널(PC) / 창(휴대폰) ──
-type RDetail = KokItem & { region?: string; confirm_ymd?: string; kok_since?: string; supply_m2?: number | null; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
+type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: number | null; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
   direction_base?: string;
   finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
   realtor?: { realtor_id: string; name?: string; regno?: string; address?: string; representative?: string; tel?: string; cell?: string };
@@ -336,6 +399,8 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
       {!d && !err && <Skel />}
       {d && (
         <>
+          {d.keywords && d.keywords.length > 0 && <p className="t2-kok-kw big">{d.keywords.map((k) => <i key={k}>{k}</i>)}</p>}
+          {d.photos && d.photos.length > 0 && <KokPhotos photos={d.photos} />}
           <div className="t2-kl-price"><b>{d.price_text}</b>{d.finance_price ? <small>융자금 {Math.round(d.finance_price / 1e8 * 10) / 10}억</small> : null}</div>
           <table className="t2-tbl t2-kl-tbl"><tbody>
             <tr><th>면적</th><td>{d.excl_m2 ? areaLabel(d.excl_m2) : d.area_name}{d.supply_m2 ? ` · 공급 ${Math.round(d.supply_m2)}㎡` : ""}{d.area_name ? ` · ${d.area_name}타입` : ""}{d.exclusive_rate ? ` · 전용률 ${d.exclusive_rate}%` : ""}</td></tr>
@@ -344,6 +409,7 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
             <tr><th>입주</th><td>{d.move_in || "-"}</td></tr>
             <tr><th>사용승인</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.parking_per_household ? ` · 세대당 주차 ${d.parking_per_household}대` : ""}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
           </tbody></table>
+          {d.description && <div className="t2-kok-desc"><div className="t2-pf-h"><h3>중개사가 콕집에 쓴 설명</h3></div><p>{d.description}</p></div>}
           {(!mg || mg.status === "pending") && (
             <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt)</small></h3>
               <p className="mut">관리비 공개자료를 받아오는 중이에요…</p></div>
