@@ -18952,8 +18952,8 @@ def _qa_norm_dong_ho(dong, ho):
     # 이미 단위가 붙어 있으면 그대로 둔다 — 파서가 자리를 바꿔 넣으면 '101호동'이 된다
     if d and not d.endswith(("동", "호", "층", "관", "차")):
         d = d + "동"
-    if h and not h.endswith(("호", "동", "층")):
-        h = h + "호"          # 사람이 읽는 표기로 통일한다. 대장 조회는 두 형태를 다 시도한다
+    if h and not h.endswith(("호", "동", "층")) and "호" not in h:
+        h = h + "호"          # 사람이 읽는 표기로 통일한다. 대장 조회는 두 형태를 다 시도한다. '136호(전면부)' 처럼 가운데 호가 있으면 그대로
     return (d or None), (h or None)
 
 
