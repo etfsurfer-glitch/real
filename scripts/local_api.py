@@ -11455,7 +11455,7 @@ def kok_realtor_listing_detail(article_no: str):
            "trade": r[3], "price": r[9], "rent": r[10], "price_text": _kok_price_text(r[3], r[9], r[10]), "area_name": r[4], "supply_m2": r[5], "excl_m2": r[6],
            "floor_text": f"{r[7]}층" if r[7] else "", "direction": r[8] or "", "confirm_ymd": r[13] or "", "kok_since": kok_since, "feature": r[14] or "", "tags": tags,
            "verification": r[17] or "", "lat": r[19], "lng": r[20], "approve_ymd": r[21] or "", "parking_per_household": r[22],
-           "owner_verified": False, "photos": [], "description": "", "move_in": "", "rooms": None, "baths": None, "mgmt_cost": None, "mgmt_info": None,
+           "owner_verified": False, "description": "", "move_in": "", "rooms": None, "baths": None,
            "direction_base": "", "finance_price": None, "violation": "", "exclusive_rate": "",
            "complex_facts": _kok_complex_facts(d, r[1], r[4]),
            "py_price": {"supply": int(r[9] / (r[5] / 3.3058)) if r[9] and r[5] else None, "excl": int(r[9] / (r[6] / 3.3058)) if r[9] and r[6] else None} if r[3] == "A1" else None,
@@ -11485,39 +11485,21 @@ def kok_realtor_listing_detail(article_no: str):
         sp = det.get("articleSpace") or {}
         pr = det.get("articlePrice") or {}
         rt = det.get("articleRealtor") or {}
-        cost = det.get("administrationCostInfo") or {}
         out.update({
             # 광고 설명문(detailDescription)은 내보내지 않는다 — 광고 쪽 문구를 그대로 옮기지 않음(콕집 기준 표시만)
             "feature": out["feature"] or (ad.get("articleFeatureDesc") or ""),
             "tags": out["tags"] or (ad.get("tagList") or []),
             "move_in": " ".join(x for x in [ad.get("moveInTypeName") or "", "협의 가능" if ad.get("moveInDiscussionPossibleYN") == "Y" else ""] if x).strip(),
             "rooms": ad.get("roomCount"), "baths": ad.get("bathroomCount"),
-            "mgmt_cost": int(ad["monthlyManagementCost"]) if str(ad.get("monthlyManagementCost") or "").isdigit() and int(ad["monthlyManagementCost"]) > 0 else None,
-            # 부과방식 코드 → 글자(상세 JSON 에 이름이 없을 때). 코드 순서는 등록 화면의 부과방식 순서와 같다.
-            "mgmt_info": {"type": cost.get("chargeCodeTypeName") or {"01": "정액관리비", "02": "정액관리비(세부내역 미고지)", "03": "기타 부과", "04": "확인 불가"}.get(str(cost.get("chargeCodeType") or ""), cost.get("chargeCodeType")), "details": [
-                {"name": x.get("detailCodeTypeName") or x.get("detailCodeType"), "amount": x.get("amount"), "unable": x.get("amountCodeType") == "02"}
-                for x in (cost.get("fixedFeeDetails") or [])]} if cost else None,
+            # 광고 쪽 관리비(부과방식·신고액·메모)는 내보내지 않는다 — 관리비는 /kok/mgmt 의 K-apt 공개자료로만
             "direction": fac.get("directionTypeName") or out["direction"], "direction_base": fac.get("directionBaseTypeName") or "",
-            "supply_m2": sp.get("supplySpace") or out["supply_m2"], "excl_m2": sp.get("exclusiveSpace") or out["excl_m2"], "exclusive_rate": sp.get("exclusiveRate") or "",
+            "supply_m2": sp.get("supplySpace") or out["supply_m2"], "excl_m2": sp.get("exclusiveSpace") or out["excl_m2"],
             "finance_price": (int(pr["financePrice"]) * 10000) if pr.get("financePrice") else None,
             "violation": ad.get("violationBuildingYN") or "", "dong": (ad.get("buildingName") or out["dong"] or "").replace("동", ""),
-            "photos": [("https://landthumb-phinf.pstatic.net" + p["imageSrc"]) if str(p.get("imageSrc", "")).startswith("/") else p.get("imageSrc") for p in (det.get("articlePhotos") or []) if p.get("imageSrc")][:20],
             "parking_per_household": ad.get("parkingPerHouseholdCount") or out["parking_per_household"],
         })
-        # ── 더 꺼낼 것: 신고 관리비, 같은 집 광고 수, 가격 변동, 광고 기한(월별 실제 관리비는 /kok/mgmt 에서 K-apt 공개자료로 따로) ──
         addi = det.get("articleAddition") or {}
-        cost = det.get("administrationCostInfo") or {}
-        inc = {"01": "공용관리비", "11": "전기료", "12": "수도료", "13": "가스사용료", "14": "난방비", "15": "인터넷", "16": "TV", "99": "기타"}
-        ef = cost.get("etcFeeDetails") or {}
-        crit = {"01": "직전 월", "02": "최근 3개월 평균", "03": "최근 1년 평균", "04": "해당 평형 월평균"}.get(str(cost.get("chargeCriteriaCode") or ""), "")
-        def _i(v):
-            try:
-                return int(float(v))
-            except (TypeError, ValueError):
-                return None
         out.update({
-            "mgmt_declared": {"amount": _i(ef.get("etcFeeAmount")), "criteria": crit, "note": cost.get("chargeInputContent") or "",
-                              "includes": [inc.get(c, c) for c in (ef.get("includeCodeTypes") or [])]} if ef else None,
             "same_addr": {"count": addi.get("sameAddrCnt"), "direct": addi.get("sameAddrDirectCnt"), "min": addi.get("sameAddrMinPrc"), "max": addi.get("sameAddrMaxPrc")},
             "price_change": addi.get("priceChangeState") or "",
             "expose_end": ad.get("exposeEndYMD") or "",
@@ -11525,6 +11507,12 @@ def kok_realtor_listing_detail(article_no: str):
         out["realtor"].update({k: v for k, v in {"name": rt.get("realtorName"), "representative": rt.get("representativeName"),
                                                  "regno": rt.get("establishRegistrationNo"), "tel": rt.get("representativeTelNo"),
                                                  "cell": rt.get("cellPhoneNo"), "address": rt.get("address")}.items() if v})
+    # 전용률 = 전용면적 ÷ 공급면적, 콕집 계산(광고 쪽 값은 쓰지 않는다)
+    try:
+        sm, em = float(out.get("supply_m2") or 0), float(out.get("excl_m2") or 0)
+        out["exclusive_rate"] = f"{em / sm * 100:.1f}".rstrip("0").rstrip(".") if sm > 0 and 0 < em <= sm else ""
+    except (TypeError, ValueError):
+        out["exclusive_rate"] = ""
     # 공시가격(국토부 공시, 우리 키로 조회) + 재산세(우리 산식). 전용면적이 상세에서 보정됐을 수 있어 마지막에
     try:
         with _open_db() as d, _reviews_db() as c:

@@ -285,13 +285,12 @@ export const useKokTick = () => useMemo(() => Date.now(), []);
 
 // ── 중개사 연동 매물 상세 — 단지 서랍 옆 패널(PC) / 창(휴대폰) ──
 type RDetail = KokItem & { region?: string; confirm_ymd?: string; kok_since?: string; supply_m2?: number | null; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
-  mgmt_cost?: number | null; mgmt_info?: { type?: string; details?: { name: string; amount?: number | string | null; unable?: boolean }[] } | null; direction_base?: string;
+  direction_base?: string;
   finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
   realtor?: { realtor_id: string; name?: string; regno?: string; address?: string; representative?: string; tel?: string; cell?: string };
   complex_facts?: { heat?: string; builder?: string; households?: number | null; households_type?: number | null; parking_total?: number | null; parking_per?: number | null; dongs?: number; subway?: string; entrance?: string; highest_floor?: number | string; lowest_floor?: number | string; approve_ymd?: string };
   py_price?: { supply: number | null; excl: number | null } | null;
   property_tax?: { one_house: { ratio: number; property: number; city: number; edu: number; total: number }; general: { ratio: number; property: number; city: number; edu: number; total: number }; basis: number } | null;
-  mgmt_declared?: { amount: number | null; criteria: string; note: string; includes: string[] } | null;
   same_addr?: { count?: number; direct?: number; min?: string; max?: string }; price_change?: string; expose_end?: string;
   public_price?: { year: number; n: number; min?: number; max?: number; median?: number; scope?: string; source?: string } | null;
   acquire?: { rate: number; acq: number; edu: number; rural: number; broker: number; broker_rate: number; total: number; basis: string } | null };
@@ -314,10 +313,9 @@ const tel = (s?: string | null) => { const f = (s || "").split(/\s+/)[0].replace
 export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokItem; onClose: () => void; onRealtor: (id: string) => void; asModal: boolean }) {
   const [d, setD] = useState<RDetail | null>(null);
   const [err, setErr] = useState("");
-  const [pi, setPi] = useState(0);
   const [mg, setMg] = useState<Mgmt | null>(null);
   const [mgItems, setMgItems] = useState(false);
-  useEffect(() => { setD(null); setErr(""); setPi(0); setMg(null); setMgItems(false); getJson(`/kok/listings/${it.id}`).then(setD).catch((e) => setErr(typeof e === "number" && e === 404 ? "광고가 내려간 매물이에요." : "불러오지 못했어요.")); }, [it.id]);
+  useEffect(() => { setD(null); setErr(""); setMg(null); setMgItems(false); getJson(`/kok/listings/${it.id}`).then(setD).catch((e) => setErr(typeof e === "number" && e === 404 ? "광고가 내려간 매물이에요." : "불러오지 못했어요.")); }, [it.id]);
   // 관리비는 따로 받는다(첫 단지는 몇 초 걸림). 아직 채워지는 중이면 몇 번 다시 본다.
   useEffect(() => {
     if (!d) return;
@@ -338,23 +336,14 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
       {!d && !err && <Skel />}
       {d && (
         <>
-          {d.photos && d.photos.length > 0 && (
-            <div className="t2-kok-photos"><img src={d.photos[pi]} alt="" referrerPolicy="no-referrer" />
-              {d.photos.length > 1 && <div className="thumbs">{d.photos.map((p, i) => <img key={p} src={p} alt="" referrerPolicy="no-referrer" className={i === pi ? "on" : ""} onClick={() => setPi(i)} />)}</div>}</div>
-          )}
           <div className="t2-kl-price"><b>{d.price_text}</b>{d.finance_price ? <small>융자금 {Math.round(d.finance_price / 1e8 * 10) / 10}억</small> : null}</div>
           <table className="t2-tbl t2-kl-tbl"><tbody>
             <tr><th>면적</th><td>{d.excl_m2 ? areaLabel(d.excl_m2) : d.area_name}{d.supply_m2 ? ` · 공급 ${Math.round(d.supply_m2)}㎡` : ""}{d.area_name ? ` · ${d.area_name}타입` : ""}{d.exclusive_rate ? ` · 전용률 ${d.exclusive_rate}%` : ""}</td></tr>
             <tr><th>층 · 방향</th><td>{[d.floor_text, d.direction ? `${d.direction}${d.direction_base ? `(${d.direction_base})` : ""}` : ""].filter(Boolean).join(" · ") || "-"}</td></tr>
             <tr><th>방 · 욕실</th><td>{d.rooms || d.baths ? `방 ${d.rooms ?? "-"} · 욕실 ${d.baths ?? "-"}` : "-"}</td></tr>
             <tr><th>입주</th><td>{d.move_in || "-"}</td></tr>
-            <tr><th>관리비</th><td>{d.mgmt_cost ? `월 약 ${Math.round(d.mgmt_cost / 1e4)}만원` : d.mgmt_info?.type ? d.mgmt_info.type : "-"}{d.mgmt_info?.details && d.mgmt_info.details.length > 0 ? <small className="blk">{d.mgmt_info.details.map((x) => `${x.name}${x.unable ? "(확인불가)" : x.amount ? ` ${Number(x.amount).toLocaleString()}원` : ""}`).join(" · ")}</small> : null}</td></tr>
             <tr><th>사용승인</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.parking_per_household ? ` · 세대당 주차 ${d.parking_per_household}대` : ""}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
           </tbody></table>
-          {d.mgmt_declared && (d.mgmt_declared.amount || d.mgmt_declared.includes.length > 0) && (
-            <div className="t2-kl-sec"><h3>신고 관리비 <small>{d.mgmt_declared.criteria}{d.mgmt_declared.note ? ` · ${d.mgmt_declared.note}` : ""}</small></h3>
-              <p>{d.mgmt_declared.amount ? <b>월 {d.mgmt_declared.amount.toLocaleString()}원</b> : null}{d.mgmt_declared.includes.length > 0 ? <small className="blk">포함: {d.mgmt_declared.includes.join(" · ")}</small> : null}</p></div>
-          )}
           {(!mg || mg.status === "pending") && (
             <div className="t2-kl-sec"><h3>이 평형 실제 관리비 <small>국토교통부 공동주택관리비 공개(K-apt)</small></h3>
               <p className="mut">관리비 공개자료를 받아오는 중이에요…</p></div>
