@@ -7,7 +7,9 @@
 
 법적 전제(화면에 고지·동의): 명단의 적법 수집·보유 책임은 사무소에 있고, 콕집은 사무소의 위탁을 받아
 보관·대조만 한다. 다른 사무소에 보이지 않는다. 연락처는 누를 때만 복호화하고 그 사실을 기록한다.
-업로드 뒤 180일이 지나면 자동 삭제한다(다시 올리면 연장).
+명단은 지우는 게 아니라 같은 명단에 새 파일을 올려 업데이트해 간다(동·호가 같으면 갱신, 새 세대는 추가).
+보관·대조 동의는 180일짜리다. 동의 후 90일이 지나면 연장 동의를 받을 수 있고, 연장하면 그날부터 다시 180일.
+180일 안에 연장하지 않으면 대조·연락처 열람을 멈춘다(자료는 두고, 연장 동의하면 다시 쓸 수 있다).
 
 고객원장과의 분리(2026-11-11 원칙): 명단은 고객원장(reviews.sqlite 의 biz_customers·biz_needs)과 **완전히 다른
 DB**다. 이 모듈은 roster.sqlite 와 읽기 전용 광고 DB 만 연다. 고객원장을 읽지도 쓰지도 않고, 명단 행을 고객원장으로
@@ -18,7 +20,8 @@ import base64, hashlib, io, json, os, re, sqlite3, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-KEEP_DAYS = 180
+KEEP_DAYS = 180     # 동의 한 번의 효력
+RENEW_AFTER = 90    # 동의 후 이만큼 지나면 연장 동의를 받을 수 있다
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS roster_lists(
@@ -51,6 +54,12 @@ def connect(data_dir: Path) -> sqlite3.Connection:
     c.executescript(SCHEMA)
     if "area" not in {r[1] for r in c.execute("PRAGMA table_info(roster_units)")}:
         c.execute("ALTER TABLE roster_units ADD COLUMN area TEXT")
+    cols = {r[1] for r in c.execute("PRAGMA table_info(roster_lists)")}
+    if "updated_at" not in cols:
+        c.execute("ALTER TABLE roster_lists ADD COLUMN updated_at TEXT")
+        c.execute("ALTER TABLE roster_lists ADD COLUMN n_updates INTEGER DEFAULT 0")
+    if "updated_at" not in {r[1] for r in c.execute("PRAGMA table_info(roster_units)")}:
+        c.execute("ALTER TABLE roster_units ADD COLUMN updated_at TEXT")
     return c
 
 
@@ -295,28 +304,106 @@ def link_complexes(main_db: sqlite3.Connection, rows: list[dict], sgg_prefixes: 
 
 
 # ── 저장 ─────────────────────────────────────────────────────────────────
-def save_list(c: sqlite3.Connection, data_dir: Path, realtor_id: str, user_id: str, name: str, filename: str, rows: list[dict]) -> int:
-    now = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() + 9 * 3600))
-    exp = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 9 * 3600 + KEEP_DAYS * 86400))
-    cur = c.execute("INSERT INTO roster_lists(realtor_id, user_id, name, filename, n_rows, n_linked, ack_at, uploaded_at, expires_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                    (realtor_id, user_id, name[:60], filename[:120], len(rows), sum(1 for r in rows if r.get("complex_no")), now, now, exp))
-    lid = cur.lastrowid
-    c.executemany(
-        "INSERT INTO roster_units(list_id, realtor_id, complex_no, complex_raw, dong, ho, floor, role, name_enc, phone_enc, phone_hash, note, area) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        [(lid, realtor_id, r.get("complex_no"), (r.get("complex_raw") or "")[:60], (r.get("dong") or "")[:10], (r.get("ho") or "")[:10], r.get("floor"),
-          (r.get("role") or "")[:10], enc(data_dir, r.get("name")), enc(data_dir, r.get("phone")), phone_hash(r.get("phone")), (r.get("note") or "")[:200], (r.get("area") or "")[:20] or None) for r in rows])
-    c.commit()
-    return lid
+def _now() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() + 9 * 3600))
 
 
-def purge_expired(c: sqlite3.Connection) -> int:
-    ids = [r[0] for r in c.execute("SELECT id FROM roster_lists WHERE expires_at < date('now','+9 hours')")]
-    for i in ids:
-        c.execute("DELETE FROM roster_reveals WHERE unit_id IN (SELECT id FROM roster_units WHERE list_id=?)", (i,))
-        c.execute("DELETE FROM roster_units WHERE list_id=?", (i,))
-        c.execute("DELETE FROM roster_lists WHERE id=?", (i,))
+def _exp() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() + 9 * 3600 + KEEP_DAYS * 86400))
+
+
+def _ukey(complex_no, complex_raw, dong, ho) -> tuple:
+    return (complex_no or norm_cx(complex_raw or ""), re.sub(r"\D", "", dong or ""), re.sub(r"\D", "", ho or ""))
+
+
+def _unit_vals(data_dir: Path, r: dict) -> dict:
+    return {"complex_no": r.get("complex_no"), "complex_raw": (r.get("complex_raw") or "")[:60], "dong": (r.get("dong") or "")[:10], "ho": (r.get("ho") or "")[:10],
+            "floor": r.get("floor"), "role": (r.get("role") or "")[:10], "name_enc": enc(data_dir, r.get("name")), "phone_enc": enc(data_dir, r.get("phone")),
+            "phone_hash": phone_hash(r.get("phone")), "note": (r.get("note") or "")[:200], "area": (r.get("area") or "")[:20] or None}
+
+
+def save_list(c: sqlite3.Connection, data_dir: Path, realtor_id: str, user_id: str, name: str, filename: str, rows: list[dict], list_id: int | None = None) -> dict:
+    """새 명단을 만들거나(list_id 없음) 기존 명단을 업데이트한다. 업데이트 = 동·호가 같은 세대는 새 값으로 갱신
+    (빈 칸은 기존 값 유지), 새 세대는 추가, 파일에 없는 기존 세대는 그대로 둔다. 올릴 때 받은 동의로 기간을 새로 연다."""
+    now, exp = _now(), _exp()
+    added = updated = same = 0
+    if list_id:
+        cur_rows = {_ukey(u["complex_no"], u["complex_raw"], u["dong"], u["ho"]): u for u in c.execute("SELECT * FROM roster_units WHERE list_id=? AND realtor_id=?", (list_id, realtor_id))}
+        c.execute("UPDATE roster_lists SET filename=?, ack_at=?, expires_at=?, updated_at=?, n_updates=COALESCE(n_updates,0)+1, user_id=? WHERE id=? AND realtor_id=?",
+                  (filename[:120], now, exp, now, user_id, list_id, realtor_id))
+        lid = list_id
+    else:
+        cur_rows = {}
+        lid = c.execute("INSERT INTO roster_lists(realtor_id, user_id, name, filename, ack_at, uploaded_at, expires_at, updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                        (realtor_id, user_id, name[:60], filename[:120], now, now, exp, now)).lastrowid
+    seen: set = set()
+    for r in rows:
+        v = _unit_vals(data_dir, r)
+        k = _ukey(v["complex_no"], v["complex_raw"], v["dong"], v["ho"])
+        if k in seen:
+            continue
+        seen.add(k)
+        old = cur_rows.get(k)
+        if old is None:
+            c.execute("INSERT INTO roster_units(list_id, realtor_id, complex_no, complex_raw, dong, ho, floor, role, name_enc, phone_enc, phone_hash, note, area, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (lid, realtor_id, v["complex_no"], v["complex_raw"], v["dong"], v["ho"], v["floor"], v["role"], v["name_enc"], v["phone_enc"], v["phone_hash"], v["note"], v["area"], now))
+            added += 1
+            continue
+        # 빈 칸으로 덮어쓰지 않는다. 이름·연락처는 복호화해 비교(암호문은 매번 달라서)
+        ch = {}
+        for f in ("complex_no", "floor", "role", "note", "area"):
+            if v[f] not in (None, "") and v[f] != old[f]:
+                ch[f] = v[f]
+        for f, raw in (("name_enc", r.get("name")), ("phone_enc", r.get("phone"))):
+            if raw and (dec(data_dir, old[f]) or "") != raw:
+                ch[f] = v[f]
+                if f == "phone_enc":
+                    ch["phone_hash"] = v["phone_hash"]
+        if ch:
+            ch["updated_at"] = now
+            c.execute("UPDATE roster_units SET %s WHERE id=?" % ",".join(f"{f}=?" for f in ch), (*ch.values(), old["id"]))
+            updated += 1
+        else:
+            same += 1
+    n, nl = c.execute("SELECT count(*), sum(complex_no IS NOT NULL) FROM roster_units WHERE list_id=?", (lid,)).fetchone()
+    c.execute("UPDATE roster_lists SET n_rows=?, n_linked=? WHERE id=?", (n, nl or 0, lid))
     c.commit()
-    return len(ids)
+    return {"list_id": lid, "added": added, "updated": updated, "same": same, "n_rows": n}
+
+
+def list_state(row) -> dict:
+    """동의 상태 — active(사용 중) · renewable(90일 지나 연장 동의 가능) · expired(180일 지남, 대조·열람 멈춤)."""
+    import datetime as _dt
+    today = _dt.date.fromisoformat(_now()[:10])
+    ack = _dt.date.fromisoformat((row["ack_at"] or row["uploaded_at"])[:10])
+    exp = _dt.date.fromisoformat(row["expires_at"][:10])
+    days_left, since = (exp - today).days, (today - ack).days
+    state = "expired" if days_left < 0 else ("renewable" if since >= RENEW_AFTER else "active")
+    return {"state": state, "days_left": days_left, "since_ack": since, "renew_from": str(ack + _dt.timedelta(days=RENEW_AFTER))}
+
+
+def renew(c: sqlite3.Connection, realtor_id: str, user_id: str, list_id: int) -> dict:
+    row = c.execute("SELECT * FROM roster_lists WHERE id=? AND realtor_id=?", (list_id, realtor_id)).fetchone()
+    if not row:
+        raise LookupError("명단을 찾을 수 없어요")
+    st = list_state(row)
+    if st["state"] == "active":
+        raise ValueError(f"연장 동의는 {st['renew_from']}부터 할 수 있어요")
+    now, exp = _now(), _exp()
+    c.execute("UPDATE roster_lists SET ack_at=?, expires_at=?, user_id=? WHERE id=?", (now, exp, user_id, list_id))
+    c.commit()
+    return {"expires_at": exp}
+
+
+def active_list_ids(c: sqlite3.Connection, realtor_id: str) -> list[int]:
+    return [r["id"] for r in c.execute("SELECT * FROM roster_lists WHERE realtor_id=?", (realtor_id,)) if list_state(r)["state"] != "expired"]
+
+
+def status_counts(c: sqlite3.Connection) -> dict:
+    out = {"active": 0, "renewable": 0, "expired": 0}
+    for r in c.execute("SELECT * FROM roster_lists"):
+        out[list_state(r)["state"]] += 1
+    return out
 
 
 # ── 대조 ─────────────────────────────────────────────────────────────────
@@ -353,8 +440,11 @@ def _area_ok(ua: str | None, ad_type: str | None, ad_m2: float | None) -> bool:
 
 def match(c: sqlite3.Connection, main_db: sqlite3.Connection, data_dir: Path, realtor_id: str, list_id: int | None = None, only_others: bool = False) -> dict:
     """사무소 명단 ↔ 광고 중 매물. 동이 같고 (층이 같거나, 광고가 고·중·저면 그 층대에 들면) 후보."""
-    q = "SELECT * FROM roster_units WHERE realtor_id=? AND complex_no IS NOT NULL" + (" AND list_id=?" if list_id else "")
-    units = c.execute(q, (realtor_id, list_id) if list_id else (realtor_id,)).fetchall()
+    ok_ids = active_list_ids(c, realtor_id)          # 동의 기간이 지난 명단은 대조하지 않는다
+    if list_id:
+        ok_ids = [x for x in ok_ids if x == list_id]
+    units = c.execute("SELECT * FROM roster_units WHERE realtor_id=? AND complex_no IS NOT NULL AND list_id IN (%s)" % (",".join("?" * len(ok_ids)) or "NULL"),
+                      (realtor_id, *ok_ids)).fetchall()
     by_cx: dict[str, list] = {}
     for u in units:
         by_cx.setdefault(u["complex_no"], []).append(u)
@@ -424,11 +514,10 @@ def match(c: sqlite3.Connection, main_db: sqlite3.Connection, data_dir: Path, re
             "n_houses": sum(len(x["houses"]) for x in out_units), "n_ads": n_ads, "n_roster": len(units)}
 
 
-if __name__ == "__main__":   # daily_run step 11h: 만료 명단 삭제
+if __name__ == "__main__":   # daily_run step 11h: 명단 동의 상태 집계(지우지 않는다)
     import sys
     _dd = Path(__file__).resolve().parent.parent / "data"
-    if "--purge" in sys.argv:
-        if not db_path(_dd).exists():
-            print("roster: 명단 없음"); sys.exit(0)
-        with connect(_dd) as _c:
-            print(f"roster: 만료 명단 {purge_expired(_c)}개 삭제")
+    if not db_path(_dd).exists():
+        print("roster: 명단 없음"); sys.exit(0)
+    with connect(_dd) as _c:
+        print("roster:", status_counts(_c))

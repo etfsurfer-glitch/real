@@ -134,8 +134,8 @@ step "step 11e: kapt_fill (공동주택 관리비 공개자료)" nice -n 10 $PY 
 step "step 11f: kok_sync (콕집매물 DB 동기화)" nice -n 10 $PY -u scripts/kok_sync.py; koksync_exit=$?
 # 11g) 알리고 문자 잔액 — 100건 미만이면 텔레그램(잔액 0건으로 인증 문자가 조용히 실패한 2026-11-10 사고 재발 방지)
 step "step 11g: aligo_remain_check (문자 잔액)" $PY -u scripts/aligo_remain_check.py; aligo_exit=$?
-# 11h) 입주자·소유자 명단 — 올린 지 180일 지난 명단 삭제(고객원장과 별도 DB roster.sqlite)
-step "step 11h: roster purge (만료 명단 삭제)" $PY -u scripts/roster.py --purge
+# 11h) 입주자·소유자 명단 — 동의 상태 집계(사용 중·연장 가능·기간 지남). 지우지 않는다. 고객원장과 별도 DB roster.sqlite
+step "step 11h: roster status (명단 동의 상태)" $PY -u scripts/roster.py
 
 # 11c) KST/UTC 정합 회귀검사 — SQLite date('now')는 UTC라 업무일자(deal_ymd 등)와
 #      비교하면 매일 00~09시에 하루 밀린다(실측: 최근1일 실거래 684 vs 정상 213).
