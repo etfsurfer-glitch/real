@@ -181,7 +181,7 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
           realtor_id: d.realtor_id, realtor_name: d.realtor_name, complex: regionName,
           listing: { article_no: d.article_no, area_name: d.area_name, excl: exclOf.get(d.area_name) ?? null,
             floor_info: d.floor_info, price_text: d.price_text } })} />}
-        {tab === "tx" && <TxTab tx={tx} />}
+        {tab === "tx" && <TxTab tx={tx} asset={asset} />}
         {tab === "hoga" && <HogaTab no={cx.complex_no} exclOf={exclOf} />}
         {tab === "nearby" && <NearbyTab no={cx.complex_no} areas={areas} onPick={onPick} />}
         {tab === "realtor" && <RealtorTab rk={rk} total={cnt.A1 + cnt.B1 + cnt.B2 || cx.listings || 0}
@@ -386,7 +386,9 @@ function ReviewTab({ no }: { no: string }) {
 
 // ── 실거래: 매매(+분양권)·전세·월세 그래프 + 표 ─────────────────────
 type Kind = "sale" | "jeonse" | "wolse";
-function TxTab({ tx }: { tx: { sale: any[]; jeonse: any[]; wolse: any[] } | null }) {
+// 동: 아파트 매매는 등기 뒤 공개(그 전엔 추정), 오피스텔 실거래와 전월세는 공개 자체가 없다
+function TxTab({ tx, asset }: { tx: { sale: any[]; jeonse: any[]; wolse: any[] } | null; asset: string }) {
+  const dongOpen = asset !== "offi";
   const [kind, setKind] = useState<Kind>("sale");
   const [size, setSize] = useState("");
   const [more, setMore] = useState(false);
@@ -484,7 +486,7 @@ function TxTab({ tx }: { tx: { sale: any[]; jeonse: any[]; wolse: any[] } | null
                   return (
                     <div className="t2-tip">
                       <b>{p.y}{unit}</b>{p.direct && <span className="t2-direct">직거래</span>}{p.silv && <span className="t2-tag silv">{p.silv}</span>}{p.rh && <span className="t2-tag rh">신고가</span>}
-                      <div>{new Date(p.x).toISOString().slice(0, 10)}{p.floor != null ? ` · ${p.floor}층` : ""}{p.dong ? ` · ${dongL(p.dong)}` : p.est ? ` · ${dongL(p.est)}(추정)` : kind === "sale" && !p.silv ? " · 동 미공개(등기 전)" : ""}</div>
+                      <div>{new Date(p.x).toISOString().slice(0, 10)}{p.floor != null ? ` · ${p.floor}층` : ""}{p.dong ? ` · ${dongL(p.dong)}` : p.est ? ` · ${dongL(p.est)}(추정)` : kind === "sale" && !p.silv && dongOpen ? " · 동 미공개(등기 전)" : ""}</div>
                     </div>);
                 }} />
                 <Scatter data={ptsBroker} dataKey="y" fill={kind === "sale" ? "#d23b3b" : kind === "jeonse" ? "#1268d3" : "#1f9d63"} fillOpacity={0.45} isAnimationActive={false} />
@@ -511,7 +513,7 @@ function TxTab({ tx }: { tx: { sale: any[]; jeonse: any[]; wolse: any[] } | null
                     <td>{t.silv ? <span className="t2-tag silv">{t.silv}</span>
                       : t.dong ? dongL(t.dong)
                       : t.dong_est ? <span className="t2-est" title="계약 전후 내려간 매물의 층·가격 단서로 추정한 동. 매매는 등기가 끝나면 실제 동으로 바뀌어요">{dongL(t.dong_est)}<small>(추정)</small></span>
-                      : <span className="t2-muted" title={kind === "sale" ? "동은 등기가 끝나면 공개돼요" : "전월세는 동이 공개되지 않아요. 단서가 충분한 거래만 추정해요"}>{kind === "sale" ? "등기 전" : "-"}</span>}</td>
+                      : <span className="t2-muted" title={!dongOpen ? "오피스텔 실거래는 동이 공개되지 않아요" : kind === "sale" ? "동은 등기가 끝나면 공개돼요" : "전월세는 동이 공개되지 않아요. 단서가 충분한 거래만 추정해요"}>{kind === "sale" && dongOpen ? "등기 전" : "-"}</span>}</td>
                     <td>{t.floor}</td>
                     <td className="num">{t.dealing_gbn === "직거래" && <span className="t2-direct">직</span>}{rhSet.has(t) && <span className="t2-tag rh">신고가</span>}{t.registered && <span className="t2-tag reg" title="등기 완료">등기</span>}{fmt(t)}
                       {r != null && <small className={"t2-rise" + (r > 0 ? " up" : r < 0 ? " down" : "")}>{pct(r, 0)}</small>}</td>
