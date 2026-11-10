@@ -1165,3 +1165,25 @@ button.t2-stat-link { width: 100%; font: inherit; font-weight: 700; font-size: 1
 .t2-kok-edit small.mut { font-size: 11.5px; color: var(--c-muted); }
 .t2-kl-addr { margin: -4px 0 8px; font-size: 12.5px; color: var(--c-muted); }
 .t2-kl-tbl td small.blk { display: block; font-size: 11.5px; color: var(--c-muted); margin-top: 2px; }
+
+/* 거래 비용 — 묶음 머리줄(합계)과 세목 행. 항목 왼쪽, 금액 오른쪽 표 숫자. 격자·굵은 밑줄·둥근 상자 없음 */
+.t2-cost { margin-top: 4px; }
+.t2-cost .grp { padding: 6px 0 8px; border-bottom: 1px solid var(--c-border-soft); }
+.t2-cost .hd, .t2-cost .it { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.t2-cost .hd { padding: 4px 0 6px; font-size: 14px; font-weight: 800; }
+.t2-cost .hd b { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.t2-cost .it { padding: 3px 0 3px 12px; font-size: 13.5px; color: var(--c-text-soft); }
+.t2-cost .it.top { padding-left: 0; color: var(--c-text); font-weight: 700; }
+.t2-cost .it b { font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.t2-cost .it b.mut { color: var(--c-muted); font-weight: 500; }
+.t2-cost small { font-weight: 500; color: var(--c-muted); font-size: 12px; margin-left: 4px; }
+.t2-cost .nt { margin: 4px 0 0 12px; font-size: 11.5px; color: var(--c-muted); line-height: 1.5; }
+.t2-cost .t2-pf-src { margin-top: 8px; }
+/* 사무소 — 이름·메타·글자 링크 한 줄. 테두리 단추 없음 */
+.t2-office { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--c-border); }
+.t2-office h3 { margin: 0 0 3px; font-size: 15px; font-weight: 800; }
+.t2-office .meta { margin: 0 0 8px; font-size: 12.5px; color: var(--c-muted); line-height: 1.5; }
+.t2-office .acts { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 0; font-size: 13.5px; }
+.t2-office .acts a, .t2-office .acts button { color: var(--c-primary); font-weight: 700; text-decoration: none; border: 0; background: none; padding: 0; font: inherit; font-weight: 700; cursor: pointer; }
+.t2-office .acts a:first-child { color: var(--c-text); }
+.t2-office .acts > * + *::before { content: "·"; color: var(--c-faint); margin: 0 8px; font-weight: 400; }

@@ -467,35 +467,56 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
               </>
             );
           })()}
-          {/* 이 집에 드는 돈 — 취득·보유·평당가를 큰 숫자로, 산식은 아래 작게 */}
-          {(d.public_price || d.acquire || d.py_price) && (
-            <>
-              <div className="t2-pf-h"><h3>이 집에 드는 돈</h3><small>콕집 산식 · 참고용</small></div>
-              <div className="t2-pf-kpi">
-                {d.acquire && <div><b>{eokS(d.acquire.total)}</b><span>살 때 한 번<small> · 취득세·교육세·농특세·중개보수 상한</small></span></div>}
-                {d.property_tax && <div><b>{Math.round(d.property_tax.one_house.total / 1e4).toLocaleString()}만원</b><span>1주택 보유세 연<small> · 재산세·도시지역분·지방교육세</small></span></div>}
-                {d.py_price?.supply ? <div><b>{Math.round(d.py_price.supply / 1e4).toLocaleString()}만원</b><span>평당가 · 공급 기준{d.py_price.excl ? <small> · 전용 기준 {Math.round(d.py_price.excl / 1e4).toLocaleString()}만</small> : null}</span></div> : null}
-                {d.public_price && d.public_price.n > 0 && <div><b>{d.public_price.min === d.public_price.max ? eokS(d.public_price.median) : `${eokS(d.public_price.min)}~${eokS(d.public_price.max)}`}</b><span>공시가격 {d.public_price.year}<small> · {d.public_price.scope} {d.public_price.n}호</small></span></div>}
-              </div>
-              <dl className="t2-pf-dl">
-                {d.acquire && <div><dt>살 때</dt><dd>취득세 {eokS(d.acquire.acq)}({(d.acquire.rate * 100).toFixed(2).replace(/\.?0+$/, "")}%) · 지방교육세 {man(d.acquire.edu)}{d.acquire.rural ? ` · 농특세 ${man(d.acquire.rural)}` : ""} · 중개보수 상한 {eokS(d.acquire.broker)}({d.acquire.broker_rate}%)<small className="blk">{d.acquire.basis}</small></dd></div>}
-                {d.property_tax && <div><dt>보유세</dt><dd>1주택 연 {d.property_tax.one_house.total.toLocaleString()}원 = 재산세 {d.property_tax.one_house.property.toLocaleString()} + 도시지역분 {d.property_tax.one_house.city.toLocaleString()} + 지방교육세 {d.property_tax.one_house.edu.toLocaleString()}<small className="blk">1주택 외 연 {d.property_tax.general.total.toLocaleString()}원 · 공시 중앙값 {eokS(d.property_tax.basis)} 기준 · 종부세 별도</small></dd></div>}
-                {d.public_price && d.public_price.n === 0 && <div><dt>공시가격</dt><dd className="mut">{d.public_price.year}년 공시에서 이 동·면적을 찾지 못했어요</dd></div>}
-              </dl>
-              {d.public_price?.source && <p className="t2-pf-src">{d.public_price.source}</p>}
-            </>
-          )}
+          {/* 거래 비용 — 묶음(살 때·해마다) 머리줄에 합계, 그 아래 세목(취득세·재산세…)을 한 줄씩. 숫자는 오른쪽 정렬 */}
+          {(d.public_price || d.acquire || d.py_price) && (() => {
+            const pct = (r: number) => `${(r * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
+            const pp = d.public_price; const pt = d.property_tax; const aq = d.acquire;
+            const won = (v?: number | null) => (v == null ? "-" : v >= 1e8 ? eokS(v) : `${Math.round(v / 1e4).toLocaleString()}만`);
+            return (
+              <section className="t2-cost">
+                <div className="t2-pf-h"><h3>거래 비용</h3><small>콕집 산식 · 참고용</small></div>
+                {aq && (
+                  <div className="grp">
+                    <div className="hd"><span>살 때 한 번</span><b>{won(aq.total)}</b></div>
+                    <div className="it"><span>취득세 <small>{pct(aq.rate)}</small></span><b>{won(aq.acq)}</b></div>
+                    <div className="it"><span>지방교육세</span><b>{won(aq.edu)}</b></div>
+                    {aq.rural ? <div className="it"><span>농어촌특별세</span><b>{won(aq.rural)}</b></div> : null}
+                    <div className="it"><span>중개보수 <small>상한 {aq.broker_rate}%</small></span><b>{won(aq.broker)}</b></div>
+                    <p className="nt">{aq.basis}</p>
+                  </div>
+                )}
+                {pt && (
+                  <div className="grp">
+                    <div className="hd"><span>해마다 <small>1주택 보유세</small></span><b>{won(pt.one_house.total)}원</b></div>
+                    <div className="it"><span>재산세</span><b>{won(pt.one_house.property)}</b></div>
+                    <div className="it"><span>도시지역분</span><b>{won(pt.one_house.city)}</b></div>
+                    <div className="it"><span>지방교육세</span><b>{won(pt.one_house.edu)}</b></div>
+                    <p className="nt">1주택 외 연 {won(pt.general.total)}원 · 공시 중앙값 {eokS(pt.basis)} 기준 · 종합부동산세 별도</p>
+                  </div>
+                )}
+                {(d.py_price?.supply || (pp && pp.n > 0)) && (
+                  <div className="grp">
+                    {d.py_price?.supply ? <div className="it top"><span>평당가 <small>공급면적</small></span><b>{won(d.py_price.supply)}원</b></div> : null}
+                    {d.py_price?.excl ? <div className="it"><span>평당가 <small>전용면적</small></span><b>{won(d.py_price.excl)}원</b></div> : null}
+                    {pp && pp.n > 0 && <div className="it"><span>공시가격 <small>{pp.year} · {pp.scope} {pp.n}호</small></span><b>{pp.min === pp.max ? eokS(pp.median) : `${eokS(pp.min)}~${eokS(pp.max)}`}</b></div>}
+                    {pp && pp.n === 0 && <div className="it"><span>공시가격 <small>{pp.year}</small></span><b className="mut">못 찾음</b></div>}
+                  </div>
+                )}
+                {pp?.source && <p className="t2-pf-src">{pp.source}</p>}
+              </section>
+            );
+          })()}
           {/* 광고 설명문은 보여 주지 않는다(광고 쪽 문구를 그대로 옮기면 콕집 표시의 신뢰가 깎임) */}
           {d.realtor && (
-            <>
-              <div className="t2-pf-h"><h3>{d.realtor.name || "중개사무소"}</h3><small>{[d.realtor.representative ? `대표 ${d.realtor.representative}` : "", d.realtor.regno ? `등록 ${d.realtor.regno}` : ""].filter(Boolean).join(" · ")}</small></div>
-              {d.realtor.address && <p className="t2-pf-line" style={{ margin: "0 0 8px" }}>{d.realtor.address}</p>}
-              <div className="t2-rtc">
-                {tel(d.realtor.tel) && <a className="t2-telbtn pri" href={`tel:${tel(d.realtor.tel)}`}>전화 {d.realtor.tel!.split(/\s+/)[0]}</a>}
-                {tel(d.realtor.cell) && tel(d.realtor.cell) !== tel(d.realtor.tel) && <a className="t2-telbtn" href={`tel:${tel(d.realtor.cell)}`}>휴대폰 {d.realtor.cell}</a>}
-                <button className="t2-telbtn" onClick={() => onRealtor(d.realtor!.realtor_id)}>사무소 상세</button>
-              </div>
-            </>
+            <section className="t2-office">
+              <h3>{d.realtor.name || "중개사무소"}</h3>
+              <p className="meta">{[d.realtor.representative ? `대표 ${d.realtor.representative}` : "", d.realtor.regno ? `등록번호 ${d.realtor.regno}` : "", d.realtor.address || ""].filter(Boolean).join(" · ")}</p>
+              <p className="acts">
+                {tel(d.realtor.tel) && <a href={`tel:${tel(d.realtor.tel)}`}>전화 {d.realtor.tel!.split(/\s+/)[0]}</a>}
+                {tel(d.realtor.cell) && tel(d.realtor.cell) !== tel(d.realtor.tel) && <a href={`tel:${tel(d.realtor.cell)}`}>휴대폰 {d.realtor.cell}</a>}
+                <button type="button" onClick={() => onRealtor(d.realtor!.realtor_id)}>사무소 상세</button>
+              </p>
+            </section>
           )}
           <p className="t2-pf-src" style={{ marginTop: 12 }}>표시 내용의 책임은 광고한 중개사무소에 있어요. 계약 전 현장과 등기부를 확인하세요.</p>
         </>
