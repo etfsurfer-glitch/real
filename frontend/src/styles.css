@@ -6597,3 +6597,11 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .kokm-audit ul li::before { content: ""; position: absolute; left: 0; top: 8px; width: 4px; height: 4px; border-radius: 50%; background: #94a3b8; }
 .kokm-audit ul li.fail::before { background: #c62828; } .kokm-audit ul li.warn::before { background: #b26a00; }
 @media (max-width: 640px) { .kokm-kpi > div { min-width: 40%; border-right: 0; margin-right: 0; padding: 6px 0; } .kokm-tbl th:nth-child(5), .kokm-tbl td:nth-child(5), .kokm-tbl th:nth-child(7), .kokm-tbl td:nth-child(7) { display: none; } .kokm-dl > div { grid-template-columns: 1fr; gap: 2px; } }
+.kokm-req { font-style: normal; font-size: 10.5px; font-weight: 800; color: #c62828; margin-left: 6px; }
+.kokm-row label.btn { flex: 0 0 auto; justify-content: flex-end; } .kokm-row label.btn .auth-btn { padding: 8px 14px; white-space: nowrap; }
+.kokm-ledmsg { margin: -4px 0 0; font-size: 12.5px; }
+.kokm-items { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.kokm-items .it { display: inline-flex; gap: 4px; align-items: center; } .kokm-items select { font: inherit; font-size: 13px; border: 1px solid var(--c-border); border-radius: 6px; padding: 6px 8px; }
+.kokm-items input { font: inherit; font-size: 13px; border: 1px solid var(--c-border); border-radius: 6px; padding: 6px 8px; width: 72px; }
+.kokm-items .it button { border: 0; background: none; color: var(--c-muted); font-size: 16px; cursor: pointer; padding: 0 4px; }
+.kokm-missing { margin: 0; font-size: 12.5px; color: #b26a00; }

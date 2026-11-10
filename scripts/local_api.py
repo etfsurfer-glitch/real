@@ -11846,6 +11846,8 @@ def _kok_direct_item(r) -> dict:
             "floor_text": (f"{r['floor']}층" if r["floor"] else ""), "floor": r["floor"], "total_floor": r["total_floor"], "direction": r["direction"] or "", "dong": r["dong"] or "",
             "move_in": r["move_in"] or "", "mgmt_fee": r["mgmt_fee"], "rooms": r["rooms"], "baths": r["baths"],
             "direction_base": (r["direction_base"] or "") if "direction_base" in r.keys() else "",
+            "approve_ymd": (r["approve_ymd"] or "") if "approve_ymd" in r.keys() else "", "parking": (r["parking"] or "") if "parking" in r.keys() else "",
+            "land_use": (r["land_use"] or "") if "land_use" in r.keys() else "",
             "mgmt_declared": _kok_mgmt_declared_direct(r),
             "realtor_id": r["realtor_id"], "realtor_name": (_office_brief(r["realtor_id"]) or {}).get("realtor_name") or "",
             "kok_since": (r["created_at"] or "")[:10], "owner_verified": False, "status": r["status"],
@@ -11871,8 +11873,60 @@ def _kok_rid(user: dict) -> str:
         return _require_member(c, user["id"])
 
 
+_KOK_FIELD_LABEL = {"complex_no": "단지", "address": "소재지", "excl_m2": "전용면적", "land_m2": "대지(토지) 면적", "floor": "해당 층", "total_floor": "총 층수",
+                    "direction": "방향", "direction_base": "방향 기준", "rooms": "방 수", "baths": "욕실 수", "move_in": "입주 가능일", "mgmt_fee": "관리비",
+                    "approve_ymd": "사용승인일", "parking": "주차대수", "land_use": "지목"}
+
+
+def _kok_required(pt: str) -> set[str]:
+    """종류별 표시·광고 필수 항목(공인중개사법 18조의2 ② + 세부기준 고시). 단지형의 사용승인·주차는 단지 자료로 채워진다."""
+    if pt in _KOK_COMPLEX_PTYPES:
+        return {"complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee"}
+    if pt in ("VL", "OR"):
+        return {"address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee", "approve_ymd", "parking"}
+    if pt == "DDDGG":
+        return {"address", "excl_m2", "land_m2", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "approve_ymd", "parking"}
+    if pt in ("SG", "SMS"):
+        return {"address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "move_in", "mgmt_fee", "approve_ymd", "parking"}
+    if pt in ("GM", "GJCG"):
+        return {"address", "excl_m2", "land_m2", "total_floor", "move_in", "approve_ymd", "parking"}
+    if pt == "TJ":
+        return {"address", "land_m2", "land_use"}
+    return {"address"}
+
+
+@app.get("/lounge/kok/required")
+def lounge_kok_required(user: dict = Depends(current_user)):
+    _kok_rid(user)
+    return {"required": {k: sorted(_kok_required(k)) for k in _KOK_PTYPES}, "labels": _KOK_FIELD_LABEL}
+
+
+@app.get("/lounge/kok/ledger")
+def lounge_kok_ledger(address: str, user: dict = Depends(current_user)):
+    """주소 → 좌표 → 건축물대장 표제부(사용승인일·총층·주차·주용도) — 비단지 전용 등록 자동 채움."""
+    _kok_rid(user)
+    g = _geocode_addr(address)
+    if not g:
+        raise HTTPException(404, "주소로 좌표를 찾지 못했어요. 지번이나 도로명을 정확히 적어 주세요")
+    vw, dks = _audit_keys()
+    led = None
+    try:
+        from collector.ondemand_ledger import ledger_for_coord
+        if vw and dks:
+            led = ledger_for_coord(g[0], g[1], vw, dks)
+    except Exception as e:  # noqa: BLE001
+        _log_event("kok_ledger_error", query=str(e)[:200])
+    if not led or not isinstance(led, dict):
+        return {"lat": g[0], "lng": g[1], "found": False}
+    ua = str(led.get("use_apr_day") or "")
+    return {"lat": g[0], "lng": g[1], "found": True, "bld_nm": led.get("bld_nm"), "main_purps": led.get("main_purps"),
+            "approve_ymd": ua[:8] if ua else "", "total_floor": led.get("grnd_flr"), "ugrnd_floor": led.get("ugrnd_flr"),
+            "parking": (f"총 {led['parking']}대" if led.get("parking") else ""), "plat_area": led.get("plat_area"), "tot_area": led.get("tot_area"),
+            "hhld_cnt": led.get("hhld_cnt"), "elvt": led.get("elvt")}
+
+
 def _kok_direct_fields(body: dict, d) -> dict:
-    """직접 등록 입력 → 저장 필드. 단지형은 단지에서 이름·좌표·법정동을, 비단지는 주소를 지오코딩."""
+    """직접 등록 입력 → 저장 필드. 단지형은 단지에서 이름·좌표·법정동을, 비단지는 주소를 지오코딩. 종류별 필수 항목이 비면 422."""
     pt = str(body.get("ptype") or "")
     if pt not in _KOK_PTYPES:
         raise HTTPException(422, "매물 종류를 골라 주세요")
@@ -11891,8 +11945,24 @@ def _kok_direct_fields(body: dict, d) -> dict:
          "floor": int(body.get("floor") or 0) or None, "total_floor": int(body.get("total_floor") or 0) or None,
          "direction": str(body.get("direction") or "")[:10] or None, "move_in": str(body.get("move_in") or "")[:30] or None,
          "mgmt_fee": int(body.get("mgmt_fee") or 0) or None, "rooms": str(body.get("rooms") or "")[:4] or None, "baths": str(body.get("baths") or "")[:4] or None,
+         "direction_base": str(body.get("direction_base") or "")[:10] or None,
+         "approve_ymd": _re.sub(r"[^0-9]", "", str(body.get("approve_ymd") or ""))[:8] or None,
+         "parking": str(body.get("parking") or "").strip()[:30] or None, "land_use": str(body.get("land_use") or "").strip()[:10] or None,
+         "mgmt_items": None,
          "photos": _authjson.dumps(_kok_photo_names(body.get("photos"))), "description": str(body.get("description") or "").strip()[:1000],
          "keywords": _authjson.dumps(_kok_keywords(body.get("keywords")), ensure_ascii=False)}
+    items = []
+    for x in (body.get("mgmt_items") or [])[:10]:
+        if isinstance(x, dict) and str(x.get("name") or "").strip():
+            try:
+                amt = int(float(x.get("amount"))) if x.get("amount") not in (None, "") else None
+            except (TypeError, ValueError):
+                amt = None
+            items.append({"name": str(x["name"]).strip()[:12], "amount": amt})
+    if items:
+        f["mgmt_items"] = _authjson.dumps(items, ensure_ascii=False)
+    if f["approve_ymd"] and len(f["approve_ymd"]) not in (6, 8):
+        raise HTTPException(422, "사용승인일은 2015.08 또는 2015.08.21 꼴로 적어 주세요")
     if pt in _KOK_COMPLEX_PTYPES:
         if not f["complex_no"]:
             raise HTTPException(422, "단지를 골라 주세요")
@@ -11917,6 +11987,14 @@ def _kok_direct_fields(body: dict, d) -> dict:
                 f["lat"], f["lng"] = g
     if f["excl_m2"] and f["supply_m2"] and f["excl_m2"] > f["supply_m2"]:
         raise HTTPException(422, "전용면적이 공급면적보다 클 수 없어요")
+    missing = [k for k in _kok_required(pt) if not f.get(k)]
+    if trade == "B2" and not f["rent"]:
+        missing.append("rent")
+    if missing:
+        raise HTTPException(422, "표시·광고 필수 항목이 비어 있어요: " + ", ".join(_KOK_FIELD_LABEL.get(k, "월세") for k in missing))
+    # 정액 관리비 10만원 이상(단지형 밖 집합건물)은 비목별 금액 표시(세부기준 2023 개정)
+    if pt in ("VL", "OR", "SG", "SMS") and (f["mgmt_fee"] or 0) >= 100000 and not items:
+        raise HTTPException(422, "관리비가 월 10만원 이상이면 비목별 금액(일반관리비·전기·수도·가스·난방·인터넷·TV 등)을 적어야 해요")
     return f
 
 
@@ -12017,7 +12095,8 @@ def _kok_audit_rows(rid: str) -> tuple[list[dict], dict]:
         rows.append({"id": f"R{r['article_no']}", "source": "converted", "ptype": types.get(r["complex_no"]) or "APT", "name": r["complex_name"], "dong": r["dong"] or "",
                      "complex_no": r["complex_no"], "address": "", "trade": r["trade"], "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
                      "excl": r["excl_m2"], "supply": r["supply_m2"], "land": None, "floor": r["floor"], "direction": r["direction"] or "", "move_in": r["move_in"] or "",
-                     "mgmt": None, "rooms": r["rooms"], "baths": r["baths"], "photos": len(_kok_loads(r["e_photos"], [])), "desc": bool(r["e_description"]),
+                     "direction_base": (r["direction_base"] or "") if "direction_base" in r.keys() else "",
+                     "mgmt": r["mgmt_fee"] if "mgmt_fee" in r.keys() else None, "rooms": r["rooms"], "baths": r["baths"], "photos": len(_kok_loads(r["e_photos"], [])), "desc": bool(r["e_description"]),
                      "kw": len(_kok_loads(r["e_keywords"], [])), "since": r["kok_since"] or "", "area_name": r["area_name"] or "",
                      "floor_label": r["floor_label"] if "floor_label" in r.keys() else None})
     for r in direct:
@@ -12025,7 +12104,10 @@ def _kok_audit_rows(rid: str) -> tuple[list[dict], dict]:
                      "complex_no": r["complex_no"] or "", "address": r["address"] or "", "trade": r["trade"], "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
                      "excl": r["excl_m2"], "supply": r["supply_m2"], "land": r["land_m2"], "floor": r["floor"], "direction": r["direction"] or "", "move_in": r["move_in"] or "",
                      "mgmt": r["mgmt_fee"], "rooms": r["rooms"], "baths": r["baths"], "photos": len(_kok_loads(r["photos"], [])), "desc": bool(r["description"]),
-                     "kw": len(_kok_loads(r["keywords"], [])), "since": (r["created_at"] or "")[:10], "area_name": r["area_name"] or ""})
+                     "kw": len(_kok_loads(r["keywords"], [])), "since": (r["created_at"] or "")[:10], "area_name": r["area_name"] or "",
+                     "approve": (r["approve_ymd"] or "") if "approve_ymd" in r.keys() else "", "parking": (r["parking"] or "") if "parking" in r.keys() else "",
+                     "land_use": (r["land_use"] or "") if "land_use" in r.keys() else "", "mgmt_items": bool(r["mgmt_items"]) if "mgmt_items" in r.keys() else False,
+                     "direction_base": (r["direction_base"] or "") if "direction_base" in r.keys() else ""})
     return rows, areas
 
 
@@ -12087,8 +12169,23 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
                 iss.append({"code": "direction", "level": "warn", "msg": "방향이 없어요 — 표시·광고 의무 항목"})
             if pt in _KOK_HOUSING and not r["move_in"]:
                 iss.append({"code": "move_in", "level": "warn", "msg": "입주 가능일이 없어요 — 표시·광고 의무 항목"})
-            if r["source"] == "direct" and pt in _KOK_FLOORED and pt not in _KOK_COMPLEX_PTYPES and r["mgmt"] is None:
-                iss.append({"code": "mgmt", "level": "warn", "msg": "관리비가 없어요 — 집합건물은 관리비 표시가 필요해요"})
+            if pt in _KOK_FLOORED and r["mgmt"] is None:
+                if r["source"] == "converted" and pt == "APT":
+                    iss.append({"code": "mgmt_soft", "level": "info", "msg": "중개사 표시 관리비가 없어요 — 공개자료(K-apt) 실제 관리비로 보이고 있어요"})
+                else:
+                    iss.append({"code": "mgmt", "level": "warn", "msg": "관리비가 없어요 — 표시·광고 의무 항목" + ("(광고에 관리비를 넣으면 다음 반영 때 채워져요)" if r["source"] == "converted" else "")})
+            if r["source"] == "direct":
+                if pt not in _KOK_COMPLEX_PTYPES and pt != "TJ":
+                    if not r.get("approve"):
+                        iss.append({"code": "approve", "level": "warn", "msg": "사용승인일이 없어요 — 표시·광고 의무 항목(건축물대장에서 채우기)"})
+                    if not r.get("parking"):
+                        iss.append({"code": "parking", "level": "warn", "msg": "주차대수가 없어요 — 표시·광고 의무 항목"})
+                if pt == "TJ" and not r.get("land_use"):
+                    iss.append({"code": "land_use", "level": "fail", "msg": "토지는 지목을 표시해야 해요"})
+                if pt in ("VL", "OR", "SG", "SMS") and (r["mgmt"] or 0) >= 100000 and not r.get("mgmt_items"):
+                    iss.append({"code": "mgmt_items", "level": "warn", "msg": "관리비 10만원 이상은 비목별 금액 표시가 필요해요"})
+            if pt in _KOK_HOUSING | {"SG", "SMS"} and r["direction"] and not r.get("direction_base"):
+                iss.append({"code": "direction_base", "level": "info", "msg": "방향의 기준(거실·안방·주출입구)이 없어요"})
             if r["complex_no"] and r["excl"] and areas.get(r["complex_no"]) and not any(abs(a - float(r["excl"])) <= 1.5 for a in areas[r["complex_no"]]):
                 iss.append({"code": "area_mismatch", "level": "warn", "msg": f"전용 {float(r['excl']):.1f}㎡가 이 단지 평형표와 맞지 않아요"})
             if r["trade"] == "A1" and r["price"] and r["complex_no"]:

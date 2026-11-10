@@ -348,7 +348,7 @@ export const useKokTick = () => useMemo(() => Date.now(), []);
 
 // ── 중개사 연동 매물 상세 — 단지 서랍 옆 패널(PC) / 창(휴대폰) ──
 type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: number | null; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
-  direction_base?: string; address?: string; ptype_name?: string; total_floor?: number | null;
+  direction_base?: string; address?: string; ptype_name?: string; total_floor?: number | null; parking?: string; land_use?: string; land_m2?: number | null;
   mgmt_declared?: { fee: number | null; type: string; type_label: string; items: { name: string; amount: number | null }[] } | null;
   finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
   realtor?: { realtor_id: string; name?: string; regno?: string; address?: string; representative?: string; tel?: string; cell?: string };
@@ -415,7 +415,8 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
               const head = g.fee ? `월 ${Math.round(g.fee / 1e4).toLocaleString()}만원` : g.type_label || "-";
               return <tr><th>관리비</th><td>{head}{g.type_label && g.fee ? ` · ${g.type_label}` : ""}{g.items.length > 0 && <small className="blk">{g.items.map((x) => `${x.name} ${man(x.amount)}`).join(" · ")}</small>}<small className="blk">중개사 표시 금액 · 실제 부과 내역은 아래 공개자료</small></td></tr>;
             })()}
-            <tr><th>사용승인</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.parking_per_household ? ` · 세대당 주차 ${d.parking_per_household}대` : ""}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
+            {(d.land_use || d.land_m2) && <tr><th>토지</th><td>{[d.land_use ? `지목 ${d.land_use}` : "", d.land_m2 ? `${Math.round(d.land_m2 * 10) / 10}㎡` : ""].filter(Boolean).join(" · ")}</td></tr>}
+            <tr><th>사용승인</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.parking_per_household ? ` · 세대당 주차 ${d.parking_per_household}대` : d.parking ? ` · 주차 ${d.parking}` : ""}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
           </tbody></table>
           {d.description && <div className="t2-kok-desc"><div className="t2-pf-h"><h3>중개사가 콕집에 쓴 설명</h3></div><p>{d.description}</p></div>}
           {(!mg || mg.status === "pending") && (
