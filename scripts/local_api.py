@@ -12285,6 +12285,104 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
     return {"summary": summary, "office": {"name": ob.get("realtor_name"), "regno": regno[0] if regno else "", "tel": ob.get("tel"), "cell": ob.get("cell"), "issues": office_issues}, "items": items}
 
 
+# ── 입주자·소유자 명단 대조(사무소 보유 명단 ↔ 광고 중 매물) — scripts/roster.py ──
+def _roster_rid(user: dict) -> str:
+    with _reviews_db() as c:
+        rid = _require_member(c, user["id"])
+    if not _is_admin_uid(user["id"]):      # 테스트 기간: 관리자만
+        raise HTTPException(403, "준비 중인 기능이에요")
+    return rid
+
+
+def _roster_sggs(rid: str) -> list[str]:
+    with _open_db() as d:
+        r = d.execute("SELECT cortar_no FROM naver_realtors WHERE realtor_id=?", (rid,)).fetchone()
+        sg = [(r[0] or "")[:5]] if r and r[0] else []
+        sg += [x[0] for x in d.execute("SELECT DISTINCT substr(cx.cortar_no,1,5) FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no WHERE l.realtor_id=? LIMIT 5", (rid,))]
+    return [x for i, x in enumerate(sg) if x and x not in sg[:i]]
+
+
+@app.post("/lounge/roster/preview")
+async def lounge_roster_preview(file: UploadFile = File(...), complex_no: str = Form(""), user: dict = Depends(current_user)):
+    """명단 파일 → 몇 줄을 어떻게 읽었고 몇 단지에 연결되는지. 저장하지 않는다. 이름·연락처는 가린 채로만 돌려준다."""
+    rid = _roster_rid(user)
+    import roster as _ro
+    raw = await file.read()
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(413, "파일이 너무 커요(20MB까지)")
+    p = _ro.parse(raw, file.filename or "")
+    with _open_db() as d:
+        lk = _ro.link_complexes(d, p["rows"], _roster_sggs(rid), complex_no or None)
+        names = {r[0]: r[1] for r in d.execute("SELECT complex_no, complex_name FROM complexes WHERE complex_no IN (%s)" % ",".join("?" * len({x.get("complex_no") for x in p["rows"] if x.get("complex_no")}) or "''"),
+                                              [x for x in {x.get("complex_no") for x in p["rows"]} if x])} if any(x.get("complex_no") for x in p["rows"]) else {}
+    import collections as _co
+    by = _co.Counter((x.get("complex_raw") or "(단지 칸 없음)", names.get(x.get("complex_no")) or "") for x in p["rows"])
+    return {"n_rows": len(p["rows"]), "skipped": p["skipped"], "fields": p["fields"], "linked": lk["linked"],
+            "complexes": [{"raw": k[0], "matched": k[1], "n": n} for k, n in by.most_common(50)],
+            "sample": [{"complex": x.get("complex_raw"), "dong": x.get("dong"), "ho": x.get("ho"), "name": _ro.mask_name(x.get("name") or ""), "phone": _ro.mask_phone(x.get("phone") or "")} for x in p["rows"][:5]]}
+
+
+@app.post("/lounge/roster/upload")
+async def lounge_roster_upload(file: UploadFile = File(...), ack: str = Form(""), name: str = Form(""), complex_no: str = Form(""), user: dict = Depends(current_user)):
+    """명단 저장 — 사무소가 '적법하게 수집·보유한 명단이며 콕집에 보관·대조를 맡긴다'에 동의해야 한다. 이름·연락처는 암호화."""
+    rid = _roster_rid(user)
+    if ack != "1":
+        raise HTTPException(400, "명단 보관·대조 안내에 동의해야 올릴 수 있어요")
+    import roster as _ro
+    raw = await file.read()
+    p = _ro.parse(raw, file.filename or "")
+    if not p["rows"]:
+        raise HTTPException(400, "명단에서 동·호와 이름(또는 연락처)이 있는 줄을 찾지 못했어요")
+    with _open_db() as d:
+        _ro.link_complexes(d, p["rows"], _roster_sggs(rid), complex_no or None)
+    with _ro.connect(DB_PATH.parent) as c:
+        lid = _ro.save_list(c, DB_PATH.parent, rid, user["id"], name or (file.filename or "명단"), file.filename or "", p["rows"])
+    _log_event("roster_upload", realtor_id=rid, query=f"rows {len(p['rows'])}")
+    return {"ok": True, "list_id": lid, "n_rows": len(p["rows"])}
+
+
+@app.get("/lounge/roster/lists")
+def lounge_roster_lists(user: dict = Depends(current_user)):
+    rid = _roster_rid(user)
+    import roster as _ro
+    with _ro.connect(DB_PATH.parent) as c:
+        _ro.purge_expired(c)
+        return {"items": [dict(r) for r in c.execute("SELECT id, name, filename, n_rows, n_linked, uploaded_at, expires_at FROM roster_lists WHERE realtor_id=? ORDER BY id DESC", (rid,))]}
+
+
+@app.delete("/lounge/roster/lists/{lid}")
+def lounge_roster_delete(lid: int, user: dict = Depends(current_user)):
+    rid = _roster_rid(user)
+    import roster as _ro
+    with _ro.connect(DB_PATH.parent) as c:
+        if not c.execute("SELECT 1 FROM roster_lists WHERE id=? AND realtor_id=?", (lid, rid)).fetchone():
+            raise HTTPException(404, "명단을 찾을 수 없어요")
+        c.execute("DELETE FROM roster_units WHERE list_id=?", (lid,)); c.execute("DELETE FROM roster_lists WHERE id=?", (lid,)); c.commit()
+    return {"ok": True}
+
+
+@app.get("/lounge/roster/match")
+def lounge_roster_match(list_id: int = 0, others: int = 0, user: dict = Depends(current_user)):
+    """명단 ↔ 광고. 같은 동 + 같은 층(광고가 고·중·저면 그 층대). 이름·연락처는 가려서."""
+    rid = _roster_rid(user)
+    import roster as _ro
+    with _ro.connect(DB_PATH.parent) as c, _open_db() as d:
+        return _ro.match(c, d, DB_PATH.parent, rid, list_id or None, bool(others))
+
+
+@app.post("/lounge/roster/reveal/{unit_id}")
+def lounge_roster_reveal(unit_id: int, user: dict = Depends(current_user)):
+    """연락할 때만 이름·연락처를 푼다. 누가 언제 봤는지 남긴다."""
+    rid = _roster_rid(user)
+    import roster as _ro
+    with _ro.connect(DB_PATH.parent) as c:
+        u = c.execute("SELECT * FROM roster_units WHERE id=? AND realtor_id=?", (unit_id, rid)).fetchone()
+        if not u:
+            raise HTTPException(404, "명단에 없는 세대예요")
+        c.execute("INSERT INTO roster_reveals(realtor_id, user_id, unit_id) VALUES(?,?,?)", (rid, user["id"], unit_id)); c.commit()
+        return {"name": _ro.dec(DB_PATH.parent, u["name_enc"]), "phone": _ro.dec(DB_PATH.parent, u["phone_enc"])}
+
+
 # ── 관리자 ──
 @app.get("/admin/kok")
 def admin_kok(_admin: dict = Depends(admin_user)):
