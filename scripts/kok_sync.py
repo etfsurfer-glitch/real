@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS kok_listings(
   trade TEXT NOT NULL, price INTEGER, rent INTEGER, area_name TEXT, supply_m2 REAL, excl_m2 REAL, floor INTEGER, direction TEXT,
   rooms TEXT, baths TEXT, move_in TEXT, finance_price INTEGER, violation TEXT,
   first_seen TEXT, kok_since TEXT, status TEXT DEFAULT 'active', closed_at TEXT,
-  detail_fetched_at TEXT, synced_at TEXT, floor_label TEXT, total_floor INTEGER, direction_base TEXT, mgmt_fee INTEGER, mgmt_type TEXT, mgmt_items TEXT, created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')));
+  detail_fetched_at TEXT, synced_at TEXT, floor_label TEXT, total_floor INTEGER, direction_base TEXT, mgmt_fee INTEGER, mgmt_type TEXT, mgmt_items TEXT,
+  publish_state TEXT, hold_reasons TEXT, created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')));
 CREATE INDEX IF NOT EXISTS kok_listings_cx ON kok_listings(complex_no, status);
 CREATE INDEX IF NOT EXISTS kok_listings_rt ON kok_listings(realtor_id, status);
 CREATE INDEX IF NOT EXISTS kok_listings_geo ON kok_listings(status, lat, lng);
@@ -68,7 +69,7 @@ CREATE TABLE IF NOT EXISTS kok_direct_listings(
   trade TEXT NOT NULL, price INTEGER, rent INTEGER, area_name TEXT, supply_m2 REAL, excl_m2 REAL, land_m2 REAL,
   floor INTEGER, total_floor INTEGER, direction TEXT, move_in TEXT, mgmt_fee INTEGER, rooms TEXT, baths TEXT,
   photos TEXT, description TEXT, keywords TEXT, status TEXT DEFAULT 'active', closed_at TEXT,
-  created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')), expires_at TEXT, direction_base TEXT, mgmt_items TEXT, approve_ymd TEXT, parking TEXT, land_use TEXT);
+  created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')), expires_at TEXT, direction_base TEXT, mgmt_items TEXT, approve_ymd TEXT, parking TEXT, land_use TEXT, publish_state TEXT, hold_reasons TEXT);
 CREATE INDEX IF NOT EXISTS kok_direct_rt ON kok_direct_listings(realtor_id, status);
 CREATE INDEX IF NOT EXISTS kok_direct_geo ON kok_direct_listings(status, lat, lng);
 CREATE INDEX IF NOT EXISTS kok_direct_cx ON kok_direct_listings(complex_no, status);
@@ -86,7 +87,9 @@ def kok_db() -> sqlite3.Connection:
     for tbl, col, typ in (("kok_owner_listings", "keywords", "TEXT"), ("kok_listings", "floor_label", "TEXT"), ("kok_listings", "total_floor", "INTEGER"),
                           ("kok_listings", "direction_base", "TEXT"), ("kok_listings", "mgmt_fee", "INTEGER"), ("kok_listings", "mgmt_type", "TEXT"), ("kok_listings", "mgmt_items", "TEXT"),
                           ("kok_direct_listings", "direction_base", "TEXT"), ("kok_direct_listings", "mgmt_items", "TEXT"), ("kok_direct_listings", "approve_ymd", "TEXT"),
-                          ("kok_direct_listings", "parking", "TEXT"), ("kok_direct_listings", "land_use", "TEXT")):
+                          ("kok_direct_listings", "parking", "TEXT"), ("kok_direct_listings", "land_use", "TEXT"),
+                          ("kok_listings", "publish_state", "TEXT"), ("kok_listings", "hold_reasons", "TEXT"),
+                          ("kok_direct_listings", "publish_state", "TEXT"), ("kok_direct_listings", "hold_reasons", "TEXT")):
         if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
             c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
     c.commit()
@@ -122,6 +125,84 @@ def _int_or_none(v) -> int | None:
         return int(float(v)) if str(v).strip() not in ("", "None") else None
     except (TypeError, ValueError):
         return None
+
+
+# ── 게시 게이트: 표시·광고 필수 항목이 비면 공개 화면에 내보내지 않는다(게시 전) ─────────
+COMPLEX_PTYPES = {"APT", "OPST", "ABYG", "JGC"}
+HOUSING = {"APT", "OPST", "ABYG", "JGC", "VL", "DDDGG", "OR"}
+FLOORED = {"APT", "OPST", "ABYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"}
+HOLD_LABEL = {"price": "가격", "rent": "월세", "area": "면적", "floor": "층", "total_floor": "총 층수", "direction": "방향", "rooms": "방 수", "baths": "욕실 수",
+              "move_in": "입주 가능일", "mgmt": "관리비", "approve": "사용승인일", "parking": "주차대수", "land_use": "지목", "address": "소재지"}
+
+
+def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "converted") -> list[str]:
+    """빠진 필수 항목 코드 목록. 비면 게시 가능. 전환분 아파트는 K-apt 실제 관리비가 있으면 관리비 표시로 본다."""
+    miss: list[str] = []
+    if not r.get("price"):
+        miss.append("price")
+    if r.get("trade") == "B2" and not r.get("rent"):
+        miss.append("rent")
+    if ptype == "TJ":
+        if not r.get("land_m2"):
+            miss.append("area")
+        if not r.get("land_use"):
+            miss.append("land_use")
+        return miss
+    if not r.get("excl_m2"):
+        miss.append("area")
+    if ptype in FLOORED and ptype not in ("GM", "GJCG") and not r.get("floor") and str(r.get("floor_label") or "") not in ("고", "중", "저"):
+        miss.append("floor")
+    if ptype in FLOORED and not r.get("total_floor"):
+        miss.append("total_floor")
+    if ptype in HOUSING and not r.get("direction"):
+        miss.append("direction")
+    if ptype in HOUSING and not r.get("rooms"):
+        miss.append("rooms")
+    if ptype in HOUSING and not r.get("baths"):
+        miss.append("baths")
+    if not r.get("move_in"):
+        miss.append("move_in")
+    if ptype in FLOORED and ptype not in ("GM", "GJCG") and not r.get("mgmt_fee") and not (ptype == "APT" and kapt_ok):
+        miss.append("mgmt")
+    if source == "direct" and ptype not in COMPLEX_PTYPES:
+        if not r.get("address"):
+            miss.append("address")
+        if not r.get("approve_ymd"):
+            miss.append("approve")
+        if not r.get("parking"):
+            miss.append("parking")
+    return miss
+
+
+def kapt_linked() -> set[str]:
+    p = DB_PATH.parent / "kapt.sqlite"
+    if not p.exists():
+        return set()
+    try:
+        with sqlite3.connect(f"file:{p}?mode=ro", uri=True) as c:
+            return {r[0] for r in c.execute("SELECT complex_no FROM kapt_map WHERE kapt_code IS NOT NULL")}
+    except sqlite3.Error:
+        return set()
+
+
+def recompute_publish(k: sqlite3.Connection, d: sqlite3.Connection, realtor_id: str | None = None) -> tuple[int, int]:
+    """active 전환분의 게시 상태(live/hold)와 사유를 다시 계산 → (live, hold)."""
+    kapt = kapt_linked()
+    q = "SELECT * FROM kok_listings WHERE status='active'" + (" AND realtor_id=?" if realtor_id else "")
+    rows = k.execute(q, (realtor_id,) if realtor_id else ()).fetchall()
+    cxs = {r["complex_no"] for r in rows}
+    types: dict = {}
+    if cxs:
+        ph = ",".join("?" * len(cxs))
+        types = {x[0]: x[1] for x in d.execute(f"SELECT complex_no, real_estate_type FROM complexes WHERE complex_no IN ({ph})", list(cxs))}
+    live = hold = 0
+    for r in rows:
+        miss = publish_check(dict(r), types.get(r["complex_no"]) or "APT", kapt_ok=r["complex_no"] in kapt)
+        st = "hold" if miss else "live"
+        live += st == "live"; hold += st == "hold"
+        k.execute("UPDATE kok_listings SET publish_state=?, hold_reasons=? WHERE article_no=?", (st, json.dumps(miss) if miss else None, r["article_no"]))
+    k.commit()
+    return live, hold
 
 
 def _kok_since(agreed_at: str | None, first_seen: str | None) -> str:
@@ -180,10 +261,11 @@ def sync(realtor_id: str | None = None, fetch_details: bool = True) -> dict:
         # ④ 상세 — 아직 안 받았거나 오래된 것부터, 한 번에 DETAIL_PER_RUN 건
         if fetch_details and active:
             det_n = _fetch_details(k, realtor_id)
-        k.execute("INSERT INTO kok_sync_log(scope, realtors, upserted, closed, details, seconds) VALUES(?,?,?,?,?,?)",
-                  (realtor_id or "all", len(active), up, closed, det_n, round(time.time() - t0, 1)))
+        live, hold = recompute_publish(k, d, realtor_id)
+        k.execute("INSERT INTO kok_sync_log(scope, realtors, upserted, closed, details, seconds, note) VALUES(?,?,?,?,?,?,?)",
+                  (realtor_id or "all", len(active), up, closed, det_n, round(time.time() - t0, 1), f"live {live} hold {hold}"))
         k.commit()
-    return {"realtors": len(active), "upserted": up, "closed": closed, "details": det_n, "seconds": round(time.time() - t0, 1)}
+    return {"realtors": len(active), "upserted": up, "closed": closed, "details": det_n, "live": live, "hold": hold, "seconds": round(time.time() - t0, 1)}
 
 
 def _fetch_details(k: sqlite3.Connection, realtor_id: str | None) -> int:

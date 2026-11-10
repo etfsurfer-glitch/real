@@ -17,14 +17,15 @@ const FLOORED = new Set(["APT", "OPST", "ABYG", "JGC", "VL", "OR", "SG", "SMS", 
 const HOUSING = new Set(["APT", "OPST", "ABYG", "JGC", "VL", "DDDGG", "OR"]);
 type TabKey = "convert" | "direct" | "manage" | "audit";
 
-type Overview = { opted: boolean; agreed_at: string | null; needs_reagree: boolean; converted: { active: number; closed: number; with_extras: number };
-  direct: { active: number; closed: number }; ads_preview: number | null; synced_at: string | null };
+type Overview = { opted: boolean; agreed_at: string | null; needs_reagree: boolean; converted: { active: number; closed: number; hold: number; with_extras: number };
+  direct: { active: number; closed: number; hold: number }; ads_preview: number | null; synced_at: string | null; office_ok: boolean; office_reasons: string[] };
 export type DirectItem = { id: string; source: "direct"; ptype: string; ptype_name: string; complex_no: string; name: string; address: string; trade: string; price: number | null; rent: number | null;
   price_text: string; area_name: string; supply_m2: number | null; excl_m2: number | null; land_m2: number | null; floor: number | null; total_floor: number | null; floor_text: string;
   direction: string; direction_base?: string; dong: string; move_in: string; mgmt_fee: number | null; rooms: string | null; baths: string | null; kok_since: string; status: string; photos: string[]; keywords: string[]; description: string;
-  approve_ymd?: string; parking?: string; land_use?: string; mgmt_declared?: { fee: number | null; items: { name: string; amount: number | null }[] } | null };
+  approve_ymd?: string; parking?: string; land_use?: string; mgmt_declared?: { fee: number | null; items: { name: string; amount: number | null }[] } | null;
+  publish_state?: string; hold_reasons?: string[] };
 type ConvItem = { id: string; complex_no: string; name: string; dong?: string; trade: string; area_name: string; excl_m2: number | null; floor_text: string; direction: string; price_text: string;
-  kok_since?: string; photos: string[]; keywords: string[]; description: string; status: string };
+  kok_since?: string; photos: string[]; keywords: string[]; description: string; status: string; publish_state?: string; hold_reasons?: string[] };
 type AuditIssue = { code: string; level: "fail" | "warn" | "info"; msg: string };
 type AuditItem = { id: string; source: string; ptype: string; ptype_name: string; name: string; dong: string; trade: string; price_text: string; area_name: string; excl: number | null; floor: number | null; level: "fail" | "warn" | "info" | "ok"; issues: AuditIssue[] };
 type Audit = { summary: { total: number; fail: number; warn: number; info: number; ok: number; by_code: Record<string, number> }; office: { name: string | null; regno: string; tel: string | null; cell: string | null; issues: AuditIssue[] }; items: AuditItem[] };
@@ -47,11 +48,13 @@ export function KokScreen({ authH, office }: { authH: () => Record<string, strin
         <div><h1>콕집매물</h1><p>광고와 별개로 콕집이 직접 보여 주는 우리 사무소 매물. 전환하거나 콕집에만 올리고, 한 표에서 관리하고, 점검까지.</p></div>
         <div className="kokm-kpi">
           <div><b>{ov ? total.toLocaleString() : "-"}</b><span>게시 중<small>전환 {ov?.converted.active ?? 0} · 전용 {ov?.direct.active ?? 0}</small></span></div>
+          <div className={ov && ov.converted.hold + ov.direct.hold ? "warn" : ""}><b>{ov ? (ov.converted.hold + ov.direct.hold).toLocaleString() : "-"}</b><span>게시 전<small>필수 항목이 빠진 매물</small></span></div>
           <div><b>{ov ? ov.converted.with_extras.toLocaleString() : "-"}</b><span>사진·설명 채움<small>전환분 기준</small></span></div>
           <div><b>{ov?.synced_at ? ov.synced_at.slice(5, 16) : "-"}</b><span>마지막 반영<small>매일 새벽 + 동의 직후</small></span></div>
           <div><b>{ov ? (ov.converted.closed + ov.direct.closed).toLocaleString() : "-"}</b><span>내려간 매물<small>이력으로 남아요</small></span></div>
         </div>
       </div>
+      {ov && !ov.office_ok && <p className="kokm-gate">사무소 표시 항목이 빠져 있어 콕집매물이 공개되지 않고 있어요: {ov.office_reasons.join(" · ")}. <Link to="/biz/office">내 사무소</Link>에서 연결을 확인하거나 <Link to="/biz/edit">정보수정요청</Link>으로 알려 주세요. 채워지면 자동으로 공개돼요.</p>}
       <nav className="biz-navtabs kokm-tabs" aria-label="콕집매물 탭">
         {([["convert", "콕집매물로 전환"], ["direct", "콕집 전용 등록"], ["manage", "전체 관리"], ["audit", "콕집매물 점검"]] as [TabKey, string][]).map(([k, l]) => (
           <button key={k} type="button" className={`biz-navtab${cur === k ? " on" : ""}`} onClick={() => go(k)}>{l}</button>
@@ -88,7 +91,7 @@ function ConvertTab({ authH, ov, onChanged }: { authH: () => Record<string, stri
       ) : (
         <>
           <dl className="kokm-dl">
-            <div><dt>상태</dt><dd><b>전환 중</b> · 게시 {ov?.converted.active ?? st.listings.total}건 · 내려간 {ov?.converted.closed ?? 0}건</dd></div>
+            <div><dt>상태</dt><dd><b>전환 중</b> · 게시 {ov?.converted.active ?? st.listings.total}건{ov?.converted.hold ? <> · <span className="kokm-bad">게시 전 {ov.converted.hold}건</span>(광고에 빠진 필수 항목이 있어요 — 전체 관리에서 확인)</> : null} · 내려간 {ov?.converted.closed ?? 0}건</dd></div>
             <div><dt>반영</dt><dd>{st.synced_at ? `${dt(st.synced_at)} 마지막 반영` : "첫 반영 대기 중(몇 분)"} · 매일 새벽 자동, 광고가 내려가면 다음 반영 때 제외</dd></div>
             <div><dt>동의</dt><dd>{st.agreed_at?.slice(0, 10)} · 약관 {st.terms_version}{st.needs_reagree && <> · <button className="kokm-lnk" onClick={() => setOpen(true)}>바뀐 약관 동의하기</button></>}</dd></div>
             <div><dt>해제</dt><dd><button className="kokm-lnk mut" disabled={busy} onClick={off}>전환 해제</button> · 해제하면 전환분 표시가 바로 멈추고 자료는 표시 중단 상태로 남아요</dd></div>
@@ -314,12 +317,12 @@ function DirectTab({ authH, onChanged, openId }: { authH: () => Record<string, s
 }
 
 // ── ③ 전체 관리 ────────────────────────────────────────────────────────
-type Row = { id: string; source: "converted" | "direct"; ptype_name: string; name: string; dong: string; trade: string; price_text: string; area: string; floor_text: string; status: string; since: string; photos: number; kw: string[]; desc: boolean; raw: ConvItem | DirectItem };
+type Row = { id: string; source: "converted" | "direct"; ptype_name: string; name: string; dong: string; trade: string; price_text: string; area: string; floor_text: string; status: string; since: string; photos: number; kw: string[]; desc: boolean; hold: string[]; raw: ConvItem | DirectItem };
 function ManageTab({ authH, onChanged, openId, onEditDirect }: { authH: () => Record<string, string>; onChanged: () => void; openId: string | null; onEditDirect: (id: string) => void }) {
   const [conv, setConv] = useState<ConvItem[] | null>(null);
   const [direct, setDirect] = useState<DirectItem[] | null>(null);
   const [src, setSrc] = useState<"all" | "converted" | "direct">("all");
-  const [trade, setTrade] = useState(""); const [stt, setStt] = useState<"active" | "closed" | "all">("active"); const [q, setQ] = useState("");
+  const [trade, setTrade] = useState(""); const [stt, setStt] = useState<"active" | "hold" | "closed" | "all">("active"); const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(openId);
   const load = useCallback(() => {
     fetch(`${API}/lounge/kok/listings`, { headers: authH() }).then((r) => (r.ok ? r.json() : { items: [] })).then((j) => setConv(j.items || [])).catch(() => setConv([]));
@@ -327,9 +330,10 @@ function ManageTab({ authH, onChanged, openId, onEditDirect }: { authH: () => Re
   }, [authH]);
   useEffect(() => { load(); }, [load]);
   const rows: Row[] = useMemo(() => {
-    const a: Row[] = (conv || []).map((c) => ({ id: c.id, source: "converted", ptype_name: "전환", name: c.name, dong: c.dong || "", trade: c.trade, price_text: c.price_text, area: c.excl_m2 ? `전용 ${m2(c.excl_m2)}` : c.area_name, floor_text: c.floor_text, status: c.status || "active", since: c.kok_since || "", photos: c.photos.length, kw: c.keywords, desc: !!c.description, raw: c }));
-    const b: Row[] = (direct || []).map((d) => ({ id: d.id, source: "direct", ptype_name: d.ptype_name, name: d.name, dong: d.dong, trade: d.trade, price_text: d.price_text, area: d.excl_m2 ? `전용 ${m2(d.excl_m2)}` : d.land_m2 ? `대지 ${m2(d.land_m2)}` : d.area_name, floor_text: d.floor_text, status: d.status, since: d.kok_since, photos: d.photos.length, kw: d.keywords, desc: !!d.description, raw: d }));
-    return [...a, ...b].filter((r) => (src === "all" || r.source === src) && (!trade || r.trade === trade) && (stt === "all" || r.status === stt) && (!q || (r.name + r.dong + r.kw.join(" ")).includes(q)))
+    const a: Row[] = (conv || []).map((c) => ({ id: c.id, source: "converted", ptype_name: "전환", name: c.name, dong: c.dong || "", trade: c.trade, price_text: c.price_text, area: c.excl_m2 ? `전용 ${m2(c.excl_m2)}` : c.area_name, floor_text: c.floor_text, status: c.status || "active", since: c.kok_since || "", photos: c.photos.length, kw: c.keywords, desc: !!c.description, hold: c.publish_state === "hold" ? c.hold_reasons || [] : [], raw: c }));
+    const b: Row[] = (direct || []).map((d) => ({ id: d.id, source: "direct", ptype_name: d.ptype_name, name: d.name, dong: d.dong, trade: d.trade, price_text: d.price_text, area: d.excl_m2 ? `전용 ${m2(d.excl_m2)}` : d.land_m2 ? `대지 ${m2(d.land_m2)}` : d.area_name, floor_text: d.floor_text, status: d.status, since: d.kok_since, photos: d.photos.length, kw: d.keywords, desc: !!d.description, hold: d.publish_state === "hold" ? d.hold_reasons || [] : [], raw: d }));
+    const stOk = (r: Row) => stt === "all" ? true : stt === "hold" ? r.status === "active" && r.hold.length > 0 : stt === "active" ? r.status === "active" && r.hold.length === 0 : r.status === stt;
+    return [...a, ...b].filter((r) => (src === "all" || r.source === src) && (!trade || r.trade === trade) && stOk(r) && (!q || (r.name + r.dong + r.kw.join(" ")).includes(q)))
       .sort((x, y) => (y.since || "").localeCompare(x.since || ""));
   }, [conv, direct, src, trade, stt, q]);
   const setDirectStatus = async (id: string, status: string) => {
@@ -341,7 +345,7 @@ function ManageTab({ authH, onChanged, openId, onEditDirect }: { authH: () => Re
       <div className="kokm-filters">
         <Seg value={src} onChange={(v) => setSrc(v as typeof src)} opts={[["all", `전체 ${(conv?.length || 0) + (direct?.length || 0)}`], ["converted", `전환 ${conv?.length || 0}`], ["direct", `전용 ${direct?.length || 0}`]]} />
         <Seg value={trade} onChange={setTrade} opts={[["", "거래 전체"], ["A1", "매매"], ["B1", "전세"], ["B2", "월세"]]} />
-        <Seg value={stt} onChange={(v) => setStt(v as typeof stt)} opts={[["active", "게시 중"], ["closed", "내림"], ["all", "모두"]]} />
+        <Seg value={stt} onChange={(v) => setStt(v as typeof stt)} opts={[["active", "게시 중"], ["hold", "게시 전"], ["closed", "내림"], ["all", "모두"]]} />
         <input className="kokm-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="단지·주소·키워드 찾기" />
       </div>
       {loading ? <p className="muted">불러오는 중…</p> : rows.length === 0 ? <p className="kokm-empty">조건에 맞는 콕집매물이 없어요.</p> : (
@@ -350,7 +354,7 @@ function ManageTab({ authH, onChanged, openId, onEditDirect }: { authH: () => Re
             <RowView key={r.id} r={r} open={open === r.id} onToggle={() => setOpen(open === r.id ? null : r.id)} authH={authH} onSaved={() => { setOpen(null); load(); onChanged(); }} onEditDirect={onEditDirect} onStatus={setDirectStatus} />
           ))}</tbody></table>
       )}
-      <p className="muted kokm-note">전환분은 광고 상태를 매일 반영하고, 광고가 내려가면 다음 반영 때 '내림'으로 바뀌어요(지우지 않고 이력으로 남아요). 전용분은 여기서 바로 내리거나 다시 올릴 수 있어요.</p>
+      <p className="muted kokm-note">전환분은 광고 상태를 매일 반영하고, 광고가 내려가면 다음 반영 때 '내림'으로 바뀌어요(지우지 않고 이력으로 남아요). 전용분은 여기서 바로 내리거나 다시 올릴 수 있어요. <b>게시 전</b>은 표시·광고 필수 항목(관리비·층·방향 등)이 빠져 콕집에 공개하지 않는 매물이에요 — 전환분은 광고에 채우면 다음 반영 때, 전용분은 수정하면 바로 공개돼요.</p>
     </div>
   );
 }
@@ -364,7 +368,7 @@ function RowView({ r, open, onToggle, authH, onSaved, onEditDirect, onStatus }: 
         <td>{TRADE_L[r.trade]}</td><td className="num"><b>{r.price_text}</b></td>
         <td>{[r.area, r.floor_text].filter(Boolean).join(" · ") || "-"}</td>
         <td className="kokm-ex">{r.photos ? <span>사진 {r.photos}</span> : <span className="mut">사진 0</span>}{r.desc ? <span>설명</span> : <span className="mut">설명 없음</span>}{r.kw.length ? <span>{r.kw.slice(0, 3).join(" · ")}</span> : <span className="mut">키워드 없음</span>}</td>
-        <td>{r.since}{r.status !== "active" && <small className="blk">내림</small>}</td>
+        <td>{r.since}{r.status !== "active" ? <small className="blk">내림</small> : r.hold.length > 0 ? <small className="blk kokm-bad" title={r.hold.join(" · ")}>게시 전 · {r.hold.join(" · ")}</small> : null}</td>
         <td className="act">
           {r.source === "converted" ? <button className="kokm-lnk" onClick={onToggle}>{open ? "닫기" : "사진·설명·키워드"}</button>
             : <><button className="kokm-lnk" onClick={() => onEditDirect(r.id)}>수정</button>{r.status === "active" ? <button className="kokm-lnk mut" onClick={() => onStatus(r.id, "closed")}>내리기</button> : <button className="kokm-lnk" onClick={() => onStatus(r.id, "active")}>다시 올리기</button>}</>}
@@ -383,7 +387,7 @@ function Seg({ value, onChange, opts }: { value: string; onChange: (v: string) =
 const LEVEL_L: Record<string, string> = { fail: "위반 가능", warn: "확인 필요", info: "권장", ok: "이상 없음" };
 const CODE_L: Record<string, string> = { price: "가격 없음", rent: "월세 없음", area: "면적 없음", floor: "층 없음", floor_vague: "층 고·중·저만", direction: "방향 없음", move_in: "입주일 없음", mgmt: "관리비 없음", area_mismatch: "평형 불일치",
   price_outlier: "실거래 대비 이상", dup: "같은 집 중복", stale: "오래된 등록", photo: "사진 없음", desc: "설명 없음", kw: "키워드 없음", office_regno: "사무소 등록번호", office_tel: "사무소 연락처",
-  mgmt_soft: "중개사 표시 관리비 없음", approve: "사용승인일 없음", parking: "주차대수 없음", land_use: "지목 없음", mgmt_items: "관리비 비목 없음", direction_base: "방향 기준 없음" };
+  publish_hold: "게시 보류", mgmt_soft: "중개사 표시 관리비 없음", approve: "사용승인일 없음", parking: "주차대수 없음", land_use: "지목 없음", mgmt_items: "관리비 비목 없음", direction_base: "방향 기준 없음" };
 function AuditTab({ authH, office, onFix }: { authH: () => Record<string, string>; office: Office; onFix: (id: string) => void }) {
   const [a, setA] = useState<Audit | null>(null); const [busy, setBusy] = useState(false); const [lv, setLv] = useState<"all" | "fail" | "warn" | "info">("all");
   const run = useCallback(() => { setBusy(true); fetch(`${API}/lounge/kok/audit`, { headers: authH() }).then((r) => (r.ok ? r.json() : null)).then(setA).catch(() => setA(null)).finally(() => setBusy(false)); }, [authH]);

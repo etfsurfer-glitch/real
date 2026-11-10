@@ -6605,3 +6605,5 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .kokm-items input { font: inherit; font-size: 13px; border: 1px solid var(--c-border); border-radius: 6px; padding: 6px 8px; width: 72px; }
 .kokm-items .it button { border: 0; background: none; color: var(--c-muted); font-size: 16px; cursor: pointer; padding: 0 4px; }
 .kokm-missing { margin: 0; font-size: 12.5px; color: #b26a00; }
+.kokm-gate { margin: 0; padding: 10px 12px; border-left: 3px solid #c62828; background: #fff5f5; font-size: 13.5px; line-height: 1.55; }
+.kokm-gate a { color: #1268d3; font-weight: 700; }
