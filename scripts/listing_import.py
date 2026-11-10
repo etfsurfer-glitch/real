@@ -40,6 +40,7 @@ FIELDS: list[tuple[str, str, str]] = [
     ("loan_amount", "융자", "money"),
     ("area2_m2", "전용면적", "area"),
     ("area1_m2", "공급면적", "area"),
+    ("area_name", "타입", "text"),
     ("land_area_m2", "대지면적", "area"),
     ("total_area_m2", "연면적", "area"),
     ("floor_info", "층", "floor"),
@@ -88,7 +89,8 @@ HEADER_SYN: dict[str, list[str]] = {
     "loan_amount": ["융자금액", "융자금", "융자", "대출금", "대출", "근저당", "loan"],
     "area2_m2": ["전용면적", "전용㎡", "전용평", "전용", "실면적", "면적", "평형", "평수",
                  "넓이", "크기", "exclusive", "area", "size"],
-    "area1_m2": ["공급면적", "분양면적", "계약면적", "공급", "분양평", "supply"],
+    "area1_m2": ["공급면적", "공용면적", "분양면적", "계약면적", "공급평", "공용평", "공급", "공용", "분양평", "supply"],
+    "area_name": ["면적타입", "평형타입", "타입명", "타입"],
     "land_area_m2": ["대지면적", "토지면적", "대지", "부지면적", "land"],
     "total_area_m2": ["연면적", "건물면적", "총면적", "totalarea"],
     "floor_info": ["해당층", "층수", "층/총층", "층", "floor"],
@@ -370,6 +372,9 @@ def split_dongho(v) -> tuple[str | None, str | None]:
     m = _DONGHO2.match(t)
     if m:
         return f"{m.group(1)}동", f"{m.group(2)}호"
+    # '136호(전면부)' · '101,110호' · 'B1층 105호' — 동 없이 호만 적힌 상가·오피스텔 칸은 호로 둔다
+    if "호" in t and "동" not in t:
+        return None, t[:20]
     return t[:20] or None, None
 
 
@@ -433,7 +438,16 @@ def _read_xlsx(data: bytes) -> list[dict]:
     for ws in wb.worksheets:
         if ws.sheet_state != "visible":
             continue
-        rows = [list(r) for r in ws.iter_rows(values_only=True, max_row=_MAX_ROWS)]
+        rows, blank = [], 0
+        for r in ws.iter_rows(values_only=True, max_row=_MAX_ROWS):
+            row = list(r)
+            rows.append(row)
+            if any(v not in (None, "") for v in row):
+                blank = 0
+            else:
+                blank += 1
+                if blank >= 300:          # 표 아래로 수천 줄이 비어 있는 서식이 흔하다 — 끝으로 본다
+                    break
         if not big:
             _unmerge(ws, rows)
         out.append({"name": ws.title, "rows": rows})
@@ -539,10 +553,18 @@ def find_header(rows: list) -> tuple[int, dict]:
 
     제목 줄·빈 줄이 위에 붙은 매물장이 흔해 위에서부터 20줄을 훑는다.
     """
+    # 2026-11-10 실측: 진짜 머리글(지번·공용(평)·거주자 같은 모르는 말이 섞임)보다 첫 매물 줄
+    # ('아파트 | 서초구 서초동 | 매매 | 임대인 …')이 아는 말을 더 많이 담아 점수에서 이겼다.
+    # 그래서 먼저 '머리글답게 생긴 줄'(숫자 칸이 없고 채워진 칸 대부분이 열 이름)을 위에서부터
+    # 찾고, 그런 줄이 없을 때만 점수 최대 줄로 간다.
     best = (-1, {}, 0)
     for i, row in enumerate(rows[:20]):
         if not row:
             continue
+        ok, seen = _looks_header(row)
+        if ok and len(seen) >= 3:
+            best = (i, seen, len(seen))
+            break
         hit, seen = _head_score(row)
         if hit > best[2]:
             best = (i, seen, hit)
@@ -552,7 +574,9 @@ def find_header(rows: list) -> tuple[int, dict]:
     # 머리글이 두 줄인 매물장 — 위는 '면적'·'금액' 같은 묶음 이름이고 아래가 '공급·전용',
     # '매매·전세' 다. 위 줄은 병합돼 있어 같은 말이 겹쳐 보인다 — 그게 신호다.
     labels = [norm_head(c) for c in rows[i] if norm_head(c)]
-    if i + 1 < len(rows) and len(labels) != len(set(labels)):
+    # '연락처' 가 임대인·임차인 쪽에 하나씩 있는 매물장도 같은 말이 겹친다 — 그건 두 줄 머리글이
+    # 아니다. 아래 줄이 머리글답게 생겼을 때(숫자 칸 없음·대부분 열 이름)만 두 줄로 본다(2026-11-10).
+    if i + 1 < len(rows) and len(labels) != len(set(labels)) and _looks_header(rows[i + 1])[0]:
         h2, seen2 = _head_score(rows[i + 1])
         if h2 >= 2:
             merged = dict(seen2)
@@ -666,16 +690,19 @@ def analyze(data: bytes, filename: str = "", max_rows: int = _MAX_ROWS,
     # 단지 특정이 안 된 파일을 그대로 담으면 단지명 없는 매물이 쌓인다(2026-10-02 민원).
     # 단일 단지 매물장은 행마다 단지명이 없고 파일명·시트명에만 있다 — 저장 전에
     # 사용자가 단지를 골라 넣도록 화면에 신호를 준다.
+    # 머리글이 아니라 **값**으로 본다 — '소재지' 열이 있어도 칸이 다 비면 단지가 없는 것이다.
+    # 단지별로 시트를 나눈 매물장은 시트 이름이 곧 단지 이름이라 시트마다 따로 묻고 따로 힌트를 준다.
     needs = []
     for sh in out:
-        got = {c.get("field") for c in sh.get("columns") or []}
-        has_name = ("complex_name" in got) or ("address" in got)
-        if not has_name:
+        n = len(sh.get("rows") or [])
+        sh["needs_complex"] = bool(n) and sh.get("n_nowhere", 0) >= max(1, n * 0.1)
+        sh["complex_hint"] = (_name_hint("", [sh["name"]]) or _name_hint(filename, [])) if sh["needs_complex"] else ""
+        if sh["needs_complex"]:
             needs.append(sh["name"])
-        sh["needs_complex"] = not has_name
+    first = next((sh for sh in out if sh["needs_complex"]), None)
     return {"sheets": out, "filename": filename,
             "needs_complex": bool(needs), "needs_complex_sheets": needs,
-            "complex_hint": _name_hint(filename, [s["name"] for s in out])}
+            "complex_hint": (first["complex_hint"] if first else "") or _name_hint(filename, [s["name"] for s in out])}
 
 
 _HINT_DROP = re.compile(r"(매물장|매물|목록|리스트|현황|관리|대장|시트|sheet|list|\d{4}[-.]?\d{2}[-.]?\d{2}|"
@@ -711,6 +738,30 @@ def _analyze_sheet(name: str, rows: list, max_rows: int, ovr: dict | None = None
 
     # ① 이름으로 맞춘 열
     mapping: dict[int, str] = {j: f for f, j in byname.items()}
+    # ①-1 이름은 맞았지만 값이 하나도 없는 열은 풀어 준다 — '소재지' 머리글만 있고 칸은 전부 빈
+    #     단지별 시트(2026-11-10 실측)에서, 이 열 때문에 '주소가 있다'고 믿고 단지 선택을 안 물었다.
+    def _col_all(j):
+        return [r[j] if j < len(r) else None for r in body]
+    for j in list(mapping):
+        if not any(cell_text(v) for v in _col_all(j)):
+            mapping.pop(j)
+    # ①-2 자리 열('지번'·'물건명'·'건물명'…)은 머리글 말로는 뜻이 안 정해진다 — 같은 '지번' 칸이
+    #     시트마다 주소('서초동 1757')·단지명('에스티지S')·건물명('그랑몰')을 담는다. 값을 보고 정한다.
+    for j in range(width):
+        if j in mapping or j >= len(header):
+            continue
+        hn = norm_head(header[j])
+        if hn not in _PLACE_HEADS:
+            continue
+        vals = [cell_text(v) for v in _col_all(j) if cell_text(v)]
+        if len(vals) < 2:
+            continue
+        if sum(1 for v in vals if _ADDR_VAL.search(v)) >= len(vals) * 0.5:
+            if "address" not in mapping.values():
+                mapping[j] = "address"
+        elif (sum(1 for v in vals if re.search(r"[가-힣]", v) and not _AREA_TYPE.fullmatch(v)) >= len(vals) * 0.6
+              and "complex_name" not in mapping.values()):
+            mapping[j] = "complex_name"
     # ② 남은 열은 값으로
     inferred: set = set()
     for j in range(width):
@@ -735,6 +786,11 @@ def _analyze_sheet(name: str, rows: list, max_rows: int, ovr: dict | None = None
     where = got & {"complex_name", "address", "dong", "ho", "_dongho"}
     what = got & {"price", "deposit", "rent_price", "premium", "area2_m2", "area1_m2", "trade_type"}
     if not forced and (len(mapping) < 2 or not where or not what):
+        return None
+    # 실거래·호가 통계표(평형별 최고가 표)는 금액 칸이 있어 매물표로 오인된다(2026-11-10 실측:
+    # 1,012건의 가짜 매물). 동·호 칸이 없고 머리글에 통계 말이 있으면 매물표가 아니다.
+    head_txt = " ".join(cell_text(c) for c in header)
+    if not forced and not (got & {"dong", "ho", "_dongho"}) and _STATS_HEAD.search(head_txt):
         return None
 
     columns = []
@@ -786,15 +842,37 @@ def _analyze_sheet(name: str, rows: list, max_rows: int, ovr: dict | None = None
             continue
         rec["_row"] = hidx + 2 + i
         parsed.append(rec)
+    # '750-20 인시그니아반포' · '서초동 1595-3 엘루크서초' 처럼 단지명 칸 앞에 지번이 붙은 값은
+    # 지번을 주소 쪽으로 보내고 이름만 남긴다 — 단지 검색은 이름으로 한다(2026-11-10 실측).
+    for rec in parsed:
+        nm = str(rec.get("complex_name") or "")
+        m = _LOT_PREFIX.match(nm)
+        if m and m.group(2).strip():
+            lot, rest = m.group(1).strip(), m.group(2).strip()
+            rec["complex_name"] = rest
+            addr = str(rec.get("address") or "").strip()
+            if lot not in addr:
+                rec["address"] = (addr + " " + lot).strip()
     parsed, n_merge, n_split = resolve_rows(parsed)
+    # 단지 선택이 필요한 줄 = 동·호는 있는데(집합건물) 단지명이 없는 줄. 주소만 있는 줄도 단지 매물장에선
+    # 단지명이 필요하다('서초동 1757' 만으로는 매물장에서 못 찾는다). 상가처럼 호만 있는 줄은 안 센다.
+    n_nowhere = sum(1 for r in parsed if not r.get("complex_name") and r.get("dong"))
     return {"name": name, "header_row": hidx + 1 if hidx >= 0 else 0,
             "columns": columns, "rows": parsed, "skipped": skipped[:40],
             "n_skipped": len(skipped), "cut": cut, "stopped_at": stopped,
-            "n_merged": n_merge, "n_split": n_split}
+            "n_merged": n_merge, "n_split": n_split, "n_nowhere": n_nowhere}
 
 
 # 면적타입으로 보이는 값: 59, 59A, 84B, 전용59, 33평, A, B …
 _AREA_TYPE = re.compile(r"(?:전용|공급)?\s*\d{2,3}\s*[A-Za-z]?|[A-Za-z]|\d{2,3}\s*평?[A-Za-z]?")
+# 자리(어디 물건인지) 열의 머리글 — 뜻은 값으로 정한다
+_PLACE_HEADS = {norm_head(x) for x in ("지번", "번지", "물건명", "건물명", "단지", "단지명", "명칭", "소재지", "주소", "위치", "물건지")}
+# 주소다운 값: '서초동 1757', '서초동 1757-1', '남부순환로 1652', '사릉로157번길 3'
+_ADDR_VAL = re.compile(r"[가-힣]+(?:\d*동|읍|면|리|로|길)\s*\d+(?:-\d+)?")
+# 단지명 칸 앞의 지번: '750-20 ', '서초동 1595-3 '
+_LOT_PREFIX = re.compile(r"^((?:[가-힣]+\d*동\s+)?\d{1,5}(?:-\d{1,4})?)\s+(.+)$")
+# 통계표 머리글의 말
+_STATS_HEAD = re.compile(r"실거래|호가|세대수|최고가|평균가|변동|기준")
 
 
 def _infer_leftovers(mapping: dict, width: int, col, header) -> None:
@@ -1031,6 +1109,8 @@ def _why_skip(rec: dict, raw: list) -> str:
     has_money = any(rec.get(k) for k in ("price", "deposit", "rent_price", "premium"))
     if not has_where and not has_money:
         return "매물로 볼 값이 없음"
+    if not has_money and not (rec.get("dong") or rec.get("ho")):
+        return "매물로 볼 값이 없음"      # 단지명 칸에 '* 광고 타부동산' 같은 소제목만 든 줄
     if not has_where:
         return "어디 물건인지 없음(단지·주소·동호가 다 빔)"
     return ""

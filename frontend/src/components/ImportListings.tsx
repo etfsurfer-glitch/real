@@ -3,7 +3,7 @@
 // 서식이 제각각이라 '이 양식으로 맞춰 오세요'는 답이 아니다. 아무 파일이나 받아 읽고,
 // **무엇을 어떻게 읽었는지 먼저 보여 준 다음** 사람이 확인하면 저장한다. 열 인식이
 // 틀렸으면 그 자리에서 바꿀 수 있어야 한다 — 안 그러면 잘못 담고 나서야 알게 된다.
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Upload, X, Loader2, FileSpreadsheet, Check, AlertTriangle, Copy } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -14,7 +14,7 @@ type Row = Record<string, any> & { _row?: number; _dup?: string };
 type Sheet = { name: string; header_row: number; columns: Col[]; rows: Row[];
   skipped: { row: number; why: string; text: string }[]; n_skipped: number; n_dup: number;
   n_merged?: number; n_split?: number;
-  cut?: number; stopped_at?: number };
+  cut?: number; stopped_at?: number; needs_complex?: boolean; complex_hint?: string; n_nowhere?: number };
 type Preview = { sheets: Sheet[]; filename: string; fields: { key: string; label: string }[];
   needs_complex?: boolean; complex_hint?: string };
 
@@ -74,6 +74,9 @@ export default function ImportListings({ authH, onClose, onSaved }: {
   const ovrRef = useRef<Record<string, { fields: Record<string, string>; units: Record<string, string> }>>({});
 
   const sheet = prev?.sheets[si] || null;
+  // 시트마다 단지가 다르다(단지별 시트 매물장) — 시트를 바꾸면 고른 단지를 풀고 그 시트 이름을 힌트로
+  const sheetNeedsCx = !!(sheet?.needs_complex ?? prev?.needs_complex);
+  useEffect(() => { setCxPick(null); setCxHits([]); setCxQ(sheet?.needs_complex ? (sheet?.complex_hint || "") : ""); }, [si, sheet?.name]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const upload = useCallback(async (f: File, keepOvr = false) => {
     setBusy(true); setErr(""); setDone(null);
@@ -122,7 +125,7 @@ export default function ImportListings({ authH, onClose, onSaved }: {
   };
 
   const rows = sheet?.rows || [];
-  const needCx = !!prev?.needs_complex && !cxPick;
+  const needCx = sheetNeedsCx && !cxPick;
 
   const picked = useMemo(() => rows.filter((r, i) => !off.has(i) && !(skipDup && r._dup)),
     [rows, off, skipDup]);
@@ -262,7 +265,7 @@ export default function ImportListings({ authH, onClose, onSaved }: {
                 )}
 
                 {/* 열을 어떻게 읽었는지 — 여기가 이 화면의 핵심이다. 틀렸으면 바꾼다 */}
-                {prev?.needs_complex && (
+                {sheetNeedsCx && (
                   <div className={"imp-cx" + (cxPick ? " done" : "")}>
                     {cxPick ? (
                       <div className="imp-cx-done">
@@ -272,7 +275,7 @@ export default function ImportListings({ authH, onClose, onSaved }: {
                     ) : (
                       <>
                         <div className="imp-cx-head">
-                          이 파일에는 줄마다 단지명이 없어요 — <b>어느 단지의 매물장인지 골라 주세요.</b>
+                          이 시트에는 줄마다 단지명이 없어요{sheet?.n_nowhere ? ` (${sheet.n_nowhere}건)` : ""} — <b>어느 단지의 매물장인지 골라 주세요.</b> 시트 이름을 미리 넣어 뒀어요.
                         </div>
                         <div className="imp-cx-find">
                           <input
