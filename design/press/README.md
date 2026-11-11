@@ -16,6 +16,7 @@
 | `매도인자금/` | 매도인 자금제공·근저당 광고 분석 |
 | `전월세시장/` | 전월세 실거래 3년 시계열 — 임대차 4분류(전세·준전세·준월세·월세)·지역·자치구·매물수 vs 실매물수. 박스에서 `full.py`·`listing.py`·`newshare.py`·`chart.py`로 JSON을 뽑아 회수한 뒤, `node build.js`로 주입·PDF 렌더(HTML→A4, playwright). 산출물=PDF 리포트 + 인터랙티브 보도자료 '사라지는 전세' |
 | `잠실전월세/` | 잠실 주요 8단지 전월세 — 국토부 실거래 vs 네이버 중복제거(매물수·실매물수·광고배율), 평형별, 주별 매물흐름, 전세 vs 월세. 박스에서 `jamsil.py`~`jamsil4.py`로 JSON 회수 후 `node build.js`. 산출물=사실 PDF(발행 조용호) + 인터랙티브 '잠실 전세, 광고와 실물 사이' |
+| `공장매물/` | 전국 공장·창고 매물 전수 — 지역별 규모·3개월 증감(화성 읍·면 포함). 아카이브 parquet 를 nfind 박스에서 받아 `nat2.py`→`rank2.py` 로 산출한다. **지식산업센터 호실 오기재를 거르고 물건 환산한 수치만 쓴다**(안 거르면 순위가 뒤집힘). **체류일수는 이 데이터로 못 잰다** — 광고 번호가 30일 주기로 바뀐다 |
 | `회사소개/` | 콕집 서비스 소개 보도자료 |
 | `내부-기획문서/` | 배포용이 아닌 내부 검토 문서 |
 
@@ -25,3 +26,6 @@
 
 실행: `python3 design/press/<폴더>/make_*.py`
 | `호가진폭/` | 8.3 세제개편 전후 '동일평형 호가 진폭'(같은 단지·같은 평형의 최고-최저÷평균). 박스에서 `measure.py` 로 산출해 `data/press_spread_*.json` 에 고정한 뒤 본문 작성. **전 구간 parquet 단일 출처로만 잰다** — complex_daily_agg 는 같은 날 서울 8.71% 로 parquet(7.55%)과 1.16%p 어긋나(담는 범위가 다름) 두 구간을 섞으면 출처 차이를 시장 변화로 오독한다. 6/16~8/2 는 nfind 박스 `/opt/koczip-archive/archive/listings/` 에서 받아 쓴다 |
+| `지방학군지/` | 1기 신도시·지방 계획도시 학군지 11곳 실거래(동일단지·동일평형 지수 2025H1=100, 거래량, 신고가 비중) + 매매 매물 패널. 박스에서 `measure.py`→`data/press_hakgun.json`, `measure_dunsan.py`(둔산 선도지구 제외·서구 나머지·유성·단지별)→`data/press_hakgun_dunsan.json` 회수 후 `make_hakgun_report.py` 로 조판(차트 `data/hakgun_dunsan_chart.png`). 10월은 신고기한(30일) 전이라 잠정 |
+| `8.13-호가변동/` | 8·13 대책 전후 서울 25개 구 아파트 매매 — 4개 기준(전체 광고·실매물·동일 매물·광고배수) + 10일 창 대책 전후 비교(7/23~11/5). 박스에서 `measure.py`→`data/press_hoga813.json`, `measure_daily.py`→`data/press_hoga813_daily.json`, `measure_complexes.py`(단지별 8/12→11/5)→`data/press_hoga813_complexes.json` 회수 후 `make_report.py`. 7/23·8/02 parquet 은 nfind 에서 박스 `/mnt/backup/tmp_hoga813/` 로 받아 둔다. **3.3㎡당 중앙값(광고·실매물)은 구성 효과로 흔들려(노도강 +12% vs 같은 집 +1.6%) 가격 변동은 동일 매물로만 말한다. 실매물 수는 일별 ±2~3% 출렁이고 8/10(월)은 저점. 대상=아파트+재건축+분양권, 실매물 수=Σ1/same_addr_cnt(공개 일별 집계와 ±4채). 논리검증용 `measure_daily_all.py`(일별·월요일 비교)·`measure_tx.py`(실거래 회전)·`measure_winrob.py`(열흘 창 밀기) — 매물 증가는 8/3 세제개편안부터, 외곽 순증이 낮은 건 많이 팔려서** |
+| `호가구간별매물/` | 서울 아파트 매매 매물 호가 5억 구간별 건수(8/3·9/1·10/1·11/11, 기자 요청 2026-11-11). 박스에서 `measure.py`→`data/press_hoga_band.json`, `make_xlsx.py` 로 엑셀. 대상·실매물 기준은 8.13-호가변동과 같음. 9/1·10/1 parquet 은 nfind 에서 받아 쓰고 지운다 |
