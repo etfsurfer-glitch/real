@@ -82,7 +82,7 @@ for d, path in P.items():
     out["dates"][d] = {"all": rnd(R), "by_type": {ty: rnd(Rt[ty]) for ty in TYPES},
                        "by_zone": {g: rnd(v) for g, v in Z.items()},
                        "typo": {"ad": typo["ad"], "obj": round(typo["obj"])},
-                       "total": {"ad": sum(v["ad"] for v in R.values()), "obj": round(sum(v["obj"] for v in R.values()))}}
+                       "total": {"ad": sum(v["ad"] for v in R.values()), "obj": sum(round(v["obj"]) for v in R.values())}}  # 합계=반올림한 구간의 합(표에서 더하면 맞게)
     print(d, out["dates"][d]["total"], "오기재", out["dates"][d]["typo"], flush=True)
 # 8/3 → 11/11: 두 날 모두 있던 집의 구간 이동, 11/11 매물 중 새로 나온 집
 A, B = "2026-08-03", "2026-11-11"
