@@ -13,8 +13,8 @@ type Saved = { list_id: number; added: number; updated: number; same: number; n_
 type House = { article_no: string; trade: string; price: number; rent: number | null; area_name: string; excl_m2: number | null; floor_info: string; direction: string;
   n_offices: number; offices: string[]; mine: boolean; strength: string; confirm_ymd: string };
 type Unit = { unit_id: number; complex_no: string; complex_name: string; dong: string; ho: string; floor: number; role: string; grade: string;
-  name_masked: string; phone_masked: string; note: string; houses: House[] };
-type Match = { units: Unit[]; n_units: number; n_exact: number; n_houses: number; n_ads: number; n_roster: number };
+  name_masked: string; phone_masked: string; note: string; houses: House[]; type_raw: string; type_ok: boolean; types: string[]; type_note: string };
+type Match = { units: Unit[]; n_units: number; n_exact: number; n_type_ok: number; n_exact_type: number; n_houses: number; n_ads: number; n_roster: number };
 type Cand = { complex_no: string; name: string; addr: string; households: number; exact: boolean };
 type Preview = { n_rows: number; skipped: number; fields: string[]; linked: number; complexes: { raw: string; complex_no: string; matched: string; n: number; picked: boolean; candidates: Cand[] }[];
   sample: { complex: string; dong: string; ho: string; name: string; phone: string }[] };
@@ -118,6 +118,7 @@ function Result({ authH, listId }: { authH: () => Record<string, string>; listId
         <div><b>{m.n_roster.toLocaleString()}</b><span>단지 연결된 세대</span></div>
         <div><b>{m.n_units.toLocaleString()}</b><span>광고가 걸린 세대<small>같은 동 · 같은 층(대)</small></span></div>
         <div className="good"><b>{m.n_exact.toLocaleString()}</b><span>층 일치<small>광고 층 숫자가 같음</small></span></div>
+        <div className={m.n_exact_type ? "good" : ""}><b>{m.n_exact_type.toLocaleString()}</b><span>층·타입 일치<small>명단 타입과 광고 타입이 같음</small></span></div>
         <div><b>{(m.n_units - m.n_exact).toLocaleString()}</b><span>층대만 일치<small>광고가 고·중·저로만 나옴</small></span></div>
       </div>
       <div className="kokm-filters">
@@ -130,7 +131,7 @@ function Result({ authH, listId }: { authH: () => Record<string, string>; listId
           <button className={others ? "on" : ""} onClick={() => setOthers(true)}>다른 사무소 광고만</button>
         </span>
       </div>
-      <p className="kokm-note">광고는 호수를 공개하지 않아요. 아래는 명단 세대와 <b>같은 동·같은 층</b>에 올라온 광고라서, 한 층에 여러 세대가 있으면 그 집이 아닐 수 있어요. 연락 여부와 방법의 판단·책임은 사무소에 있어요.</p>
+      <p className="kokm-note">명단에 타입(101·84A·34평·76.79 등)이 있으면 단지의 실제 타입으로 바꿔 같은 타입 광고만 남겨요. 광고는 호수를 공개하지 않아요. 아래는 명단 세대와 <b>같은 동·같은 층</b>에 올라온 광고라서, 한 층에 여러 세대가 있으면 그 집이 아닐 수 있어요. 연락 여부와 방법의 판단·책임은 사무소에 있어요.</p>
       {!rows.length ? <p className="kokm-empty">조건에 맞는 세대가 없어요.</p> : (
         <table className="kokm-tbl">
           <thead><tr><th>세대</th><th>명단</th><th>올라온 광고</th><th></th></tr></thead>
@@ -138,7 +139,8 @@ function Result({ authH, listId }: { authH: () => Record<string, string>; listId
             {rows.map((u) => (
               <tr key={u.unit_id}>
                 <td><b>{u.complex_name}</b><small className="blk">{dongHo(u.dong, u.ho)} · {u.floor}층{u.role ? ` · ${u.role}` : ""}</small>
-                  <small className={`blk ${u.grade === "층 일치" ? "kokm-on" : ""}`}>{u.grade}</small></td>
+                  <small className={`blk ${u.grade === "층 일치" ? "kokm-on" : ""}`}>{u.grade}{u.type_ok ? ` · 타입 일치(${u.types.join("·")})` : ""}</small>
+                  {u.type_raw && !u.type_ok && <small className="blk" style={{ color: "#b26a00" }}>명단 타입 '{u.type_raw}' — {u.type_note}, 타입 없이 대조</small>}</td>
                 <td>{open[u.unit_id]
                   ? <><b>{open[u.unit_id].name || "-"}</b><small className="blk">{open[u.unit_id].phone ? <a href={`tel:${open[u.unit_id].phone.replace(/\D/g, "")}`}>{open[u.unit_id].phone}</a> : "번호 없음"}</small></>
                   : <>{u.name_masked || "-"}<small className="blk">{u.phone_masked || "번호 없음"}</small></>}

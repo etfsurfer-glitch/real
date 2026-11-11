@@ -436,24 +436,60 @@ def _band(floor: int, total: int | None) -> str:
     return "중"
 
 
-def _area_ok(ua: str | None, ad_type: str | None, ad_m2: float | None) -> bool:
-    """명단에 타입·면적이 있으면 광고와 맞춘다. '84A'·'83A' 는 앞 숫자, '59.9' 는 전용 ±2㎡. 없으면 거르지 않는다."""
-    if not ua:
-        return True
-    t = str(ua).strip()
-    m = re.match(r"(\d{2,3})", t)
-    if re.fullmatch(r"\d{2,3}(\.\d+)?", t) and ad_m2:
-        return abs(float(t) - float(ad_m2)) <= 2.0
-    if m:
-        v = int(m.group(1))
-        n = re.match(r"(\d{2,3})", str(ad_type or ""))
-        # 광고 타입 이름은 단지마다 공급 기준(111A)이기도 전용 기준(84A)이기도 하다 — 둘 다 본다
-        if n and abs(v - int(n.group(1))) <= 1:
-            return True
-        if ad_m2 and abs(v - float(ad_m2)) <= 2.0:
-            return True
-        return not (n or ad_m2)
-    return True
+PYEONG = 3.305785
+
+
+def complex_types(main_db: sqlite3.Connection, complex_no: str, ads=None) -> list[tuple]:
+    """단지의 실제 타입 목록 [(이름, 공급㎡, 전용㎡)]. 단지 면적표가 없으면 광고에서 모은다."""
+    rows = [(r[0], r[1] or 0.0, r[2] or 0.0) for r in main_db.execute(
+        "SELECT pyeong_name, supply_area, exclusive_area FROM complex_areas WHERE complex_no=?", (complex_no,))]
+    if not rows and ads:
+        seen = {}
+        for a in ads:
+            if a["area_name"] and a["area_name"] not in seen:
+                seen[a["area_name"]] = (a["area_name"], float(a["area1_m2"] or 0), float(a["area2_m2"] or 0))
+        rows = list(seen.values())
+    return rows
+
+
+def resolve_type(text: str | None, types: list[tuple]) -> tuple[set, str]:
+    """명단의 타입 칸 → 그 단지의 실제 타입 이름 집합. ('', '') 이면 명단에 타입이 없음, 빈 집합+사유면 못 읽음.
+    읽는 순서: ① 타입 이름 그대로(113A) ② 평(34평 → 공급 112㎡ 근처, 안 되면 전용평)
+    ③ 숫자(+글자): 타입 이름 앞 숫자가 같은 것 → 없으면 전용·공급 면적이 같은 것. 소수(76.79)는 면적으로만.
+    글자(84A 의 A)가 있으면 후보 중 같은 글자로 끝나는 타입으로 좁힌다."""
+    t = re.sub(r"\s+", "", str(text or "")).upper().replace("M²", "㎡").replace("M2", "㎡")
+    if not t:
+        return set(), ""
+    if not types:
+        return set(), "단지 타입 정보 없음"
+    names = {n.upper(): n for n, _, _ in types}
+    if t in names:
+        return {names[t]}, "타입 이름"
+    m = re.match(r"(\d{1,3}(?:\.\d+)?)", t)
+    if not m:
+        return set(), "타입을 읽지 못함"
+    v = float(m.group(1))
+    rest = t[m.end():]
+    if "평" in rest or "PY" in rest:
+        s = v * PYEONG
+        # 사무소마다 공급÷3.3 을 내림하거나 반올림해 부른다(115.54㎡ = 34평이자 35평) — 둘 다, 그리고 ±2.5㎡
+        got = {n for n, sup, ex in types if sup and (int(sup / PYEONG) == int(v) or round(sup / PYEONG) == int(v) or abs(sup - s) <= 2.5)}
+        if not got:
+            got = {n for n, sup, ex in types if ex and abs(ex - s) <= 1.5}
+        return (got, "평") if got else (set(), f"{v:g}평에 맞는 타입 없음")
+    letter = re.sub(r"[^A-Z]", "", rest.replace("㎡", "").replace("형", "").replace("타입", "").replace("TYPE", ""))[:2]
+    if "." in m.group(1):
+        got = {n for n, sup, ex in types if (ex and abs(ex - v) <= 0.005) or (sup and abs(sup - v) <= 0.005)} \
+            or {n for n, sup, ex in types if (ex and abs(ex - v) <= 0.5) or (sup and abs(sup - v) <= 0.5)}
+    else:
+        iv = int(v)
+        got = {n for n, _, _ in types if re.match(r"(\d+)", n) and int(re.match(r"(\d+)", n).group(1)) == iv}
+        if not got:
+            got = {n for n, sup, ex in types if (ex and abs(ex - v) <= 1.0) or (sup and abs(sup - v) <= 1.0)}
+    if got and letter:
+        narrowed = {n for n in got if re.sub(r"[\d.]", "", n.upper()).startswith(letter)}
+        got = narrowed or got
+    return (got, "면적") if got else (set(), f"{t}에 맞는 타입 없음")
 
 
 def match(c: sqlite3.Connection, main_db: sqlite3.Connection, data_dir: Path, realtor_id: str, list_id: int | None = None, only_others: bool = False) -> dict:
@@ -469,7 +505,7 @@ def match(c: sqlite3.Connection, main_db: sqlite3.Connection, data_dir: Path, re
     out_units, n_ads = [], 0
     for cx, us in by_cx.items():
         ads = main_db.execute(
-            "SELECT l.article_no, l.building_name, l.floor_info, l.trade_type, l.area_name, l.area2_m2, l.deal_or_warrant_price, l.rent_price, l.realtor_id, l.realtor_name, "
+            "SELECT l.article_no, l.building_name, l.floor_info, l.trade_type, l.area_name, l.area1_m2, l.area2_m2, l.deal_or_warrant_price, l.rent_price, l.realtor_id, l.realtor_name, "
             "l.article_confirm_ymd, l.direction, cx.complex_name, cx.high_floor FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no WHERE l.complex_no=?", (cx,)).fetchall()
         if not ads:
             continue
@@ -477,10 +513,13 @@ def match(c: sqlite3.Connection, main_db: sqlite3.Connection, data_dir: Path, re
         for a in ads:
             d = re.sub(r"\D", "", a["building_name"] or "")
             idx.setdefault(d, []).append(a)
+        types = complex_types(main_db, cx, ads)
         for u in us:
             d = re.sub(r"\D", "", u["dong"] or "")
             if not d or d not in idx or not u["floor"]:
                 continue
+            # 명단에 타입이 있으면 그 단지의 실제 타입으로 바꿔 광고 타입과 맞춘다(같은 층 다른 타입 광고를 걸러 정확도↑)
+            utypes, why = resolve_type(u["area"] if "area" in u.keys() else None, types)
             hits = []
             for a in idx[d]:
                 fi = str(a["floor_info"] or "")
@@ -500,7 +539,7 @@ def match(c: sqlite3.Connection, main_db: sqlite3.Connection, data_dir: Path, re
                     strength = f"층대 일치({top}층)"
                 else:
                     continue
-                if not _area_ok(u["area"] if "area" in u.keys() else None, a["area_name"], a["area2_m2"]):
+                if utypes and a["area_name"] not in utypes:
                     continue
                 mine = a["realtor_id"] == realtor_id
                 if only_others and mine:
@@ -525,10 +564,12 @@ def match(c: sqlite3.Connection, main_db: sqlite3.Connection, data_dir: Path, re
                 n_ads += len(hits)
                 out_units.append({"unit_id": u["id"], "complex_no": cx, "complex_name": ads[0]["complex_name"], "dong": u["dong"], "ho": u["ho"], "floor": u["floor"], "role": u["role"] or "",
                                   "grade": "층 일치" if exact else "층대만 일치",
+                                  "type_raw": (u["area"] if "area" in u.keys() else "") or "", "type_ok": bool(utypes), "types": sorted(utypes), "type_note": "" if utypes else why,
                                   "name_masked": mask_name(dec(data_dir, u["name_enc"])), "phone_masked": mask_phone(dec(data_dir, u["phone_enc"])), "note": u["note"] or "",
                                   "houses": [h for h in hs if h["strength"] == "층 일치"] if exact else hs})
     out_units.sort(key=lambda x: (x["grade"] != "층 일치", x["complex_name"], int(re.sub(r"\D", "", x["dong"]) or 0), x["floor"]))
     return {"units": out_units, "n_units": len(out_units), "n_exact": sum(1 for x in out_units if x["grade"] == "층 일치"),
+            "n_type_ok": sum(1 for x in out_units if x["type_ok"]), "n_exact_type": sum(1 for x in out_units if x["type_ok"] and x["grade"] == "층 일치"),
             "n_houses": sum(len(x["houses"]) for x in out_units), "n_ads": n_ads, "n_roster": len(units)}
 
 
