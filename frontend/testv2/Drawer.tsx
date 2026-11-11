@@ -30,7 +30,9 @@ type Info = {
 };
 type AggRow = { area_name: string; trade_type: string; listing_count: number; price_min: number; price_max: number; price_avg?: number | null;
   rent_min?: number | null; rent_max?: number | null; rent_avg?: number | null };
-type Area = { pyeong_name: string; supply_area: number; exclusive_area: number; household_count: number };
+type Area = { pyeong_name: string; supply_area: number; exclusive_area: number; household_count: number; rooms?: number | null; baths?: number | null };
+// 매물 줄의 '방 3 · 욕실 2' — 네이버 단지 평형 정보(같은 타입이면 구조가 같다)
+const rbText = (a?: Area) => a && (a.rooms || a.baths) ? ` · 방 ${a.rooms ?? "-"} · 욕실 ${a.baths ?? "-"}` : "";
 type DealRow = {
   article_no: string; area_name: string; floor_info: string; direction?: string; price: number; price_text: string;
   discount: number; avg_real: number; n_real: number; realtor_id: string; realtor_name: string; tel?: string;
@@ -124,6 +126,7 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
 
   // 평형 이름(84A 등) → 전용㎡
   const exclOf = useMemo(() => new Map(areas.map((a) => [a.pyeong_name, a.exclusive_area])), [areas]);
+  const areaOf = useMemo(() => new Map(areas.map((a) => [a.pyeong_name, a])), [areas]);
   const cnt = useMemo(() => {
     const c = { A1: 0, B1: 0, B2: 0 } as Record<string, number>;
     (agg || []).forEach((r) => { c[r.trade_type] = (c[r.trade_type] || 0) + r.listing_count; });
@@ -177,7 +180,7 @@ export function ComplexDrawer({ cx, onClose, onPick, initialTab = "deals", fav, 
           <div className="t2-dr-flt"><div className="t2-ph"><h3><span className="t2-kz">콕집</span> 콕집 매물 <small>{kok.length}건</small></h3></div>
             <ul className="t2-kok-list">{kok.slice(0, 20).map((k) => <KokRow key={k.id} it={k} onOpen={(x) => onKok?.(x)} />)}</ul></div>
         )}
-        {tab === "deals" && <DealsTab no={cx.complex_no} deals={deals} exclOf={exclOf} onRequest={(d) => setReq({
+        {tab === "deals" && <DealsTab no={cx.complex_no} deals={deals} exclOf={exclOf} areaOf={areaOf} onRequest={(d) => setReq({
           realtor_id: d.realtor_id, realtor_name: d.realtor_name, complex: regionName,
           listing: { article_no: d.article_no, area_name: d.area_name, excl: exclOf.get(d.area_name) ?? null,
             floor_info: d.floor_info, price_text: d.price_text } })} />}
@@ -204,7 +207,7 @@ function floorBand(f: string): "저" | "중" | "고" | "" {
 }
 
 const SORTS = { disc: "할인 큰 순", price: "가격 낮은 순", recent: "최근 확인 순" } as const;
-function DealsTab({ no, deals, exclOf, onRequest }: { no: string; deals: DealRow[] | null; exclOf: Map<string, number>; onRequest: (d: DealRow) => void }) {
+function DealsTab({ no, deals, exclOf, areaOf, onRequest }: { no: string; deals: DealRow[] | null; exclOf: Map<string, number>; areaOf: Map<string, Area>; onRequest: (d: DealRow) => void }) {
   const [type, setType] = useState("");
   const [size, setSize] = useState("");
   const [floor, setFloor] = useState("");
@@ -228,7 +231,7 @@ function DealsTab({ no, deals, exclOf, onRequest }: { no: string; deals: DealRow
 
   if (deals == null) return <Skel />;
   // 급매가 없어도 특수조건 매물(주인전세·세안고·대출승계)은 보여 준다
-  if (deals.length === 0) return <><p className="t2-empty">지금 이 단지엔 급매가 없어요.</p><SpecialBlock no={no} /></>;
+  if (deals.length === 0) return <><p className="t2-empty">지금 이 단지엔 급매가 없어요.</p><SpecialBlock no={no} areaOf={areaOf} /></>;
   const shown = more ? rows : rows.slice(0, 20);
   return (
     <>
@@ -272,7 +275,7 @@ function DealsTab({ no, deals, exclOf, onRequest }: { no: string; deals: DealRow
                   </span>
                 </div>
                 <div className="t2-dl-mid">
-                  {e ? areaLabel(e) : d.area_name} · {d.area_name}타입 · {d.dong ? `${d.dong} · ` : ""}{d.floor_info}층{d.direction ? ` · ${d.direction}` : ""}
+                  {e ? areaLabel(e) : d.area_name} · {d.area_name}타입{rbText(areaOf.get(d.area_name))} · {d.dong ? `${d.dong} · ` : ""}{d.floor_info}층{d.direction ? ` · ${d.direction}` : ""}
                 </div>
                 <div className="t2-dl-sub">실거래 평균 {wonShort(d.avg_real)} ({d.n_real}건) 대비</div>
                 <div className="t2-dl-bot">
@@ -286,7 +289,7 @@ function DealsTab({ no, deals, exclOf, onRequest }: { no: string; deals: DealRow
         </ul>
       )}
       {!more && rows.length > 20 && <button className="t2-more-btn" onClick={() => setMore(true)}>{rows.length}건 모두 보기</button>}
-      <SpecialBlock no={no} />
+      <SpecialBlock no={no} areaOf={areaOf} />
     </>
   );
 }
@@ -297,7 +300,7 @@ export const SPECIAL_KINDS: { k: string; l: string; h: string }[] = [
 ];
 type SpRow = { article_no: string; complex_no: string; complex_name: string; area_name: string; area1_m2: number; price: number; floor_info: string; direction?: string;
   realtor_name: string; desc: string; confirm_ymd: string; matched: string; region_name: string; naver_url: string; kind: string };
-function SpecialBlock({ no }: { no: string }) {
+function SpecialBlock({ no, areaOf }: { no: string; areaOf?: Map<string, Area> }) {
   const [rows, setRows] = useState<SpRow[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => {
@@ -318,7 +321,7 @@ function SpecialBlock({ no }: { no: string }) {
               <span className="t2-tag sp">{lbl(r.kind)}</span>
               <span className="t2-dl-btns">{r.naver_url && <a className="t2-nbtn" href={r.naver_url} target="_blank" rel="noreferrer" title="네이버 매물 바로가기" aria-label="네이버 매물 바로가기">N</a>}</span>
             </div>
-            <div className="t2-dl-mid">{r.area1_m2 ? areaLabel(r.area1_m2) : ""} · {r.area_name}타입 · {r.floor_info}층{r.direction ? ` · ${r.direction}` : ""}</div>
+            <div className="t2-dl-mid">{(() => { const ex = areaOf?.get(r.area_name)?.exclusive_area; return ex ? areaLabel(ex) : ""; })() || r.area_name} · {r.area_name}타입{rbText(areaOf?.get(r.area_name))} · {r.floor_info}층{r.direction ? ` · ${r.direction}` : ""}</div>
             <p className="t2-dl-desc">{open === r.article_no ? r.desc : r.desc.length > 60 ? r.desc.slice(0, 60) + "…" : r.desc}
               {r.desc.length > 60 && <button className="t2-lnk" onClick={() => setOpen(open === r.article_no ? null : r.article_no)}>{open === r.article_no ? "접기" : "더보기"}</button>}</p>
             <div className="t2-dl-bot"><span>{r.realtor_name} · 확인 {ymd8(r.confirm_ymd)}</span></div>

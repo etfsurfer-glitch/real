@@ -5062,7 +5062,7 @@ def complex_areas_endpoint(complex_no: str):
     with _open_db() as c:
         rows = c.execute(
             """
-            SELECT pyeong_name, supply_area, exclusive_area, household_count
+            SELECT pyeong_name, supply_area, exclusive_area, household_count, room_cnt, bath_cnt
             FROM complex_areas WHERE complex_no = ?
             ORDER BY supply_area
             """,
@@ -5072,7 +5072,8 @@ def complex_areas_endpoint(complex_no: str):
         "complex_no": complex_no,
         "items": [
             {"pyeong_name": r[0], "supply_area": r[1],
-             "exclusive_area": r[2], "household_count": r[3]}
+             "exclusive_area": r[2], "household_count": r[3],
+             "rooms": r[4] or None, "baths": r[5] or None}     # 네이버 단지 평형 정보의 방·욕실 수(2026-11-11)
             for r in rows
         ],
     }
@@ -12609,14 +12610,23 @@ def map_listings(swlat: float, swlng: float, nelat: float, nelng: float,
             cw.append("cx.total_household_count<=?"); cp.append(hh_max)
         # ── 매물 조건(listings_current) ──
         tagor = lambda names: "(" + " OR ".join("l.tag_list_json LIKE ?" for _ in names) + ")"
+        # 방·욕실 수(2026-11-11): 네이버 단지 평형 정보(complex_areas.room_cnt·bath_cnt, 매물의 99.9%)가 기준,
+        # 평형 정보가 없을 때만 중개사가 붙인 태그(방두개·화장실두개). 태그만 쓰면 욕실 태그 없는 아파트 21%·
+        # 방 태그 없는 오피스텔 21%가 필터에서 빠졌다. 둘 다 있는 매물에서 욕실 97~99%·방 93~95% 일치.
+        def _cnt(col, tagmap, cap):
+            tag = "CASE " + " ".join(f"WHEN l.tag_list_json LIKE '%\"{t}\"%' THEN {n}" for t, n in tagmap) + " END"
+            return (f"MIN(COALESCE((SELECT NULLIF(ca.{col},0) FROM complex_areas ca "
+                    f"WHERE ca.complex_no=l.complex_no AND ca.pyeong_name=l.area_name), {tag}), {cap})")
         if rooms:
-            rl = [{"1": "방한개", "2": "방두개", "3": "방세개", "4": "방네개이상"}[x] for x in rooms.split(",") if x in ("1", "2", "3", "4")]
+            rl = [int(x) for x in rooms.split(",") if x in ("1", "2", "3", "4")]
             if rl:
-                lw.append(tagor(rl)); lp.extend(f'%"{t}"%' for t in rl)
+                lw.append(f"{_cnt('room_cnt', [('방한개', 1), ('방두개', 2), ('방세개', 3), ('방네개이상', 4)], 4)} IN ({','.join('?' * len(rl))})")
+                lp.extend(rl)
         if baths:
-            bl = [{"1": "화장실한개", "2": "화장실두개", "3": "화장실세개"}[x] for x in baths.split(",") if x in ("1", "2", "3")]
+            bl = [int(x) for x in baths.split(",") if x in ("1", "2", "3")]
             if bl:
-                lw.append(tagor(bl)); lp.extend(f'%"{t}"%' for t in bl)
+                lw.append(f"{_cnt('bath_cnt', [('화장실한개', 1), ('화장실두개', 2), ('화장실세개', 3)], 3)} IN ({','.join('?' * len(bl))})")
+                lp.extend(bl)
         if floor:
             fs = [x for x in floor.split(",") if x in ("low", "mid", "high", "top")]
             f1 = "substr(l.floor_info,1,instr(l.floor_info,'/')-1)"
