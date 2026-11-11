@@ -123,7 +123,7 @@ HEAD = {
     "phone": ["연락처", "전화번호", "휴대폰", "핸드폰", "전화", "휴대전화", "번호"],
     "role": ["구분", "소유구분", "거주구분", "관계", "임대차"],
     "note": ["비고", "메모", "특이사항", "참고"],
-    "area": ["타입", "평형", "면적", "전용면적", "전용", "주택형"],
+    "area": ["타입", "평형", "면적", "전용면적", "전용", "주택형", "평수", "평", "공급면적", "공급", "계약면적", "타입명", "type", "평형대", "형별", "형", "평형타입", "py"],
 }
 
 
@@ -213,53 +213,105 @@ def floor_of(ho: str | None) -> int | None:
     return f if 0 < f <= 120 else None
 
 
-def parse(data: bytes, filename: str) -> dict:
-    """명단 파일 → {rows:[{complex_raw, dong, ho, floor, name, phone, role, note}], header, skipped}."""
+_TYPE_VAL = re.compile(r"^\d{2,3}(\.\d{1,2})?\s*([A-Za-z]{1,2}\d?)?\s*(평형?|㎡|m2|m²|형|타입|py)?$", re.I)
+
+
+def _looks_type_col(vals: list[str]) -> bool:
+    """값만 보고 타입 칸인지 — 84A·34평·59.99·112 꼴이 대부분이고, 전화번호·동호수 꼴이 아니다."""
+    vs = [v for v in vals if v][:200]
+    if len(vs) < 5:
+        return False
+    hit = sum(1 for v in vs if _TYPE_VAL.match(v))
+    letters_or_unit = sum(1 for v in vs if re.search(r"[A-Za-z평㎡형.]", v))
+    return hit >= len(vs) * 0.7 and letters_or_unit >= len(vs) * 0.3
+
+
+def parse(data: bytes, filename: str, col_map: dict | None = None) -> dict:
+    """명단 파일 → {rows:[{complex_raw, dong, ho, floor, name, phone, role, note, area}], skipped, fields, columns}.
+    col_map = {머리글 글자: 필드} 로 사무소가 고른 칸을 덮어쓴다(예: {'평수': 'area'}, 빼려면 ''). 
+    타입 칸은 머리글로 못 찾으면 값(84A·34평·59.99)으로 찾는다."""
     raw = read_rows(data, filename)
-    out, skipped, header_seen = [], 0, None
-    mapping: dict[int, str] = {}
-    fields_seen: set = set()
+    sheets: list[list] = [[]]
     for r in raw:
-        if r is None:          # 새 시트 — 머리글 다시 찾기
-            mapping = {}; header_seen = None
-            continue
-        cells = [_cell(v) for v in r]
-        if not any(cells):
-            continue
-        if not mapping:
+        if r is None:
+            sheets.append([]); continue
+        sheets[-1].append([_cell(v) for v in r])
+    cmap = {_norm(k): v for k, v in (col_map or {}).items()}
+    out, skipped = [], 0
+    fields_seen: set = set()
+    columns: list[dict] = []      # 화면용: 머리글마다 어떤 필드로 읽었는지(값은 담지 않는다)
+    col_seen: set = set()
+    for rows in sheets:
+        hi, mapping = None, {}
+        for k, cells in enumerate(rows):
+            if not any(cells):
+                continue
             m = {}
             for j, c in enumerate(cells):
                 f = _match_head(c)
                 if f and f not in m.values():
                     m[j] = f
-            # 머리글 조건: 이름·연락처·동호 중 둘 이상이 잡히고 숫자만 든 칸이 없다
             if len({v for v in m.values()} & {"name", "phone", "dongho", "dong", "ho", "complex"}) >= 2 and not any(re.fullmatch(r"[\d,.\-]+", c) for c in cells if c):
-                mapping = m; header_seen = cells; fields_seen |= set(m.values())
-                continue
+                hi, mapping = k, m
+                break
             skipped += 1
+        if hi is None:
             continue
-        rec = {k: "" for k in ("complex_raw", "dong", "ho", "name", "phone", "role", "note", "area")}
-        for j, f in mapping.items():
-            v = cells[j] if j < len(cells) else ""
-            if not v:
+        head = rows[hi]
+        body = rows[hi + 1:]
+        how: dict[int, str] = {j: "머리글" for j in mapping}
+        if "area" not in mapping.values():
+            # 머리글로 못 찾았으면 값으로 — 이름 없는 칸이나 구분·비고로 잡힌 칸에 84A·34평이 가득하면 그게 타입 칸
+            for j, h in enumerate(head):
+                if mapping.get(j) not in (None, "role", "note"):
+                    continue
+                if _looks_type_col([b[j] if j < len(b) else "" for b in body]):
+                    mapping[j] = "area"; how[j] = "값으로 찾음"
+                    break
+        for j, h in enumerate(head):          # 사무소가 고른 칸이 우선
+            if h and _norm(h) in cmap:
+                f = cmap[_norm(h)]
+                for jj, ff in list(mapping.items()):
+                    if f and ff == f and jj != j:
+                        del mapping[jj]
+                if f:
+                    mapping[j] = f; how[j] = "직접 고름"
+                else:
+                    mapping.pop(j, None)
+        fields_seen |= set(mapping.values())
+        # '평수'·'평형' 칸에 숫자만 적혀 있으면 평으로 읽는다(34 → 34평)
+        pyeong_cols = {j for j, f in mapping.items() if f == "area" and _norm(head[j] if j < len(head) else "") in ("평수", "평", "평형", "평형대", "py", "평형평")}
+        for j, h in enumerate(head):
+            if h and h not in col_seen:
+                col_seen.add(h)
+                columns.append({"header": h, "field": mapping.get(j) or "", "how": how.get(j, "") if j in mapping else ""})
+        for cells in body:
+            if not any(cells):
                 continue
-            if f == "complex":
-                rec["complex_raw"] = v
-            elif f == "dongho":
-                d, h = split_dongho(v); rec["dong"] = d or rec["dong"]; rec["ho"] = h or rec["ho"]
-            elif f == "dong":
-                rec["dong"] = re.sub(r"\D", "", v) or v
-            elif f == "ho":
-                rec["ho"] = re.sub(r"\D", "", v) or v
-            else:
-                rec[f] = v
-        if not (rec["dong"] or rec["ho"]) or not (rec["name"] or rec["phone"]):
-            skipped += 1
-            continue
-        rec["floor"] = floor_of(rec["ho"])
-        out.append(rec)
-    return {"rows": out, "header": header_seen or [], "skipped": skipped,
-            "fields": sorted(fields_seen)}
+            rec = {k: "" for k in ("complex_raw", "dong", "ho", "name", "phone", "role", "note", "area")}
+            for j, f in mapping.items():
+                v = cells[j] if j < len(cells) else ""
+                if not v:
+                    continue
+                if f == "complex":
+                    rec["complex_raw"] = v
+                elif f == "dongho":
+                    d, h = split_dongho(v); rec["dong"] = d or rec["dong"]; rec["ho"] = h or rec["ho"]
+                elif f == "dong":
+                    rec["dong"] = re.sub(r"\D", "", v) or v
+                elif f == "ho":
+                    rec["ho"] = re.sub(r"\D", "", v) or v
+                elif f == "area" and j in pyeong_cols and re.fullmatch(r"\d{1,3}(\.\d+)?", v):
+                    rec["area"] = v + "평"
+                else:
+                    rec[f] = v
+            if not (rec["dong"] or rec["ho"]) or not (rec["name"] or rec["phone"]):
+                skipped += 1
+                continue
+            rec["floor"] = floor_of(rec["ho"])
+            out.append(rec)
+    return {"rows": out, "skipped": skipped, "fields": sorted(fields_seen), "columns": columns,
+            "n_area": sum(1 for r in out if r["area"])}
 
 
 # ── 단지 연결 ─────────────────────────────────────────────────────────────
@@ -482,13 +534,19 @@ def resolve_type(text: str | None, types: list[tuple]) -> tuple[set, str]:
         got = {n for n, sup, ex in types if (ex and abs(ex - v) <= 0.005) or (sup and abs(sup - v) <= 0.005)} \
             or {n for n, sup, ex in types if (ex and abs(ex - v) <= 0.5) or (sup and abs(sup - v) <= 0.5)}
     else:
+        # 같은 숫자를 두 갈래로 읽는다 — 타입 이름 앞 숫자(단지가 공급 기준이면 84B=전용59)와 전용·공급 면적(84=전용84).
+        # 글자(84A 의 A)가 한쪽에만 맞으면 그쪽, 글자가 없고 두 갈래가 다르면 둘 다(놓치지 않게).
         iv = int(v)
-        got = {n for n, _, _ in types if re.match(r"(\d+)", n) and int(re.match(r"(\d+)", n).group(1)) == iv}
-        if not got:
-            got = {n for n, sup, ex in types if (ex and abs(ex - v) <= 1.0) or (sup and abs(sup - v) <= 1.0)}
-    if got and letter:
-        narrowed = {n for n in got if re.sub(r"[\d.]", "", n.upper()).startswith(letter)}
-        got = narrowed or got
+        by_name = {n for n, _, _ in types if re.match(r"(\d+)", n) and int(re.match(r"(\d+)", n).group(1)) == iv}
+        by_area = {n for n, sup, ex in types if ex and abs(ex - v) <= 1.0} or {n for n, sup, ex in types if sup and abs(sup - v) <= 1.0}
+        if letter:
+            def _lt(ss):
+                return {n for n in ss if re.sub(r"[\d.]", "", n.upper()).startswith(letter)}
+            a1, b1 = _lt(by_name), _lt(by_area)
+            got = (a1 | b1) or (by_name | by_area)
+        else:
+            got = by_name | by_area
+        return (got, "면적") if got else (set(), f"{t}에 맞는 타입 없음")
     return (got, "면적") if got else (set(), f"{t}에 맞는 타입 없음")
 
 

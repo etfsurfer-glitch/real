@@ -16,7 +16,8 @@ type Unit = { unit_id: number; complex_no: string; complex_name: string; dong: s
   name_masked: string; phone_masked: string; note: string; houses: House[]; type_raw: string; type_ok: boolean; types: string[]; type_note: string };
 type Match = { units: Unit[]; n_units: number; n_exact: number; n_type_ok: number; n_exact_type: number; n_houses: number; n_ads: number; n_roster: number };
 type Cand = { complex_no: string; name: string; addr: string; households: number; exact: boolean };
-type Preview = { n_rows: number; skipped: number; fields: string[]; linked: number; complexes: { raw: string; complex_no: string; matched: string; n: number; picked: boolean; candidates: Cand[] }[];
+type Col = { header: string; field: string; how: string };
+type Preview = { n_rows: number; skipped: number; fields: string[]; columns: Col[]; n_area: number; linked: number; complexes: { raw: string; complex_no: string; matched: string; n: number; picked: boolean; candidates: Cand[] }[];
   sample: { complex: string; dong: string; ho: string; name: string; phone: string }[] };
 
 const FIELD_L: Record<string, string> = { complex: "단지", dongho: "동·호", dong: "동", ho: "호", name: "이름", phone: "연락처", role: "구분", note: "메모", area: "타입·면적" };
@@ -205,9 +206,10 @@ function Upload({ authH, lists, onDone }: { authH: () => Record<string, string>;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [cxMap, setCxMap] = useState<Record<string, string>>({});
-  const preview = async (f: File, cm: Record<string, string>) => {
+  const [colMap, setColMap] = useState<Record<string, string>>({});
+  const preview = async (f: File, cm: Record<string, string>, colm: Record<string, string> = colMap) => {
     setBusy(true);
-    const fd = new FormData(); fd.append("file", f); fd.append("cx_map", JSON.stringify(cm));
+    const fd = new FormData(); fd.append("file", f); fd.append("cx_map", JSON.stringify(cm)); fd.append("col_map", JSON.stringify(colm));
     try {
       const r = await fetch(`${API}/lounge/roster/preview`, { method: "POST", headers: authH(), body: fd });
       const j = await r.json();
@@ -216,16 +218,17 @@ function Upload({ authH, lists, onDone }: { authH: () => Record<string, string>;
     } catch (e) { setErr(String((e as Error).message || e)); } finally { setBusy(false); }
   };
   const pick = (f: File | null) => {
-    setFile(f); setPv(null); setErr(""); setAck(false); setCxMap({});
+    setFile(f); setPv(null); setErr(""); setAck(false); setCxMap({}); setColMap({});
     if (!f) return;
     if (!target) setName(f.name.replace(/\.[^.]+$/, ""));
-    preview(f, {});
+    preview(f, {}, {});
   };
   const choose = (raw: string, cno: string) => { if (!file) return; const cm = { ...cxMap, [raw]: cno }; if (!cno) delete cm[raw]; setCxMap(cm); preview(file, cm); };
+  const chooseCol = (header: string, field: string) => { if (!file) return; const m = { ...colMap, [header]: field }; setColMap(m); preview(file, cxMap, m); };
   const save = async () => {
     if (!file || !ack) return;
     setBusy(true); setErr("");
-    const fd = new FormData(); fd.append("file", file); fd.append("ack", "1"); fd.append("name", name); if (target) fd.append("list_id", String(target)); fd.append("cx_map", JSON.stringify(cxMap));
+    const fd = new FormData(); fd.append("file", file); fd.append("ack", "1"); fd.append("name", name); if (target) fd.append("list_id", String(target)); fd.append("cx_map", JSON.stringify(cxMap)); fd.append("col_map", JSON.stringify(colMap));
     try {
       const r = await fetch(`${API}/lounge/roster/upload`, { method: "POST", headers: authH(), body: fd });
       const j = await r.json();
@@ -252,8 +255,21 @@ function Upload({ authH, lists, onDone }: { authH: () => Record<string, string>;
         <dl className="kokm-dl">
           <div><dt>세대</dt><dd>{pv.n_rows.toLocaleString()}줄{pv.skipped ? ` (동·호나 이름·연락처가 없어 건너뛴 줄 ${pv.skipped.toLocaleString()})` : ""}</dd></div>
           <div><dt>단지 연결</dt><dd>{pv.linked.toLocaleString()}줄{pv.n_rows - pv.linked > 0 && <small className="blk">연결 안 된 {(pv.n_rows - pv.linked).toLocaleString()}줄은 저장은 되지만 대조에서 빠져요.</small>}</dd></div>
-          <div><dt>읽은 칸</dt><dd>{pv.fields.map((f) => FIELD_L[f] || f).join(" · ") || "-"}</dd></div>
+          <div><dt>타입</dt><dd>{pv.n_area
+            ? <>{pv.n_area.toLocaleString()}세대에 타입이 있어요 — 같은 타입 광고만 대조해요.</>
+            : <span style={{ color: "#b26a00", fontWeight: 700 }}>타입 칸을 찾지 못했어요. 명단에 타입·평형 칸이 있으면 아래 표에서 그 칸을 '타입·면적'으로 골라 주세요.</span>}</dd></div>
         </dl>
+        <table className="kokm-tbl">
+          <thead><tr><th>명단의 칸</th><th>이렇게 읽어요</th></tr></thead>
+          <tbody>{pv.columns.map((c) => (
+            <tr key={c.header} className={c.field ? "" : "off"}>
+              <td>{c.header}</td>
+              <td><select value={c.field} onChange={(e) => chooseCol(c.header, e.target.value)}>
+                <option value="">읽지 않음</option>
+                {Object.entries(FIELD_L).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>{c.how && c.how !== "머리글" && <small className="muted" style={{ marginLeft: 8 }}>{c.how}</small>}</td>
+            </tr>))}</tbody>
+        </table>
         <table className="kokm-tbl">
           <thead><tr><th>명단의 단지 이름</th><th>연결된 단지</th><th className="num">세대</th></tr></thead>
           <tbody>{pv.complexes.map((c) => (
