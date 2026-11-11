@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 import {
   Home, LayoutDashboard, ClipboardList, TrendingUp, LineChart, Presentation, ShieldCheck,
   Users, Shuffle, MessageSquare, FileText, Files, CalendarDays, FileCheck, Send, Globe,
-  Star, Store, Phone, UserCog, Pencil, Settings,
+  Star, Store, Phone, UserCog, Pencil, Settings, ListChecks,
 } from "lucide-react";
 
 // 메뉴 key → 아이콘(레일·아이콘레일 공용)
@@ -14,7 +14,7 @@ const RAIL_ICON: Record<string, React.ReactNode> = {
   home: <Home size={17} />, dash: <LayoutDashboard size={17} />,
   diary: <ClipboardList size={17} />, rank: <TrendingUp size={17} />, analyze: <LineChart size={17} />,
   brief: <Presentation size={17} />, audit: <ShieldCheck size={17} />,
-  ledger: <Users size={17} />, match: <Shuffle size={17} />, leads: <MessageSquare size={17} />,
+  ledger: <Users size={17} />, match: <Shuffle size={17} />, leads: <MessageSquare size={17} />, roster: <ListChecks size={17} />,
   wcontracts: <FileText size={17} />, contracts: <Files size={17} />, calendar: <CalendarDays size={17} />,
   verify: <FileCheck size={17} />, requests: <Send size={17} />, homepage: <Globe size={17} />,
   favs: <Star size={17} />, "fav-offices": <Store size={17} />, calls: <Phone size={17} />,
@@ -37,6 +37,7 @@ export const BIZ_NAV: Record<BizSection, BizNavItem[]> = {
     { key: "ledger", to: "/biz/ledger", label: "고객원장" },
     { key: "match", to: "/biz/match", label: "물건매칭" },
     { key: "leads", to: "/biz/leads", label: "상담신청" },
+    { key: "roster", to: "/biz/roster", label: "명단 대조" },
   ],
   contracts: [
     { key: "wcontracts", to: "/biz/wcontracts", label: "계약서 작성" },

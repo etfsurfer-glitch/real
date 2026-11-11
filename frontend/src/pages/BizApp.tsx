@@ -222,7 +222,7 @@ export default function BizApp() {
   const dispatch = (screen && SCREENS[screen]) ? (
     <>
       {screen === "kok" && (st.is_admin ? <KokScreen authH={authH} office={office} /> : <p className="muted" style={{ padding: 20 }}>준비 중인 기능이에요.</p>)}
-      {screen === "roster" && (st.is_admin ? <RosterScreen authH={authH} /> : <p className="muted" style={{ padding: 20 }}>준비 중인 기능이에요.</p>)}
+      {screen === "roster" && <RosterScreen authH={authH} />}
       {screen === "diary" && <ListingsTab authH={authH} office={office} />}
       {screen === "rank" && <MyRankTab authH={authH} />}
       {screen === "analyze" && <AnalyzeTab />}
@@ -675,7 +675,6 @@ function BizHome({ office, authH, role, staffName, hideChrome, kokEntry }: {
       {!hideChrome && <BizTop settings />}
       <div className="biz-body">
       {kokEntry && <KokPanel authH={authH} />}
-      {kokEntry && <p className="kokm-note" style={{ margin: "0 0 10px" }}><Link to="/biz/roster">명단 대조</Link> — 입주자·소유자 명단 ↔ 광고 (관리자 시험 중)</p>}
         <div className="biz-greet">
           <div className="biz-greet-name"><b>{role === "owner" ? `${office.representative || "대표"} 대표님` : `${staffName || "직원"}님`}</b>, 안녕하세요</div>
           <div className="biz-greet-office">{office.realtor_name}</div>

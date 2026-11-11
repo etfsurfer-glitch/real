@@ -12289,9 +12289,7 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
 def _roster_rid(user: dict) -> str:
     with _reviews_db() as c:
         rid = _require_member(c, user["id"])
-    if not _is_admin_uid(user["id"]):      # 테스트 기간: 관리자만
-        raise HTTPException(403, "준비 중인 기능이에요")
-    return rid
+    return rid      # 2026-11-11 라운지 회원에게 공개(실사용 테스트)
 
 
 def _roster_sggs(rid: str) -> list[str]:
