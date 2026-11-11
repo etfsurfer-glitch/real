@@ -218,6 +218,7 @@ def parse(data: bytes, filename: str) -> dict:
     raw = read_rows(data, filename)
     out, skipped, header_seen = [], 0, None
     mapping: dict[int, str] = {}
+    fields_seen: set = set()
     for r in raw:
         if r is None:          # 새 시트 — 머리글 다시 찾기
             mapping = {}; header_seen = None
@@ -233,7 +234,7 @@ def parse(data: bytes, filename: str) -> dict:
                     m[j] = f
             # 머리글 조건: 이름·연락처·동호 중 둘 이상이 잡히고 숫자만 든 칸이 없다
             if len({v for v in m.values()} & {"name", "phone", "dongho", "dong", "ho", "complex"}) >= 2 and not any(re.fullmatch(r"[\d,.\-]+", c) for c in cells if c):
-                mapping = m; header_seen = cells
+                mapping = m; header_seen = cells; fields_seen |= set(m.values())
                 continue
             skipped += 1
             continue
@@ -258,7 +259,7 @@ def parse(data: bytes, filename: str) -> dict:
         rec["floor"] = floor_of(rec["ho"])
         out.append(rec)
     return {"rows": out, "header": header_seen or [], "skipped": skipped,
-            "fields": sorted(set(mapping.values())) if mapping else []}
+            "fields": sorted(fields_seen)}
 
 
 # ── 단지 연결 ─────────────────────────────────────────────────────────────
@@ -268,7 +269,21 @@ def norm_cx(s: str) -> str:
     return re.sub(r"[\s\-·.]+", "", s).lower()
 
 
-def link_complexes(main_db: sqlite3.Connection, rows: list[dict], sgg_prefixes: list[str], default_complex_no: str | None = None) -> dict:
+def complex_candidates(main_db: sqlite3.Connection, raw: str, limit: int = 8) -> list[dict]:
+    """자동 연결이 안 된 단지 이름 → 전국 후보(이름 같은 것 먼저, 세대 많은 순). 사무소가 고른다."""
+    key = norm_cx(raw)
+    if len(key) < 2:
+        return []
+    rows = main_db.execute(
+        "SELECT cx.complex_no, cx.complex_name, trim(COALESCE(g.cortar_name,'') || ' ' || COALESCE(d.cortar_name,'')) AS addr, cx.total_household_count AS hh FROM complexes cx "
+        "LEFT JOIN regions d ON d.cortar_no=cx.cortar_no LEFT JOIN regions g ON g.cortar_no=d.parent_cortar_no "
+        "WHERE cx.real_estate_type IN ('APT','OPST','ABYG','JGC') AND replace(cx.complex_name,' ','') LIKE ? LIMIT 200", ("%" + key[:10] + "%",)).fetchall()
+    out = [{"complex_no": r[0], "name": r[1], "addr": r[2] or "", "households": r[3] or 0, "exact": norm_cx(r[1]) == key} for r in rows]
+    out.sort(key=lambda x: (not x["exact"], -(x["households"] or 0)))
+    return out[:limit]
+
+
+def link_complexes(main_db: sqlite3.Connection, rows: list[dict], sgg_prefixes: list[str], default_complex_no: str | None = None, cx_map: dict | None = None) -> dict:
     """명단의 단지 이름 → complex_no. 사무소가 있는 시군구(앞 5자리) 단지부터 보고, 이름 정규화 일치 → 포함 순."""
     cache: dict[str, str | None] = {}
     linked = 0
@@ -276,7 +291,10 @@ def link_complexes(main_db: sqlite3.Connection, rows: list[dict], sgg_prefixes: 
     for p in sgg_prefixes:
         cands_by_sgg[p] = [(r[0], r[1], norm_cx(r[1])) for r in main_db.execute(
             "SELECT complex_no, complex_name FROM complexes WHERE cortar_no LIKE ? AND real_estate_type IN ('APT','OPST','ABYG','JGC')", (p + "%",))]
+    cx_map = cx_map or {}
     for rec in rows:
+        if cx_map.get(rec.get("complex_raw") or ""):         # 사무소가 화면에서 고른 단지
+            rec["complex_no"] = str(cx_map[rec.get("complex_raw") or ""]); linked += 1; continue
         key = norm_cx(rec.get("complex_raw") or "")
         if not key:
             rec["complex_no"] = default_complex_no

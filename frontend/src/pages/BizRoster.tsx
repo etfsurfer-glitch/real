@@ -15,15 +15,20 @@ type House = { article_no: string; trade: string; price: number; rent: number | 
 type Unit = { unit_id: number; complex_no: string; complex_name: string; dong: string; ho: string; floor: number; role: string; grade: string;
   name_masked: string; phone_masked: string; note: string; houses: House[] };
 type Match = { units: Unit[]; n_units: number; n_exact: number; n_houses: number; n_ads: number; n_roster: number };
-type Preview = { n_rows: number; skipped: number; fields: string[]; linked: number; complexes: { raw: string; matched: string; n: number }[];
+type Cand = { complex_no: string; name: string; addr: string; households: number; exact: boolean };
+type Preview = { n_rows: number; skipped: number; fields: string[]; linked: number; complexes: { raw: string; complex_no: string; matched: string; n: number; picked: boolean; candidates: Cand[] }[];
   sample: { complex: string; dong: string; ho: string; name: string; phone: string }[] };
 
-const won = (v: number | null | undefined) => {
-  if (!v) return "";
+const FIELD_L: Record<string, string> = { complex: "단지", dongho: "동·호", dong: "동", ho: "호", name: "이름", phone: "연락처", role: "구분", note: "메모", area: "타입·면적" };
+// 광고 가격은 원 단위로 온다 → 만원으로 바꿔 '5억 3,000' 꼴로
+const won = (w: number | null | undefined) => {
+  if (!w) return "";
+  const v = Math.round(w / 10000);
   const eok = Math.floor(v / 10000), man = v % 10000;
   return eok ? `${eok}억${man ? ` ${man.toLocaleString()}` : ""}` : `${man.toLocaleString()}`;
 };
-const priceText = (h: House) => `${TRADE_L[h.trade] || h.trade} ${won(h.price)}${h.trade === "B2" && h.rent ? `/${h.rent.toLocaleString()}` : ""}`;
+const priceText = (h: House) => `${TRADE_L[h.trade] || h.trade} ${won(h.price)}${h.trade === "B2" && h.rent ? `/${Math.round(h.rent / 10000).toLocaleString()}` : ""}`;
+const dongHo = (d: string, h: string) => `${/^\d+$/.test(d) ? `${d}동` : d} ${/^\d+$/.test(h) ? `${h}호` : h}`.trim();
 
 export function RosterScreen({ authH }: { authH: () => Record<string, string> }) {
   const [lists, setLists] = useState<RList[] | null>(null);
@@ -132,7 +137,7 @@ function Result({ authH, listId }: { authH: () => Record<string, string>; listId
           <tbody>
             {rows.map((u) => (
               <tr key={u.unit_id}>
-                <td><b>{u.complex_name}</b><small className="blk">{u.dong} {u.ho} · {u.floor}층{u.role ? ` · ${u.role}` : ""}</small>
+                <td><b>{u.complex_name}</b><small className="blk">{dongHo(u.dong, u.ho)} · {u.floor}층{u.role ? ` · ${u.role}` : ""}</small>
                   <small className={`blk ${u.grade === "층 일치" ? "kokm-on" : ""}`}>{u.grade}</small></td>
                 <td>{open[u.unit_id]
                   ? <><b>{open[u.unit_id].name || "-"}</b><small className="blk">{open[u.unit_id].phone ? <a href={`tel:${open[u.unit_id].phone.replace(/\D/g, "")}`}>{open[u.unit_id].phone}</a> : "번호 없음"}</small></>
@@ -140,7 +145,7 @@ function Result({ authH, listId }: { authH: () => Record<string, string>; listId
                   {u.note && <small className="blk">{u.note}</small>}</td>
                 <td>{u.houses.slice(0, 4).map((h) => (
                   <div key={h.article_no} className="kokm-rh">
-                    <b>{priceText(h)}</b> {h.area_name} · {h.floor_info}{h.direction ? ` · ${h.direction}` : ""}
+                    <b>{priceText(h)}</b> {h.area_name}{/^\d+[A-Z]?$/.test(h.area_name) ? "타입" : ""} · {h.floor_info}층{h.direction ? ` · ${h.direction}` : ""}
                     <small className="blk">{h.mine ? "우리 사무소 광고 포함 · " : ""}{h.n_offices}곳 광고{h.offices.length ? ` (${h.offices.slice(0, 3).join(", ")}${h.offices.length > 3 ? " 외" : ""})` : ""}{h.strength !== "층 일치" ? ` · ${h.strength}` : ""}</small>
                   </div>
                 ))}{u.houses.length > 4 && <small className="blk">외 {u.houses.length - 4}집</small>}</td>
@@ -197,12 +202,10 @@ function Upload({ authH, lists, onDone }: { authH: () => Record<string, string>;
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const pick = async (f: File | null) => {
-    setFile(f); setPv(null); setErr(""); setAck(false);
-    if (!f) return;
-    if (!target) setName(f.name.replace(/\.[^.]+$/, ""));
+  const [cxMap, setCxMap] = useState<Record<string, string>>({});
+  const preview = async (f: File, cm: Record<string, string>) => {
     setBusy(true);
-    const fd = new FormData(); fd.append("file", f);
+    const fd = new FormData(); fd.append("file", f); fd.append("cx_map", JSON.stringify(cm));
     try {
       const r = await fetch(`${API}/lounge/roster/preview`, { method: "POST", headers: authH(), body: fd });
       const j = await r.json();
@@ -210,10 +213,17 @@ function Upload({ authH, lists, onDone }: { authH: () => Record<string, string>;
       setPv(j);
     } catch (e) { setErr(String((e as Error).message || e)); } finally { setBusy(false); }
   };
+  const pick = (f: File | null) => {
+    setFile(f); setPv(null); setErr(""); setAck(false); setCxMap({});
+    if (!f) return;
+    if (!target) setName(f.name.replace(/\.[^.]+$/, ""));
+    preview(f, {});
+  };
+  const choose = (raw: string, cno: string) => { if (!file) return; const cm = { ...cxMap, [raw]: cno }; if (!cno) delete cm[raw]; setCxMap(cm); preview(file, cm); };
   const save = async () => {
     if (!file || !ack) return;
     setBusy(true); setErr("");
-    const fd = new FormData(); fd.append("file", file); fd.append("ack", "1"); fd.append("name", name); if (target) fd.append("list_id", String(target));
+    const fd = new FormData(); fd.append("file", file); fd.append("ack", "1"); fd.append("name", name); if (target) fd.append("list_id", String(target)); fd.append("cx_map", JSON.stringify(cxMap));
     try {
       const r = await fetch(`${API}/lounge/roster/upload`, { method: "POST", headers: authH(), body: fd });
       const j = await r.json();
@@ -240,15 +250,25 @@ function Upload({ authH, lists, onDone }: { authH: () => Record<string, string>;
         <dl className="kokm-dl">
           <div><dt>세대</dt><dd>{pv.n_rows.toLocaleString()}줄{pv.skipped ? ` (동·호나 이름·연락처가 없어 건너뛴 줄 ${pv.skipped.toLocaleString()})` : ""}</dd></div>
           <div><dt>단지 연결</dt><dd>{pv.linked.toLocaleString()}줄{pv.n_rows - pv.linked > 0 && <small className="blk">연결 안 된 {(pv.n_rows - pv.linked).toLocaleString()}줄은 저장은 되지만 대조에서 빠져요.</small>}</dd></div>
-          <div><dt>읽은 칸</dt><dd>{pv.fields.join(" · ")}</dd></div>
+          <div><dt>읽은 칸</dt><dd>{pv.fields.map((f) => FIELD_L[f] || f).join(" · ") || "-"}</dd></div>
         </dl>
         <table className="kokm-tbl">
           <thead><tr><th>명단의 단지 이름</th><th>연결된 단지</th><th className="num">세대</th></tr></thead>
-          <tbody>{pv.complexes.map((c) => <tr key={c.raw} className={c.matched ? "" : "off"}><td>{c.raw}</td><td>{c.matched || "연결 못 함"}</td><td className="num">{c.n.toLocaleString()}</td></tr>)}</tbody>
+          <tbody>{pv.complexes.map((c) => (
+            <tr key={c.raw + c.complex_no}>
+              <td>{c.raw}</td>
+              <td>{c.candidates.length > 0
+                ? <select value={cxMap[c.raw] || ""} onChange={(e) => choose(c.raw, e.target.value)} style={{ maxWidth: 420 }}>
+                    <option value="">{c.matched ? "다시 고르기" : "단지를 골라 주세요"}</option>
+                    {c.candidates.map((k) => <option key={k.complex_no} value={k.complex_no}>{k.name} — {k.addr}{k.households ? ` · ${k.households.toLocaleString()}세대` : ""}</option>)}
+                  </select>
+                : (c.matched || <span className="muted">연결 못 함 · 후보 없음</span>)}
+                {c.matched && <small className="blk kokm-on">{c.picked ? "고른 단지" : "자동 연결"}: {c.matched}</small>}</td>
+              <td className="num">{c.n.toLocaleString()}</td></tr>))}</tbody>
         </table>
         <table className="kokm-tbl">
           <thead><tr><th>앞 5줄</th><th>동·호</th><th>이름</th><th>연락처</th></tr></thead>
-          <tbody>{pv.sample.map((s, i) => <tr key={i}><td>{s.complex}</td><td>{s.dong} {s.ho}</td><td>{s.name}</td><td>{s.phone}</td></tr>)}</tbody>
+          <tbody>{pv.sample.map((s, i) => <tr key={i}><td>{s.complex}</td><td>{dongHo(s.dong, s.ho)}</td><td>{s.name}</td><td>{s.phone}</td></tr>)}</tbody>
         </table>
         <h3 className="kokm-h3">보관 안내</h3>
         <Notice />

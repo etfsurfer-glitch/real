@@ -12300,28 +12300,41 @@ def _roster_sggs(rid: str) -> list[str]:
     return [x for i, x in enumerate(sg) if x and x not in sg[:i]]
 
 
+def _roster_cxmap(raw: str) -> dict:
+    try:
+        m = _json.loads(raw or "{}")
+        return {str(k): str(v) for k, v in m.items() if v} if isinstance(m, dict) else {}
+    except ValueError:
+        return {}
+
+
 @app.post("/lounge/roster/preview")
-async def lounge_roster_preview(file: UploadFile = File(...), complex_no: str = Form(""), user: dict = Depends(current_user)):
-    """명단 파일 → 몇 줄을 어떻게 읽었고 몇 단지에 연결되는지. 저장하지 않는다. 이름·연락처는 가린 채로만 돌려준다."""
+async def lounge_roster_preview(file: UploadFile = File(...), complex_no: str = Form(""), cx_map: str = Form(""), user: dict = Depends(current_user)):
+    """명단 파일 → 몇 줄을 어떻게 읽었고 몇 단지에 연결되는지. 저장하지 않는다. 이름·연락처는 가린 채로만 돌려준다.
+    자동 연결이 안 된 단지 이름에는 전국 후보를 붙여 사무소가 고르게 한다(cx_map 으로 다시 미리보기)."""
     rid = _roster_rid(user)
     import roster as _ro
     raw = await file.read()
     if len(raw) > 20 * 1024 * 1024:
         raise HTTPException(413, "파일이 너무 커요(20MB까지)")
     p = _ro.parse(raw, file.filename or "")
-    with _open_db() as d:
-        lk = _ro.link_complexes(d, p["rows"], _roster_sggs(rid), complex_no or None)
-        names = {r[0]: r[1] for r in d.execute("SELECT complex_no, complex_name FROM complexes WHERE complex_no IN (%s)" % ",".join("?" * len({x.get("complex_no") for x in p["rows"] if x.get("complex_no")}) or "''"),
-                                              [x for x in {x.get("complex_no") for x in p["rows"]} if x])} if any(x.get("complex_no") for x in p["rows"]) else {}
+    cm = _roster_cxmap(cx_map)
     import collections as _co
-    by = _co.Counter((x.get("complex_raw") or "(단지 칸 없음)", names.get(x.get("complex_no")) or "") for x in p["rows"])
-    return {"n_rows": len(p["rows"]), "skipped": p["skipped"], "fields": p["fields"], "linked": lk["linked"],
-            "complexes": [{"raw": k[0], "matched": k[1], "n": n} for k, n in by.most_common(50)],
+    with _open_db() as d:
+        lk = _ro.link_complexes(d, p["rows"], _roster_sggs(rid), complex_no or None, cm)
+        cxs = list({x.get("complex_no") for x in p["rows"] if x.get("complex_no")})
+        names = {r[0]: r[1] for r in d.execute("SELECT complex_no, complex_name FROM complexes WHERE complex_no IN (%s)" % (",".join("?" * len(cxs)) or "''"), cxs)} if cxs else {}
+        by = _co.Counter((x.get("complex_raw") or "", x.get("complex_no") or "") for x in p["rows"])
+        complexes = []
+        for (rawn, cno), n in by.most_common(50):
+            complexes.append({"raw": rawn or "(단지 칸 없음)", "complex_no": cno, "matched": names.get(cno) or "", "n": n, "picked": bool(cm.get(rawn)),
+                              "candidates": _ro.complex_candidates(d, rawn) if rawn and (not cno or cm.get(rawn)) else []})
+    return {"n_rows": len(p["rows"]), "skipped": p["skipped"], "fields": p["fields"], "linked": lk["linked"], "complexes": complexes,
             "sample": [{"complex": x.get("complex_raw"), "dong": x.get("dong"), "ho": x.get("ho"), "name": _ro.mask_name(x.get("name") or ""), "phone": _ro.mask_phone(x.get("phone") or "")} for x in p["rows"][:5]]}
 
 
 @app.post("/lounge/roster/upload")
-async def lounge_roster_upload(file: UploadFile = File(...), ack: str = Form(""), name: str = Form(""), complex_no: str = Form(""), list_id: int = Form(0), user: dict = Depends(current_user)):
+async def lounge_roster_upload(file: UploadFile = File(...), ack: str = Form(""), name: str = Form(""), complex_no: str = Form(""), list_id: int = Form(0), cx_map: str = Form(""), user: dict = Depends(current_user)):
     """명단 저장(list_id 가 있으면 그 명단을 업데이트) — 사무소가 '적법하게 수집·보유한 명단이며 콕집에 보관·대조를 맡긴다'에 동의해야 한다. 이름·연락처는 암호화."""
     rid = _roster_rid(user)
     if ack != "1":
@@ -12332,7 +12345,7 @@ async def lounge_roster_upload(file: UploadFile = File(...), ack: str = Form("")
     if not p["rows"]:
         raise HTTPException(400, "명단에서 동·호와 이름(또는 연락처)이 있는 줄을 찾지 못했어요")
     with _open_db() as d:
-        _ro.link_complexes(d, p["rows"], _roster_sggs(rid), complex_no or None)
+        _ro.link_complexes(d, p["rows"], _roster_sggs(rid), complex_no or None, _roster_cxmap(cx_map))
     with _ro.connect(DB_PATH.parent) as c:
         if list_id and not c.execute("SELECT 1 FROM roster_lists WHERE id=? AND realtor_id=?", (list_id, rid)).fetchone():
             raise HTTPException(404, "업데이트할 명단을 찾을 수 없어요")
