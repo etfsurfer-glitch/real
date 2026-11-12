@@ -10957,7 +10957,9 @@ def lounge_kok_listings(user: dict = Depends(current_user)):
     with _reviews_db() as c:
         rid = _require_member(c, user["id"])
     with _kok_db() as k:
-        rows = k.execute("SELECT * FROM kok_listings WHERE realtor_id=? AND status='active' ORDER BY kok_since DESC, price DESC LIMIT 500", (rid,)).fetchall()
+        # 광고 연동분은 내려가면 보여 줄 이유가 없다(통계용 보관은 수집 아카이브가 따로 한다). 거래완료는 14일만 — 되돌리기용
+        rows = k.execute("SELECT * FROM kok_listings WHERE realtor_id=? AND (status='active' OR (status='sold' AND closed_at>=datetime('now','+9 hours','-14 days'))) "
+                         "ORDER BY status='active' DESC, kok_since DESC, price DESC LIMIT 500", (rid,)).fetchall()
         ex = {e["article_no"]: e for e in k.execute("SELECT * FROM kok_realtor_extras WHERE realtor_id=?", (rid,))}
         last = k.execute("SELECT ran_at FROM kok_sync_log WHERE scope IN ('all', ?) ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
         closed = k.execute("SELECT COUNT(*) FROM kok_listings WHERE realtor_id=? AND status='closed'", (rid,)).fetchone()[0]
@@ -11007,6 +11009,7 @@ def _kok_owner_pub(r, with_contact: bool = False) -> dict:
            "area_name": r["area_name"], "excl_m2": r["excl_m2"], "floor_text": floor_text, "direction": r["direction"] or "",
            "dong": r["dong"] or "", "move_in": r["move_in"] or "", "mgmt_fee": r["mgmt_fee"], "feature": r["feature"] or "",
            "detail": r["detail"] or "", "photos": [f"/kok/photo/{p}" for p in ph], "owner_verified": bool(r["owner_verified"]),
+           "expired": _kok_is_expired(r),
            "contact_mode": r["contact_mode"], "created_at": r["created_at"], "expires_at": r["expires_at"], "status": r["status"],
            "keywords": _kok_loads(r["keywords"] if "keywords" in r.keys() else None, [])}
     if with_contact or r["contact_mode"] == "phone":
@@ -11565,7 +11568,9 @@ def kok_mgmt(complex_no: str, supply: float | None = None, excl: float | None = 
         return {"status": "none", "reason": "관리비 공개자료를 지금 받지 못했어요"}
 
 
-_KOK_MGMT_TYPE = {"01": "정액", "02": "정액 · 비목 미표시", "03": "그 밖의 방식", "04": "금액 확인 불가"}
+# 02 = 정액이지만 비목 내역이 없는 광고. 비목은 의뢰인(임대인)이 내역을 줄 때만 표시 의무가 있고, 우리는 내역을 받았는지
+#      알 수 없어 '의뢰인 미제공' 예외로 본다(게시 보류·위반 아님 — 사용자 결정 2026-11-12).
+_KOK_MGMT_TYPE = {"01": "정액", "02": "정액 · 비목 내역 미제공", "03": "그 밖의 방식", "04": "금액 확인 불가"}
 
 
 def _kok_mgmt_declared(r) -> dict | None:
@@ -11593,11 +11598,14 @@ def kok_realtor_listing_detail(article_no: str):
         r = k.execute("SELECT l.*, o.active AS opt_active FROM kok_listings l LEFT JOIN kok_realtor_optin o ON o.realtor_id=l.realtor_id WHERE l.article_no=?", (article_no,)).fetchone()
         if not r or not r["opt_active"]:
             raise HTTPException(404, "콕집매물이 아니에요")
+        if r["status"] == "sold":
+            raise HTTPException(404, "거래가 끝난 매물이에요")
         if r["status"] != "active":
             raise HTTPException(404, "내려간 매물이에요")
         if (r["publish_state"] or "live") != "live" or not _kok_public_ok(r["realtor_id"]):
             raise HTTPException(404, "표시 항목을 채우는 중인 매물이에요")
         ex = _kok_extras(k, article_no)
+        hist = _kok_history(k, "R" + article_no)
     with _open_db() as d:
         cx = d.execute("SELECT cortar_no, use_approve_ymd, parking_per_household, real_estate_type, parking_possible_count FROM complexes WHERE complex_no=?", (r["complex_no"],)).fetchone()
         cortar = cx[0] if cx else ""
@@ -11624,6 +11632,7 @@ def kok_realtor_listing_detail(article_no: str):
         "acquire": _kok_acquire(int(price or 0), excl) if r["trade"] == "A1" and price else None,
         "realtor": {"realtor_id": r["realtor_id"], "name": r["realtor_name"], "regno": regno[0] if regno else "",
                     **{kk: v for kk, v in (_office_brief(r["realtor_id"]) or {}).items() if kk in ("address", "representative", "tel", "cell")}}}
+    out["history"] = hist
     ob = _office_brief(r["realtor_id"]) or {}
     if ob.get("realtor_name"):
         out["realtor"]["name"] = ob["realtor_name"]
@@ -11654,11 +11663,17 @@ def kok_direct_listing_detail(did: str):
         r = k.execute("SELECT l.*, o.active AS opt_active FROM kok_direct_listings l LEFT JOIN kok_realtor_optin o ON o.realtor_id=l.realtor_id WHERE l.id=?", (int(did),)).fetchone()
         if not r:
             raise HTTPException(404, "not found")
+        if r["status"] == "sold":
+            raise HTTPException(404, "거래가 끝난 매물이에요")
         if r["status"] != "active":
             raise HTTPException(404, "내려간 매물이에요")
+        if _kok_is_expired(r):
+            raise HTTPException(404, "게시 기간(30일)이 끝난 매물이에요")
         if (r["publish_state"] or "live") != "live" or not _kok_public_ok(r["realtor_id"]):
             raise HTTPException(404, "표시 항목을 채우는 중인 매물이에요")
+        hist = _kok_history(k, f"D{r['id']}")
     out = _kok_direct_item(r)
+    out["history"] = hist
     with _open_db() as d:
         regno = d.execute("SELECT b.ra_regno FROM realtor_match m JOIN vworld_brokers b ON b.sys_regno=m.sys_regno WHERE m.realtor_id=? LIMIT 1", (r["realtor_id"],)).fetchone()
         facts = _kok_complex_facts(d, r["complex_no"], r["area_name"]) if r["complex_no"] else {}
@@ -11698,9 +11713,12 @@ def kok_listing_detail(kid: str):
         r = c.execute("SELECT * FROM kok_owner_listings WHERE id=? AND status='active'", (int(kid[1:]),)).fetchone()
         if not r:
             raise HTTPException(404, "내려간 매물이에요")
+        if _kok_is_expired(r):
+            raise HTTPException(404, "게시 기간(30일)이 끝난 매물이에요")
         c.execute("UPDATE kok_owner_listings SET view_count=COALESCE(view_count,0)+1 WHERE id=?", (r["id"],))
         c.commit()
-    return _kok_owner_pub(r)
+        hist = _kok_history(c, kid)
+    return _kok_owner_pub(r) | {"history": hist}
 
 
 @app.get("/kok/photo/{name}")
@@ -11845,7 +11863,8 @@ def kok_owner_mine(user: dict = Depends(current_user)):
 @app.post("/kok/owner/listings/{lid}/close")
 def kok_owner_close(lid: int, user: dict = Depends(current_user)):
     with _kok_db() as c:
-        c.execute("UPDATE kok_owner_listings SET status='closed', updated_at=datetime('now','+9 hours') WHERE id=? AND user_id=?", (lid, user["id"]))
+        if c.execute("UPDATE kok_owner_listings SET status='closed', updated_at=datetime('now','+9 hours') WHERE id=? AND user_id=? AND status='active'", (lid, user["id"])).rowcount:
+            _kok_log(c, f"K{lid}", "status", "active", "closed")
         c.commit()
     return {"ok": True}
 
@@ -11853,8 +11872,9 @@ def kok_owner_close(lid: int, user: dict = Depends(current_user)):
 @app.post("/kok/owner/listings/{lid}/extend")
 def kok_owner_extend(lid: int, user: dict = Depends(current_user)):
     with _kok_db() as c:
-        c.execute("UPDATE kok_owner_listings SET expires_at=datetime('now','+9 hours',?), status='active', updated_at=datetime('now','+9 hours') WHERE id=? AND user_id=?",
-                  (f"+{_KOK_DAYS} days", lid, user["id"]))
+        if c.execute("UPDATE kok_owner_listings SET expires_at=datetime('now','+9 hours',?), status='active', updated_at=datetime('now','+9 hours') "
+                     "WHERE id=? AND user_id=? AND status IN ('active','closed')", (f"+{_KOK_DAYS} days", lid, user["id"])).rowcount:
+            _kok_log(c, f"K{lid}", "status", None, "relist")
         c.commit()
     return {"ok": True}
 
@@ -11904,6 +11924,7 @@ def _kok_direct_item(r) -> dict:
             "mgmt_declared": _kok_mgmt_declared_direct(r),
             "realtor_id": r["realtor_id"], "realtor_name": (_office_brief(r["realtor_id"]) or {}).get("realtor_name") or "",
             "kok_since": (r["created_at"] or "")[:10], "owner_verified": False, "status": r["status"],
+            "expires_at": (r["expires_at"] or "")[:10], "expired": _kok_is_expired(r),
             "publish_state": (r["publish_state"] or "live") if "publish_state" in r.keys() else "live",
             "hold_reasons": _kok_hold_labels(r["hold_reasons"]) if "hold_reasons" in r.keys() else [],
             "photos": [f"/kok/photo/{x}" for x in ph], "keywords": _kok_loads(r["keywords"], []), "description": r["description"] or ""}
@@ -11917,9 +11938,40 @@ def _kok_mgmt_declared_direct(r) -> dict | None:
     return {"fee": fee, "type": "", "type_label": "", "items": [{"name": x.get("name"), "amount": x.get("amount")} for x in items if isinstance(x, dict)]}
 
 
+# 콕집에서 직접 올린 매물(전용·직거래)은 30일 게시 후 자동 만료. 데이터는 지우지 않고 '다시 올리기' 한 번이면 30일 다시 게시.
+# 광고 연동분(전환)은 광고 상태를 따르므로 만료가 없다.
+_KOK_NOT_EXPIRED = "(l.expires_at IS NULL OR l.expires_at>=datetime('now','+9 hours'))"
+
+
+def _kok_is_expired(r) -> bool:
+    e = r["expires_at"] if "expires_at" in r.keys() else None
+    return bool(e) and r["status"] == "active" and e < time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() + 9 * 3600))
+
+
+def _kok_log(k, lid: str, field: str, old, new) -> None:
+    from scripts.kok_sync import log_change
+    log_change(k, lid, field, old, new)
+
+
+def _kok_history(k, lid: str) -> list:
+    """소비자에게 보여 줄 변경 이력 — 가격 변경·거래완료·재등록·만료. 최근 20건."""
+    out = []
+    for r in k.execute("SELECT field, old, new, at FROM kok_change_log WHERE lid=? ORDER BY id DESC LIMIT 20", (lid,)):
+        if r["field"] == "price":
+            def pt(v):
+                t, _, rest = str(v or "").partition(":")
+                pr, _, rt = rest.partition("/")
+                return _kok_price_text(t, int(pr or 0), int(rt or 0))
+            out.append({"at": r["at"][:10], "kind": "price", "text": f"가격 {pt(r['old'])} → {pt(r['new'])}"})
+        elif r["field"] == "status":
+            lab = {"active": "다시 게시", "sold": "거래완료", "closed": "내림", "expired": "게시 기간 만료", "relist": "다시 올림(30일)"}
+            out.append({"at": r["at"][:10], "kind": "status", "text": lab.get(r["new"] or "", r["new"] or "")})
+    return out
+
+
 def _kok_direct_items(k, where: str, params: list, limit: int) -> list:
     rows = k.execute(f"SELECT l.* FROM kok_direct_listings l JOIN kok_realtor_optin o ON o.realtor_id=l.realtor_id AND o.active=1 "
-                     f"WHERE l.status='active' AND COALESCE(l.publish_state,'live')='live' AND {where} ORDER BY l.created_at DESC LIMIT ?", [*params, limit]).fetchall()
+                     f"WHERE l.status='active' AND COALESCE(l.publish_state,'live')='live' AND {_KOK_NOT_EXPIRED} AND {where} ORDER BY l.created_at DESC LIMIT ?", [*params, limit]).fetchall()
     return [_kok_direct_item(r) for r in rows if _kok_public_ok(r["realtor_id"])]
 
 
@@ -12051,9 +12103,7 @@ def _kok_direct_fields(body: dict, d) -> dict:
         missing.append("rent")
     if missing:
         raise HTTPException(422, "표시·광고 필수 항목이 비어 있어요: " + ", ".join(_KOK_FIELD_LABEL.get(k, "월세") for k in missing))
-    # 정액 관리비 10만원 이상(단지형 밖 집합건물)은 비목별 금액 표시(세부기준 2023 개정)
-    if pt in ("VL", "OR", "SG", "SMS") and (f["mgmt_fee"] or 0) >= 100000 and not items:
-        raise HTTPException(422, "관리비가 월 10만원 이상이면 비목별 금액(일반관리비·전기·수도·가스·난방·인터넷·TV 등)을 적어야 해요")
+    # 정액 관리비 10만원 이상의 비목별 금액은 의뢰인이 내역을 줄 때만 표시 의무가 있다 — 막지 않고 점검에서 안내만 한다.
     from scripts.kok_sync import publish_check
     if pt in _KOK_COMPLEX_PTYPES:   # 단지형: 동(건물) 번호·단지 자료의 사용승인일·주차까지 전환분과 같은 기준
         miss = publish_check(f, pt, source="direct", n_buildings=cx_nb, cx_facts=cx_facts)
@@ -12079,11 +12129,12 @@ def lounge_kok_direct_create(body: dict, user: dict = Depends(current_user)):
         f = _kok_direct_fields(body, d)
     cols = list(f.keys())
     with _kok_db() as k:
-        n = k.execute("SELECT COUNT(*) FROM kok_direct_listings WHERE realtor_id=? AND status='active'", (rid,)).fetchone()[0]
+        n = k.execute(f"SELECT COUNT(*) FROM kok_direct_listings l WHERE realtor_id=? AND status='active' AND {_KOK_NOT_EXPIRED}", (rid,)).fetchone()[0]
         if n >= 300:
             raise HTTPException(400, "콕집 전용 매물은 사무소당 300건까지 올릴 수 있어요")
-        cur = k.execute(f"INSERT INTO kok_direct_listings(realtor_id, user_id, {','.join(cols)}, status) VALUES(?,?,{','.join('?' * len(cols))},'active')",
-                        (rid, user["id"], *[f[c] for c in cols]))
+        cur = k.execute(f"INSERT INTO kok_direct_listings(realtor_id, user_id, {','.join(cols)}, status, expires_at) "
+                        f"VALUES(?,?,{','.join('?' * len(cols))},'active',datetime('now','+9 hours',?))",
+                        (rid, user["id"], *[f[c] for c in cols], f"+{_KOK_DAYS} days"))
         k.commit()
         r = k.execute("SELECT * FROM kok_direct_listings WHERE id=?", (cur.lastrowid,)).fetchone()
     _log_event("kok_direct_create", realtor_id=rid)
@@ -12096,10 +12147,15 @@ def lounge_kok_direct_update(lid: int, body: dict, user: dict = Depends(current_
     with _open_db() as d:
         f = _kok_direct_fields(body, d)
     with _kok_db() as k:
-        r = k.execute("SELECT id FROM kok_direct_listings WHERE id=? AND realtor_id=?", (lid, rid)).fetchone()
+        r = k.execute("SELECT id, trade, price, rent, status FROM kok_direct_listings WHERE id=? AND realtor_id=?", (lid, rid)).fetchone()
         if not r:
             raise HTTPException(404, "내 매물이 아니에요")
-        k.execute("UPDATE kok_direct_listings SET " + ", ".join(f"{c}=?" for c in f) + ", updated_at=datetime('now','+9 hours') WHERE id=?", (*f.values(), lid))
+        from scripts.kok_sync import price_key
+        if r["status"] == "active" and price_key(r["trade"], r["price"], r["rent"]) != price_key(f["trade"], f["price"], f["rent"]):
+            _kok_log(k, f"D{lid}", "price", price_key(r["trade"], r["price"], r["rent"]), price_key(f["trade"], f["price"], f["rent"]))
+        # 수정 = 등록자가 지금도 유효하다고 다시 확인한 것 → 게시 중이면 30일을 새로 센다
+        k.execute("UPDATE kok_direct_listings SET " + ", ".join(f"{c}=?" for c in f) + ", updated_at=datetime('now','+9 hours'), "
+                  "expires_at=CASE WHEN status='active' THEN datetime('now','+9 hours',?) ELSE expires_at END WHERE id=?", (*f.values(), f"+{_KOK_DAYS} days", lid))
         k.commit()
         r = k.execute("SELECT * FROM kok_direct_listings WHERE id=?", (lid,)).fetchone()
     return _kok_direct_item(r)
@@ -12109,14 +12165,43 @@ def lounge_kok_direct_update(lid: int, body: dict, user: dict = Depends(current_
 def lounge_kok_direct_status(lid: int, body: dict, user: dict = Depends(current_user)):
     rid = _kok_rid(user)
     st = body.get("status")
-    if st not in ("active", "closed", "deleted"):
+    if st not in ("active", "closed", "sold", "deleted"):
         raise HTTPException(400, "status")
     with _kok_db() as k:
-        n = k.execute("UPDATE kok_direct_listings SET status=?, closed_at=CASE WHEN ?='active' THEN NULL ELSE datetime('now','+9 hours') END, "
-                      "updated_at=datetime('now','+9 hours') WHERE id=? AND realtor_id=?", (st, st, lid, rid)).rowcount
+        r = k.execute("SELECT status FROM kok_direct_listings WHERE id=? AND realtor_id=?", (lid, rid)).fetchone()
+        if not r:
+            raise HTTPException(404, "내 매물이 아니에요")
+        if st == "active":
+            # 다시 올리기 = 내림·거래완료·만료 어느 쪽이든 그대로 30일 다시 게시(입력 다시 안 받음)
+            k.execute("UPDATE kok_direct_listings SET status='active', closed_at=NULL, expires_at=datetime('now','+9 hours',?), "
+                      "updated_at=datetime('now','+9 hours') WHERE id=?", (f"+{_KOK_DAYS} days", lid))
+            _kok_log(k, f"D{lid}", "status", r["status"], "relist")
+        else:
+            k.execute("UPDATE kok_direct_listings SET status=?, closed_at=datetime('now','+9 hours'), updated_at=datetime('now','+9 hours') WHERE id=?", (st, lid))
+            if st != "deleted":
+                _kok_log(k, f"D{lid}", "status", r["status"], st)
         k.commit()
-    if not n:
-        raise HTTPException(404, "내 매물이 아니에요")
+    return {"ok": True}
+
+
+@app.post("/lounge/kok/listings/{article_no}/sold")
+def lounge_kok_conv_sold(article_no: str, body: dict, user: dict = Depends(current_user)):
+    """광고 연동(전환) 매물 거래완료 — 다음 반영을 기다리지 않고 바로 콕집에서 내린다. 반영이 'sold' 를 되살리지 않는다.
+    undo=true 면 되돌린다(광고가 이미 내려갔으면 다음 반영 때 '내림'으로 정리됨)."""
+    rid = _kok_rid(user)
+    undo = bool(body.get("undo"))
+    with _kok_db() as k:
+        r = k.execute("SELECT status FROM kok_listings WHERE article_no=? AND realtor_id=?", (article_no, rid)).fetchone()
+        if not r:
+            raise HTTPException(404, "내 매물이 아니에요")
+        if undo and r["status"] == "sold":
+            k.execute("UPDATE kok_listings SET status='active', closed_at=NULL, updated_at=datetime('now','+9 hours') WHERE article_no=?", (article_no,))
+            _kok_log(k, "R" + article_no, "status", "sold", "active")
+        elif not undo and r["status"] == "active":
+            k.execute("UPDATE kok_listings SET status='sold', closed_at=datetime('now','+9 hours'), updated_at=datetime('now','+9 hours') WHERE article_no=?", (article_no,))
+            _kok_log(k, "R" + article_no, "status", "active", "sold")
+        k.commit()
+    _log_event("kok_conv_sold", realtor_id=rid, query=("undo " if undo else "") + article_no)
     return {"ok": True}
 
 
@@ -12126,8 +12211,11 @@ def lounge_kok_overview(user: dict = Depends(current_user)):
     rid = _kok_rid(user)
     with _kok_db() as k:
         o = k.execute("SELECT active, agreed_at, terms_version FROM kok_realtor_optin WHERE realtor_id=?", (rid,)).fetchone()
-        conv = k.execute("SELECT SUM(status='active' AND COALESCE(publish_state,'live')='live'), SUM(status='closed'), SUM(status='active' AND publish_state='hold') FROM kok_listings WHERE realtor_id=?", (rid,)).fetchone()
-        direct = k.execute("SELECT SUM(status='active' AND COALESCE(publish_state,'live')='live'), SUM(status='closed'), SUM(status='active' AND publish_state='hold') FROM kok_direct_listings WHERE realtor_id=? AND status<>'deleted'", (rid,)).fetchone()
+        conv = k.execute("SELECT SUM(status='active' AND COALESCE(publish_state,'live')='live'), SUM(status='sold' AND closed_at>=datetime('now','+9 hours','-14 days')), SUM(status='active' AND publish_state='hold') FROM kok_listings WHERE realtor_id=?", (rid,)).fetchone()
+        direct = k.execute(f"SELECT SUM(status='active' AND COALESCE(publish_state,'live')='live' AND {_KOK_NOT_EXPIRED}), SUM(status IN ('closed','sold')), "
+                           f"SUM(status='active' AND publish_state='hold' AND {_KOK_NOT_EXPIRED}), SUM(status='active' AND NOT {_KOK_NOT_EXPIRED}), "
+                           f"SUM(status='active' AND {_KOK_NOT_EXPIRED} AND expires_at<datetime('now','+9 hours','+5 days')) "
+                           f"FROM kok_direct_listings l WHERE realtor_id=? AND status<>'deleted'", (rid,)).fetchone()
         ex = k.execute("SELECT COUNT(*) FROM kok_realtor_extras e JOIN kok_listings l ON l.article_no=e.article_no WHERE e.realtor_id=? AND l.status='active' "
                        "AND (e.photos<>'[]' OR e.description<>'' OR e.keywords<>'[]')", (rid,)).fetchone()[0]
         last = k.execute("SELECT ran_at FROM kok_sync_log WHERE scope IN ('all', ?) ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
@@ -12137,7 +12225,8 @@ def lounge_kok_overview(user: dict = Depends(current_user)):
             preview = d.execute("SELECT COUNT(*) FROM listings_current WHERE realtor_id=?", (rid,)).fetchone()[0]
     return {"realtor_id": rid, "opted": bool(o and o["active"]), "agreed_at": o["agreed_at"] if o else None,
             "needs_reagree": bool(o and o["active"] and o["terms_version"] != KOK_TERMS_VERSION), "terms_version": KOK_TERMS_VERSION,
-            "converted": {"active": conv[0] or 0, "closed": conv[1] or 0, "hold": conv[2] or 0, "with_extras": ex}, "direct": {"active": direct[0] or 0, "closed": direct[1] or 0, "hold": direct[2] or 0},
+            "converted": {"active": conv[0] or 0, "closed": 0, "sold": conv[1] or 0, "hold": conv[2] or 0, "with_extras": ex},
+            "direct": {"active": direct[0] or 0, "closed": direct[1] or 0, "hold": direct[2] or 0, "expired": direct[3] or 0, "expiring": direct[4] or 0},
             "office_ok": _kok_office_ok(rid)[0], "office_reasons": _kok_office_ok(rid)[1],
             "ads_preview": preview, "synced_at": last["ran_at"] if last else None}
 
@@ -12168,7 +12257,7 @@ def _kok_audit_rows(rid: str) -> tuple[list[dict], dict]:
                      "floor_label": r["floor_label"] if "floor_label" in r.keys() else None,
                      "hold": _kok_hold_labels(r["hold_reasons"]) if "hold_reasons" in r.keys() and (r["publish_state"] or "") == "hold" else []})
     for r in direct:
-        rows.append({"id": f"D{r['id']}", "source": "direct", "ptype": r["ptype"], "name": r["complex_name"] or r["address"] or "", "dong": r["dong"] or "",
+        rows.append({"id": f"D{r['id']}", "source": "direct", "exp": r["expires_at"] or "", "ptype": r["ptype"], "name": r["complex_name"] or r["address"] or "", "dong": r["dong"] or "",
                      "complex_no": r["complex_no"] or "", "address": r["address"] or "", "trade": r["trade"], "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
                      "excl": r["excl_m2"], "supply": r["supply_m2"], "land": r["land_m2"], "floor": r["floor"], "direction": r["direction"] or "", "move_in": r["move_in"] or "",
                      "mgmt": r["mgmt_fee"], "rooms": r["rooms"], "baths": r["baths"], "photos": len(_kok_loads(r["photos"], [])), "desc": bool(r["description"]),
@@ -12204,6 +12293,10 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
     rid = _kok_rid(user)
     rows, areas = _kok_audit_rows(rid)
     ob = _office_brief(rid) or {}
+    with _kok_db() as k:
+        ids = [r["id"] for r in rows]
+        reports = {x[0]: x[1] for x in k.execute(
+            "SELECT lid, COUNT(*) FROM kok_reports WHERE status='open' AND lid IN (" + ",".join("?" * len(ids)) + ") GROUP BY lid", ids)} if ids else {}
     with _open_db() as d:
         regno = d.execute("SELECT b.ra_regno FROM realtor_match m JOIN vworld_brokers b ON b.sys_regno=m.sys_regno WHERE m.realtor_id=? LIMIT 1", (rid,)).fetchone()
         office_issues = []
@@ -12254,7 +12347,7 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
                 if pt == "TJ" and not r.get("land_use"):
                     iss.append({"code": "land_use", "level": "fail", "msg": "토지는 지목을 표시해야 해요"})
                 if pt in ("VL", "OR", "SG", "SMS") and (r["mgmt"] or 0) >= 100000 and not r.get("mgmt_items"):
-                    iss.append({"code": "mgmt_items", "level": "warn", "msg": "관리비 10만원 이상은 비목별 금액 표시가 필요해요"})
+                    iss.append({"code": "mgmt_items", "level": "info", "msg": "관리비 10만원 이상 — 의뢰인이 비목 내역을 줬다면 비목별 금액도 적어 주세요"})
             if pt in _KOK_HOUSING | {"SG", "SMS"} and r["direction"] and not r.get("direction_base"):
                 iss.append({"code": "direction_base", "level": "info", "msg": "방향의 기준(거실·안방·주출입구)이 없어요"})
             if r["complex_no"] and r["excl"] and areas.get(r["complex_no"]) and not any(abs(a - float(r["excl"])) <= 1.5 for a in areas[r["complex_no"]]):
@@ -12272,8 +12365,19 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
                 age = (today - _dt.date.fromisoformat(r["since"][:10])).days if r["since"] else 0
             except ValueError:
                 age = 0
-            if age >= 90:
+            if r.get("exp"):
+                try:
+                    left = (_dt.date.fromisoformat(r["exp"][:10]) - today).days
+                except ValueError:
+                    left = 99
+                if left < 0:
+                    iss.append({"code": "expired", "level": "warn", "msg": "게시 기간(30일)이 끝나 콕집에서 내려갔어요 — '다시 올리기'를 누르면 바로 30일 다시 게시돼요"})
+                elif left <= 5:
+                    iss.append({"code": "expiring", "level": "info", "msg": f"게시 기간이 {left}일 남았어요 — 아직 거래 중이면 '다시 올리기'로 30일 연장"})
+            elif age >= 90:
                 iss.append({"code": "stale", "level": "info", "msg": f"콕집에 올라온 지 {age}일 — 가격·거래 상태를 한 번 확인해 주세요"})
+            if reports.get(r["id"]):
+                iss.append({"code": "reported", "level": "warn", "msg": f"이용자 신고 {reports[r['id']]}건 — 거래 상태·가격·정보가 맞는지 확인해 주세요"})
             if r["photos"] == 0:
                 iss.append({"code": "photo", "level": "info", "msg": "콕집에 올린 사진이 없어요"})
             if not r["desc"]:
@@ -12437,6 +12541,69 @@ def lounge_roster_reveal(unit_id: int, user: dict = Depends(current_user)):
             raise HTTPException(403, "동의 기간이 지난 명단이에요. 연장 동의 후 볼 수 있어요")
         c.execute("INSERT INTO roster_reveals(realtor_id, user_id, unit_id) VALUES(?,?,?)", (rid, user["id"], unit_id)); c.commit()
         return {"name": _ro.dec(DB_PATH.parent, u["name_enc"]), "phone": _ro.dec(DB_PATH.parent, u["phone_enc"])}
+
+
+# ── 허위매물 신고 — 로그인 없이도 받는다(IP 해시로 같은 매물 하루 1번·하루 10번 제한). 관리자에게 텔레그램. ──
+_KOK_REPORT_REASONS = {"sold": "이미 거래된 매물", "price": "가격이 달라요", "fake": "없는 매물(허위)", "info": "면적·층 등 정보가 달라요", "etc": "기타"}
+
+
+@app.post("/kok/listings/{lid}/report")
+def kok_report(lid: str, body: dict, request: Request, user: dict | None = Depends(current_user_optional)):
+    if not _re.match(r"^[RDK]\d{1,12}$", lid):
+        raise HTTPException(404, "not found")
+    reason = str(body.get("reason") or "")
+    if reason not in _KOK_REPORT_REASONS:
+        raise HTTPException(422, "신고 사유를 골라 주세요")
+    detail = str(body.get("detail") or "").strip()[:500]
+    ip = _client_ip(request) or ""
+    ih = _hashlib.sha256(("kokrep:" + ip).encode()).hexdigest()[:24] if ip else None
+    uid = (user or {}).get("id")
+    with _kok_db() as k:
+        if ih:
+            dup = k.execute("SELECT 1 FROM kok_reports WHERE lid=? AND ip_hash=? AND created_at>=datetime('now','+9 hours','-1 day')", (lid, ih)).fetchone()
+            if dup:
+                return {"ok": True, "dup": True}
+            n = k.execute("SELECT COUNT(*) FROM kok_reports WHERE ip_hash=? AND created_at>=datetime('now','+9 hours','-1 day')", (ih,)).fetchone()[0]
+            if n >= 10:
+                raise HTTPException(429, "신고는 하루 10번까지 받아요")
+        if lid[0] == "R":
+            ok = k.execute("SELECT complex_name FROM kok_listings WHERE article_no=?", (lid[1:],)).fetchone()
+        elif lid[0] == "D":
+            ok = k.execute("SELECT COALESCE(complex_name, address) FROM kok_direct_listings WHERE id=?", (int(lid[1:]),)).fetchone()
+        else:
+            ok = k.execute("SELECT complex_name FROM kok_owner_listings WHERE id=?", (int(lid[1:]),)).fetchone()
+            if ok:
+                k.execute("UPDATE kok_owner_listings SET report_count=COALESCE(report_count,0)+1 WHERE id=?", (int(lid[1:]),))
+        if not ok:
+            raise HTTPException(404, "not found")
+        k.execute("INSERT INTO kok_reports(lid, reason, detail, user_id, ip_hash) VALUES(?,?,?,?,?)", (lid, reason, detail, uid, ih))
+        k.commit()
+    try:
+        from scripts.tg_notify import tg_send_async
+        tg_send_async(f"[콕집매물 신고] {lid} {ok[0] or ''} — {_KOK_REPORT_REASONS[reason]}" + (f"\n{detail[:200]}" if detail else ""))
+    except Exception:  # noqa: BLE001
+        pass
+    _log_event("kok_report", query=f"{lid} {reason}")
+    return {"ok": True}
+
+
+@app.get("/admin/kok/reports")
+def admin_kok_reports(status: str = "open", _admin: dict = Depends(admin_user)):
+    with _kok_db() as k:
+        rows = [dict(r) | {"reason_label": _KOK_REPORT_REASONS.get(r["reason"], r["reason"])} for r in k.execute(
+            "SELECT id, lid, reason, detail, user_id, status, created_at FROM kok_reports WHERE (?='all' OR status=?) ORDER BY id DESC LIMIT 500", (status, status))]
+    return {"items": rows}
+
+
+@app.post("/admin/kok/reports/{rid_}/status")
+def admin_kok_report_status(rid_: int, body: dict, _admin: dict = Depends(admin_user)):
+    st = body.get("status")
+    if st not in ("open", "done", "rejected"):
+        raise HTTPException(400, "status")
+    with _kok_db() as k:
+        k.execute("UPDATE kok_reports SET status=? WHERE id=?", (st, rid_))
+        k.commit()
+    return {"ok": True}
 
 
 # ── 관리자 ──

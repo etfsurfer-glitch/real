@@ -10,7 +10,7 @@ import { areaLabel } from "../src/lib/area";
 export type KokItem = { id: string; kind: "owner" | "realtor"; complex_no: string; name: string; lat?: number; lng?: number; trade: string;
   price: number; rent: number; price_text: string; area_name: string; excl_m2: number | null; floor_text: string; direction: string;
   realtor_id?: string; realtor_name?: string; owner_verified: boolean; photos?: string[]; feature?: string; detail?: string; dong?: string;
-  move_in?: string; mgmt_fee?: number | null; contact_mode?: string; phone?: string; created_at?: string; expires_at?: string; status?: string;
+  move_in?: string; mgmt_fee?: number | null; contact_mode?: string; phone?: string; created_at?: string; expires_at?: string; expired?: boolean; status?: string;
   inquiries?: { id: number; from_phone: string; message: string; created_at: string }[]; keywords?: string[]; description?: string; kok_since?: string };
 const photoName = (u: string) => u.replace(/^.*\/kok\/photo\//, "");
 const TRADE_L: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
@@ -119,6 +119,44 @@ export function KokExtrasEditor({ session, init, uploadPath, savePath, withFeatu
 }
 
 // 직거래 매물 상세(지도 안 작은 창) — 사진·조건·소유자 확인·문의
+// 변경 이력 — 가격 변경·거래완료·다시 게시 등 등록자가 바꾼 기록(콕집이 자동으로 남김). 허위·미끼 매물을 가려 보는 데 쓴다
+type KokHist = { at: string; kind: string; text: string };
+export function KokHistory({ h, since }: { h?: KokHist[]; since?: string }) {
+  if (!h || h.length === 0) return since ? <p className="t2-pf-src">변경 이력 없음 · {since.replace(/-/g, ".")} 등록 뒤 가격을 바꾼 적 없어요</p> : null;
+  return (
+    <div className="t2-kl-sec"><h3>변경 이력 <small>콕집이 자동으로 남긴 기록</small></h3>
+      <table className="t2-tbl t2-kl-mo"><tbody>{h.map((x, i) => <tr key={i}><td style={{ width: 90 }}>{x.at.replace(/-/g, ".")}</td><td>{x.text}</td></tr>)}</tbody></table></div>
+  );
+}
+
+// 허위매물 신고 — 로그인 없이도 보낼 수 있다(같은 매물 하루 1번). 콕집 운영자에게 바로 알림
+const REPORT_REASONS: [string, string][] = [["sold", "이미 거래된 매물"], ["price", "가격이 달라요"], ["fake", "없는 매물(허위)"], ["info", "면적·층 등 정보가 달라요"], ["etc", "기타"]];
+export function KokReport({ lid }: { lid: string }) {
+  const [open, setOpen] = useState(false); const [reason, setReason] = useState(""); const [detail, setDetail] = useState("");
+  const [done, setDone] = useState(false); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  if (done) return <p className="t2-ask-ok">신고를 받았어요. 콕집이 확인해서 조치할게요.</p>;
+  if (!open) return <p className="t2-pf-src"><button className="t2-lnk mut" onClick={() => setOpen(true)}>허위매물 신고</button> · 이미 거래됐거나 표시와 다른 매물이면 알려 주세요</p>;
+  const send = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`${API}/kok/listings/${lid}/report`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason, detail }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "보내지 못했어요");
+      setDone(true);
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="t2-safe-sec"><h3>허위매물 신고</h3>
+      <div className="t2-revform">
+        <div className="t2-chips" style={{ marginBottom: 8 }}>{REPORT_REASONS.map(([k, l]) => <button key={k} type="button" className={reason === k ? "on" : ""} onClick={() => setReason(k)}>{l}</button>)}</div>
+        <textarea rows={2} maxLength={500} placeholder="(선택) 확인한 내용 — 예: 11월 초 계약됐다고 들었어요" value={detail} onChange={(e) => setDetail(e.target.value)} />
+        {err && <p className="t2-err">{err}</p>}
+        <div style={{ display: "flex", gap: 10 }}><button className="t2-cta1" disabled={busy || !reason} onClick={send}>{busy ? "보내는 중…" : "신고 보내기"}</button><button className="t2-lnk mut" onClick={() => setOpen(false)}>닫기</button></div>
+      </div>
+    </div>
+  );
+}
+
 export function KokDetail({ it, session, onClose, onLogin, onGo }: { it: KokItem; session: Session | null; onClose: () => void; onLogin: () => void; onGo: (no: string, name: string) => void }) {
   const [d, setD] = useState<KokItem>(it);
   const [msg, setMsg] = useState(""); const [sent, setSent] = useState(false); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
@@ -163,6 +201,8 @@ export function KokDetail({ it, session, onClose, onLogin, onGo }: { it: KokItem
               </div>
             )}
         </div>
+        <KokHistory h={(d as KokItem & { history?: KokHist[] }).history} since={(d.created_at || "").slice(0, 10)} />
+        <KokReport lid={it.id} />
         <p className="t2-snote">콕집은 중개 계약의 당사자가 아니고 직거래 매물의 표시만 돕습니다. 계약 전 등기부등본·건축물대장을 직접 확인하세요.</p>
       </div>
     </div>
@@ -198,9 +238,9 @@ export function OwnerTab({ session, onGo }: { session: Session | null; onLogin?:
             <li key={it.id} className="t2-kok-row mine">
               <KokRow it={it} onOpen={() => onGo(it.complex_no, it.name)} />
               <div className="t2-kok-mine">
-                <span className={"st " + (it.status === "active" ? "on" : "")}>{it.status === "active" ? `게시 중 · ${(it.expires_at || "").slice(0, 10)}까지` : it.status === "blocked" ? "관리자가 내림" : "내림"}</span>
+                <span className={"st " + (it.status === "active" && !it.expired ? "on" : "")}>{it.status === "active" ? (it.expired ? `기간 끝남(${(it.expires_at || "").slice(0, 10)}) · 자료는 남아 있어요` : `게시 중 · ${(it.expires_at || "").slice(0, 10)}까지`) : it.status === "blocked" ? "관리자가 내림" : "내림"}</span>
                 <span>문의 {it.inquiries?.length || 0}건</span>
-                {it.status === "active" ? <button className="t2-lnk mut" onClick={async () => { if (!window.confirm("이 매물을 내릴까요?")) return; await fetch(`${API}/kok/owner/listings/${it.id.slice(1)}/close`, { method: "POST", headers: authHeaders(session) }); loadMine(); }}>내리기</button>
+                {it.status === "active" && !it.expired ? <button className="t2-lnk mut" onClick={async () => { if (!window.confirm("이 매물을 내릴까요?")) return; await fetch(`${API}/kok/owner/listings/${it.id.slice(1)}/close`, { method: "POST", headers: authHeaders(session) }); loadMine(); }}>내리기</button>
                   : it.status !== "blocked" && <button className="t2-lnk" onClick={async () => { await fetch(`${API}/kok/owner/listings/${it.id.slice(1)}/extend`, { method: "POST", headers: authHeaders(session) }); loadMine(); }}>다시 올리기(30일)</button>}
               </div>
               {it.status !== "blocked" && (editId === it.id
@@ -347,7 +387,7 @@ function OwnerForm({ session, onDone, onCancel }: { session: Session; onDone: ()
 export const useKokTick = () => useMemo(() => Date.now(), []);
 
 // ── 중개사 연동 매물 상세 — 단지 서랍 옆 패널(PC) / 창(휴대폰) ──
-type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: number | null; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
+type RDetail = KokItem & { history?: KokHist[]; region?: string; confirm_ymd?: string; supply_m2?: number | null; tags?: string[]; rooms?: string | number | null; baths?: string | number | null;
   direction_base?: string; address?: string; ptype_name?: string; total_floor?: number | null; parking?: string; land_use?: string; land_m2?: number | null;
   mgmt_declared?: { fee: number | null; type: string; type_label: string; items: { name: string; amount: number | null }[] } | null;
   finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
@@ -380,7 +420,7 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
   const [err, setErr] = useState("");
   const [mg, setMg] = useState<Mgmt | null>(null);
   const [mgItems, setMgItems] = useState(false);
-  useEffect(() => { setD(null); setErr(""); setMg(null); setMgItems(false); getJson(`/kok/listings/${it.id}`).then(setD).catch((e) => setErr(typeof e === "number" && e === 404 ? "광고가 내려간 매물이에요." : "불러오지 못했어요.")); }, [it.id]);
+  useEffect(() => { setD(null); setErr(""); setMg(null); setMgItems(false); getJson(`/kok/listings/${it.id}`).then(setD).catch((e) => setErr(typeof e === "number" && e === 404 ? "내려갔거나 거래가 끝난 매물이에요." : "불러오지 못했어요.")); }, [it.id]);
   // 관리비는 따로 받는다(첫 단지는 몇 초 걸림). 아직 채워지는 중이면 몇 번 다시 본다.
   useEffect(() => {
     if (!d) return;
@@ -524,6 +564,8 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
               </p>
             </section>
           )}
+          <KokHistory h={d.history} since={d.kok_since} />
+          <KokReport lid={it.id} />
           <p className="t2-pf-src" style={{ marginTop: 12 }}>표시 내용의 책임은 광고한 중개사무소에 있어요. 계약 전 현장과 등기부를 확인하세요.</p>
         </>
       )}

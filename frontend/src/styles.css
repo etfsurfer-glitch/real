@@ -6558,6 +6558,7 @@ tbody tr.rank-row-3 td { background: linear-gradient(90deg, rgba(185,120,74,.13)
 .kokm-pt { font-style: normal; font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 3px; background: #eef2f7; color: #4b5563; white-space: nowrap; }
 .kokm-pt.cv { background: #fff8e0; color: #7a5b00; }
 .kokm-on { color: #1f7a4d; font-weight: 700; }
+.kokm-sold { color: #5a6b80; font-weight: 700; }
 .kokm-ex { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; } .kokm-ex .mut { color: #9ca3af; }
 .kokm-filters { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
 .kokm-seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; }

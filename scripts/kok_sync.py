@@ -73,10 +73,28 @@ CREATE TABLE IF NOT EXISTS kok_direct_listings(
 CREATE INDEX IF NOT EXISTS kok_direct_rt ON kok_direct_listings(realtor_id, status);
 CREATE INDEX IF NOT EXISTS kok_direct_geo ON kok_direct_listings(status, lat, lng);
 CREATE INDEX IF NOT EXISTS kok_direct_cx ON kok_direct_listings(complex_no, status);
+CREATE TABLE IF NOT EXISTS kok_reports(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, lid TEXT NOT NULL, reason TEXT NOT NULL, detail TEXT, user_id TEXT, ip_hash TEXT,
+  status TEXT DEFAULT 'open', created_at TEXT DEFAULT (datetime('now','+9 hours')));
+CREATE INDEX IF NOT EXISTS kok_reports_lid ON kok_reports(lid);
+-- 변경 이력: lid = R{article_no} | D{id} | K{id}. 가격·상태(거래완료·재등록·만료) 변경을 남긴다(허위매물 방지·소비자 공개)
+CREATE TABLE IF NOT EXISTS kok_change_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, lid TEXT NOT NULL, field TEXT NOT NULL, old TEXT, new TEXT,
+  at TEXT DEFAULT (datetime('now','+9 hours')));
+CREATE INDEX IF NOT EXISTS kok_change_lid ON kok_change_log(lid, id);
 CREATE TABLE IF NOT EXISTS kok_sync_log(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ran_at TEXT DEFAULT (datetime('now','+9 hours')), scope TEXT,
   realtors INTEGER, upserted INTEGER, closed INTEGER, details INTEGER, seconds REAL, note TEXT);
 """
+
+
+def price_key(trade, price, rent) -> str:
+    """변경 이력에 남길 가격 문자열(원 단위 그대로) — 'A1:950000000' / 'B2:10000000/500000'."""
+    return f"{trade or ''}:{int(price or 0)}" + (f"/{int(rent or 0)}" if trade == "B2" else "")
+
+
+def log_change(k, lid: str, field: str, old, new) -> None:
+    k.execute("INSERT INTO kok_change_log(lid, field, old, new) VALUES(?,?,?,?)", (lid, field, None if old is None else str(old), None if new is None else str(new)))
 
 
 def kok_db() -> sqlite3.Connection:
@@ -253,8 +271,13 @@ def sync(realtor_id: str | None = None, fetch_details: bool = True) -> dict:
                 "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no LEFT JOIN articles a ON a.article_no=l.article_no "
                 "WHERE l.realtor_id=?", (rid,)).fetchall()
             seen = set()
+            prev = {x["article_no"]: x for x in k.execute("SELECT article_no, trade, price, rent, status FROM kok_listings WHERE realtor_id=?", (rid,))}
             for r in rows:
                 seen.add(r["article_no"])
+                pv = prev.get(r["article_no"])
+                if pv is not None and pv["status"] == "active" and price_key(pv["trade"], pv["price"], pv["rent"]) != price_key(r["trade_type"], r["deal_or_warrant_price"], r["rent_price"]):
+                    log_change(k, "R" + r["article_no"], "price", price_key(pv["trade"], pv["price"], pv["rent"]),
+                               price_key(r["trade_type"], r["deal_or_warrant_price"], r["rent_price"]))
                 fl = None
                 try:
                     fl = int(str(r["floor_info"] or "").split("/")[0]) if str(r["floor_info"] or "").split("/")[0].isdigit() else None
@@ -269,7 +292,8 @@ def sync(realtor_id: str | None = None, fetch_details: bool = True) -> dict:
                     "area_name=excluded.area_name, supply_m2=COALESCE(kok_listings.supply_m2, excluded.supply_m2), excl_m2=COALESCE(kok_listings.excl_m2, excluded.excl_m2), "
                     "floor=COALESCE(kok_listings.floor, excluded.floor), direction=COALESCE(NULLIF(kok_listings.direction,''), excluded.direction), "
                     "first_seen=COALESCE(kok_listings.first_seen, excluded.first_seen), kok_since=excluded.kok_since, "
-                    "status='active', closed_at=NULL, synced_at=excluded.synced_at, updated_at=excluded.synced_at, floor_label=excluded.floor_label, total_floor=COALESCE(excluded.total_floor, kok_listings.total_floor)",
+                    "status=CASE WHEN kok_listings.status='sold' THEN 'sold' ELSE 'active' END, "
+                    "closed_at=CASE WHEN kok_listings.status='sold' THEN kok_listings.closed_at ELSE NULL END, synced_at=excluded.synced_at, updated_at=excluded.synced_at, floor_label=excluded.floor_label, total_floor=COALESCE(excluded.total_floor, kok_listings.total_floor)",
                     (r["article_no"], rid, r["realtor_name"], r["complex_no"], r["complex_name"], (r["building_name"] or "").replace("동", ""),
                      r["latitude"], r["longitude"], r["trade_type"], r["deal_or_warrant_price"], r["rent_price"], r["area_name"],
                      r["area1_m2"], r["area2_m2"], fl, r["direction"] or "", r["first_seen_date"], _kok_since(agreed, r["first_seen_date"]), now,

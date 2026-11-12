@@ -124,7 +124,7 @@ export function KokMyListings({ authH, defaultOpen }: { authH: () => Record<stri
   const [items, setItems] = useState<MyItem[] | null>(null);
   const [synced, setSynced] = useState<string | null>(null);
   const [edit, setEdit] = useState<string | null>(null);
-  const load = () => fetch(`${API}/lounge/kok/listings`, { headers: authH() }).then((r) => (r.ok ? r.json() : { items: [] })).then((j) => { setItems(j.items || []); setSynced(j.synced_at || null); }).catch(() => setItems([]));
+  const load = () => fetch(`${API}/lounge/kok/listings`, { headers: authH() }).then((r) => (r.ok ? r.json() : { items: [] })).then((j) => { setItems((j.items || []).filter((i: { status?: string }) => i.status !== "sold")); setSynced(j.synced_at || null); }).catch(() => setItems([]));
   useEffect(() => { if (open && items === null) load(); }, [open]);   // eslint-disable-line react-hooks/exhaustive-deps
   const withExtra = (items || []).filter((i) => i.photos.length || i.keywords.length || i.description).length;
   return (
