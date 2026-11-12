@@ -11599,7 +11599,7 @@ def kok_realtor_listing_detail(article_no: str):
             raise HTTPException(404, "표시 항목을 채우는 중인 매물이에요")
         ex = _kok_extras(k, article_no)
     with _open_db() as d:
-        cx = d.execute("SELECT cortar_no, use_approve_ymd, parking_per_household, real_estate_type FROM complexes WHERE complex_no=?", (r["complex_no"],)).fetchone()
+        cx = d.execute("SELECT cortar_no, use_approve_ymd, parking_per_household, real_estate_type, parking_possible_count FROM complexes WHERE complex_no=?", (r["complex_no"],)).fetchone()
         cortar = cx[0] if cx else ""
         try:
             _ad = _kok_complex_addr(d, r["complex_no"])
@@ -11616,8 +11616,10 @@ def kok_realtor_listing_detail(article_no: str):
     out = _kok_listing_item(r, None) | ex | {
         "region": " ".join(x for x in (reg or ()) if x), "rooms": r["rooms"], "baths": r["baths"], "move_in": r["move_in"] or "",
         "address": address, "ptype": ptype, "ptype_name": _KOK_PTYPES.get(ptype, ptype), "mgmt_declared": _kok_mgmt_declared(r),
-        "finance_price": r["finance_price"], "violation": r["violation"] or "", "approve_ymd": (cx[1] if cx else "") or "",
-        "parking_per_household": cx[2] if cx else None, "complex_facts": facts,
+        # 융자금은 내보내지 않는다 — 필수 표시 항목이 아니고 상환·추가대출로 금방 달라져 허위 표시가 된다(2026-10-13 광고검수 결정)
+        "finance_price": None, "violation": r["violation"] or "", "approve_ymd": (cx[1] if cx else "") or "",
+        "presale": ptype in _KOK_PRESALE, "parking_per_household": cx[2] if cx else None, "parking_total": cx[4] if cx else None,
+        "complex_facts": facts,
         "py_price": {"supply": int(price / (supply / 3.3058)) if price and supply else None, "excl": int(price / (excl / 3.3058)) if price and excl else None} if r["trade"] == "A1" else None,
         "acquire": _kok_acquire(int(price or 0), excl) if r["trade"] == "A1" and price else None,
         "realtor": {"realtor_id": r["realtor_id"], "name": r["realtor_name"], "regno": regno[0] if regno else "",
@@ -11660,11 +11662,12 @@ def kok_direct_listing_detail(did: str):
     with _open_db() as d:
         regno = d.execute("SELECT b.ra_regno FROM realtor_match m JOIN vworld_brokers b ON b.sys_regno=m.sys_regno WHERE m.realtor_id=? LIMIT 1", (r["realtor_id"],)).fetchone()
         facts = _kok_complex_facts(d, r["complex_no"], r["area_name"]) if r["complex_no"] else {}
-        cx = d.execute("SELECT use_approve_ymd, parking_per_household FROM complexes WHERE complex_no=?", (r["complex_no"],)).fetchone() if r["complex_no"] else None
+        cx = d.execute("SELECT use_approve_ymd, parking_per_household, parking_possible_count FROM complexes WHERE complex_no=?", (r["complex_no"],)).fetchone() if r["complex_no"] else None
     ob = _office_brief(r["realtor_id"]) or {}
     price, supply, excl = r["price"], r["supply_m2"], r["excl_m2"]
     out.update({
         "complex_facts": facts, "approve_ymd": ((r["approve_ymd"] if "approve_ymd" in r.keys() else "") or (cx[0] if cx else "") or ""), "parking_per_household": cx[1] if cx else None,
+        "parking_total": cx[2] if cx else None, "presale": r["ptype"] in _KOK_PRESALE,
         "py_price": {"supply": int(price / (supply / 3.3058)) if price and supply else None, "excl": int(price / (excl / 3.3058)) if price and excl else None} if r["trade"] == "A1" else None,
         "acquire": _kok_acquire(int(price or 0), excl) if r["trade"] == "A1" and price and r["ptype"] in _KOK_HOUSING else None,
         "realtor": {"realtor_id": r["realtor_id"], "name": ob.get("realtor_name") or "", "regno": regno[0] if regno else "",
@@ -11879,11 +11882,12 @@ def kok_owner_extras(lid: int, body: dict, user: dict = Depends(current_user)):
 
 
 # ── 중개사: 콕집에만 올리는 매물(광고와 무관) + 전체 관리 + 점검 ──
-_KOK_PTYPES = {"APT": "아파트", "OPST": "오피스텔", "ABYG": "아파트분양권", "JGC": "재개발·재건축", "VL": "빌라·연립", "DDDGG": "단독·다가구",
+_KOK_PTYPES = {"APT": "아파트", "OPST": "오피스텔", "ABYG": "아파트분양권", "OBYG": "오피스텔분양권", "JGC": "재개발·재건축", "VL": "빌라·연립", "DDDGG": "단독·다가구",
                "OR": "원룸", "SG": "상가", "SMS": "사무실", "GM": "건물", "GJCG": "공장·창고", "TJ": "토지", "ETC": "기타"}
-_KOK_COMPLEX_PTYPES = {"APT", "OPST", "ABYG", "JGC"}                     # 단지(complex_no) 기준
-_KOK_HOUSING = {"APT", "OPST", "ABYG", "JGC", "VL", "DDDGG", "OR"}      # 주거 — 방향·입주일·취득세 산식 적용
-_KOK_FLOORED = {"APT", "OPST", "ABYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"}   # 층 표시 대상
+_KOK_COMPLEX_PTYPES = {"APT", "OPST", "ABYG", "OBYG", "JGC"}             # 단지(complex_no) 기준
+_KOK_HOUSING = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "DDDGG", "OR"}   # 주거 — 방향·입주일·취득세 산식 적용
+_KOK_FLOORED = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"}   # 층 표시 대상
+_KOK_PRESALE = {"ABYG", "OBYG"}                                          # 분양권 — 준공 전: 관리비·사용승인일 해당 없음
 
 
 def _kok_direct_item(r) -> dict:
@@ -11931,6 +11935,8 @@ _KOK_FIELD_LABEL = {"complex_no": "단지", "address": "소재지", "excl_m2": "
 
 def _kok_required(pt: str) -> set[str]:
     """종류별 표시·광고 필수 항목(공인중개사법 18조의2 ② + 세부기준 고시). 단지형의 사용승인·주차는 단지 자료로 채워진다."""
+    if pt in _KOK_PRESALE:
+        return {"complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in"}
     if pt in _KOK_COMPLEX_PTYPES:
         return {"complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee"}
     if pt in ("VL", "OR"):
@@ -12017,10 +12023,12 @@ def _kok_direct_fields(body: dict, d) -> dict:
     if pt in _KOK_COMPLEX_PTYPES:
         if not f["complex_no"]:
             raise HTTPException(422, "단지를 골라 주세요")
-        cx = d.execute("SELECT complex_name, latitude, longitude, cortar_no, road_address FROM complexes WHERE complex_no=?", (f["complex_no"],)).fetchone()
+        cx = d.execute("SELECT complex_name, latitude, longitude, cortar_no, road_address, total_building_count, use_approve_ymd, "
+                       "parking_possible_count, parking_per_household FROM complexes WHERE complex_no=?", (f["complex_no"],)).fetchone()
         if not cx:
             raise HTTPException(404, "단지를 찾을 수 없어요")
         f["complex_name"], f["lat"], f["lng"], f["cortar_no"] = cx[0], cx[1], cx[2], cx[3]
+        cx_nb, cx_facts = cx[5], {"approve": cx[6], "parking_total": cx[7], "parking_per": cx[8]}
         if not f["address"]:
             try:
                 f["address"] = _kok_complex_addr(d, f["complex_no"]).get("road") or None
@@ -12047,7 +12055,10 @@ def _kok_direct_fields(body: dict, d) -> dict:
     if pt in ("VL", "OR", "SG", "SMS") and (f["mgmt_fee"] or 0) >= 100000 and not items:
         raise HTTPException(422, "관리비가 월 10만원 이상이면 비목별 금액(일반관리비·전기·수도·가스·난방·인터넷·TV 등)을 적어야 해요")
     from scripts.kok_sync import publish_check
-    miss = publish_check(f, pt, source="direct")
+    if pt in _KOK_COMPLEX_PTYPES:   # 단지형: 동(건물) 번호·단지 자료의 사용승인일·주차까지 전환분과 같은 기준
+        miss = publish_check(f, pt, source="direct", n_buildings=cx_nb, cx_facts=cx_facts)
+    else:
+        miss = publish_check(f, pt, source="direct")
     f["publish_state"] = "hold" if miss else "live"
     f["hold_reasons"] = _authjson.dumps(miss) if miss else None
     return f
@@ -12229,7 +12240,7 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
                 iss.append({"code": "direction", "level": "warn", "msg": "방향이 없어요 — 표시·광고 의무 항목"})
             if pt in _KOK_HOUSING and not r["move_in"]:
                 iss.append({"code": "move_in", "level": "warn", "msg": "입주 가능일이 없어요 — 표시·광고 의무 항목"})
-            if pt in _KOK_FLOORED and r["mgmt"] is None:
+            if pt in _KOK_FLOORED and pt not in _KOK_PRESALE and r["mgmt"] is None:
                 if r["source"] == "converted" and pt == "APT":
                     iss.append({"code": "mgmt_soft", "level": "info", "msg": "중개사 표시 관리비가 없어요 — 공개자료(K-apt) 실제 관리비로 보이고 있어요"})
                 else:

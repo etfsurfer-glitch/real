@@ -128,14 +128,19 @@ def _int_or_none(v) -> int | None:
 
 
 # ── 게시 게이트: 표시·광고 필수 항목이 비면 공개 화면에 내보내지 않는다(게시 전) ─────────
-COMPLEX_PTYPES = {"APT", "OPST", "ABYG", "JGC"}
-HOUSING = {"APT", "OPST", "ABYG", "JGC", "VL", "DDDGG", "OR"}
-FLOORED = {"APT", "OPST", "ABYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"}
+COMPLEX_PTYPES = {"APT", "OPST", "ABYG", "OBYG", "JGC"}
+HOUSING = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "DDDGG", "OR"}
+FLOORED = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"}
+# 분양권(아파트·오피스텔): 준공 전이라 관리비·사용승인일은 아직 없다(해당 없음). 층·방향·방·욕실·입주 예정은 표시 대상.
+# 2026-11-12 이전엔 OBYG 가 위 집합에 없어 검사 없이 공개됐고, ABYG 는 관리비 없음으로 전부 보류됐다.
+PRESALE = {"ABYG", "OBYG"}
 HOLD_LABEL = {"price": "가격", "rent": "월세", "area": "면적", "floor": "층", "total_floor": "총 층수", "direction": "방향", "rooms": "방 수", "baths": "욕실 수",
-              "move_in": "입주 가능일", "mgmt": "관리비", "approve": "사용승인일", "parking": "주차대수", "land_use": "지목", "address": "소재지"}
+              "move_in": "입주 가능일", "mgmt": "관리비", "approve": "사용승인일", "parking": "주차대수", "land_use": "지목", "address": "소재지",
+              "dong": "동(건물 번호)"}
 
 
-def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "converted") -> list[str]:
+def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "converted", n_buildings: int | None = None,
+                  cx_facts: dict | None = None) -> list[str]:
     """빠진 필수 항목 코드 목록. 비면 게시 가능. 전환분 아파트는 K-apt 실제 관리비가 있으면 관리비 표시로 본다."""
     miss: list[str] = []
     if not r.get("price"):
@@ -162,8 +167,18 @@ def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "
         miss.append("baths")
     if not r.get("move_in"):
         miss.append("move_in")
-    if ptype in FLOORED and ptype not in ("GM", "GJCG") and not r.get("mgmt_fee") and not (ptype == "APT" and kapt_ok):
+    if (ptype in FLOORED and ptype not in ("GM", "GJCG") and ptype not in PRESALE
+            and not r.get("mgmt_fee") and not (ptype == "APT" and kapt_ok)):
         miss.append("mgmt")
+    # 공동주택·준주택 소재지 = 지번 + 동 + 층. 동이 둘 이상인 단지에서 동 번호가 비면 소재지를 특정할 수 없다.
+    if ptype in COMPLEX_PTYPES and (n_buildings or 0) > 1 and not str(r.get("dong") or "").strip():
+        miss.append("dong")
+    # 단지형 전환분의 사용승인일(분양권은 입주 예정)·주차대수는 우리 단지 자료로 표시한다 — 단지 자료에 없으면 보류
+    if cx_facts is not None and ptype in COMPLEX_PTYPES:
+        if not cx_facts.get("approve"):
+            miss.append("approve")
+        if not (cx_facts.get("parking_total") or cx_facts.get("parking_per")):
+            miss.append("parking")
     if source == "direct" and ptype not in COMPLEX_PTYPES:
         if not r.get("address"):
             miss.append("address")
@@ -192,12 +207,19 @@ def recompute_publish(k: sqlite3.Connection, d: sqlite3.Connection, realtor_id: 
     rows = k.execute(q, (realtor_id,) if realtor_id else ()).fetchall()
     cxs = {r["complex_no"] for r in rows}
     types: dict = {}
+    nb: dict = {}
+    facts: dict = {}
     if cxs:
         ph = ",".join("?" * len(cxs))
-        types = {x[0]: x[1] for x in d.execute(f"SELECT complex_no, real_estate_type FROM complexes WHERE complex_no IN ({ph})", list(cxs))}
+        types, nb = {}, {}
+        for x in d.execute(f"SELECT complex_no, real_estate_type, total_building_count, use_approve_ymd, parking_possible_count, "
+                           f"parking_per_household FROM complexes WHERE complex_no IN ({ph})", list(cxs)):
+            types[x[0]], nb[x[0]] = x[1], x[2]
+            facts[x[0]] = {"approve": x[3], "parking_total": x[4], "parking_per": x[5]}
     live = hold = 0
     for r in rows:
-        miss = publish_check(dict(r), types.get(r["complex_no"]) or "APT", kapt_ok=r["complex_no"] in kapt)
+        miss = publish_check(dict(r), types.get(r["complex_no"]) or "APT", kapt_ok=r["complex_no"] in kapt,
+                             n_buildings=nb.get(r["complex_no"]), cx_facts=facts.get(r["complex_no"], {}))
         st = "hold" if miss else "live"
         live += st == "live"; hold += st == "hold"
         k.execute("UPDATE kok_listings SET publish_state=?, hold_reasons=? WHERE article_no=?", (st, json.dumps(miss) if miss else None, r["article_no"]))

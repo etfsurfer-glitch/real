@@ -12,9 +12,9 @@ import type { Office } from "./bizTabs";
 const API = import.meta.env.VITE_API_BASE;
 const TRADE_L: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 const DIRS = ["남향", "남동향", "남서향", "동향", "서향", "북향", "북동향", "북서향"];
-const COMPLEX_TYPES = new Set(["APT", "OPST", "ABYG", "JGC"]);
-const FLOORED = new Set(["APT", "OPST", "ABYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"]);
-const HOUSING = new Set(["APT", "OPST", "ABYG", "JGC", "VL", "DDDGG", "OR"]);
+const COMPLEX_TYPES = new Set(["APT", "OPST", "ABYG", "OBYG", "JGC"]);
+const FLOORED = new Set(["APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"]);
+const HOUSING = new Set(["APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "DDDGG", "OR"]);
 type TabKey = "convert" | "direct" | "manage" | "audit";
 
 type Overview = { opted: boolean; agreed_at: string | null; needs_reagree: boolean; converted: { active: number; closed: number; hold: number; with_extras: number };
@@ -125,7 +125,9 @@ const toDraft = (it: DirectItem): Draft => ({ ptype: it.ptype, trade: it.trade, 
 const REQ: Record<string, string[]> = {
   APT: ["complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee"],
   OPST: ["complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee"],
-  ABYG: ["complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee"],
+  // 분양권은 준공 전 — 관리비 해당 없음(서버 _KOK_PRESALE)
+  ABYG: ["complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in"],
+  OBYG: ["complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in"],
   JGC: ["complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee"],
   VL: ["address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee", "approve_ymd", "parking"],
   OR: ["address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee", "approve_ymd", "parking"],

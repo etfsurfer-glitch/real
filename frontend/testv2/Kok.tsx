@@ -351,6 +351,7 @@ type RDetail = KokItem & { region?: string; confirm_ymd?: string; supply_m2?: nu
   direction_base?: string; address?: string; ptype_name?: string; total_floor?: number | null; parking?: string; land_use?: string; land_m2?: number | null;
   mgmt_declared?: { fee: number | null; type: string; type_label: string; items: { name: string; amount: number | null }[] } | null;
   finance_price?: number | null; violation?: string; exclusive_rate?: string; approve_ymd?: string; parking_per_household?: number | string | null; verification?: string;
+  parking_total?: number | null; presale?: boolean;
   realtor?: { realtor_id: string; name?: string; regno?: string; address?: string; representative?: string; tel?: string; cell?: string };
   complex_facts?: { heat?: string; builder?: string; households?: number | null; households_type?: number | null; parking_total?: number | null; parking_per?: number | null; dongs?: number; subway?: string; entrance?: string; highest_floor?: number | string; lowest_floor?: number | string; approve_ymd?: string };
   py_price?: { supply: number | null; excl: number | null } | null;
@@ -403,20 +404,25 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
         <>
           {d.keywords && d.keywords.length > 0 && <p className="t2-kok-kw big">{d.keywords.map((k) => <i key={k}>{k}</i>)}</p>}
           {d.photos && d.photos.length > 0 && <KokPhotos photos={d.photos} />}
-          <div className="t2-kl-price"><b>{d.price_text}</b>{d.finance_price ? <small>융자금 {Math.round(d.finance_price / 1e8 * 10) / 10}억</small> : null}</div>
+          <div className="t2-kl-price"><b>{d.price_text}</b></div>
           <table className="t2-tbl t2-kl-tbl"><tbody>
             <tr><th>면적</th><td>{d.excl_m2 ? areaLabel(d.excl_m2) : d.area_name}{d.supply_m2 ? ` · 공급 ${Math.round(d.supply_m2)}㎡` : ""}{d.area_name ? ` · ${d.area_name}타입` : ""}{d.exclusive_rate ? ` · 전용률 ${d.exclusive_rate}%` : ""}</td></tr>
             <tr><th>층 · 방향</th><td>{[d.floor_text ? `${d.floor_text}${d.total_floor ? ` / 총 ${d.total_floor}층` : ""}` : (d.total_floor ? `총 ${d.total_floor}층` : ""),
               d.direction ? `${d.direction}${d.direction_base ? ` · ${d.direction_base}${/기준$/.test(d.direction_base) ? "" : " 기준"}` : ""}` : ""].filter(Boolean).join(" · ") || "-"}</td></tr>
             <tr><th>방 · 욕실</th><td>{d.rooms || d.baths ? `방 ${d.rooms ?? "-"} · 욕실 ${d.baths ?? "-"}` : "-"}</td></tr>
             <tr><th>입주</th><td>{d.move_in || "-"}</td></tr>
-            {d.mgmt_declared && (() => {
-              const g = d.mgmt_declared!; const man = (v: number | null) => (v == null ? "확인 불가" : `${Math.round(v / 1e4).toLocaleString()}만`);
+            {/* 관리비 — 표시 의무 항목이라 줄은 항상 둔다. 분양권은 준공 전이라 해당 없음 */}
+            {(() => {
+              if (d.presale) return <tr><th>관리비</th><td>준공 전 · 해당 없음</td></tr>;
+              const g = d.mgmt_declared; const man = (v: number | null) => (v == null ? "확인 불가" : `${Math.round(v / 1e4).toLocaleString()}만`);
+              if (!g || (!g.fee && !g.type_label && g.items.length === 0)) return <tr><th>관리비</th><td>중개사 표시 없음<small className="blk">실제 부과 내역은 아래 공개자료(K-apt)</small></td></tr>;
               const head = g.fee ? `월 ${Math.round(g.fee / 1e4).toLocaleString()}만원` : g.type_label || "-";
               return <tr><th>관리비</th><td>{head}{g.type_label && g.fee ? ` · ${g.type_label}` : ""}{g.items.length > 0 && <small className="blk">{g.items.map((x) => `${x.name} ${man(x.amount)}`).join(" · ")}</small>}<small className="blk">중개사 표시 금액 · 실제 부과 내역은 아래 공개자료</small></td></tr>;
             })()}
             {(d.land_use || d.land_m2) && <tr><th>토지</th><td>{[d.land_use ? `지목 ${d.land_use}` : "", d.land_m2 ? `${Math.round(d.land_m2 * 10) / 10}㎡` : ""].filter(Boolean).join(" · ")}</td></tr>}
-            <tr><th>사용승인</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.parking_per_household ? ` · 세대당 주차 ${d.parking_per_household}대` : d.parking ? ` · 주차 ${d.parking}` : ""}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
+            {/* 분양권은 아직 사용승인 전 — 단지 자료의 날짜는 입주(준공) 예정 */}
+            <tr><th>{d.presale ? "입주 예정" : "사용승인"}</th><td>{d.approve_ymd ? `${d.approve_ymd.slice(0, 4)}.${d.approve_ymd.slice(4, 6)}` : "-"}{d.violation === "Y" ? " · 위반건축물" : ""}</td></tr>
+            <tr><th>주차</th><td>{[d.parking_total ? `총 ${d.parking_total.toLocaleString()}대` : "", d.parking_per_household ? `세대당 ${d.parking_per_household}대` : "", !d.parking_total && !d.parking_per_household && d.parking ? `${d.parking}` : ""].filter(Boolean).join(" · ") || "-"}</td></tr>
           </tbody></table>
           {d.description && <div className="t2-kok-desc"><div className="t2-pf-h"><h3>중개사가 콕집에 쓴 설명</h3></div><p>{d.description}</p></div>}
           {/* 단지 — 콕집 단지 자료 + K-apt 관리 현황을 한 묶음으로. 큰 숫자 넷 뒤에 짧은 정의 목록 */}
