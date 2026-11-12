@@ -28,7 +28,7 @@ c = sqlite3.connect("file:/opt/koczip/data/naverreal.sqlite?mode=ro", uri=True)
 info = {r[0]: {"name": r[1], "type": r[2], "gu": r[3]} for r in c.execute(
     "SELECT c.complex_no, c.complex_name, c.real_estate_type, g.cortar_name FROM complexes c "
     "JOIN regions g ON g.cortar_no = substr(c.cortar_no,1,5)||'00000' WHERE c.cortar_no LIKE '11%'")}
-zones = json.load(open(f"{TMP}/zone_map.json"))
+zones = json.load(open(f"{TMP}/zone_map.json"))   # map_zones.py 결과(design/press/data/press_jaecho_zones.json)
 STAGE_FIX = {"은마아파트": ("사업시행", "2026-07-02"), "잠실주공5단지": ("사업시행", "2026-07-01")}
 GROUP = {"관리처분": "관리처분인가", "사업시행": "사업시행인가", "건축심의": "건축심의 통과",
          "조합설립": "건축심의 전", "추진위": "건축심의 전", "구역지정": "건축심의 전"}
@@ -45,6 +45,7 @@ for no, v in info.items():
         grp[no] = "일반 아파트"
 ORDER = ["관리처분인가", "사업시행인가", "건축심의 통과", "건축심의 전", "일반 아파트"]
 FOCUS = {"236": "은마", "639": "잠실주공5단지"}
+EX = "(은마·잠실5 제외)"   # 사업시행인가 묶음 같은 집의 1/3이 두 단지 — 빼고도 같은지 본다
 
 COLS = ["complex_no", "trade_type", "area2_m2", "floor_info", "direction", "building_name", "area1_m2",
         "deal_or_warrant_price", "same_addr_cnt"]
@@ -77,12 +78,17 @@ def compare(ha, hb):
     for k, a in ha.items():
         b = hb.get(k)
         if b and 0.7 <= b / a <= 1.3:
-            res[grp[k[0]]].append(b / a - 1)
+            g = grp[k[0]]
+            res[g].append(b / a - 1)
+            if g != "일반 아파트":
+                res["재건축 전체"].append(b / a - 1)
+            if k[0] not in FOCUS and g == "사업시행인가":
+                res[g + EX].append(b / a - 1)
             per[k[0]].append(b / a - 1)
     def summ(v):
         return {"n": len(v), "cut": sum(x < 0 for x in v) / len(v), "rise": sum(x > 0 for x in v) / len(v),
                 "mean": st.mean(v)} if v else None
-    return {g: summ(v) for g, v in res.items()}, {k: summ(v) for k, v in per.items() if len(v) >= 10}
+    return {g: summ(v) for g, v in res.items()}, {k: summ(v) for k, v in per.items() if len(v) >= 5}
 
 
 out = {"weekly": {}, "weekly_change": {}, "daily_change": {}, "groups": {}, "focus": {}, "span": {}}
@@ -93,8 +99,11 @@ for d in WEEKLY:
     out["weekly"][d] = {k: round(v, 1) for k, v in g.items()}
     CX[d] = cx
     H[d] = homes(rows)
+out["weekly_complex"] = {}
 for a, b in zip(WEEKLY, WEEKLY[1:]):
-    out["weekly_change"][b] = compare(H[a], H[b])[0]
+    gs, per = compare(H[a], H[b])
+    out["weekly_change"][b] = gs
+    out["weekly_complex"][b] = {no: v for no, v in per.items() if grp.get(no) != "일반 아파트"}
 # 일간(전날 대비)
 prev = None
 for d in DAILY:
@@ -109,7 +118,7 @@ for d in DAILY:
 for k, (a, b) in {"pre": ("2026-10-21", "2026-11-04"), "post": ("2026-11-04", "2026-11-11"),
                   "since_aug": ("2026-08-05", "2026-11-11"), "oct28_nov11": ("2026-10-28", "2026-11-11")}.items():
     gsum, per = compare(H[a], H[b])
-    out["span"][k] = {"groups": gsum, "complex": {no: v for no, v in per.items() if grp.get(no) != "일반 아파트"}}
+    out["span"][k] = {"groups": gsum, "complex": {no: v for no, v in per.items() if grp.get(no) != "일반 아파트" and v["n"] >= 10}}
 # 단지별 매물 수(재건축)
 for no in set(grp):
     if grp[no] == "일반 아파트":
