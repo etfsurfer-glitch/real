@@ -314,8 +314,13 @@ def audit_listing(f: dict, *, cp_autofilled: bool = False) -> dict:
             add(2, "면적(전용㎡)", "통과")        # 대장 전유 조회불가/대형지번 → 표시여부만
 
     # ③ 가격
-    add(3, "가격", "통과" if _has(f.get("price")) else "위반",
-        "" if _has(f.get("price")) else "거래예정금액 미표시")
+    # 월세(B2)·단기임대(B3)는 보증금이 없어도(무보증) 월세가 표시돼 있으면 거래예정금액을 밝힌 것이다.
+    # 실측(2026-11-12) 동빙고동 빌라 2657867143: 무보증 월세 550만원인데 보증금 칸만 보고 위반으로 떴다.
+    _rent_ok = f.get("trade_type") in ("B2", "B3") and _has(f.get("rent_price"))
+    _price_ok = _has(f.get("price")) or _rent_ok
+    add(3, "가격", "통과" if _price_ok else "위반",
+        ("무보증 월세 — 월세 표시" if _rent_ok and not _has(f.get("price")) else "")
+        if _price_ok else "거래예정금액 미표시")
 
     # ④ 종류 + 위반건축물·미등기 표시 (네이버 기준 — 건축물대장 API엔 위반건축물 필드 없음)
     viol_b = f.get("violation_building") == "Y"

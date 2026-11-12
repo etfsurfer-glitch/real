@@ -22429,6 +22429,7 @@ def _audit_merge(r: dict, det: dict, *, saengsuk: bool, led: dict | None,
         "floor_info": det.get("floor_info") or r.get("floor_info"),
         "area_exclusive": r.get("area2_m2"),
         "price": r.get("deal_or_warrant_price"),
+        "rent_price": r.get("rent_price"),                       # 월세(만원) — 무보증 월세는 price 가 비어 있다
         "building_name": det.get("building_name") or r.get("building_name"),
         "dong_name": r.get("dong_name"),
         "detail_address": r.get("detail_address"),
@@ -22880,7 +22881,7 @@ def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) 
                 + trade_cl, params).fetchone()[0]
             rows = [dict(x) for x in c.execute(
                 "SELECT l.article_no, l.complex_no, l.real_estate_type, l.trade_type, l.floor_info, "
-                "l.area2_m2, l.deal_or_warrant_price, l.building_name, l.direction, cx.complex_name, "
+                "l.area2_m2, l.deal_or_warrant_price, l.rent_price, l.building_name, l.direction, cx.complex_name, "
                 "cx.use_approve_ymd, cx.dong_name, cx.detail_address, cx.cortar_no "
                 "FROM listings_current l JOIN complexes cx ON cx.complex_no=l.complex_no "
                 "WHERE l.realtor_id=? AND " + type_cl + trade_cl
@@ -22895,7 +22896,7 @@ def _audit_run(realtor_id: str, kind: str, trade: str, offset: int, limit: int) 
         if path.exists():
             snap_cl = " AND snapshot_date=(SELECT MAX(snapshot_date) FROM listings)"  # 최신분만
             sel = ("SELECT article_no, real_estate_type, real_estate_type_name, trade_type, "
-                   "floor_info, area2_m2, deal_or_warrant_price, building_name, direction, "
+                   "floor_info, area2_m2, deal_or_warrant_price, rent_price, building_name, direction, "
                    "latitude, longitude, realtor_name, cortar_no FROM listings")
             vwattr = _vw_region_attr(realtor_id)
             with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as rc:
