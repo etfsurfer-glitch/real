@@ -198,8 +198,21 @@ def load_complexes(conn: sqlite3.Connection, cortar_prefix: str | None = None
         sql += " WHERE c.cortar_no LIKE ?"
         params = (cortar_prefix + "%",)
     cur = conn.execute(sql, params)
+    rows = cur.fetchall()
+    # 평형표 전용면적 — 이름 조각 매칭(token+dong+area)의 면적 검증용.
+    areas: dict[str, list[float]] = {}
+    try:
+        asql = "SELECT complex_no, exclusive_area FROM complex_areas WHERE exclusive_area IS NOT NULL"
+        aparams: tuple = ()
+        if cortar_prefix:
+            asql += " AND complex_no IN (SELECT complex_no FROM complexes WHERE cortar_no LIKE ?)"
+            aparams = (cortar_prefix + "%",)
+        for cno, ea in conn.execute(asql, aparams):
+            areas.setdefault(cno, []).append(float(ea))
+    except sqlite3.Error:
+        pass
     out = []
-    for r in cur.fetchall():
+    for r in rows:
         out.append({
             "complex_no": r[0],
             "complex_name": r[1] or "",
@@ -209,8 +222,124 @@ def load_complexes(conn: sqlite3.Connection, cortar_prefix: str | None = None
             "dong_name": r[5] or "",
             "variants": name_variants(r[1] or ""),
             "is_offi": (r[6] or "") in ("오피스텔", "오피스텔분양권"),
+            "tokens": name_tokens(r[1] or ""),
+            "areas": areas.get(r[0], []),
         })
     return out
+
+
+# ---------------------------------------------------------------------------
+# 국토부 단지 일련번호(aptSeq) → 단지 지도
+# ---------------------------------------------------------------------------
+# tx_seq_map: source='rule'(사람이 확정, 덮어쓰지 않음) / 'consensus'(밤마다 학습:
+# 같은 aptSeq 거래 중 동까지 맞은 매칭의 90% 이상이 한 단지). aptSeq 는 매매·전월세가
+# 같은 번호를 쓰고 지번이 여러 개인 단지(푸른마을 벽산 71·신성 73·쌍용 75)도 각자 번호가
+# 있어, 한 번 확정하면 새 거래가 지번·이름과 상관없이 같은 단지로 간다.
+SEQ_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tx_seq_map (
+  apt_seq    TEXT PRIMARY KEY,
+  complex_no TEXT NOT NULL,
+  source     TEXT NOT NULL,      -- rule | consensus
+  votes      INTEGER,
+  share      REAL,
+  note       TEXT,
+  updated_at TEXT
+);
+"""
+
+
+def load_seq_map(conn: sqlite3.Connection, sgg_prefix: str | None = None) -> dict[str, tuple[str, str]]:
+    """aptSeq → (complex_no, source). 표가 없으면 빈 dict."""
+    try:
+        sql = "SELECT apt_seq, complex_no, source FROM tx_seq_map"
+        params: tuple = ()
+        if sgg_prefix:
+            sql += " WHERE apt_seq LIKE ?"
+            params = (sgg_prefix + "-%",)
+        return {r[0]: (r[1], r[2]) for r in conn.execute(sql, params)}
+    except sqlite3.Error:
+        return {}
+
+
+# 이름 조각에서 뺄 일반어(단지를 가리키지 않는 표기)
+_TOKEN_STOP = {"도시형", "주상복합", "주거복합", "민간임대", "공공임대", "임대", "아파트", "apt",
+               "오피스텔", "단지", "타운", "마을"}
+_TOKEN_DONG_RE = re.compile(r"^(\d+|[a-z가-힣])동$|^\d+(-\d+)?$")
+
+
+def name_tokens(name: str) -> set[str]:
+    """'푸른벽산,신성,쌍용' → {푸른벽산, 신성, 쌍용} / '푸른마을(신성)' → {푸른마을, 신성}.
+    쉼표·괄호로 묶인 여러 단지 이름을 조각으로 나눈다. 일반어·'101동'·지번 꼴은 버린다."""
+    out: set[str] = set()
+    for part in re.split(r"[,()\[\]·/&]+", name or ""):
+        t = base_normalize(part)
+        t = re.sub(r"(아파트|apt)$", "", t)
+        if len(t) < 2 or t in _TOKEN_STOP or _TOKEN_DONG_RE.match(t):
+            continue
+        out.add(t)
+    return out
+
+
+def dong_compatible(umd: str, dong: str) -> bool:
+    """거래 법정동과 단지 동이 같은 곳을 가리키나. 둘 중 하나가 비면 판단 불가 → True.
+    도시(방학동==방학동)·시골('북평면 남창리' ⊃ '북평면') 양방향 포함관계로 본다."""
+    u = (umd or "").replace(" ", "")
+    d = (dong or "").replace(" ", "")
+    if not u or not d:
+        return True
+    if d in u or u in d:
+        return True
+    # 면→읍 승격(구지면→구지읍 2018 등): 마스터와 거래가 서로 다른 시점 이름을 쓴다
+    u0 = (umd or "").split()[0] if (umd or "").split() else u
+    if u0[-1:] in ("읍", "면") and d[-1:] in ("읍", "면") and len(u0) >= 3 and u0[:-1] == d[:-1]:
+        return True
+    return False
+
+
+_BLDG_NO_RE = re.compile(r"\d+(?:-\d+)?동|\d+-\d+|\d+블록|\d+bl")
+
+
+def name_digits(name: str) -> set[str]:
+    """단지 번호(1단지·2차·7) 숫자. 괄호 속(지번 '(740)'·'(102동)')과 건물 동 번호·블록은 뺀다."""
+    t = _PAREN_RE.sub("", name or "")    # 괄호 속 지번·동 번호 제거
+    for r, d in ROMAN_TO_DIGIT.items():
+        t = t.replace(r, d)
+    t = re.sub(r"\s+", "", t.lower())
+    t = _BLDG_NO_RE.sub("", t)
+    # 쉼표를 지우기 전에 숫자를 뽑는다 — '이화1,2차' 가 '12' 로 붙지 않게
+    return {str(int(x)) for x in re.findall(r"\d+", t)}
+
+
+def digits_compatible(tx_name: str, cx_name: str) -> bool:
+    """둘 다 번호가 있는데 겹치지 않으면 다른 단지(상계주공7 ≠ 상계주공2단지)."""
+    a, b = name_digits(tx_name), name_digits(cx_name)
+    return not (a and b and not (a & b))
+
+
+def _bigrams(s: str) -> set[str]:
+    return {s[i:i + 2] for i in range(len(s) - 1)}
+
+
+def names_related(tx_name: str, cx_name: str) -> bool:
+    """이름이 아예 무관하진 않은가 — 두 글자 묶음 30% 이상 겹침."""
+    a, b = base_normalize(tx_name), base_normalize(cx_name)
+    ba, bb = _bigrams(a), _bigrams(b)
+    if not ba or not bb:
+        return False
+    if len(ba & bb) / max(1, min(len(ba), len(bb))) >= 0.3:
+        return True
+    ca, cb = set(a), set(b)                 # '용상4주공' ↔ '주공4단지'
+    return len(ca & cb) / max(len(ca), len(cb)) >= 0.55
+
+
+def names_strong(tx_name: str, c: dict) -> bool:
+    """이름이 사실상 같은 단지인가 — 변형 일치 또는 조각(3자 이상 포함) 일치, 번호도 맞음."""
+    if not digits_compatible(tx_name, c.get("complex_name") or ""):
+        return False
+    if name_variants(tx_name) & (c.get("variants") or set()):
+        return True
+    tt, ct = name_tokens(tx_name), c.get("tokens") or set()
+    return bool(tt & ct) or any(len(a) >= 3 and len(b) >= 3 and (a in b or b in a) for a in tt for b in ct)
 
 
 def build_name_index(complexes: list[dict]) -> dict[str, list[dict]]:
@@ -260,8 +389,10 @@ def build_road_index(complexes: list[dict]) -> dict[tuple[str, str], list[dict]]
 class ComplexIndex:
     """Bundle name + address indexes + complex list for repeated lookups."""
 
-    def __init__(self, complexes: list[dict]):
+    def __init__(self, complexes: list[dict], seq_map: dict | None = None):
         self.complexes = complexes
+        self.by_no = {c["complex_no"]: c for c in complexes}
+        self.seq_map = seq_map or {}
         self.name_idx = build_name_index(complexes)
         self.addr_idx = build_address_index(complexes)
         self.bonbun_idx = build_bonbun_index(complexes)
@@ -312,15 +443,46 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
 
     tx_variants = name_variants(apt)
     candidates: list[dict] = []
+    rejected: list[dict] = []
+    seq = str(tx.get("aptSeq") or "").strip()
+    try:
+        excl_f = float(str(excl).replace(",", "")) if excl not in (None, "") else None
+    except ValueError:
+        excl_f = None
+
+    def _seq_cand(cno: str, source: str) -> dict:
+        c = index.by_no.get(cno) or {"complex_no": cno, "complex_name": "", "cortar_no": "",
+                                     "detail_address": "", "dong_name": "", "is_offi": False}
+        method = "seq_rule" if source == "rule" else "seq"
+        return _candidate_summary(c, method, 1.0 if source == "rule" else 0.97, f"aptSeq={seq} ({source})")
+
+    # ---- R. 사람이 확정한 aptSeq 규칙 — 무엇보다 먼저 ----
+    seq_hit = index.seq_map.get(seq) if seq else None
+    if seq_hit and seq_hit[1] == "rule":
+        candidates.append(_seq_cand(seq_hit[0], "rule"))
 
     # ---- 0. 지번 매칭 ----
-    if sgg and jibun and (sgg, jibun) in index.addr_idx:
+    # 지번은 법정동 안에서만 유일하다. 시군구+지번이 같아도 법정동이 다르면 다른 땅이다
+    # (수내동 75 ≠ 구미동 75). 둘 다 값이 있는데 맞지 않으면 후보에서 뺀다(2026-11-12).
+    if not candidates and sgg and jibun and (sgg, jibun) in index.addr_idx:
         for c in index.addr_idx[(sgg, jibun)]:
+            if not dong_compatible(umd, c["dong_name"]):
+                # 지번도 같고 이름까지 같은 단지면 경계에 걸친 단지(동 표기만 다름)로 본다.
+                if names_strong(apt, c):
+                    candidates.append(_candidate_summary(c, "jibun+name", 0.93,
+                                                         f"sgg+jibun=({sgg},{jibun}), 동 다름·이름 일치"))
+                else:
+                    rejected.append({"complex_no": c["complex_no"], "step": "jibun", "why": f"동 다름({umd}≠{c['dong_name']})"})
+                continue
             method = "jibun+dong" if (umd and umd in c["dong_name"]) else "jibun"
             score = 1.0 if method == "jibun+dong" else 0.95
             candidates.append(
                 _candidate_summary(c, method, score, f"sgg+jibun=({sgg},{jibun})")
             )
+
+    # ---- 0a. 밤마다 배운 aptSeq 합의 — 지번이 안 맞는 다지번 단지·이름 표기 차이 ----
+    if not candidates and seq_hit and seq_hit[1] == "consensus":
+        candidates.append(_seq_cand(seq_hit[0], "consensus"))
 
     # ---- 0b. 본번 fallback ----
     # jibun 528-1 매칭 실패 시, 본번 528 만으로 시도. 단, **단지명도 substring
@@ -336,7 +498,7 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
         bb = bonbun_of(jibun)
         if bb and bb != jibun:
             bb_hits = index.bonbun_idx.get((sgg, bb), [])
-            if len(bb_hits) == 1:
+            if len(bb_hits) == 1 and dong_compatible(umd, bb_hits[0]["dong_name"]):
                 c = bb_hits[0]
                 # 단지명도 substring 으로 일치해야 채택. (양방향: 거래 라벨이
                 # 단지명에 포함되거나, 단지명이 거래 라벨에 포함되거나)
@@ -344,6 +506,8 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
                     cn and any((cn in tn or tn in cn) for tn in tx_variants)
                     for cn in c["variants"]
                 )
+                if name_ok and not digits_compatible(apt, c["complex_name"]):
+                    name_ok = False
                 if not name_ok:
                     pass  # name 검증 실패 → 본번만으로는 안전하지 않음, 다음 단계로
                 else:
@@ -371,11 +535,14 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
             # 있어도 단지명으로 분별 가능.
             name_matched = []
             for c in road_hits:
+                # 동이 다르면 이름 변형이 정확히 같은 단지만(경계 단지 '산수화' 원곡면↔공도읍)
+                if not dong_compatible(umd, c["dong_name"]) and not (tx_variants & c["variants"]):
+                    continue
                 ok = any(
                     cn and any((cn in tn or tn in cn) for tn in tx_variants)
                     for cn in c["variants"]
                 )
-                if ok:
+                if ok and digits_compatible(apt, c["complex_name"]):
                     name_matched.append(c)
             if name_matched:
                 for c in name_matched:
@@ -392,7 +559,8 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
                 # 실패. dong 일치 시에만 채택 (이름이 아예 달라도 도로+동 유일
                 # 이면 합리적 매칭).
                 c = road_hits[0]
-                if umd and umd in c["dong_name"]:
+                if (umd and umd in c["dong_name"] and names_related(apt, c["complex_name"])
+                        and digits_compatible(apt, c["complex_name"])):
                     candidates.append(
                         _candidate_summary(c, "road+dong", 0.85,
                                            f"road={road!r} unique, sgg={sgg}")
@@ -402,11 +570,45 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
     if not candidates:
         for v in tx_variants:
             for c in index.name_idx.get(v, []):
+                if not dong_compatible(umd, c["dong_name"]) or not digits_compatible(apt, c["complex_name"]):
+                    continue
                 method = "exact+dong" if (umd and umd in c["dong_name"]) else "exact"
                 score = 0.95 if method == "exact+dong" else 0.85
                 candidates.append(
                     _candidate_summary(c, method, score, f"variant={v!r}")
                 )
+
+    # ---- 1b. 이름 조각 + 같은 동 + 면적 (token+dong+area) ----
+    # '푸른마을(쌍용)' ↔ '푸른벽산,신성,쌍용' 처럼 여러 단지를 쉼표로 묶은 마스터 이름은
+    # 이름 전체로는 안 맞는다. 조각(쌍용)이 같고, 같은 법정동이고, 거래 전용면적이
+    # 그 단지 평형표에 있을 때만(±0.5㎡) 붙인다. 후보가 둘 이상이면 붙이지 않는다.
+    if not candidates and umd and excl_f:
+        tx_tokens = name_tokens(apt)
+        if tx_tokens:
+            tx_dg = name_digits(apt)
+            hits = []
+            for c in index.complexes:
+                if not c.get("dong_name") or not dong_compatible(umd, c["dong_name"]):
+                    continue
+                if name_digits(c["complex_name"]) != tx_dg:   # 번호가 정확히 같아야(2단지 ≠ 무번호)
+                    continue
+                ctoks = c.get("tokens") or set()
+                tok = (tx_tokens & ctoks) or {a for a in tx_tokens for b in ctoks
+                                               if len(a) >= 3 and len(b) >= 3 and (a in b or b in a)}
+                if not tok:
+                    continue
+                hits.append((c, sorted(tok)))
+            # 이름 조각이 같은 단지가 동 안에 하나뿐이어야 한다(면적은 그 다음 확인).
+            # '에이원(392-58)'·'에이원(46-120)' 처럼 둘이면 면적으로 고르지 않는다.
+            if len(hits) == 1 and not any(abs(excl_f - e) <= 0.5 for e in (hits[0][0].get("areas") or [])):
+                hits = []
+            if len(hits) == 1:
+                c, tok = hits[0]
+                candidates.append(_candidate_summary(c, "token+dong+area", 0.88,
+                                                     f"tokens={tok}, excl={excl_f}"))
+            elif len(hits) > 1:
+                rejected.append({"step": "token+dong+area", "why": "후보 여러 개",
+                                 "complex_nos": [h[0]["complex_no"] for h in hits][:5]})
 
     # ---- 2. substring (길이비율 점수, 짧은 매칭 거부) ----
     # "옥수" 같은 2자 단지명이 "옥수파크힐스117동125동" 에 끌려들어 false-match
@@ -436,6 +638,8 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
                             best_cn, best_tn = cn, tn
             if best_match_len < min_match_len:
                 continue
+            if not digits_compatible(apt, c["complex_name"]):
+                continue
             tn_max_len = max((len(t) for t in tx_variants), default=1)
             ratio = best_match_len / tn_max_len
             method = "substr+dong" if (umd and umd in c["dong_name"]) else "substr"
@@ -456,6 +660,8 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
         best_reason = ""
         for c in index.complexes:
             if c["dong_name"] and umd not in c["dong_name"]:
+                continue
+            if not digits_compatible(apt, c["complex_name"]):
                 continue
             for cn in c["variants"]:
                 if not cn:
@@ -501,6 +707,8 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
             "excluUseAr": excl,
         },
         "tx_variants": sorted(tx_variants),
+        "aptSeq": seq,
+        "rejected": rejected[:5],
         "candidates": candidates,
         "chosen": chosen,
     }

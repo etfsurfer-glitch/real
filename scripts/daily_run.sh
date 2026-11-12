@@ -114,7 +114,12 @@ step "step 9a-3: detect_succession (승계 후보)" $PY -u scripts/detect_succes
 #   받아 둔 값은 9b 가 4차 패스로 읽는다. 신규분만 점증(이미 물어본 건 건너뜀).
 step "step 9a-4: geocode_broker_dong (사무소 법정동)" $PY -u scripts/geocode_broker_dong.py --limit 500; brokerdong_exit=$?
 step "step 9b: build_realtor_dong (우리동네)" $PY -u scripts/build_realtor_dong.py; rdong_exit=$?
+# 10-0) aptSeq(국토부 단지 일련번호) → 단지 지도. 사람이 확정한 규칙은 보존, 합의(동까지 맞은 매칭 90%↑)는
+#       매일 다시 만든다. 재매칭이 이 지도를 먼저 본다 — 지번이 여러 개인 단지·이름 표기 차이를 잡는다(2026-11-12).
+step "step 10-0: build_tx_seq_map (aptSeq 지도)" $PY -u scripts/build_tx_seq_map.py --apply; seqmap_exit=$?
 step "step 10: rematch_all_realprice"      $PY -u scripts/rematch_all_realprice.py --tables apt rent offi offi_rent --concurrency 4; rematch_exit=$?
+# 10a) 감시: 동이 다른데 지번만으로 붙은 거래가 다시 생기면 텔레그램(2026-11-12 사고 — 매매 7,355·전월세 4.9만 건)
+step "step 10a: check_tx_crossdong (동 불일치 감시)" $PY -u scripts/check_tx_crossdong.py; crossdong_exit=$?
 
 # 10b) 등기 전 거래 동(棟) 추정 — 매칭(step 10) 뒤. 메인 DB 는 읽기만, 결과는 data/dong_estimates.sqlite.
 #      새 거래 예비 추정 → 계약 +45일 최종 고정 → 등기 올라오면 정답 대조(로그) → 일요일 재학습(개선 시 승격).

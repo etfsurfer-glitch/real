@@ -71,7 +71,7 @@ def main() -> int:
         local = {"updated": 0, "newly_matched": 0, "still_unmatched": 0, "errors": 0}
         try:
             complexes = rp_match.load_complexes(conn, cortar_prefix=sgg_cd)
-            idx = rp_match.ComplexIndex(complexes)
+            idx = rp_match.ComplexIndex(complexes, seq_map=rp_match.load_seq_map(conn, sgg_cd))
         except Exception:
             local["errors"] += len(rows)
             return local

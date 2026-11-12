@@ -57,7 +57,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--only-unmatched", action="store_true",
                    help="현재 unmatched 인 행만 재시도")
     p.add_argument("--concurrency", type=int, default=4)
+    p.add_argument("--db", default=None, help="DB 경로(기본: settings.local_db_path)")
+    p.add_argument("--dry-run-out", default=None,
+                   help="미리보기: 운영 DB 는 읽기만 하고, 바뀌는 행만 이 sqlite 에 쓴다. "
+                        "aptSeq 지도는 build_tx_seq_map.compute 로 메모리에서 만든다")
     return p.parse_args()
+
+
+DB_PATH = None          # main() 이 채운다
+SEQ_MAP_MEM = None      # 미리보기 때 메모리 aptSeq 지도
+DRY_OUT = None          # 미리보기 출력 커넥션
 
 
 def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
@@ -68,16 +77,16 @@ def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
     # 같은 보존-가치 있는 매칭은 그대로 둔다.
     where = " WHERE matched_complex_no IS NULL" if only_unmatched else ""
     cur = conn.execute(
-        f"SELECT {pk}, sgg_cd, raw, manual_override, matched_method "
+        f"SELECT {pk}, sgg_cd, raw, manual_override, matched_method, matched_complex_no "
         f"FROM {table}{where}"
     )
     by_sgg: dict[str, list[tuple]] = defaultdict(list)
     skipped_manual = 0
-    for rid, sgg_cd, raw, manual, mm in cur.fetchall():
+    for rid, sgg_cd, raw, manual, mm, old_cno in cur.fetchall():
         if manual:
             skipped_manual += 1
             continue
-        by_sgg[sgg_cd].append((rid, raw, mm))
+        by_sgg[sgg_cd].append((rid, raw, mm, old_cno))
 
     total = sum(len(v) for v in by_sgg.values())
     print(f"\n=== {label} ({table}) — target {total:,} rows over {len(by_sgg)} 시군구 ===")
@@ -92,13 +101,17 @@ def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
             # 워커별 독립 read-only 커넥션 — 공유 conn 을 쓰면 다른 워커의
             # commit 이 진행 중인 SELECT 커서를 리셋해 단지 목록이 비거나
             # 잘린 채 반환됨(2026-07 서초·종로 매매, 강남 오피 전월세 전멸 사고).
-            rconn = sqlite3.connect(f"file:{settings.local_db_path}?mode=ro",
+            rconn = sqlite3.connect(f"file:{DB_PATH}?mode=ro",
                                     uri=True, timeout=30)
             try:
                 complexes = rp_match.load_complexes(rconn, cortar_prefix=sgg_cd)
+                if SEQ_MAP_MEM is not None:
+                    seq_map = {k: v for k, v in SEQ_MAP_MEM.items() if k.startswith(sgg_cd + "-")}
+                else:
+                    seq_map = rp_match.load_seq_map(rconn, sgg_cd)
             finally:
                 rconn.close()
-            idx = rp_match.ComplexIndex(complexes)
+            idx = rp_match.ComplexIndex(complexes, seq_map=seq_map)
         except Exception:
             local["errors"] += len(rows)
             return local
@@ -110,8 +123,9 @@ def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
             return local
 
         updates = []
+        diffs = []
         now = datetime.now().isoformat(timespec="seconds")
-        for rid, raw, prev_method in rows:
+        for rid, raw, prev_method, old_cno in rows:
             try:
                 tx = json.loads(raw) if raw else {}
             except Exception:
@@ -121,6 +135,10 @@ def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
                                                   prefer_offi=spec.get("prefer_offi"))
             if trace.get("chosen"):
                 chosen = trace["chosen"]
+                if chosen["complex_no"] != old_cno or chosen["method"] != prev_method:
+                    diffs.append((spec["table"], rid, sgg_cd, tx.get("umdNm") or "", tx.get("aptNm") or tx.get("offiNm") or "",
+                                  tx.get("excluUseAr") or "", tx.get("aptSeq") or "", old_cno, prev_method,
+                                  chosen["complex_no"], chosen["method"], chosen["score"]))
                 updates.append((
                     chosen["complex_no"], chosen["method"], chosen["score"],
                     json.dumps(trace, ensure_ascii=False), now, rid,
@@ -129,15 +147,29 @@ def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
             else:
                 # Local 매칭 실패. 기존 매칭이 naver_search 류면 그건 reverse-lookup
                 # 으로만 얻을 수 있는 결과라 보존. 아니면 unmatched 처리.
+                # 단, 이름 검색은 동을 확인하지 않았다 — 옛 단지가 거래 법정동과 다른 동이면
+                # 보존하지 않고 미매칭으로 돌린다(2026-11-12, 해링턴타워 장지동→석촌동 류).
                 if prev_method and prev_method.startswith("naver_search"):
-                    # update 자체를 skip → 기존 행 그대로 유지
-                    continue
+                    oc = idx.by_no.get(old_cno or "")
+                    if not oc or rp_match.dong_compatible(tx.get("umdNm") or "", oc.get("dong_name") or ""):
+                        continue  # update 자체를 skip → 기존 행 그대로 유지
+                if old_cno is not None or prev_method != "unmatched":
+                    diffs.append((spec["table"], rid, sgg_cd, tx.get("umdNm") or "", tx.get("aptNm") or tx.get("offiNm") or "",
+                                  tx.get("excluUseAr") or "", tx.get("aptSeq") or "", old_cno, prev_method,
+                                  None, "unmatched", None))
                 updates.append((
                     None, "unmatched", None,
                     json.dumps(trace, ensure_ascii=False), now, rid,
                 ))
                 local["still_unmatched"] += 1
 
+        if DRY_OUT is not None:
+            if diffs:
+                with rp_storage._LOCK:
+                    DRY_OUT.executemany("INSERT INTO diff VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", diffs)
+                    DRY_OUT.commit()
+            local["updated"] = len(diffs)
+            return local
         if updates:
             with rp_storage._LOCK:
                 conn.executemany(
@@ -193,10 +225,24 @@ def main() -> int:
     else:
         keys = args.tables
 
-    conn = sqlite3.connect(str(settings.local_db_path),
-                           check_same_thread=False, timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA journal_size_limit=1073741824")  # WAL 상한 1GB(체크포인트 후 자동 축소)
+    global DB_PATH, SEQ_MAP_MEM, DRY_OUT
+    DB_PATH = args.db or str(settings.local_db_path)
+    if args.dry_run_out:
+        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, check_same_thread=False, timeout=30)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import build_tx_seq_map as bsm
+        res = bsm.compute(conn)
+        SEQ_MAP_MEM = bsm.as_seq_map(res)
+        print(f"[dry-run] seq_map 메모리: rule {len(res['rules']):,} · consensus {len(res['consensus']):,}")
+        DRY_OUT = sqlite3.connect(args.dry_run_out, check_same_thread=False)
+        DRY_OUT.execute("DROP TABLE IF EXISTS diff")
+        DRY_OUT.execute("CREATE TABLE diff(tbl, pk, sgg_cd, umd_nm, apt_nm, excl, apt_seq, old_cno, old_method, "
+                        "new_cno, new_method, new_score)")
+        DRY_OUT.commit()
+    else:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA journal_size_limit=1073741824")  # WAL 상한 1GB(체크포인트 후 자동 축소)
 
     t0 = time.time()
     all_stats = {}

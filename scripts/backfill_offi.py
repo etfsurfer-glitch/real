@@ -159,7 +159,7 @@ def main() -> int:
     for lawd_cd, _ in sggs:
         if lawd_cd not in indexes:
             complexes = rp_match.load_complexes(conn, cortar_prefix=lawd_cd)
-            indexes[lawd_cd] = rp_match.ComplexIndex(complexes)
+            indexes[lawd_cd] = rp_match.ComplexIndex(complexes, seq_map=rp_match.load_seq_map(conn, lawd_cd))
     print(f"    {len(indexes)} indexes built ({time.time()-t_start:.1f}s)")
 
     print(f"\n[2] running tasks ...")
