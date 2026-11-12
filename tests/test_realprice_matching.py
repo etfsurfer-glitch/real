@@ -136,6 +136,21 @@ def test_comma_numbers_and_boundary():
     assert run(tx("푸른마을(쌍용)", "수내동", "75", 191.94), [KKACHI])[0] is None
 
 
+def test_weak_steps_need_number():
+    c = cx("128264", "힐스테이트호매실", "호매실동", "1")
+    assert run(tx("수원호매실휴먼시아7단지아파트", "호매실동", "999", 46.66), [c])[0] is None
+
+
+def test_whole_name_exception():
+    c = cx("110001", "래미안포레스티지", "반포동", "1", (59.9, 84.9))
+    assert run(tx("래미안포레스티지2단지", "반포동", "999", 84.9), [c])[0] == "110001"
+    # 형제 단지(번호만 다름)가 있으면 예외 없음
+    sib = cx("110002", "래미안포레스티지2단지", "반포동", "2", (59.0,))
+    assert run(tx("래미안포레스티지3단지", "반포동", "999", 84.9), [c, sib])[0] is None
+    # 면적이 안 맞으면 예외 없음
+    assert run(tx("래미안포레스티지2단지", "반포동", "999", 30.0), [c])[0] is None
+
+
 def test_name_tokens():
     assert m.name_tokens("푸른벽산,신성,쌍용") == {"푸른벽산", "신성", "쌍용"}
     assert m.name_tokens("푸른마을(신성)") == {"푸른마을", "신성"}
@@ -151,3 +166,24 @@ if __name__ == "__main__":
             except AssertionError as e:  # noqa: PERF203
                 fails += 1; print("FAIL", k, e)
     sys.exit(1 if fails else 0)
+
+
+def test_incheon_old_gu_loads_new_codes():
+    """인천 옛 서구(28260) 거래 재매칭 — 단지는 신코드(서해 석남동·검단 불로동)에 있다."""
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(
+        "CREATE TABLE complexes(complex_no, complex_name, cortar_no, detail_address, road_address, real_estate_type_name);"
+        "CREATE TABLE regions(cortar_no, cortar_name);"
+        "CREATE TABLE complex_areas(complex_no, exclusive_area);"
+        "INSERT INTO regions VALUES('2827510800','석남동'),('2829011000','불로동');"
+        "INSERT INTO complexes VALUES('122809','트윈팰리스','2827510800','498-1','','오피스텔'),"
+        "('170298','검단중흥S-클래스에듀파크','2829011000','498','','아파트분양권');")
+    cs = m.load_complexes(conn, cortar_prefix="28260")
+    assert {c["complex_no"] for c in cs} == {"122809", "170298"}
+    def itx(*a):
+        return {**tx(*a), "sggCd": "28260"}
+    assert run(itx("트윈팰리스", "석남동", "498", 68.92), cs)[0] != "170298"
+    # 지번 색인이 옛 코드(28260)로 걸려 있어야 지번 단계가 동작한다
+    r = run(itx("검단중흥에듀파크", "불로동", "498", 84.9), cs)
+    assert r[0] == "170298" and r[1].startswith("jibun"), r

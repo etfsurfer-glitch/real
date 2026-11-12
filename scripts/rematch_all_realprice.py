@@ -57,6 +57,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--only-unmatched", action="store_true",
                    help="현재 unmatched 인 행만 재시도")
     p.add_argument("--concurrency", type=int, default=4)
+    p.add_argument("--sgg", nargs="+", default=None, help="이 시군구 코드만(예: 인천 옛 구 28110 28140 28260)")
     p.add_argument("--db", default=None, help="DB 경로(기본: settings.local_db_path)")
     p.add_argument("--dry-run-out", default=None,
                    help="미리보기: 운영 DB 는 읽기만 하고, 바뀌는 행만 이 sqlite 에 쓴다. "
@@ -70,7 +71,7 @@ DRY_OUT = None          # 미리보기 출력 커넥션
 
 
 def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
-                  concurrency: int) -> dict:
+                  concurrency: int, only_sgg: list[str] | None = None) -> dict:
     table, pk, label = spec["table"], spec["pk"], spec["label"]
     t0 = time.time()
     # 기존 매칭 정보도 같이 읽어옴: local 매칭 실패 시 naver_search 결과(API 기반)
@@ -85,6 +86,8 @@ def rematch_table(conn: sqlite3.Connection, spec: dict, only_unmatched: bool,
     for rid, sgg_cd, raw, manual, mm, old_cno in cur.fetchall():
         if manual:
             skipped_manual += 1
+            continue
+        if only_sgg and sgg_cd not in only_sgg:
             continue
         by_sgg[sgg_cd].append((rid, raw, mm, old_cno))
 
@@ -248,7 +251,7 @@ def main() -> int:
     all_stats = {}
     for k in keys:
         spec = TABLE_SPECS[k]
-        all_stats[k] = rematch_table(conn, spec, args.only_unmatched, args.concurrency)
+        all_stats[k] = rematch_table(conn, spec, args.only_unmatched, args.concurrency, args.sgg)
 
     total_elapsed = time.time() - t0
     print(f"\n========== ALL DONE in {total_elapsed:.0f}s ==========")

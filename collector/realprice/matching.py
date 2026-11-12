@@ -194,7 +194,15 @@ def load_complexes(conn: sqlite3.Connection, cortar_prefix: str | None = None
         "FROM complexes c LEFT JOIN regions r ON r.cortar_no = c.cortar_no"
     )
     params: tuple = ()
-    if cortar_prefix:
+    from collector.icn_remap import ICN_DONG_REMAP, ICN_OLD_GU_PREFIX
+    icn_old = bool(cortar_prefix) and cortar_prefix in ICN_OLD_GU_PREFIX
+    if icn_old:
+        # 인천 옛 중·동·서구(2026-07 개편 전 거래의 sgg_cd). 단지는 신코드(제물포·영종·서해·검단)로
+        # 옮겨져 LIKE 로는 0개 → 재매칭이 통째로 건너뛰던 것(2026-11-12). 옛 동→신 동 표로 잇는다.
+        new = sorted({v for k, v in ICN_DONG_REMAP.items() if k.startswith(cortar_prefix)})
+        sql += f" WHERE c.cortar_no IN ({','.join('?' * len(new))})"
+        params = tuple(new)
+    elif cortar_prefix:
         sql += " WHERE c.cortar_no LIKE ?"
         params = (cortar_prefix + "%",)
     cur = conn.execute(sql, params)
@@ -204,7 +212,10 @@ def load_complexes(conn: sqlite3.Connection, cortar_prefix: str | None = None
     try:
         asql = "SELECT complex_no, exclusive_area FROM complex_areas WHERE exclusive_area IS NOT NULL"
         aparams: tuple = ()
-        if cortar_prefix:
+        if cortar_prefix and cortar_prefix in ICN_OLD_GU_PREFIX:
+            asql += f" AND complex_no IN (SELECT complex_no FROM complexes WHERE cortar_no IN ({','.join('?' * len(params))}))"
+            aparams = params
+        elif cortar_prefix:
             asql += " AND complex_no IN (SELECT complex_no FROM complexes WHERE cortar_no LIKE ?)"
             aparams = (cortar_prefix + "%",)
         for cno, ea in conn.execute(asql, aparams):
@@ -224,6 +235,7 @@ def load_complexes(conn: sqlite3.Connection, cortar_prefix: str | None = None
             "is_offi": (r[6] or "") in ("오피스텔", "오피스텔분양권"),
             "tokens": name_tokens(r[1] or ""),
             "areas": areas.get(r[0], []),
+            **({"match_sgg": cortar_prefix} if icn_old else {}),
         })
     return out
 
@@ -316,6 +328,34 @@ def digits_compatible(tx_name: str, cx_name: str) -> bool:
     return not (a and b and not (a & b))
 
 
+def digits_strict(tx_name: str, cx_name: str) -> bool:
+    """약한 단계(부분 일치·유사도)용: 거래 이름에 단지 번호가 있으면 단지 이름에도 같은 번호가 있어야.
+    '수원호매실휴먼시아7단지' 가 번호 없는 '힐스테이트호매실' 로 가던 것을 막는다."""
+    a = name_digits(tx_name)
+    if not a:
+        return True
+    return bool(a & name_digits(cx_name))
+
+
+def _whole_name_ok(tx_name: str, c: dict, index, excl_f) -> bool:
+    """거래엔 번호가 있고 단지엔 없을 때의 예외: 마스터가 여러 단지를 한 단지로 묶은 경우
+    ('래미안포레스티지2단지' → '래미안포레스티지'). 단지 이름 전체(5자↑)가 거래 이름에 들어 있고,
+    같은 시군구 색인에 그 이름으로 시작하는 다른 단지(번호만 다른 형제)가 없고, 면적이 맞을 때만."""
+    cb = base_normalize(c.get("complex_name") or "")
+    tb = base_normalize(tx_name)
+    if len(cb) < 5 or cb not in tb or not excl_f:
+        return False
+    if not any(abs(excl_f - e) <= 0.5 for e in (c.get("areas") or [])):
+        return False
+    for o in index.complexes:
+        if o is c or o["complex_no"] == c["complex_no"]:
+            continue
+        ob = base_normalize(o.get("complex_name") or "")
+        if ob != cb and ob.startswith(cb):
+            return False
+    return True
+
+
 def _bigrams(s: str) -> set[str]:
     return {s[i:i + 2] for i in range(len(s) - 1)}
 
@@ -350,10 +390,15 @@ def build_name_index(complexes: list[dict]) -> dict[str, list[dict]]:
     return idx
 
 
+def _sgg5(c: dict) -> str:
+    """색인 키 시군구. 인천 옛 구로 불러온 단지는 거래와 같은 옛 코드(match_sgg)로 건다."""
+    return c.get("match_sgg") or (c.get("cortar_no") or "")[:5]
+
+
 def build_address_index(complexes: list[dict]) -> dict[tuple[str, str], list[dict]]:
     idx: dict[tuple[str, str], list[dict]] = {}
     for c in complexes:
-        sgg5 = (c.get("cortar_no") or "")[:5]
+        sgg5 = _sgg5(c)
         addr = normalize_jibun(c.get("detail_address") or "")
         if sgg5 and addr:
             idx.setdefault((sgg5, addr), []).append(c)
@@ -365,7 +410,7 @@ def build_bonbun_index(complexes: list[dict]) -> dict[tuple[str, str], list[dict
     여럿 있으면 안전을 위해 매칭에서 제외(호출 측에서 len(list)==1 체크)."""
     idx: dict[tuple[str, str], list[dict]] = {}
     for c in complexes:
-        sgg5 = (c.get("cortar_no") or "")[:5]
+        sgg5 = _sgg5(c)
         addr = normalize_jibun(c.get("detail_address") or "")
         bb = bonbun_of(addr)
         if sgg5 and bb:
@@ -379,7 +424,7 @@ def build_road_index(complexes: list[dict]) -> dict[tuple[str, str], list[dict]]
     uniqueness check 필요."""
     idx: dict[tuple[str, str], list[dict]] = {}
     for c in complexes:
-        sgg5 = (c.get("cortar_no") or "")[:5]
+        sgg5 = _sgg5(c)
         road = c.get("road_address_norm") or ""
         if sgg5 and road:
             idx.setdefault((sgg5, road), []).append(c)
@@ -638,7 +683,7 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
                             best_cn, best_tn = cn, tn
             if best_match_len < min_match_len:
                 continue
-            if not digits_compatible(apt, c["complex_name"]):
+            if not digits_strict(apt, c["complex_name"]) and not _whole_name_ok(apt, c, index, excl_f):
                 continue
             tn_max_len = max((len(t) for t in tx_variants), default=1)
             ratio = best_match_len / tn_max_len
@@ -661,7 +706,7 @@ def match_one_with_trace(tx: dict, index: ComplexIndex,
         for c in index.complexes:
             if c["dong_name"] and umd not in c["dong_name"]:
                 continue
-            if not digits_compatible(apt, c["complex_name"]):
+            if not digits_strict(apt, c["complex_name"]):
                 continue
             for cn in c["variants"]:
                 if not cn:
