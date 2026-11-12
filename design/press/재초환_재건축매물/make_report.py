@@ -295,6 +295,94 @@ f.append(Paragraph(
     f"매물 수는 단계별로 일반 아파트({(W[N2][GEN] / W[O28][GEN] - 1) * 100:+.1f}%)와 비슷하게 조금 늘었다. 은마는 8월 5일 "
     f"{F[EUN]['counts']['2026-08-05']:.0f}채에서 11월 11일 {F[EUN]['counts'][N2]:.0f}채로 늘었고 11월에도 증가가 이어졌다. "
     "잠실주공5단지는 11월에 조금 줄었다. 단위는 실매물(같은 집 중복 광고를 한 채로 센 수).", BODY))
+# 5. 얼마나 내렸나 — 인하 폭(기자 요청 추가, ../data/press_jaecho_cut.json · measure_cut.py)
+C = json.loads((HERE.parent / "data" / "press_jaecho_cut.json").read_text())
+CW, CS, CX_, CE = C["weekly"], C["span"], C["weekly_complex"], C["examples"]
+
+
+def man(won):
+    return f"{won / 1e4:,.0f}만원"
+
+
+def amt(won):
+    """억 단위 금액: 3억 / 1억 7,500만원 / 4,000만원."""
+    m = round(abs(won) / 1e4)
+    eok, rest = divmod(m, 10000)
+    return (f"{eok}억" + (f" {rest:,}만원" if rest else "")) if eok else f"{rest:,}만원"
+
+
+def cw(d, g, k):
+    return CW[d][g][k]
+
+
+def co(g, k):
+    return stt.mean(cw(d, g, k) for d in OCT)
+
+
+def cut_med(d, g, k="amt_med"):
+    return CW[d][g]["cut"][k]
+
+
+def sp(name, g=None, no=None):
+    return CS[name]["complex"][no] if no else CS[name]["groups"][g]
+
+
+f.append(CondPageBreak(110 * mm))
+f.append(Paragraph("5. 얼마나 내렸나 — 인하 폭", H))
+ea, eb = sp("pre", no=EUN), sp("post", no=EUN)
+ja, jb = sp("pre", no=JAM), sp("post", no=JAM)
+eun_cut = sorted(abs(CX_[d][EUN]["cut"]["amt_med"]) for d in OCT)
+f.append(Paragraph(
+    "호가를 내린 집이 늘었을 뿐 아니라 같은 집의 평균 호가도 더 많이 내려갔다. 내린 집·그대로 둔 집·올린 집을 모두 넣은 "
+    f"같은 집 평균 변동은 재건축 단지가 10월 세 주 평균 주당 {co(ALL, 'net_pct_mean') * 100:.2f}%"
+    f"(한 채당 {man(co(ALL, 'net_amt_mean'))})에서 11월 4일 주 {cw(N1, ALL, 'net_pct_mean') * 100:.2f}%, "
+    f"11일 주 <b>{cw(N2, ALL, 'net_pct_mean') * 100:.2f}%(한 채당 {man(cw(N2, ALL, 'net_amt_mean'))})</b>로 커졌다. "
+    f"일반 아파트는 같은 기간 {co(GEN, 'net_pct_mean') * 100:.2f}%에서 {cw(N2, GEN, 'net_pct_mean') * 100:.2f}%로 큰 변화가 없었다.", BODY))
+f.append(Paragraph(
+    f"2주 단위로 보면 차이가 더 뚜렷하다. 10월 28일과 11월 11일에 모두 나와 있던 재건축 단지 같은 집 {sp('post', ALL)['n']:,}채의 호가는 "
+    f"한 채당 평균 <b>{man(-sp('post', ALL)['net_amt_mean'])}({-sp('post', ALL)['net_pct_mean'] * 100:.2f}%)</b> 내려갔다. "
+    f"바로 앞 2주(10월 14일→28일)에는 {man(-sp('pre', ALL)['net_amt_mean'])}({-sp('pre', ALL)['net_pct_mean'] * 100:.2f}%)이었다. "
+    f"사업시행인가 단지는 앞 2주 {sp('pre', SI)['net_pct_mean'] * 100:+.2f}%로 오르다가 {sp('post', SI)['net_pct_mean'] * 100:+.2f}%로 돌아섰다.", BODY))
+f.append(Paragraph(
+    f"<b>은마</b>는 내리는 폭 자체가 커졌다. 호가를 내린 집의 인하액(중앙값)이 10월에는 주당 {eun_cut[0] / 1e4:,.0f}만~{amt(eun_cut[-1])}이었는데 "
+    f"11월 4일 주 {amt(CX_[N1][EUN]['cut']['amt_med'])}, 11일 주 <b>{amt(CX_[N2][EUN]['cut']['amt_med'])}"
+    f"({CX_[N2][EUN]['cut']['pct_med'] * -100:.1f}%)</b>으로 늘었다. 10월 28일→11월 11일 2주 동안 같은 집 {eb['n']}채 중 "
+    f"{eb['cut']['n']}채가 호가를 내렸고, 한 채당 평균 변동은 <b>{man(eb['net_amt_mean'])}({eb['net_pct_mean'] * 100:.2f}%)</b>으로 "
+    f"앞 2주({man(ea['net_amt_mean'])}, {ea['net_pct_mean'] * 100:.2f}%)의 두 배를 넘었다. 3% 넘게 내린 집도 "
+    f"{ea['cut_ge3'] * 100:.0f}%에서 {eb['cut_ge3'] * 100:.0f}%로 늘었다. "
+    f"<b>잠실주공5단지</b>는 내린 집의 인하액이 매주 {amt(CX_[N2][JAM]['cut']['amt_med'])}(약 {CX_[N2][JAM]['cut']['pct_med'] * -100:.1f}%) 안팎으로 "
+    f"비슷했지만 내리는 집이 늘면서 2주 평균 변동이 {man(ja['net_amt_mean'])}에서 <b>{man(jb['net_amt_mean'])}"
+    f"({jb['net_pct_mean'] * 100:.2f}%)</b>으로 커졌다.", BODY))
+f.append(Paragraph(
+    f"재건축 단지 전체로 보면 내린 집 한 채의 인하율(중앙값)은 10월 평균 {stt.mean(cut_med(d, ALL, 'pct_med') for d in OCT) * -100:.1f}%, "
+    f"11월 11일 주 {cut_med(N2, ALL, 'pct_med') * -100:.1f}%로 비슷했다. 평균 호가가 더 내려간 것은 주로 내리는 집이 늘고 올리는 집이 줄어든 결과이고, "
+    "은마는 여기에 인하 폭까지 커졌다.", BODY))
+
+rows = [["구분", "같은 집 평균 변동(주간)", None, None, "2주 한 채당 평균 변동", None],
+        [None, "10월 평균", "11/4 주", "11/11 주", "10/14→10/28", "10/28→11/11"]]
+for g in [MG, SI, SIX, AR, PRE, ALL, GEN]:
+    rows.append([g, sgn(co(g, "net_pct_mean") * 100), sgn(cw(N1, g, "net_pct_mean") * 100), sgn(cw(N2, g, "net_pct_mean") * 100),
+                 f"{sp('pre', g)['net_amt_mean'] / 1e4:+,.0f}만원", f"{sp('post', g)['net_amt_mean'] / 1e4:+,.0f}만원"])
+for no in (EUN, JAM):
+    w = [CX_[d][no]["net_pct_mean"] for d in OCT]
+    rows.append([F[no]["name"], sgn(stt.mean(w) * 100), sgn(CX_[N1][no]["net_pct_mean"] * 100), sgn(CX_[N2][no]["net_pct_mean"] * 100),
+                 f"{sp('pre', no=no)['net_amt_mean'] / 1e4:+,.0f}만원", f"{sp('post', no=no)['net_amt_mean'] / 1e4:+,.0f}만원"])
+t = table(rows, [46 * mm, 22 * mm, 22 * mm, 22 * mm, 29 * mm, 29 * mm], head=2, hi=(7, 9, 10), bold_rows=(7,))
+t._content[0].setStyle(TableStyle([("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (3, 0)), ("SPAN", (4, 0), (5, 0)),
+                                   ("ALIGN", (1, 0), (-1, 0), "CENTER"), ("LINEBELOW", (1, 0), (-1, 0), 0.4, LINE)]))
+f.append(t)
+f.append(Paragraph("같은 집 평균 변동 = 내린 집·그대로 둔 집(0%)·올린 집을 모두 넣은 평균. 주간은 직전 수요일 대비, 2주는 두 날 모두 나와 있던 같은 집의 호가 차이 평균.", NOTE))
+
+rows = [["단지", "동", "층", "전용", "10월 28일", "11월 11일", "인하"]]
+for no in (EUN, JAM):
+    for e in CE[no][:5]:
+        rows.append([F[no]["name"], e["dong"], e["floor"] + "층",
+                     f"{e['area2']:.0f}㎡", amt(e["before"]), amt(e["after"]), amt(e["after"] - e["before"])])
+f.append(Spacer(1, 4))
+f.append(table(rows, [36 * mm, 15 * mm, 20 * mm, 16 * mm, 28 * mm, 28 * mm, 27 * mm]))
+f.append(Paragraph("10월 28일→11월 11일 호가를 가장 많이 내린 같은 집 5곳씩(광고 호가 기준, 같은 집 광고가 여럿이면 중앙값). "
+                   "층은 ‘해당 층/전체 층’이며 저·중·고는 광고에 표시된 그대로.", NOTE))
+
 f.append(Spacer(1, 2))
 f.append(KeepTogether([Paragraph("분석 개요", H), Paragraph(
     "<b>대상</b>  서울 아파트 매매 매물 호가 전수(오피스텔 제외). 재건축 단지는 서울시 정비사업 추진현황(2026년 6월 말)의 "

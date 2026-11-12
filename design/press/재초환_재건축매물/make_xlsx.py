@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """press_jaecho.json → 기자 전달용 엑셀. 보도자료(make_report.py)와 같은 논리: 내린 집·올린 집을 함께, 직전 수요일 대비.
-시트: 단계별 주간 / 방향별 단지 수 / 단지별 주간 / 매물 수 / 재건축 단지."""
+시트: 단계별 주간 / 방향별 단지 수 / 단지별 주간 / 매물 수 / 재건축 단지 / 인하 폭."""
 import json
 from pathlib import Path
 from openpyxl import Workbook
@@ -130,6 +130,48 @@ for no in sorted(F, key=lambda n: (order[F[n]["group"]], -F[n]["counts"]["2026-1
     for c in ws[ws.max_row][5:]:
         c.number_format = INT
 finish(ws, [10, 30, 13, 11, 26, 11, 11, 11], ["· 단계 날짜 = 그 단계의 인가·통과일(관리처분은 변경 인가가 있으면 변경일)."])
+
+# 6) 인하 폭(기자 요청 추가) — measure_cut.py → press_jaecho_cut.json
+C = json.loads((HERE.parent / "data" / "press_jaecho_cut.json").read_text())
+CW, CS, CXW, CE = C["weekly"], C["span"], C["weekly_complex"], C["examples"]
+ws = wb.create_sheet("인하 폭")
+CWEEKS = list(CW)
+h1 = ["구분", "주(끝나는 날)", "같은 집 수", "같은 집 평균 변동", "한 채당 평균 변동(원)", "내린 집 수", "내린 집 인하율(중앙값)",
+      "내린 집 인하액(중앙값, 원)", "올린 집 수", "올린 집 인상률(중앙값)", "올린 집 인상액(중앙값, 원)", "3% 넘게 내린 집 비율"]
+head(ws, "같은 집 호가 인하 폭 — 직전 수요일 대비(주간), 10/14→10/28·10/28→11/11(2주)", [h1])
+
+
+def crow(label, d, x):
+    c_, r_ = x["cut"] or {}, x["rise"] or {}
+    ws.append([label, d, x["n"], x["net_pct_mean"], round(x["net_amt_mean"]), c_.get("n", 0), c_.get("pct_med"), c_.get("amt_med"),
+               r_.get("n", 0), r_.get("pct_med"), r_.get("amt_med"), x["cut_ge3"]])
+    for i, c in enumerate(ws[ws.max_row][2:]):
+        c.number_format = (INT, SPCT, INT, INT, SPCT, INT, INT, SPCT, INT, PCT)[i]
+
+
+for g in STAGES:
+    for d in CWEEKS:
+        crow(g, d, CW[d][g])
+    for k, lab in (("pre", "2주 10/14→10/28"), ("post", "2주 10/28→11/11")):
+        crow(g, lab, CS[k]["groups"][g])
+for no in ("236", "639"):
+    for d in CWEEKS:
+        crow(F[no]["name"], d, CXW[d][no])
+    for k, lab in (("pre", "2주 10/14→10/28"), ("post", "2주 10/28→11/11")):
+        crow(F[no]["name"], lab, CS[k]["complex"][no])
+ws.append([])
+ws.append(["10/28→11/11 호가를 가장 많이 내린 같은 집"])
+ws.append(["단지", "동", "층", "전용(㎡)", "10월 28일 호가(원)", "11월 11일 호가(원)", "인하(원)"])
+for c in ws[ws.max_row]:
+    c.font = Font(bold=True); c.fill = PatternFill("solid", fgColor="EEEEEE")
+for no in ("236", "639"):
+    for e in CE[no]:
+        ws.append([F[no]["name"], e["dong"], e["floor"], e["area2"], e["before"], e["after"], e["after"] - e["before"]])
+        for c in ws[ws.max_row][4:]:
+            c.number_format = INT
+finish(ws, [26, 18, 10, 12, 16, 10, 14, 16, 10, 14, 16, 12],
+       ["· 같은 집 평균 변동 = 내린 집·그대로 둔 집(0%)·올린 집을 모두 넣은 평균. 2주는 두 날 모두 나와 있던 같은 집.",
+        "· 층은 '해당 층/전체 층', 저·중·고는 광고 표시 그대로."])
 
 out = HERE / "콕집_서울재건축_사업단계별_매물동향.xlsx"
 wb.save(out); print(out)
