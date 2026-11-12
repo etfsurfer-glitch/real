@@ -383,6 +383,37 @@ f.append(table(rows, [36 * mm, 15 * mm, 20 * mm, 16 * mm, 28 * mm, 28 * mm, 27 *
 f.append(Paragraph("10월 28일→11월 11일 호가를 가장 많이 내린 같은 집 5곳씩(광고 호가 기준, 같은 집 광고가 여럿이면 중앙값). "
                    "층은 ‘해당 층/전체 층’이며 저·중·고는 광고에 표시된 그대로.", NOTE))
 
+# 6. 강남3구 1,000세대 이상 16개 구역(기자 요청 기준, measure_zones.py → ../data/press_jaecho_zones16.json)
+Z16 = json.loads((HERE.parent / "data" / "press_jaecho_zones16.json").read_text())
+ZT, ZW, ZS = Z16["total"], Z16["weekly"], Z16["span"]
+zt = {k: stt.mean(ZW[d][ZT][k] for d in OCT) for k in ("cut", "rise", "net_pct", "net_amt")}
+z2 = ZW[N2][ZT]
+worse = sum(1 for z in Z16["zones"] if ZS["post"][z["name"]]["net_pct"] < ZS["pre"][z["name"]]["net_pct"])
+f.append(CondPageBreak(120 * mm))
+f.append(Paragraph("6. 강남3구 1,000세대 이상 재건축 16개 구역", H))
+f.append(Paragraph(
+    "서초·강남·송파구에서 사업을 추진 중인 1,000세대 이상 재건축 구역 16곳(공사 중인 반포주공1단지 두 구역 제외)만 따로 봤다. "
+    "압구정은 특별계획구역 단위로 묶었다(2구역=신현대, 3구역=구현대). "
+    f"16개 구역 같은 집 가운데 호가를 내린 집은 10월 세 주 평균 {zt['cut'] * 100:.1f}%에서 11월 11일 주 <b>{z2['cut'] * 100:.1f}%</b>로 늘고, "
+    f"올린 집은 {zt['rise'] * 100:.1f}%에서 <b>{z2['rise'] * 100:.1f}%</b>로 줄었다. 같은 집 평균 변동은 주당 {zt['net_pct'] * 100:.2f}%"
+    f"(한 채당 {man(zt['net_amt'])})에서 <b>{z2['net_pct'] * 100:.2f}%(한 채당 {man(z2['net_amt'])})</b>가 됐다.", BODY))
+f.append(Paragraph(
+    f"2주 단위로는 10월 28일→11월 11일 같은 집 {ZS['post'][ZT]['n']:,}채의 호가가 한 채당 평균 <b>{man(-ZS['post'][ZT]['net_amt'])}"
+    f"({-ZS['post'][ZT]['net_pct'] * 100:.2f}%)</b> 내려갔다. 앞 2주는 {man(-ZS['pre'][ZT]['net_amt'])}({-ZS['pre'][ZT]['net_pct'] * 100:.2f}%)이었다. "
+    f"16곳 중 {worse}곳에서 뒤 2주의 평균 변동이 앞 2주보다 낮았다.", BODY))
+rows = [["자치구", "구역", "같은 집", "내린/올린 집\n앞 2주", "내린/올린 집\n뒤 2주",
+         "평균 변동\n앞 2주", "평균 변동\n뒤 2주", "한 채당\n뒤 2주"]]
+for z in Z16["zones"]:
+    a, b = ZS["pre"][z["name"]], ZS["post"][z["name"]]
+    rows.append([z["gu"], Paragraph(z["name"], CELL), f"{b['n']}", f"{a['cut'] * 100:.0f}% / {a['rise'] * 100:.0f}%",
+                 f"{b['cut'] * 100:.0f}% / {b['rise'] * 100:.0f}%", sgn(a["net_pct"] * 100), sgn(b["net_pct"] * 100), f"{b['net_amt'] / 1e4:+,.0f}만원"])
+a, b = ZS["pre"][ZT], ZS["post"][ZT]
+rows.append(["", "16개 구역 합계", f"{b['n']:,}", f"{a['cut'] * 100:.0f}% / {a['rise'] * 100:.0f}%", f"{b['cut'] * 100:.0f}% / {b['rise'] * 100:.0f}%",
+             sgn(a["net_pct"] * 100), sgn(b["net_pct"] * 100), f"{b['net_amt'] / 1e4:+,.0f}만원"])
+f.append(table(rows, [13 * mm, 47 * mm, 16 * mm, 21 * mm, 21 * mm, 17 * mm, 17 * mm, 18 * mm], hi=(len(rows) - 1,), bold_rows=(len(rows) - 1,)))
+f.append(Paragraph("앞 2주=10월 14일→28일, 뒤 2주=10월 28일→11월 11일(같은 집 수는 뒤 2주). 두 날 모두 매물로 나와 있던 같은 집. 평균 변동은 내린 집·그대로 둔 집·올린 집을 모두 넣은 평균. "
+                   "압구정 1구역=미성1·2차, 4구역=현대8차·한양3·4·6차, 5구역=한양1·2차. 장미1·2·3차는 세 단지를 합쳤다.", NOTE))
+
 f.append(Spacer(1, 2))
 f.append(KeepTogether([Paragraph("분석 개요", H), Paragraph(
     "<b>대상</b>  서울 아파트 매매 매물 호가 전수(오피스텔 제외). 재건축 단지는 서울시 정비사업 추진현황(2026년 6월 말)의 "

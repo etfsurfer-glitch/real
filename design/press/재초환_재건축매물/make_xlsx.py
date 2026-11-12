@@ -173,5 +173,20 @@ finish(ws, [26, 18, 10, 12, 16, 10, 14, 16, 10, 14, 16, 12],
        ["· 같은 집 평균 변동 = 내린 집·그대로 둔 집(0%)·올린 집을 모두 넣은 평균. 2주는 두 날 모두 나와 있던 같은 집.",
         "· 층은 '해당 층/전체 층', 저·중·고는 광고 표시 그대로."])
 
+# 7) 강남3구 1,000세대 이상 16개 구역 — measure_zones.py → press_jaecho_zones16.json
+Z16 = json.loads((HERE.parent / "data" / "press_jaecho_zones16.json").read_text())
+ws = wb.create_sheet("강남3구 16개 구역")
+head(ws, "강남3구 1,000세대 이상 재건축 16개 구역(반포주공1 두 구역 제외) — 같은 집 호가 변동",
+     [["자치구", "구역", "기간", "같은 집 수", "내린 집", "올린 집", "평균 변동", "한 채당 평균 변동(원)", "내린 집 인하액(중앙값, 원)"]])
+for z in Z16["zones"] + [{"gu": "", "name": Z16["total"]}]:
+    for lab, x in [(d, Z16["weekly"][d].get(z["name"])) for d in Z16["weekly"]] + \
+                  [("2주 10/14→10/28", Z16["span"]["pre"].get(z["name"])), ("2주 10/28→11/11", Z16["span"]["post"].get(z["name"]))]:
+        if not x:
+            continue
+        ws.append([z["gu"], z["name"], lab, x["n"], x["cut"], x["rise"], x["net_pct"], round(x["net_amt"]), x["cut_amt_med"]])
+        for i, c in enumerate(ws[ws.max_row][3:]):
+            c.number_format = (INT, PCT, PCT, SPCT, INT, INT)[i]
+finish(ws, [9, 40, 18, 10, 9, 9, 10, 16, 18], ["· 압구정은 특별계획구역 단위(2구역=신현대, 3구역=구현대). 주간은 직전 수요일 대비."])
+
 out = HERE / "콕집_서울재건축_사업단계별_매물동향.xlsx"
 wb.save(out); print(out)
