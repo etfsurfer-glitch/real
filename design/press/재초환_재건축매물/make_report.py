@@ -3,7 +3,8 @@
 
 논리(2026-11-12 검증):
  1) 호가를 내린 집과 올린 집을 함께 본다(같은 집, 직전 수요일 대비). 한쪽만 보면 방향이 왜곡된다.
- 2) 비교 기준은 10월 세 주(10/14·10/21·10/28 주) 평균. 8월 이후 누적은 쓰지 않는다(석 달 남은 집만 남아 인하 쪽으로 쏠림).
+ 2) 8~9월(8/12~9/16 주 평균, 추석 2주 비교인 9/30 주 제외)·10월(10/14~10/28 주 평균)·11월을 함께 본다. 11월은 새 하락이 아니라
+    10월에 잠시 멈춘 하락이 8~9월 흐름으로 돌아간 것(2026-11-12 점검). 8월 이후 누적은 쓰지 않는다(생존 편향).
  3) 은마·잠실5단지가 사업시행인가 묶음 같은 집의 1/3 — 두 단지를 뺀 숫자를 함께 낸다.
  4) 몇 단지의 움직임이 아님을 보이려고 '내린 집이 더 많은 단지 / 올린 집이 더 많은 단지' 수를 센다(같은 집 5채 이상 단지).
  5) 시점은 사실만: 변화가 11월 첫째 주부터 나타나 둘째 주에 커졌다. 재초환 일정과 겹친다고만 쓰고 원인으로 단정하지 않는다.
@@ -69,6 +70,13 @@ def octv(g, k):
     return stt.mean(wk(d, g, k) for d in OCT)
 
 
+SUMM = ["2026-08-12", "2026-08-19", "2026-08-26", "2026-09-02", "2026-09-09", "2026-09-16"]
+
+
+def sumv(g, k):
+    return stt.mean(wk(d, g, k) for d in SUMM)
+
+
 def breadth(d, grp=None):
     """재건축 단지 중 내린 집이 더 많은 단지 / 올린 집이 더 많은 단지 / 전체(같은 집 5채 이상)."""
     c = r = n = 0
@@ -85,9 +93,8 @@ def cx(no, d):
     return WX[d].get(no)
 
 
-B = {d: breadth(d) for d in WX if d >= "2026-09-30"}
-r_oct = max(B[d][1] for d in OCT)
-d_oct = [d for d in OCT if B[d][1] == r_oct][0]
+BA = {d: breadth(d) for d in WX}
+B = {d: v for d, v in BA.items() if d >= "2026-09-30"}
 EUN, JAM = "236", "639"
 NAMED = {x["name"]: no for no, x in F.items()}
 K6, K7, SB2 = NAMED["개포주공6단지"], NAMED["개포주공7단지"], NAMED["신반포2차"]
@@ -160,10 +167,12 @@ for g, k, col, ls, name in ((ALL, "cut", "#1268d3", "-", "재건축 · 내린 �
     ys = [wk(d, g, k) for d in xs]
     ax.plot(range(len(xs)), ys, color=col, ls=ls, lw=2.0 if k == "cut" else 1.6, marker="o", ms=2.4, label=name)
     ax.text(len(xs) - 1 + 0.15, ys[-1], f"{ys[-1]:.1f}%", fontsize=7, color=col, va="center")
-ax.axvspan(xs.index(OCT[0]) - 0.5, xs.index(OCT[-1]) + 0.5, color="#eef2f7", zorder=0)
+ax.axvspan(xs.index(SUMM[0]) - 0.5, xs.index(SUMM[-1]) + 0.5, color="#f4f6f9", zorder=0)
+ax.axvspan(xs.index(OCT[0]) - 0.5, xs.index(OCT[-1]) + 0.5, color="#e6edf6", zorder=0)
 ax.axvspan(xs.index(N1) - 0.5, xs.index(N2) + 0.5, color="#fff1d6", zorder=0)
 top = max(wk(d, ALL, "cut") for d in xs) * 1.15
-ax.text(xs.index(OCT[1]), top, "10월 비교 기준", fontsize=6.8, ha="center", va="top", color="#5b6775")
+ax.text((xs.index(SUMM[0]) + xs.index(SUMM[-1])) / 2, top, "8~9월", fontsize=6.8, ha="center", va="top", color="#5b6775")
+ax.text(xs.index(OCT[1]), top, "10월", fontsize=6.8, ha="center", va="top", color="#5b6775")
 ax.text(xs.index(N1) + 0.5, top, "11월 1·2주", fontsize=6.8, ha="center", va="top", color="#8a5a00")
 ax.set_ylim(0, top * 1.02)
 ax.set_xticks(range(len(xs))); ax.set_xticklabels(lab, fontsize=7)
@@ -177,9 +186,10 @@ ax.set_xlim(-0.4, len(xs) - 0.1)
 fig.tight_layout(); fig.savefig(CH1); plt.close(fig)
 
 # ── 그림 2: 내린 집이 더 많은 단지 / 올린 집이 더 많은 단지 ──
-bx = list(B)
+bx = [d for d in BA if d != "2026-09-30"]
+B_ = BA
 fig, ax = plt.subplots(figsize=(8.6, 2.6), dpi=220)
-cuts = [B[d][0] for d in bx]; rises = [B[d][1] for d in bx]
+cuts = [B_[d][0] for d in bx]; rises = [B_[d][1] for d in bx]
 ax.bar([i - 0.2 for i in range(len(bx))], cuts, 0.38, color="#1268d3", label="내린 집이 더 많은 단지")
 ax.bar([i + 0.2 for i in range(len(bx))], rises, 0.38, color="#e0a43a", label="올린 집이 더 많은 단지")
 for i, (c, r) in enumerate(zip(cuts, rises)):
@@ -189,7 +199,7 @@ ax.set_xticks(range(len(bx))); ax.set_xticklabels([f"{int(d[5:7])}/{int(d[8:])} 
 for s in ("top", "right", "left"):
     ax.spines[s].set_visible(False)
 ax.set_yticks([]); ax.set_ylim(0, max(cuts) * 1.2)
-ax.legend(frameon=False, fontsize=7.5, loc="upper left", ncol=2)
+ax.legend(frameon=False, fontsize=7.5, loc="upper center", ncol=2, bbox_to_anchor=(0.5, -0.14))
 fig.tight_layout(); fig.savefig(CH2); plt.close(fig)
 
 # ── 검증(validate.py: 같은 광고 / validate2.py: 광고 구성·숫자층) ──
@@ -205,29 +215,39 @@ def v2(lab, k, d=None):
 f = []
 c_all_o, r_all_o = octv(ALL, "cut"), octv(ALL, "rise")
 c_all, r_all = wk(N2, ALL, "cut"), wk(N2, ALL, "rise")
-f.append(Paragraph("10월 ‘올리는 집’ 늘던 서울 재건축 호가,<br/>11월 들어 ‘내리는 집’ 쪽으로", TITLE))
+rmin = min(v[1] for v in BA.values())
+assert B[N2][1] == rmin and B[N1][1] == B[N2][1], "단지 수 문장(8월 이후 최소·11월 두 주 같음) 재확인"
+assert cx(EUN, N2)["cut"] == max(WX[d][EUN]["cut"] for d in WX if EUN in WX[d]), "은마 최고 문장 재확인"
+f.append(Paragraph("10월 잠시 멈췄던 서울 재건축 호가 하락,<br/>11월 다시 8~9월 흐름으로", TITLE))
 f.append(Paragraph(
-    f"재건축 단지 같은 집 중 호가 내린 집 {c_all:.1f}%·올린 집 {r_all:.1f}%(10월 평균 {c_all_o:.1f}%·{r_all_o:.1f}%) — "
-    f"일반 아파트는 {wk(N2, GEN, 'cut'):.1f}%·{wk(N2, GEN, 'rise'):.1f}%로 그대로<br/>"
-    f"올린 집이 더 많던 재건축 단지 {r_oct}곳({lbl(d_oct)} 주) → {B[N2][1]}곳(11월 11일 주) · 은마·잠실5단지는 이번 주 절반 이상이 내려", SUB))
+    f"재건축 같은 집 중 호가 내린 집 {c_all:.1f}%·올린 집 {r_all:.1f}% — 8~9월 평균({sumv(ALL, 'cut'):.1f}%·{sumv(ALL, 'rise'):.1f}%) 수준, "
+    f"10월({c_all_o:.1f}%·{r_all_o:.1f}%)엔 올린 집 늘었다<br/>"
+    f"올린 집이 더 많은 재건축 단지 {B[N2][1]}곳, 8월 이후 가장 적어 · 은마·잠실5단지는 같은 광고 기준으로도 11월 인하 늘어", SUB))
 f.append(Spacer(1, 6))
 f.append(Paragraph(
-    "<b>콕집</b>(koczip.com)이 서울 아파트 재건축 단지의 매매 매물을 매주 같은 집끼리 비교한 결과, 10월에 호가를 올리는 집이 늘던 "
-    "재건축 단지가 <b>11월 들어 호가를 내리는 쪽으로 기울었다</b>. 11월 4일부터 11일까지 한 주 동안 재건축 단지에서 호가를 내린 집은 "
-    f"{c_all:.1f}%, 올린 집은 {r_all:.1f}%였다. 10월 세 주 평균(내린 집 {c_all_o:.1f}%, 올린 집 {r_all_o:.1f}%)보다 "
-    "내린 집은 늘고 올린 집은 줄었다. 같은 기간 일반 아파트는 내린 집 "
-    f"{wk(N2, GEN, 'cut'):.1f}%·올린 집 {wk(N2, GEN, 'rise'):.1f}%(10월 평균 {octv(GEN, 'cut'):.1f}%·{octv(GEN, 'rise'):.1f}%)로 거의 변하지 않았다.", BODY))
+    "<b>콕집</b>(koczip.com)이 서울 아파트 재건축 단지의 매매 매물을 8월부터 매주 같은 집끼리 비교한 결과, 8~9월 내내 호가를 내리는 쪽이던 "
+    "재건축 단지는 <b>10월에 하락이 잠시 멈췄다가 11월 들어 다시 8~9월 흐름으로 돌아갔다</b>. 11월 4일부터 11일까지 한 주 동안 재건축 단지에서 "
+    f"호가를 내린 집은 {c_all:.1f}%, 올린 집은 {r_all:.1f}%로 8~9월 평균(내린 집 {sumv(ALL, 'cut'):.1f}%, 올린 집 {sumv(ALL, 'rise'):.1f}%)과 비슷했다. "
+    f"10월 세 주에는 내린 집이 {c_all_o:.1f}%로 줄고 올린 집이 {r_all_o:.1f}%로 늘었었다. 같은 집 평균 변동도 8~9월 주당 "
+    f"{sumv(ALL, 'mean'):.2f}%, 10월 {octv(ALL, 'mean'):.2f}%, 11월 11일 주 {wk(N2, ALL, 'mean'):.2f}%였다. "
+    f"일반 아파트는 내린 집이 8~9월 {sumv(GEN, 'cut'):.1f}%, 10월 {octv(GEN, 'cut'):.1f}%, 11월 11일 주 {wk(N2, GEN, 'cut'):.1f}%로 "
+    "멈춤과 되돌림 없이 조금씩 늘었다.", BODY))
 f.append(Paragraph(
-    f"변화는 일부 단지에 그치지 않았다. 같은 집이 5채 이상인 재건축 단지 가운데 올린 집이 내린 집보다 많은 단지는 "
-    f"{lbl(d_oct)} 주 {r_oct}곳에서 11월 11일 주 <b>{B[N2][1]}곳</b>으로 줄었고, 내린 집이 더 많은 단지는 "
-    f"{B[d_oct][0]}곳에서 <b>{B[N2][0]}곳</b>으로 늘었다(전체 {B[N2][2]}곳). 이 흐름은 11월 첫째 주부터 나타나 둘째 주에 커졌다. "
-    "둘째 주는 서초구의 반포현대 재건축초과이익환수(재초환) 부담금 사전통지 예정 보도(11월 6일)와 통지(11월 9일)가 있었던 주다.", BODY))
+    f"단지 수로 보면 11월의 모습이 더 뚜렷하다. 같은 집이 5채 이상인 재건축 단지 가운데 올린 집이 내린 집보다 많은 단지는 "
+    f"8~9월 {min(BA[d][1] for d in SUMM)}~{max(BA[d][1] for d in SUMM)}곳, 10월 {min(B[d][1] for d in OCT)}~{max(B[d][1] for d in OCT)}곳이었는데 "
+    f"11월 4일 주와 11일 주에는 모두 <b>{B[N2][1]}곳</b>으로 8월 이후 가장 적었다. 내린 집이 더 많은 단지는 11월 11일 주 {B[N2][0]}곳(전체 {B[N2][2]}곳)이었다. "
+    f"은마는 내린 집 비율이 {pc(EUN, N2, 'cut'):.0f}%로 8월 이후 가장 높았고(8~9월 평균 {stt.mean(cx(EUN, d)['cut'] for d in SUMM) * 100:.0f}%), "
+    f"잠실주공5단지는 {pc(JAM, N2, 'cut'):.0f}%로 8~9월 평균({stt.mean(cx(JAM, d)['cut'] for d in SUMM) * 100:.0f}%) 수준으로 돌아갔다. "
+    "두 단지는 같은 광고의 호가 수정만 따로 봐도 11월에 내린 광고가 늘었다(5절). "
+    "되돌림은 11월 첫째 주부터 나타나 둘째 주에 커졌고, 둘째 주는 서초구의 반포현대 재건축초과이익환수(재초환) 부담금 "
+    "사전통지 예정 보도(11월 6일)와 통지(11월 9일)가 있었던 주다.", BODY))
 f.append(Spacer(1, 2))
 f.append(boxed(
     "<b>이 자료의 기준</b><br/>"
     "· <b>같은 집</b>: 비교하는 두 수요일 모두 매물로 나와 있던 집. 여러 중개사무소가 올린 같은 집 광고는 한 채로 묶고 호가는 그 중앙값. "
     "<b>내린 집·올린 집</b>은 직전 수요일보다 호가가 낮아진·높아진 집의 비율이고, 나머지는 호가를 그대로 둔 집이다.<br/>"
-    "· <b>10월 평균</b>: 10월 14일·21일·28일로 끝나는 세 주의 평균.<br/>"
+    "· <b>8~9월 평균</b>: 8월 12일~9월 16일로 끝나는 여섯 주의 평균(추석으로 2주를 비교한 9월 30일 주 제외). "
+    "<b>10월 평균</b>: 10월 14일·21일·28일로 끝나는 세 주의 평균.<br/>"
     "· <b>재건축 단지</b>: 서울시 「정비사업 추진현황」(2026년 6월 말 기준, 서울 열린데이터광장)의 아파트 재건축 구역에 속한 단지. "
     "은마·잠실주공5단지는 7월 사업시행인가를 반영했고, 공사 중(착공) 구역은 뺐다. "
     f"관리처분인가 {J['groups'][MG]}곳·사업시행인가 {J['groups'][SI]}곳·건축심의 통과 {J['groups'][AR]}곳·건축심의 전(구역지정·추진위·조합설립) {J['groups'][PRE]}곳.<br/>"
@@ -244,34 +264,37 @@ f.append(Paragraph("그림 1. 같은 집 가운데 직전 수요일보다 호가
 
 # 1. 단계별
 f.append(CondPageBreak(110 * mm))
-f.append(Paragraph("1. 사업 단계별 — 10월과 11월", H))
-rows = [["단계", "10월 평균\n내린 집 / 올린 집", "11월 4일 주\n내린 집 / 올린 집", "11월 11일 주\n내린 집 / 올린 집", "11월 11일 주\n평균 변동", "같은 집\n(11/11 주)"]]
+f.append(Paragraph("1. 사업 단계별 — 8~9월, 10월, 11월", H))
+rows = [["단계", "8~9월 평균\n내린 집 / 올린 집", "10월 평균\n내린 집 / 올린 집", "11월 4일 주\n내린 집 / 올린 집", "11월 11일 주\n내린 집 / 올린 집", "평균 변동\n8~9월→11/11"]]
 for g in STAGES:
-    rows.append([g, f"{octv(g, 'cut'):.1f}% / {octv(g, 'rise'):.1f}%", f"{wk(N1, g, 'cut'):.1f}% / {wk(N1, g, 'rise'):.1f}%",
-                 f"{wk(N2, g, 'cut'):.1f}% / {wk(N2, g, 'rise'):.1f}%", sgn(WC[N2][g]["mean"] * 100), f"{WC[N2][g]['n']:,}"])
+    rows.append([g, f"{sumv(g, 'cut'):.1f}% / {sumv(g, 'rise'):.1f}%", f"{octv(g, 'cut'):.1f}% / {octv(g, 'rise'):.1f}%",
+                 f"{wk(N1, g, 'cut'):.1f}% / {wk(N1, g, 'rise'):.1f}%", f"{wk(N2, g, 'cut'):.1f}% / {wk(N2, g, 'rise'):.1f}%",
+                 f"{sumv(g, 'mean'):+.2f}→{wk(N2, g, 'mean'):+.2f}%"])
 iall = STAGES.index(ALL) + 1
-f.append(table(rows, [44 * mm, 27 * mm, 27 * mm, 27 * mm, 21 * mm, 18 * mm], hi=(iall,), bold_rows=(iall,)))
-f.append(Paragraph("평균 변동은 같은 집 각각의 호가 변동률(그대로 둔 집 0% 포함)의 평균.", NOTE))
+f.append(table(rows, [40 * mm, 25 * mm, 25 * mm, 25 * mm, 25 * mm, 24 * mm], hi=(iall,), bold_rows=(iall,)))
+f.append(Paragraph(f"평균 변동은 같은 집 각각의 호가 변동률(그대로 둔 집 0% 포함)의 평균(주당). 11월 11일 주 같은 집은 재건축 전체 {WC[N2][ALL]['n']:,}채·일반 아파트 {WC[N2][GEN]['n']:,}채.", NOTE))
 f.append(Paragraph(
-    f"· <b>사업시행인가</b>: 10월 평균은 내린 집 {octv(SI, 'cut'):.1f}%·올린 집 {octv(SI, 'rise'):.1f}%였고, 11월 11일 주에는 "
-    f"{wk(N2, SI, 'cut'):.1f}%·{wk(N2, SI, 'rise'):.1f}%가 됐다. 이 묶음 같은 집의 3분의 1이 은마·잠실주공5단지라 두 단지를 빼고도 봤다. "
-    f"10월 28일 주에는 내린 집 {wk(O28, SIX, 'cut'):.1f}%·올린 집 {wk(O28, SIX, 'rise'):.1f}%로 올린 집이 많았는데, "
-    f"11월 11일 주에는 {wk(N2, SIX, 'cut'):.1f}%·{wk(N2, SIX, 'rise'):.1f}%로 뒤집혔다.<br/>"
-    f"· <b>건축심의 통과</b>: 10월 평균 {octv(AR, 'cut'):.1f}%·{octv(AR, 'rise'):.1f}% → 11월 11일 주 {wk(N2, AR, 'cut'):.1f}%·{wk(N2, AR, 'rise'):.1f}%.<br/>"
-    f"· <b>건축심의 전</b>: 내린 집 {octv(PRE, 'cut'):.1f}% → {wk(N2, PRE, 'cut'):.1f}%, 올린 집 {octv(PRE, 'rise'):.1f}% → {wk(N2, PRE, 'rise'):.1f}%.<br/>"
-    f"· <b>관리처분인가</b>: 내린 집은 {octv(MG, 'cut'):.1f}% → {wk(N2, MG, 'cut'):.1f}%로 비슷하고, 올린 집이 "
-    f"{octv(MG, 'rise'):.1f}% → {wk(N2, MG, 'rise'):.1f}%로 줄었다.", BODY))
+    f"· <b>사업시행인가</b>: 8~9월 내린 집 {sumv(SI, 'cut'):.1f}%·올린 집 {sumv(SI, 'rise'):.1f}%에서 10월 {octv(SI, 'cut'):.1f}%·{octv(SI, 'rise'):.1f}%로 "
+    f"멈춤이 가장 컸고, 11월 11일 주 {wk(N2, SI, 'cut'):.1f}%·{wk(N2, SI, 'rise'):.1f}%로 돌아갔다. 같은 집의 3분의 1이 은마·잠실주공5단지라 두 단지를 빼면 "
+    f"8~9월 {sumv(SIX, 'cut'):.1f}%·{sumv(SIX, 'rise'):.1f}%, 10월 {octv(SIX, 'cut'):.1f}%·{octv(SIX, 'rise'):.1f}%(올린 집이 더 많음), "
+    f"11월 11일 주 {wk(N2, SIX, 'cut'):.1f}%·{wk(N2, SIX, 'rise'):.1f}%로, 방향은 다시 바뀌었지만 아직 8~9월만큼 내리지는 않았다.<br/>"
+    f"· <b>건축심의 통과</b>: 8~9월 {sumv(AR, 'cut'):.1f}%·{sumv(AR, 'rise'):.1f}% → 10월 {octv(AR, 'cut'):.1f}%·{octv(AR, 'rise'):.1f}% → "
+    f"11월 11일 주 {wk(N2, AR, 'cut'):.1f}%·{wk(N2, AR, 'rise'):.1f}%.<br/>"
+    f"· <b>건축심의 전</b>: 8~9월 {sumv(PRE, 'cut'):.1f}%·{sumv(PRE, 'rise'):.1f}% → 10월 {octv(PRE, 'cut'):.1f}%·{octv(PRE, 'rise'):.1f}% → "
+    f"11월 11일 주 {wk(N2, PRE, 'cut'):.1f}%·{wk(N2, PRE, 'rise'):.1f}%.<br/>"
+    f"· <b>관리처분인가</b>: 다른 단계와 달리 10월 멈춤이 없었다. 8~9월 {sumv(MG, 'cut'):.1f}%·{sumv(MG, 'rise'):.1f}%, 10월 "
+    f"{octv(MG, 'cut'):.1f}%·{octv(MG, 'rise'):.1f}%, 11월 11일 주 {wk(N2, MG, 'cut'):.1f}%·{wk(N2, MG, 'rise'):.1f}%.", BODY))
 
 # 2. 단지 수
 f.append(CondPageBreak(90 * mm))
-f.append(Paragraph("2. 몇몇 단지의 일이 아니다 — 방향별 단지 수", H))
+f.append(Paragraph("2. 방향별 단지 수 — 올린 집이 더 많은 단지, 8월 이후 가장 적어", H))
 f.append(Image(str(CH2), width=170 * mm, height=170 * mm * 2.6 / 8.6))
 f.append(Paragraph(f"그림 2. 같은 집이 5채 이상인 재건축 단지({B[N2][2]}곳 안팎)를 그 주에 내린 집과 올린 집 중 어느 쪽이 많았는지로 나눈 수. "
-                   "두 쪽이 같은 단지는 뺐다.", NOTE))
+                   "두 쪽이 같은 단지는 뺐다. 추석으로 2주를 비교한 9월 30일 주는 뺐다.", NOTE))
 mg2, si2 = breadth(N2, MG), breadth(N2, SI)
 f.append(Paragraph(
-    f"올린 집이 더 많은 단지는 10월 세 주 {min(B[d][1] for d in OCT)}~{max(B[d][1] for d in OCT)}곳이었다가 11월 4일 주 {B[N1][1]}곳, "
-    f"11일 주 {B[N2][1]}곳으로 줄었다. 11월 11일 주에 관리처분인가 단지는 {mg2[2]}곳 가운데 올린 집이 더 많은 곳이 {mg2[1]}곳, "
+    f"올린 집이 더 많은 단지는 8~9월 {min(BA[d][1] for d in SUMM)}~{max(BA[d][1] for d in SUMM)}곳, 10월 {min(B[d][1] for d in OCT)}~{max(B[d][1] for d in OCT)}곳이었다가 "
+    f"11월 4일 주 {B[N1][1]}곳, 11일 주 {B[N2][1]}곳이 됐다. 11월 11일 주에 관리처분인가 단지는 {mg2[2]}곳 가운데 올린 집이 더 많은 곳이 {mg2[1]}곳, "
     f"사업시행인가 단지는 {si2[2]}곳 가운데 {si2[1]}곳이었다.", BODY))
 
 # 3. 주요 단지
@@ -348,11 +371,11 @@ ea, eb = sp("pre", no=EUN), sp("post", no=EUN)
 ja, jb = sp("pre", no=JAM), sp("post", no=JAM)
 eun_cut = sorted(abs(CX_[d][EUN]["cut"]["amt_med"]) for d in OCT)
 f.append(Paragraph(
-    "호가를 내린 집이 늘었을 뿐 아니라 같은 집의 평균 호가도 더 많이 내려갔다. 내린 집·그대로 둔 집·올린 집을 모두 넣은 "
+    "10월과 비교하면 같은 집의 평균 호가도 더 많이 내려갔다. 내린 집·그대로 둔 집·올린 집을 모두 넣은 "
     f"같은 집 평균 변동은 재건축 단지가 10월 세 주 평균 주당 {co(ALL, 'net_pct_mean') * 100:.2f}%"
     f"(한 채당 {man(co(ALL, 'net_amt_mean'))})에서 11월 4일 주 {cw(N1, ALL, 'net_pct_mean') * 100:.2f}%, "
     f"11일 주 <b>{cw(N2, ALL, 'net_pct_mean') * 100:.2f}%(한 채당 {man(cw(N2, ALL, 'net_amt_mean'))})</b>로 커졌다. "
-    f"일반 아파트는 같은 기간 {co(GEN, 'net_pct_mean') * 100:.2f}%에서 {cw(N2, GEN, 'net_pct_mean') * 100:.2f}%로 큰 변화가 없었다.", BODY))
+    f"8~9월 평균(주당 {sumv(ALL, 'mean'):.2f}%)에 가까운 수준이다. 일반 아파트는 같은 기간 {co(GEN, 'net_pct_mean') * 100:.2f}%에서 {cw(N2, GEN, 'net_pct_mean') * 100:.2f}%로 큰 변화가 없었다.", BODY))
 f.append(Paragraph(
     f"2주 단위로 보면 차이가 더 뚜렷하다. 10월 28일과 11월 11일에 모두 나와 있던 재건축 단지 같은 집 {sp('post', ALL)['n']:,}채의 호가는 "
     f"한 채당 평균 <b>{man(-sp('post', ALL)['net_amt_mean'])}({-sp('post', ALL)['net_pct_mean'] * 100:.2f}%)</b> 내려갔다. "
