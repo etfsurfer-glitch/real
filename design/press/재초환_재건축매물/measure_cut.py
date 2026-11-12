@@ -11,7 +11,7 @@ import json, os, sqlite3, statistics as st
 from collections import defaultdict
 import pyarrow.parquet as pq
 
-TMP = "/mnt/backup/tmp_jaecho2"
+TMP = "/mnt/backup/tmp_jaecho"
 LOCAL = "/opt/koczip/data/archive/listings/{y}/{m}/listings_{d}.parquet"
 WEEKS = ["2026-10-07", "2026-10-14", "2026-10-21", "2026-10-28", "2026-11-04", "2026-11-11"]
 SPANS = {"pre": ("2026-10-14", "2026-10-28"), "post": ("2026-10-28", "2026-11-11")}

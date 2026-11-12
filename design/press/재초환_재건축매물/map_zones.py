@@ -25,7 +25,15 @@ MANUAL = {
     "수정아파트": ["958"], "목동14단지": ["669"], "신길동삼성아파트": ["718"],
     "청담삼성진흥": ["733", "100285"], "여의도광장아파트38-1번지": ["740"], "망우1(염광아파트)": ["8370"],
     "신림미성아파트": ["1054"], "미성동건영아파트": ["52"],
+    # 2026-11-12 논리 점검: 세대수 대조로 빠진 단지 보강·잘못 붙은 단지 분리
+    "장미1,2,3차": ["389", "3754", "622"],                       # 장미1·2·3차(2,100+1,302+120=3,522)
+    "염창동우성1·2차·삼천리아파트": ["38", "39", "3154"],
+    "신길동우성2차·우창아파트": ["721", "725"],
+    "방배삼호": ["947", "468", "948"],                            # 삼호1·2·3차(419+264+120=803 ≒ 804)
+    "신반포19차,25차": ["524", "3526"],
+    "대흥,성원,동진빌라": ["17093", "17095", "19406"],
 }
+NONE = {"반포미도2차", "신반포22차"}   # 지번이 이웃 단지(반포미도1차·신반포7차)에 잘못 붙음 — 우리 단지 없음
 c = sqlite3.connect("file:/opt/koczip/data/naverreal.sqlite?mode=ro", uri=True)
 gu = {r[1]: r[0] for r in c.execute("SELECT cortar_no, cortar_name FROM regions WHERE length(cortar_no)=10 AND cortar_no LIKE '11%' AND cortar_no LIKE '%00000'")}
 cx = c.execute("SELECT c.complex_no, c.complex_name, c.real_estate_type, c.cortar_no, c.detail_address, r.cortar_name, c.total_household_count "
@@ -36,6 +44,8 @@ def bonbun(s):
 out, miss = [], []
 names = {x[0]: x[1] for x in cx}
 for z in zones:
+    if z["name"] in NONE:
+        out.append({**z, "complex_nos": [], "cx_names": [], "how": "없음"}); continue
     if z["name"] in MANUAL and MANUAL[z["name"]]:
         out.append({**z, "complex_nos": MANUAL[z["name"]], "cx_names": [names.get(n, n) for n in MANUAL[z["name"]]], "how": "수동"})
         continue

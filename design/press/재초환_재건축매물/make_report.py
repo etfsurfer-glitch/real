@@ -192,6 +192,15 @@ ax.set_yticks([]); ax.set_ylim(0, max(cuts) * 1.2)
 ax.legend(frameon=False, fontsize=7.5, loc="upper left", ncol=2)
 fig.tight_layout(); fig.savefig(CH2); plt.close(fig)
 
+# ── 검증(validate.py: 같은 광고 / validate2.py: 광고 구성·숫자층) ──
+V = json.loads((HERE.parent / "data" / "press_jaecho_validate.json").read_text())
+V2 = json.loads((HERE.parent / "data" / "press_jaecho_validate2.json").read_text())
+
+
+def v2(lab, k, d=None):
+    return (V2[d][lab][k] if d else stt.mean(V2[x][lab][k] for x in OCT)) * 100
+
+
 # ── 본문 ──
 f = []
 c_all_o, r_all_o = octv(ALL, "cut"), octv(ALL, "rise")
@@ -222,7 +231,13 @@ f.append(boxed(
     "· <b>재건축 단지</b>: 서울시 「정비사업 추진현황」(2026년 6월 말 기준, 서울 열린데이터광장)의 아파트 재건축 구역에 속한 단지. "
     "은마·잠실주공5단지는 7월 사업시행인가를 반영했고, 공사 중(착공) 구역은 뺐다. "
     f"관리처분인가 {J['groups'][MG]}곳·사업시행인가 {J['groups'][SI]}곳·건축심의 통과 {J['groups'][AR]}곳·건축심의 전(구역지정·추진위·조합설립) {J['groups'][PRE]}곳.<br/>"
-    "· <b>일반 아파트</b>: 정비구역이 아닌 서울 아파트 단지."))
+    "· <b>일반 아파트</b>: 정비구역이 아닌 서울 아파트 단지.<br/>"
+    "· <b>호가가 낮아진 집</b>에는 광고 호가를 고친 경우와 같은 집이 더 낮은 값의 새 광고로 나온 경우가 함께 들어간다. "
+    "층이 ‘저·중·고’가 아니라 숫자로 표시돼 같은 집이 분명한 경우만 봐도 재건축 단지는 내린 집 "
+    f"{v2('재건축 전체|숫자층', 'cut'):.1f}% → {v2('재건축 전체|숫자층', 'cut', N2):.1f}%, 올린 집 {v2('재건축 전체|숫자층', 'rise'):.1f}% → "
+    f"{v2('재건축 전체|숫자층', 'rise', N2):.1f}%(10월 평균 → 11월 11일 주)로 같은 방향이었고, 일반 아파트는 "
+    f"{v2('일반 아파트|숫자층', 'cut'):.1f}% → {v2('일반 아파트|숫자층', 'cut', N2):.1f}%, {v2('일반 아파트|숫자층', 'rise'):.1f}% → "
+    f"{v2('일반 아파트|숫자층', 'rise', N2):.1f}%로 거의 그대로였다."))
 f.append(Spacer(1, 10))
 f.append(Image(str(CH1), width=170 * mm, height=170 * mm * 3.6 / 8.6))
 f.append(Paragraph("그림 1. 같은 집 가운데 직전 수요일보다 호가를 내린·올린 집의 비율. 9월 30일 칸은 추석 주를 건너뛴 2주 비교.", NOTE))
@@ -373,14 +388,19 @@ t._content[0].setStyle(TableStyle([("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (3
 f.append(t)
 f.append(Paragraph("같은 집 평균 변동 = 내린 집·그대로 둔 집(0%)·올린 집을 모두 넣은 평균. 주간은 직전 수요일 대비, 2주는 두 날 모두 나와 있던 같은 집의 호가 차이 평균.", NOTE))
 
+VS = V["span"]
+f.append(Paragraph(
+    "같은 광고의 호가 수정만 따로 봐도 두 단지는 같은 방향이다. 10월 28일과 11월 11일에 모두 올라 있던 광고 가운데 호가를 고쳐 내린 광고는 "
+    f"은마가 앞 2주 {VS['pre']['은마']['cut'] * 100:.0f}%에서 뒤 2주 <b>{VS['post']['은마']['cut'] * 100:.0f}%</b>, "
+    f"잠실주공5단지가 {VS['pre']['잠실주공5단지']['cut'] * 100:.0f}%에서 <b>{VS['post']['잠실주공5단지']['cut'] * 100:.0f}%</b>로 늘었다. "
+    "아래 표는 같은 광고에서 호가를 가장 많이 내린 사례다.", BODY))
 rows = [["단지", "동", "층", "전용", "10월 28일", "11월 11일", "인하"]]
 for no in (EUN, JAM):
-    for e in CE[no][:5]:
-        rows.append([F[no]["name"], e["dong"], e["floor"] + "층",
-                     f"{e['area2']:.0f}㎡", amt(e["before"]), amt(e["after"]), amt(e["after"] - e["before"])])
+    for dif, dong, fl, a2, pa, pb in V["examples_article"][no][:5]:
+        rows.append([F[no]["name"], dong, fl + "층", f"{a2:.0f}㎡", amt(pa), amt(pb), amt(dif)])
 f.append(Spacer(1, 4))
 f.append(table(rows, [36 * mm, 15 * mm, 20 * mm, 16 * mm, 28 * mm, 28 * mm, 27 * mm]))
-f.append(Paragraph("10월 28일→11월 11일 호가를 가장 많이 내린 같은 집 5곳씩(광고 호가 기준, 같은 집 광고가 여럿이면 중앙값). "
+f.append(Paragraph("10월 28일→11월 11일 같은 광고(같은 중개사무소가 올린 같은 광고)에서 호가를 가장 많이 내린 5건씩. "
                    "층은 ‘해당 층/전체 층’이며 저·중·고는 광고에 표시된 그대로.", NOTE))
 
 # 6. 강남3구 1,000세대 이상 16개 구역(기자 요청 기준, measure_zones.py → ../data/press_jaecho_zones16.json)
@@ -401,6 +421,9 @@ f.append(Paragraph(
     f"2주 단위로는 10월 28일→11월 11일 같은 집 {ZS['post'][ZT]['n']:,}채의 호가가 한 채당 평균 <b>{man(-ZS['post'][ZT]['net_amt'])}"
     f"({-ZS['post'][ZT]['net_pct'] * 100:.2f}%)</b> 내려갔다. 앞 2주는 {man(-ZS['pre'][ZT]['net_amt'])}({-ZS['pre'][ZT]['net_pct'] * 100:.2f}%)이었다. "
     f"16곳 중 {worse}곳에서 뒤 2주의 평균 변동이 앞 2주보다 낮았다.", BODY))
+f.append(Paragraph(
+    f"층이 숫자로 표시된 같은 집만 보면 16개 구역의 내린 집은 10월 평균 {v2('16개 구역|숫자층', 'cut'):.1f}%에서 11월 11일 주 "
+    f"{v2('16개 구역|숫자층', 'cut', N2):.1f}%, 올린 집은 {v2('16개 구역|숫자층', 'rise'):.1f}%에서 {v2('16개 구역|숫자층', 'rise', N2):.1f}%였다.", BODY))
 rows = [["자치구", "구역", "같은 집", "내린/올린 집\n앞 2주", "내린/올린 집\n뒤 2주",
          "평균 변동\n앞 2주", "평균 변동\n뒤 2주", "한 채당\n뒤 2주"]]
 for z in Z16["zones"]:
@@ -417,7 +440,7 @@ f.append(Paragraph("앞 2주=10월 14일→28일, 뒤 2주=10월 28일→11월 1
 f.append(Spacer(1, 2))
 f.append(KeepTogether([Paragraph("분석 개요", H), Paragraph(
     "<b>대상</b>  서울 아파트 매매 매물 호가 전수(오피스텔 제외). 재건축 단지는 서울시 정비사업 추진현황(2026년 6월 말)의 "
-    "공동주택재건축·아파트지구재건축 구역을 콕집 단지와 지번·구역명으로 연결(161개 구역)<br/>"
+    "공동주택재건축·아파트지구재건축 구역을 콕집 단지와 지번·구역명으로 연결(착공 제외 150개 구역)<br/>"
     "<b>시점</b>  2026년 8월 5일부터 11월 11일까지 매주 수요일 하루치 수집분, 직전 수요일과 비교<br/>"
     "<b>같은 집</b>  단지·동·층·공급·전용·방향이 같은 광고를 한 채로 묶고 호가는 광고들의 중앙값. ±30% 넘는 변동은 오기재로 보고 제외<br/>"
     "<b>재초환 일정</b>  11월 4일 서초구 제도 폐지 건의, 11월 6일 반포현대 부담금 예정액 사전통지 예정 보도, 11월 9일 사전통지", NOTE)]))
