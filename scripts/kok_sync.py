@@ -122,7 +122,9 @@ def kok_db() -> sqlite3.Connection:
                           ("kok_direct_listings", "mgmt_type", "TEXT"),
                           ("kok_listings", "admin_hold", "TEXT"), ("kok_direct_listings", "admin_hold", "TEXT"),
                           ("kok_direct_listings", "violation", "TEXT"),
-                          ("kok_listings", "audit_viol", "TEXT"), ("kok_listings", "audit_at", "TEXT")):
+                          ("kok_listings", "audit_viol", "TEXT"), ("kok_listings", "audit_at", "TEXT"),
+                          ("kok_region_listings", "land_m2", "REAL"), ("kok_region_listings", "land_use", "TEXT"),
+                          ("kok_region_listings", "land_price", "INTEGER")):
         if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
             c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
     c.commit()
@@ -175,6 +177,7 @@ HOLD_LABEL = {"price": "가격", "rent": "월세", "area": "면적", "floor": "�
               "move_in": "입주 가능일", "mgmt": "관리비", "approve": "사용승인일", "parking": "주차대수", "land_use": "지목", "address": "소재지",
               "dong": "동(건물 번호)", "report": "신고 확인 중(콕집 운영자 보류)",
               "audit_pending": "광고 점검 전(다음 동기화에서 점검)",
+              "land_unverified": "지목(필지를 확인하지 못함 — 여러 필지를 묶었거나 위치가 필지 대표점이 아님)",
               "jibun": "지번(공동주택은 지번까지 표시해야 해요 — 원 광고에서 지번을 숨김)"}
 AUDIT_PREFIX = "audit:"   # hold_reasons 에 'audit:항목 — 사유' 로 들어간다. 라벨은 hold_label() 이 붙인다
 
@@ -500,6 +503,8 @@ REGION_SOURCES = {
     "knowledge": {"지식산업센터": "APTHGJ"},
     "building": {"빌딩/건물": "GM", "상가건물": "GM", "상가주택": "GM"},   # 기타·숙박/콘도는 뺌
     "factory": {"공장/창고": "GJCG"},
+    # 3단계(11-13): 토지 — 원 광고에 지목이 없어 좌표의 필지(VWorld)를 찾고, 대장 면적이 광고 면적과 맞을 때만 지목·공시지가를 쓴다
+    "land": {"토지/임야": "TJ"},
 }
 REGION_STALE_DAYS = 2      # 지역 DB 최신 수집분이 이보다 오래되면 '안 보인 매물 닫기'를 하지 않는다(수집이 멈춘 것)
 
@@ -565,16 +570,16 @@ def sync_region(k: sqlite3.Connection, active: dict, inactive: list, now: str) -
             fl, flabel, tf = _floor_parse(r["floor_info"])
             k.execute(
                 "INSERT INTO kok_region_listings(article_no, realtor_id, realtor_name, src, ptype, type_name, cortar_no, lat, lng, building_name, trade, price, rent, "
-                "supply_m2, excl_m2, floor, floor_label, total_floor, direction, first_seen, kok_since, status, synced_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?) "
+                "supply_m2, excl_m2, floor, floor_label, total_floor, direction, first_seen, kok_since, status, synced_at, land_m2) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?) "
                 "ON CONFLICT(article_no) DO UPDATE SET realtor_name=excluded.realtor_name, type_name=excluded.type_name, lat=excluded.lat, lng=excluded.lng, "
                 "building_name=excluded.building_name, trade=excluded.trade, price=excluded.price, rent=excluded.rent, supply_m2=excluded.supply_m2, excl_m2=excluded.excl_m2, "
                 "floor=excluded.floor, floor_label=excluded.floor_label, total_floor=COALESCE(kok_region_listings.total_floor, excluded.total_floor), "
                 "direction=COALESCE(NULLIF(kok_region_listings.direction,''), excluded.direction), first_seen=COALESCE(kok_region_listings.first_seen, excluded.first_seen), "
-                "kok_since=excluded.kok_since, status=CASE WHEN kok_region_listings.status='sold' THEN 'sold' ELSE 'active' END, "
+                "kok_since=excluded.kok_since, land_m2=excluded.land_m2, status=CASE WHEN kok_region_listings.status='sold' THEN 'sold' ELSE 'active' END, "
                 "closed_at=CASE WHEN kok_region_listings.status='sold' THEN kok_region_listings.closed_at ELSE NULL END, synced_at=excluded.synced_at, updated_at=excluded.synced_at",
                 (r["article_no"], rid, r["realtor_name"], cat, pt, r["real_estate_type_name"], r["cortar_no"], r["latitude"], r["longitude"], r["building_name"],
                  r["trade_type"], r["deal_or_warrant_price"], r["rent_price"], r["area1_m2"], r["area2_m2"], fl, flabel, tf, r["direction"] or "",
-                 r["first_seen_date"], _kok_since(active[rid], r["first_seen_date"]), now))
+                 r["first_seen_date"], _kok_since(active[rid], r["first_seen_date"]), now, r["area1_m2"] if pt == "TJ" else None))
             up += 1
         if fresh:
             for rid in active:
@@ -599,6 +604,40 @@ def _move_in_text(f: dict) -> str | None:
     if t:
         return t + (", 협의 가능" if nego and any(x in t for x in ("초순", "중순", "하순")) else "")
     return None
+
+
+def _land_facts(lat, lng, land_m2, vw: str) -> dict | None:
+    """좌표가 놓인 필지(VWorld 연속지적) → 토지특성(지목·대장 면적·공시지가). 대장 면적이 광고 면적과 1%(최소 1㎡) 안에서
+    맞을 때만 돌려준다 — 좌표가 필지 대표점이 아니거나 여러 필지를 묶은 광고면 엉뚱한 필지의 지목을 붙이게 되므로."""
+    import urllib.parse
+    import urllib.request
+    if not (vw and lat and lng and land_m2):
+        return None
+
+    def get(u: str) -> dict:
+        req = urllib.request.Request(u, headers={"User-Agent": "koczip/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read().decode("utf-8"))
+    try:
+        q = urllib.parse.urlencode({"service": "data", "request": "GetFeature", "data": "LP_PA_CBND_BUBUN", "key": vw, "domain": "koczip.com",
+                                    "geomFilter": f"POINT({lng} {lat})", "size": "1", "format": "json"})
+        feats = get("https://api.vworld.kr/req/data?" + q)["response"].get("result", {}).get("featureCollection", {}).get("features", [])
+        if not feats:
+            return None
+        pnu = feats[0]["properties"]["pnu"]
+        q = urllib.parse.urlencode({"key": vw, "domain": "koczip.com", "pnu": pnu, "format": "json", "numOfRows": "20", "pageNo": "1"})
+        root = next(iter(get("https://api.vworld.kr/ned/data/getLandCharacteristics?" + q).values()), {})
+        fl = root.get("field", []) if isinstance(root, dict) else []
+        fl = fl if isinstance(fl, list) else [fl]
+        if not fl:
+            return None
+        last = sorted(fl, key=lambda x: str(x.get("stdrYear") or ""))[-1]
+        area = float(last.get("lndpclAr") or 0)
+    except Exception as e:  # noqa: BLE001
+        print("land facts err", str(e)[:80]); return None
+    if not area or abs(area - float(land_m2)) > max(1.0, float(land_m2) * 0.01):
+        return {"pnu": pnu, "matched": False}
+    return {"pnu": pnu, "matched": True, "land_use": last.get("lndcgrCodeNm"), "land_price": _int_or_none(last.get("pblntfPclnd"))}
 
 
 def _fetch_region_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
@@ -646,6 +685,10 @@ def _fetch_region_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
              _int_or_none(f.get("monthly_management_cost")), str(aci.get("chargeCodeType") or "") or None,
              addr or None, mode, f.get("led_pnu"), f.get("led_main_purps"),
              json.dumps(viol, ensure_ascii=False) if viol else None, x["article_no"]))
+        if x["ptype"] == "TJ":
+            lf = _land_facts(x["lat"], x["lng"], x["land_m2"], vw)
+            k.execute("UPDATE kok_region_listings SET land_use=?, land_price=?, pnu=COALESCE(?, pnu) WHERE article_no=?",
+                      ((lf or {}).get("land_use"), (lf or {}).get("land_price"), (lf or {}).get("pnu") if (lf or {}).get("matched") else None, x["article_no"]))
         n += 1
         if n % 20 == 0:
             k.commit()
@@ -659,6 +702,7 @@ def recompute_region(k: sqlite3.Connection, realtor_id: str | None = None) -> tu
     live = hold = 0
     for r in k.execute(q, (realtor_id,) if realtor_id else ()).fetchall():
         miss = publish_check(dict(r), r["ptype"], source="region") if r["audit_at"] else ["audit_pending"]
+        miss = ["land_unverified" if m == "land_use" else m for m in miss]   # 토지 지목은 우리가 필지로 채운다 — 못 채우면 그 사유
         st = "hold" if miss else "live"
         live += st == "live"; hold += st == "hold"
         k.execute("UPDATE kok_region_listings SET publish_state=?, hold_reasons=? WHERE article_no=?", (st, json.dumps(miss) if miss else None, r["article_no"]))
