@@ -108,7 +108,8 @@ def kok_db() -> sqlite3.Connection:
                           ("kok_direct_listings", "parking", "TEXT"), ("kok_direct_listings", "land_use", "TEXT"),
                           ("kok_listings", "publish_state", "TEXT"), ("kok_listings", "hold_reasons", "TEXT"),
                           ("kok_direct_listings", "publish_state", "TEXT"), ("kok_direct_listings", "hold_reasons", "TEXT"),
-                          ("kok_direct_listings", "mgmt_type", "TEXT")):
+                          ("kok_direct_listings", "mgmt_type", "TEXT"),
+                          ("kok_listings", "admin_hold", "TEXT"), ("kok_direct_listings", "admin_hold", "TEXT")):
         if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
             c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
     c.commit()
@@ -159,13 +160,15 @@ PRESALE = {"ABYG", "OBYG"}
 MGMT_REQUIRED = HOUSING - PRESALE          # 관리비 표시 의무: 주택·준주택(분양권 제외). '관리비 없음'(mgmt_type none)도 표시로 본다
 HOLD_LABEL = {"price": "가격", "rent": "월세", "area": "면적", "floor": "층", "total_floor": "총 층수", "direction": "방향", "rooms": "방 수", "baths": "욕실 수",
               "move_in": "입주 가능일", "mgmt": "관리비", "approve": "사용승인일", "parking": "주차대수", "land_use": "지목", "address": "소재지",
-              "dong": "동(건물 번호)"}
+              "dong": "동(건물 번호)", "report": "신고 확인 중(콕집 운영자 보류)"}
 
 
 def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "converted", n_buildings: int | None = None,
                   cx_facts: dict | None = None) -> list[str]:
     """빠진 필수 항목 코드 목록. 비면 게시 가능. 전환분 아파트는 K-apt 실제 관리비가 있으면 관리비 표시로 본다."""
     miss: list[str] = []
+    if r.get("admin_hold"):   # 허위매물 신고를 운영자가 보류한 매물 — 다시 계산해도 풀리지 않는다(관리자가 '보류 풀기'로만)
+        miss.append("report")
     if not r.get("price"):
         miss.append("price")
     if r.get("trade") == "B2" and not r.get("rent"):

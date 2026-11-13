@@ -6,7 +6,7 @@ import {
   Sparkles, LayoutDashboard, BadgePercent,
   BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, Building2, Database, Bell, Activity, Calculator, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Megaphone, Coins, Settings as SettingsIcon, Gift, MapPin as MapPinIcon, Link2 } from "lucide-react";
+  ChevronDown, Home as HomeIcon, Building2, Database, Bell, Activity, Calculator, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Megaphone, Coins, Settings as SettingsIcon, Gift, MapPin as MapPinIcon, Link2, Flag } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginGoogle, isInAppBrowser, authClient } from "./auth";
@@ -64,6 +64,7 @@ import AdminKpi from "./pages/AdminKpi";
 import AdminEvent from "./pages/AdminEvent";
 import AdminHiddenRealtors from "./pages/AdminHiddenRealtors";
 import AdminKokLogs from "./pages/AdminKokLogs";
+import AdminKokReports from "./pages/AdminKokReports";
 import AcademyLocation from "./pages/AcademyLocation";
 import AdminContractBasis from "./pages/AdminContractBasis";
 import BizWContracts from "./pages/BizWContracts";
@@ -524,6 +525,7 @@ function AppShell() {
         <Route path="/admin/tx-match" element={<RequireAdmin><AdminTxMatch /></RequireAdmin>} />
         <Route path="/admin/hidden-realtors" element={<RequireAdmin><AdminHiddenRealtors /></RequireAdmin>} />
         <Route path="/admin/kok-logs" element={<RequireAdmin><AdminKokLogs /></RequireAdmin>} />
+        <Route path="/admin/kok-reports" element={<RequireAdmin><AdminKokReports /></RequireAdmin>} />
         <Route path="/admin/academy" element={<RequireAdmin><AcademyLocation /></RequireAdmin>} />
         <Route path="/admin/contract-basis" element={<RequireAdmin><AdminContractBasis /></RequireAdmin>} />
         <Route path="/admin/users" element={<RequireAdmin><AdminUsers /></RequireAdmin>} />
@@ -632,6 +634,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/requests", label: "콕집요청", icon: Sparkles },
   { to: "/admin/realtor-requests", label: "중개사 라운지", icon: Building2 },
   { to: "/admin/audit", label: "매물 점검", icon: ShieldCheck },
+  { to: "/admin/kok-reports", label: "허위매물 신고", icon: Flag },
   { to: "/admin/iros", label: "등기변동 확인", icon: ScrollText },
   { to: "/admin/map-ads", label: "지도 광고 관리", icon: Megaphone },
   { to: "/admin/academy", label: "개업 입지·수익", icon: MapPinIcon },

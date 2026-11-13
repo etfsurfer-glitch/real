@@ -12164,6 +12164,9 @@ def lounge_kok_direct_update(lid: int, body: dict, user: dict = Depends(current_
         # 수정 = 등록자가 지금도 유효하다고 다시 확인한 것 → 게시 중이면 30일을 새로 센다
         k.execute("UPDATE kok_direct_listings SET " + ", ".join(f"{c}=?" for c in f) + ", updated_at=datetime('now','+9 hours'), "
                   "expires_at=CASE WHEN status='active' THEN datetime('now','+9 hours',?) ELSE expires_at END WHERE id=?", (*f.values(), f"+{_KOK_DAYS} days", lid))
+        # 신고로 운영자가 보류한 매물은 고쳐도 보류 유지(관리자가 확인 후 풀어 줌)
+        k.execute("UPDATE kok_direct_listings SET publish_state='hold', hold_reasons=json_insert(COALESCE(hold_reasons,'[]'),'$[#]','report') "
+                  "WHERE id=? AND admin_hold IS NOT NULL AND COALESCE(hold_reasons,'') NOT LIKE '%report%'", (lid,))
         k.commit()
         r = k.execute("SELECT * FROM kok_direct_listings WHERE id=?", (lid,)).fetchone()
     return _kok_direct_item(r)
@@ -12736,12 +12739,48 @@ def admin_tx_unmatched_undo(body: TxuApplyBody, _admin: dict = Depends(admin_use
     return {"ok": True, "reverted": n}
 
 
+def _kok_report_target(k, lid: str) -> dict:
+    """신고 대상 매물 요약 — 관리자 화면용(이름·종류·거래·가격·사무소·게시 상태·보류 여부)."""
+    try:
+        if lid[0] == "R":
+            r = k.execute("SELECT complex_name AS name, complex_no, realtor_id, trade, price, rent, status, publish_state, admin_hold, '' AS addr, "
+                          "dong, floor FROM kok_listings WHERE article_no=?", (lid[1:],)).fetchone()
+            src = "광고 연동"
+        elif lid[0] == "D":
+            r = k.execute("SELECT COALESCE(complex_name, address) AS name, complex_no, realtor_id, trade, price, rent, status, publish_state, admin_hold, "
+                          "address AS addr, dong, floor FROM kok_direct_listings WHERE id=?", (int(lid[1:]),)).fetchone()
+            src = "콕집 전용"
+        else:
+            r = k.execute("SELECT complex_name AS name, complex_no, NULL AS realtor_id, trade, price, rent, status, 'live' AS publish_state, "
+                          "CASE WHEN status='blocked' THEN 'blocked' END AS admin_hold, '' AS addr, dong, floor FROM kok_owner_listings WHERE id=?", (int(lid[1:]),)).fetchone()
+            src = "직거래"
+    except (ValueError, sqlite3.Error):
+        r = None
+    if not r:
+        return {"found": False}
+    office = (_office_brief(r["realtor_id"]) or {}) if r["realtor_id"] else {}
+    return {"found": True, "src": src, "name": r["name"] or "", "complex_no": r["complex_no"] or "", "realtor_id": r["realtor_id"] or "",
+            "office": office.get("realtor_name") or office.get("name") or "", "trade": r["trade"], "price_text": _kok_price_text(r["trade"], r["price"] or 0, r["rent"] or 0),
+            "status": r["status"], "publish_state": r["publish_state"] or "live", "held": bool(r["admin_hold"]),
+            "dong": r["dong"] or "", "floor": r["floor"], "addr": r["addr"] or ""}
+
+
 @app.get("/admin/kok/reports")
 def admin_kok_reports(status: str = "open", _admin: dict = Depends(admin_user)):
+    """허위매물 신고 목록 — 매물별로 묶어(같은 매물 여러 신고) 대상 매물 요약을 붙인다."""
     with _kok_db() as k:
         rows = [dict(r) | {"reason_label": _KOK_REPORT_REASONS.get(r["reason"], r["reason"])} for r in k.execute(
-            "SELECT id, lid, reason, detail, user_id, status, created_at FROM kok_reports WHERE (?='all' OR status=?) ORDER BY id DESC LIMIT 500", (status, status))]
-    return {"items": rows}
+            "SELECT id, lid, reason, detail, user_id IS NOT NULL AS member, status, created_at FROM kok_reports WHERE (?='all' OR status=?) ORDER BY id DESC LIMIT 500",
+            (status, status))]
+        groups: dict = {}
+        for r in rows:
+            g = groups.setdefault(r["lid"], {"lid": r["lid"], "reports": [], "last_at": r["created_at"]})
+            g["reports"].append(r)
+        for g in groups.values():
+            g["target"] = _kok_report_target(k, g["lid"])
+            g["n_total"] = k.execute("SELECT COUNT(*) FROM kok_reports WHERE lid=?", (g["lid"],)).fetchone()[0]
+        cnt = dict(k.execute("SELECT status, COUNT(*) FROM kok_reports GROUP BY status").fetchall())
+    return {"items": rows, "groups": sorted(groups.values(), key=lambda g: g["last_at"], reverse=True), "counts": cnt}
 
 
 @app.post("/admin/kok/reports/{rid_}/status")
@@ -12753,6 +12792,36 @@ def admin_kok_report_status(rid_: int, body: dict, _admin: dict = Depends(admin_
         k.execute("UPDATE kok_reports SET status=? WHERE id=?", (st, rid_))
         k.commit()
     return {"ok": True}
+
+
+@app.post("/admin/kok/listing/{lid}/hold")
+def admin_kok_listing_hold(lid: str, body: dict, _admin: dict = Depends(admin_user)):
+    """신고 처리 — 매물 보류(hold: 소비자 화면에서 내림, 등록자 라운지에 '신고 확인 중') / 보류 풀기(release: 규칙대로 다시 계산).
+    중개사에게 따로 연락하지 않는다(시험 중). 처리하면 그 매물의 미처리 신고는 함께 '처리함'(보류) 또는 그대로(풀기)."""
+    act = body.get("action")
+    if act not in ("hold", "release") or not _re.match(r"^[RDK]\d{1,12}$", lid):
+        raise HTTPException(400, "action")
+    from scripts.kok_sync import recompute_publish, recompute_direct
+    with _kok_db() as k:
+        if lid[0] == "K":
+            k.execute("UPDATE kok_owner_listings SET status=?, updated_at=datetime('now','+9 hours') WHERE id=?",
+                      ("blocked" if act == "hold" else "active", int(lid[1:])))
+        else:
+            tbl, key, val = ("kok_listings", "article_no", lid[1:]) if lid[0] == "R" else ("kok_direct_listings", "id", int(lid[1:]))
+            row = k.execute(f"SELECT realtor_id FROM {tbl} WHERE {key}=?", (val,)).fetchone()
+            if not row:
+                raise HTTPException(404, "매물이 없어요")
+            k.execute(f"UPDATE {tbl} SET admin_hold=? WHERE {key}=?",
+                      (time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() + 9 * 3600)) if act == "hold" else None, val))
+            k.commit()
+            with _open_db() as d:
+                (recompute_publish if lid[0] == "R" else recompute_direct)(k, d, row["realtor_id"])
+        if act == "hold":
+            k.execute("UPDATE kok_reports SET status='done' WHERE lid=? AND status='open'", (lid,))
+        k.commit()
+        tgt = _kok_report_target(k, lid)
+    _log_event("kok_report_hold", query=f"{lid} {act}")
+    return {"ok": True, "target": tgt}
 
 
 # ── 관리자 ──
