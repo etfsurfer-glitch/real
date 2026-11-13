@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import FetchError from "../components/FetchError";
 import { areaLabel } from "../lib/area";
+import { dirLabel } from "../lib/direction";
 import { MapPin, Phone, Smartphone, MessageSquare, Search, X } from "lucide-react";
 import { Loading } from "../components/Loading";
 import { RealtorReviews, type ReviewSummary } from "../components/RealtorReviews";
@@ -502,7 +503,7 @@ function RealtorListings({ realtorId, breakdown }: { realtorId: string; breakdow
                   {l.address && <div className="rl-lc-addr"><MapPin size={11} aria-hidden /> {l.address}</div>}
                   <div className="rl-lc-meta">
                     {[l.area2_m2 ? areaLabel(l.area2_m2) : "", l.floor_info ? `${l.floor_info}층` : "",
-                      l.direction, l.confirm_ymd ? `확인 ${rlFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ")}
+                      dirLabel(l.direction, l.type), l.confirm_ymd ? `확인 ${rlFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ")}
                   </div>
                 </a>
               ))}

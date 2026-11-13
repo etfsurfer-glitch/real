@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadKakao, wonShort, geocodeRegion } from "../src/lib/kakaomap";
 import { areaLabel } from "../src/lib/area";
+import { dirLabel } from "../src/lib/direction";
 import { ComplexDrawer, JibunDrawer, Skel, Dd, SPECIAL_KINDS, type DrawerTab, type Jibun } from "./Drawer";
 import { useSession, authHeaders, LoginBox, MeModal, logout, sessionName, siteUrl } from "./Request";
 import { StatsWindow, statsKeyOf, type StatsKey } from "./Stats";
@@ -896,7 +897,7 @@ function NrListModal({ g, trade, onClose }: { g: NrGroup; trade: Trade; onClose:
           <tbody>
             {g.items.map((it) => (
               <tr key={it.article_no}>
-                <td>{it.type}</td><td>{it.area2_m2 ? areaLabel(it.area2_m2) : it.area1_m2 ? `${Math.round(it.area1_m2)}㎡` : "-"}</td><td>{it.floor_info ? `${it.floor_info}층` : ""}</td><td>{it.direction}</td>
+                <td>{it.type}</td><td>{it.area2_m2 ? areaLabel(it.area2_m2) : it.area1_m2 ? `${Math.round(it.area1_m2)}㎡` : "-"}</td><td>{it.floor_info ? `${it.floor_info}층` : ""}</td><td>{dirLabel(it.direction, it.type)}</td>
                 <td className="num"><b>{it.price_text}</b></td><td className="mut">{it.realtor_name}</td><td className="mut">{it.confirm_ymd ? it.confirm_ymd.slice(4, 6) + "." + it.confirm_ymd.slice(6, 8) : ""}</td>
                 <td><a className="t2-nbtn" href={`https://m.land.naver.com/article/info/${it.article_no}`} target="_blank" rel="noreferrer" title="원본 매물">N</a></td>
               </tr>

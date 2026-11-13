@@ -5,6 +5,7 @@ import { Loading } from "../components/Loading";
 import { useAuth } from "../auth";
 import { openListingPopup } from "../lib/listingPopup";
 import { areaLabel } from "../lib/area";
+import { dirLabel } from "../lib/direction";
 import { loadKakao, geocodeRegion, attachMapControls } from "../lib/kakaomap";
 
 // 거래유형 → 네이버 코드. 매물 클릭 시 네이버 단지 매물을 작은 팝업창으로.
@@ -237,7 +238,7 @@ function ListingsSection({ listings }: { listings: Listing[] }) {
             ? `${l.price_text || won(l.price)}/${l.rent_price_text}`
             : (l.price_text || won(l.price));
           const meta = [l.excl_use_ar ? areaLabel(l.excl_use_ar) : "", l.floor_info ? `${l.floor_info}층` : "",
-            l.direction, l.confirm_ymd ? `확인 ${rhFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ");
+            dirLabel(l.direction, l.type), l.confirm_ymd ? `확인 ${rhFmtYmd(l.confirm_ymd)}` : ""].filter(Boolean).join(" · ");
           return (
             <a key={l.article_no || i} className="rl-lcard" href={url || "#"} target="_blank" rel="noreferrer"
               onClick={(e) => { e.preventDefault(); if (url) openListingPopup(url); }}>

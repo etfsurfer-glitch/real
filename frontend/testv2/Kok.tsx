@@ -6,6 +6,7 @@ import { API, getJson, Dd, Skel } from "./Drawer";
 import { Seg } from "./Stats";
 import { LoginBox, PhoneBlock, authHeaders } from "./Request";
 import { areaLabel } from "../src/lib/area";
+import { dirLabel } from "../src/lib/direction";
 
 export type KokItem = { id: string; kind: "owner" | "realtor"; complex_no: string; name: string; lat?: number; lng?: number; trade: string;
   price: number; rent: number; price_text: string; area_name: string; excl_m2: number | null; floor_text: string; direction: string;
@@ -448,7 +449,7 @@ export function KokListingPane({ it, onClose, onRealtor, asModal }: { it: KokIte
           <table className="t2-tbl t2-kl-tbl"><tbody>
             <tr><th>면적</th><td>{d.excl_m2 ? areaLabel(d.excl_m2) : d.area_name}{d.supply_m2 ? ` · 공급 ${Math.round(d.supply_m2)}㎡` : ""}{d.area_name ? ` · ${d.area_name}타입` : ""}{d.exclusive_rate ? ` · 전용률 ${d.exclusive_rate}%` : ""}</td></tr>
             <tr><th>층 · 방향</th><td>{[d.floor_text ? `${d.floor_text}${d.total_floor ? ` / 총 ${d.total_floor}층` : ""}` : (d.total_floor ? `총 ${d.total_floor}층` : ""),
-              d.direction ? `${d.direction}${d.direction_base ? ` · ${d.direction_base}${/기준$/.test(d.direction_base) ? "" : " 기준"}` : ""}` : ""].filter(Boolean).join(" · ") || "-"}</td></tr>
+              d.direction ? (d.direction_base ? `${d.direction} · ${d.direction_base}${/기준$/.test(d.direction_base) ? "" : " 기준"}` : dirLabel(d.direction, d.ptype_name)) : ""].filter(Boolean).join(" · ") || "-"}</td></tr>
             <tr><th>방 · 욕실</th><td>{d.rooms || d.baths ? `방 ${d.rooms ?? "-"} · 욕실 ${d.baths ?? "-"}` : "-"}</td></tr>
             <tr><th>입주</th><td>{d.move_in || "-"}</td></tr>
             {/* 관리비 — 표시 의무 항목이라 줄은 항상 둔다. 분양권은 준공 전이라 해당 없음 */}

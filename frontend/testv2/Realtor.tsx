@@ -5,6 +5,7 @@ import { Stars, getJson, API } from "./Drawer";
 import { Seg } from "./Stats";
 import { LoginBox, authHeaders } from "./Request";
 import { areaLabel } from "../src/lib/area";
+import { dirLabel } from "../src/lib/direction";
 
 type Detail = {
   realtor_id: string; realtor_name: string | null; total_count: number;
@@ -143,7 +144,7 @@ export function RealtorWindow({ id, onClose, phone, session, onGo, onMe }: {
                         <tr key={l.article_no} className={l.complex_no ? "pick" : ""} onClick={() => { if (l.complex_no) onGo(l.complex_no, l.complex_name || ""); else window.open(l.naver_url, "_blank", "noreferrer"); }}>
                           <td><b className={`t2-trd ${l.trade_type}`}>{l.trade_type}</b></td><td className="mut">{l.type}</td>
                           <td><b>{l.complex_name || l.building_name || l.area_name || "매물"}</b>{l.address && <small className="blk">{l.address}</small>}</td>
-                          <td>{l.area2_m2 ? areaLabel(l.area2_m2) : ""}</td><td>{l.floor_info ? `${l.floor_info}층` : ""}</td><td>{l.direction || ""}</td>
+                          <td>{l.area2_m2 ? areaLabel(l.area2_m2) : ""}</td><td>{l.floor_info ? `${l.floor_info}층` : ""}</td><td>{dirLabel(l.direction, l.type)}</td>
                           <td className="num"><b>{l.trade_type === "월세" && l.rent_price_text ? `${l.price_text}/${l.rent_price_text}` : l.price_text}</b></td><td className="mut">{ymd(l.confirm_ymd)}</td>
                         </tr>
                       ))}
