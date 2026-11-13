@@ -107,7 +107,8 @@ def kok_db() -> sqlite3.Connection:
                           ("kok_direct_listings", "direction_base", "TEXT"), ("kok_direct_listings", "mgmt_items", "TEXT"), ("kok_direct_listings", "approve_ymd", "TEXT"),
                           ("kok_direct_listings", "parking", "TEXT"), ("kok_direct_listings", "land_use", "TEXT"),
                           ("kok_listings", "publish_state", "TEXT"), ("kok_listings", "hold_reasons", "TEXT"),
-                          ("kok_direct_listings", "publish_state", "TEXT"), ("kok_direct_listings", "hold_reasons", "TEXT")):
+                          ("kok_direct_listings", "publish_state", "TEXT"), ("kok_direct_listings", "hold_reasons", "TEXT"),
+                          ("kok_direct_listings", "mgmt_type", "TEXT")):
         if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
             c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
     c.commit()
@@ -148,10 +149,14 @@ def _int_or_none(v) -> int | None:
 # ── 게시 게이트: 표시·광고 필수 항목이 비면 공개 화면에 내보내지 않는다(게시 전) ─────────
 COMPLEX_PTYPES = {"APT", "OPST", "ABYG", "OBYG", "JGC"}
 HOUSING = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "DDDGG", "OR"}
-FLOORED = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"}
+FLOORED = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG", "APTHGJ"}
+# 그 밖의 건축물(상가·사무실·건물·공장·지식산업센터): 방향은 주출입구 기준으로 필수, 관리비는 표시하지 않아도 된다,
+# 층은 정확한 층(고·중·저는 주택에서 의뢰인이 요청할 때만). 법 기준 정리: design/kok_listings/비단지_전환_계획.md 1절.
+NONRES = {"SG", "SMS", "GM", "GJCG", "APTHGJ"}
 # 분양권(아파트·오피스텔): 준공 전이라 관리비·사용승인일은 아직 없다(해당 없음). 층·방향·방·욕실·입주 예정은 표시 대상.
 # 2026-11-12 이전엔 OBYG 가 위 집합에 없어 검사 없이 공개됐고, ABYG 는 관리비 없음으로 전부 보류됐다.
 PRESALE = {"ABYG", "OBYG"}
+MGMT_REQUIRED = HOUSING - PRESALE          # 관리비 표시 의무: 주택·준주택(분양권 제외). '관리비 없음'(mgmt_type none)도 표시로 본다
 HOLD_LABEL = {"price": "가격", "rent": "월세", "area": "면적", "floor": "층", "total_floor": "총 층수", "direction": "방향", "rooms": "방 수", "baths": "욕실 수",
               "move_in": "입주 가능일", "mgmt": "관리비", "approve": "사용승인일", "parking": "주차대수", "land_use": "지목", "address": "소재지",
               "dong": "동(건물 번호)"}
@@ -173,11 +178,12 @@ def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "
         return miss
     if not r.get("excl_m2"):
         miss.append("area")
-    if ptype in FLOORED and ptype not in ("GM", "GJCG") and not r.get("floor") and str(r.get("floor_label") or "") not in ("고", "중", "저"):
+    if (ptype in FLOORED and ptype not in ("GM", "GJCG") and not r.get("floor")
+            and not (ptype in HOUSING and str(r.get("floor_label") or "") in ("고", "중", "저"))):
         miss.append("floor")
     if ptype in FLOORED and not r.get("total_floor"):
         miss.append("total_floor")
-    if ptype in HOUSING and not r.get("direction"):
+    if (ptype in HOUSING or ptype in NONRES) and not r.get("direction"):
         miss.append("direction")
     if ptype in HOUSING and not r.get("rooms"):
         miss.append("rooms")
@@ -185,8 +191,8 @@ def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "
         miss.append("baths")
     if not r.get("move_in"):
         miss.append("move_in")
-    if (ptype in FLOORED and ptype not in ("GM", "GJCG") and ptype not in PRESALE
-            and not r.get("mgmt_fee") and not (ptype == "APT" and kapt_ok)):
+    if (ptype in MGMT_REQUIRED and not r.get("mgmt_fee") and str(r.get("mgmt_type") or "") != "none"
+            and not (ptype == "APT" and kapt_ok)):
         miss.append("mgmt")
     # 공동주택·준주택 소재지 = 지번 + 동 + 층. 동이 둘 이상인 단지에서 동 번호가 비면 소재지를 특정할 수 없다.
     if ptype in COMPLEX_PTYPES and (n_buildings or 0) > 1 and not str(r.get("dong") or "").strip():
@@ -241,6 +247,33 @@ def recompute_publish(k: sqlite3.Connection, d: sqlite3.Connection, realtor_id: 
         st = "hold" if miss else "live"
         live += st == "live"; hold += st == "hold"
         k.execute("UPDATE kok_listings SET publish_state=?, hold_reasons=? WHERE article_no=?", (st, json.dumps(miss) if miss else None, r["article_no"]))
+    k.commit()
+    return live, hold
+
+
+def recompute_direct(k: sqlite3.Connection, d: sqlite3.Connection, realtor_id: str | None = None) -> tuple[int, int]:
+    """콕집 전용 등록(active)의 게시 상태를 지금 기준으로 다시 계산 → (live, hold). 규칙이 바뀌었을 때 한 번 돌린다."""
+    q = "SELECT * FROM kok_direct_listings WHERE status='active'" + (" AND realtor_id=?" if realtor_id else "")
+    rows = k.execute(q, (realtor_id,) if realtor_id else ()).fetchall()
+    cxs = {r["complex_no"] for r in rows if r["complex_no"]}
+    nb: dict = {}
+    facts: dict = {}
+    if cxs:
+        ph = ",".join("?" * len(cxs))
+        for x in d.execute(f"SELECT complex_no, total_building_count, use_approve_ymd, parking_possible_count, parking_per_household "
+                           f"FROM complexes WHERE complex_no IN ({ph})", list(cxs)):
+            nb[x[0]] = x[1]
+            facts[x[0]] = {"approve": x[2], "parking_total": x[3], "parking_per": x[4]}
+    live = hold = 0
+    for r in rows:
+        pt = r["ptype"]
+        if pt in COMPLEX_PTYPES:
+            miss = publish_check(dict(r), pt, source="direct", n_buildings=nb.get(r["complex_no"]), cx_facts=facts.get(r["complex_no"], {}))
+        else:
+            miss = publish_check(dict(r), pt, source="direct")
+        st = "hold" if miss else "live"
+        live += st == "live"; hold += st == "hold"
+        k.execute("UPDATE kok_direct_listings SET publish_state=?, hold_reasons=? WHERE id=?", (st, json.dumps(miss) if miss else None, r["id"]))
     k.commit()
     return live, hold
 
@@ -371,9 +404,17 @@ def main() -> int:
     ap.add_argument("--realtor", help="한 사무소만")
     ap.add_argument("--migrate", action="store_true")
     ap.add_argument("--no-details", action="store_true")
+    ap.add_argument("--recompute", action="store_true", help="동기화 없이 게시 상태만 다시 계산(규칙을 바꾼 뒤)")
     a = ap.parse_args()
     if a.migrate:
         migrate()
+    if a.recompute:
+        k, d = kok_db(), main_db()
+        before = {t: dict(k.execute(f"SELECT COALESCE(publish_state,'live'), COUNT(*) FROM {t} WHERE status='active' GROUP BY 1").fetchall())
+                  for t in ("kok_listings", "kok_direct_listings")}
+        conv, direct = recompute_publish(k, d), recompute_direct(k, d)
+        print("recompute", json.dumps({"before": before, "converted(live,hold)": conv, "direct(live,hold)": direct}, ensure_ascii=False))
+        return 0
     res = sync(a.realtor, fetch_details=not a.no_details)
     print("kok_sync", json.dumps(res, ensure_ascii=False))
     return 0

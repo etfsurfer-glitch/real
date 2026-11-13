@@ -11570,7 +11570,7 @@ def kok_mgmt(complex_no: str, supply: float | None = None, excl: float | None = 
 
 # 02 = 정액이지만 비목 내역이 없는 광고. 비목은 의뢰인(임대인)이 내역을 줄 때만 표시 의무가 있고, 우리는 내역을 받았는지
 #      알 수 없어 '의뢰인 미제공' 예외로 본다(게시 보류·위반 아님 — 사용자 결정 2026-11-12).
-_KOK_MGMT_TYPE = {"01": "정액", "02": "정액 · 비목 내역 미제공", "03": "그 밖의 방식", "04": "금액 확인 불가"}
+_KOK_MGMT_TYPE = {"none": "관리비 없음", "01": "정액", "02": "정액 · 비목 내역 미제공", "03": "그 밖의 방식", "04": "금액 확인 불가"}
 
 
 def _kok_mgmt_declared(r) -> dict | None:
@@ -11903,10 +11903,11 @@ def kok_owner_extras(lid: int, body: dict, user: dict = Depends(current_user)):
 
 # ── 중개사: 콕집에만 올리는 매물(광고와 무관) + 전체 관리 + 점검 ──
 _KOK_PTYPES = {"APT": "아파트", "OPST": "오피스텔", "ABYG": "아파트분양권", "OBYG": "오피스텔분양권", "JGC": "재개발·재건축", "VL": "빌라·연립", "DDDGG": "단독·다가구",
-               "OR": "원룸", "SG": "상가", "SMS": "사무실", "GM": "건물", "GJCG": "공장·창고", "TJ": "토지", "ETC": "기타"}
+               "OR": "원룸", "SG": "상가", "SMS": "사무실", "APTHGJ": "지식산업센터", "GM": "건물", "GJCG": "공장·창고", "TJ": "토지", "ETC": "기타"}
 _KOK_COMPLEX_PTYPES = {"APT", "OPST", "ABYG", "OBYG", "JGC"}             # 단지(complex_no) 기준
 _KOK_HOUSING = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "DDDGG", "OR"}   # 주거 — 방향·입주일·취득세 산식 적용
-_KOK_FLOORED = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"}   # 층 표시 대상
+_KOK_FLOORED = {"APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG", "APTHGJ"}   # 층 표시 대상
+_KOK_NONRES = {"SG", "SMS", "GM", "GJCG", "APTHGJ"}                      # 그 밖의 건축물 — 방향은 주출입구 기준, 관리비 선택, 층은 정확한 층
 _KOK_PRESALE = {"ABYG", "OBYG"}                                          # 분양권 — 준공 전: 관리비·사용승인일 해당 없음
 
 
@@ -11933,9 +11934,10 @@ def _kok_direct_item(r) -> dict:
 def _kok_mgmt_declared_direct(r) -> dict | None:
     fee = r["mgmt_fee"]
     items = _kok_loads(r["mgmt_items"], []) if "mgmt_items" in r.keys() else []
-    if not fee and not items:
+    typ = (r["mgmt_type"] or "") if "mgmt_type" in r.keys() else ""
+    if not fee and not items and typ != "none":
         return None
-    return {"fee": fee, "type": "", "type_label": "", "items": [{"name": x.get("name"), "amount": x.get("amount")} for x in items if isinstance(x, dict)]}
+    return {"fee": fee, "type": typ, "type_label": _KOK_MGMT_TYPE.get(typ, ""), "items": [{"name": x.get("name"), "amount": x.get("amount")} for x in items if isinstance(x, dict)]}
 
 
 # 콕집에서 직접 올린 매물(전용·직거래)은 30일 게시 후 자동 만료. 데이터는 지우지 않고 '다시 올리기' 한 번이면 30일 다시 게시.
@@ -11986,7 +11988,9 @@ _KOK_FIELD_LABEL = {"complex_no": "단지", "address": "소재지", "excl_m2": "
 
 
 def _kok_required(pt: str) -> set[str]:
-    """종류별 표시·광고 필수 항목(공인중개사법 18조의2 ② + 세부기준 고시). 단지형의 사용승인·주차는 단지 자료로 채워진다."""
+    """종류별 표시·광고 필수 항목(공인중개사법 18조의2 ② + 세부기준 고시). 단지형의 사용승인·주차는 단지 자료로 채워진다.
+    그 밖의 건축물(상가·사무실·지산·건물·공장)은 방향을 주출입구 기준으로 받고(기준은 서버가 채움) 관리비는 선택.
+    관리비 의무 유형은 '관리비 없음'을 고르면 채운 것으로 본다(mgmt_type none)."""
     if pt in _KOK_PRESALE:
         return {"complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in"}
     if pt in _KOK_COMPLEX_PTYPES:
@@ -11994,11 +11998,11 @@ def _kok_required(pt: str) -> set[str]:
     if pt in ("VL", "OR"):
         return {"address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee", "approve_ymd", "parking"}
     if pt == "DDDGG":
-        return {"address", "excl_m2", "land_m2", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "approve_ymd", "parking"}
-    if pt in ("SG", "SMS"):
-        return {"address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "move_in", "mgmt_fee", "approve_ymd", "parking"}
+        return {"address", "excl_m2", "land_m2", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee", "approve_ymd", "parking"}
+    if pt in ("SG", "SMS", "APTHGJ"):
+        return {"address", "excl_m2", "floor", "total_floor", "direction", "move_in", "approve_ymd", "parking"}
     if pt in ("GM", "GJCG"):
-        return {"address", "excl_m2", "land_m2", "total_floor", "move_in", "approve_ymd", "parking"}
+        return {"address", "excl_m2", "land_m2", "total_floor", "direction", "move_in", "approve_ymd", "parking"}
     if pt == "TJ":
         return {"address", "land_m2", "land_use"}
     return {"address"}
@@ -12057,7 +12061,7 @@ def _kok_direct_fields(body: dict, d) -> dict:
          "direction_base": str(body.get("direction_base") or "")[:10] or None,
          "approve_ymd": _re.sub(r"[^0-9]", "", str(body.get("approve_ymd") or ""))[:8] or None,
          "parking": str(body.get("parking") or "").strip()[:30] or None, "land_use": str(body.get("land_use") or "").strip()[:10] or None,
-         "mgmt_items": None,
+         "mgmt_items": None, "mgmt_type": "none" if body.get("mgmt_none") else None,
          "photos": _authjson.dumps(_kok_photo_names(body.get("photos"))), "description": str(body.get("description") or "").strip()[:1000],
          "keywords": _authjson.dumps(_kok_keywords(body.get("keywords")), ensure_ascii=False)}
     items = []
@@ -12070,6 +12074,10 @@ def _kok_direct_fields(body: dict, d) -> dict:
             items.append({"name": str(x["name"]).strip()[:12], "amount": amt})
     if items:
         f["mgmt_items"] = _authjson.dumps(items, ensure_ascii=False)
+    if f["mgmt_type"] == "none":
+        f["mgmt_fee"], f["mgmt_items"] = None, None
+    if pt in _KOK_NONRES:   # 그 밖의 건축물 방향 기준은 주출입구로 정해져 있다
+        f["direction_base"] = "주출입구" if f["direction"] else None
     if f["approve_ymd"] and len(f["approve_ymd"]) not in (6, 8):
         raise HTTPException(422, "사용승인일은 2015.08 또는 2015.08.21 꼴로 적어 주세요")
     if pt in _KOK_COMPLEX_PTYPES:
@@ -12098,7 +12106,7 @@ def _kok_direct_fields(body: dict, d) -> dict:
                 f["lat"], f["lng"] = g
     if f["excl_m2"] and f["supply_m2"] and f["excl_m2"] > f["supply_m2"]:
         raise HTTPException(422, "전용면적이 공급면적보다 클 수 없어요")
-    missing = [k for k in _kok_required(pt) if not f.get(k)]
+    missing = [k for k in _kok_required(pt) if not f.get(k) and not (k == "mgmt_fee" and f["mgmt_type"] == "none")]
     if trade == "B2" and not f["rent"]:
         missing.append("rent")
     if missing:
@@ -12252,7 +12260,8 @@ def _kok_audit_rows(rid: str) -> tuple[list[dict], dict]:
                      "complex_no": r["complex_no"], "address": "", "trade": r["trade"], "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
                      "excl": r["excl_m2"], "supply": r["supply_m2"], "land": None, "floor": r["floor"], "direction": r["direction"] or "", "move_in": r["move_in"] or "",
                      "direction_base": (r["direction_base"] or "") if "direction_base" in r.keys() else "",
-                     "mgmt": r["mgmt_fee"] if "mgmt_fee" in r.keys() else None, "rooms": r["rooms"], "baths": r["baths"], "photos": len(_kok_loads(r["e_photos"], [])), "desc": bool(r["e_description"]),
+                     "mgmt": r["mgmt_fee"] if "mgmt_fee" in r.keys() else None, "mgmt_type": (r["mgmt_type"] or "") if "mgmt_type" in r.keys() else "",
+                     "rooms": r["rooms"], "baths": r["baths"], "photos": len(_kok_loads(r["e_photos"], [])), "desc": bool(r["e_description"]),
                      "kw": len(_kok_loads(r["e_keywords"], [])), "since": r["kok_since"] or "", "area_name": r["area_name"] or "",
                      "floor_label": r["floor_label"] if "floor_label" in r.keys() else None,
                      "hold": _kok_hold_labels(r["hold_reasons"]) if "hold_reasons" in r.keys() and (r["publish_state"] or "") == "hold" else []})
@@ -12260,7 +12269,8 @@ def _kok_audit_rows(rid: str) -> tuple[list[dict], dict]:
         rows.append({"id": f"D{r['id']}", "source": "direct", "exp": r["expires_at"] or "", "ptype": r["ptype"], "name": r["complex_name"] or r["address"] or "", "dong": r["dong"] or "",
                      "complex_no": r["complex_no"] or "", "address": r["address"] or "", "trade": r["trade"], "price": r["price"], "rent": r["rent"], "price_text": _kok_price_text(r["trade"], r["price"], r["rent"]),
                      "excl": r["excl_m2"], "supply": r["supply_m2"], "land": r["land_m2"], "floor": r["floor"], "direction": r["direction"] or "", "move_in": r["move_in"] or "",
-                     "mgmt": r["mgmt_fee"], "rooms": r["rooms"], "baths": r["baths"], "photos": len(_kok_loads(r["photos"], [])), "desc": bool(r["description"]),
+                     "mgmt": r["mgmt_fee"], "mgmt_type": (r["mgmt_type"] or "") if "mgmt_type" in r.keys() else "",
+                     "rooms": r["rooms"], "baths": r["baths"], "photos": len(_kok_loads(r["photos"], [])), "desc": bool(r["description"]),
                      "kw": len(_kok_loads(r["keywords"], [])), "since": (r["created_at"] or "")[:10], "area_name": r["area_name"] or "",
                      "approve": (r["approve_ymd"] or "") if "approve_ymd" in r.keys() else "", "parking": (r["parking"] or "") if "parking" in r.keys() else "",
                      "land_use": (r["land_use"] or "") if "land_use" in r.keys() else "", "mgmt_items": bool(r["mgmt_items"]) if "mgmt_items" in r.keys() else False,
@@ -12324,16 +12334,18 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
                     iss.append({"code": "area", "level": "fail", "msg": "토지 면적이 없어요"})
             elif not r["excl"]:
                 iss.append({"code": "area", "level": "fail", "msg": "전용면적이 없어요"})
-            if pt in _KOK_FLOORED and not r["floor"]:
-                if r.get("floor_label") in ("고", "중", "저"):
+            if pt in _KOK_FLOORED and pt not in ("GM", "GJCG") and not r["floor"]:
+                if r.get("floor_label") in ("고", "중", "저") and pt in _KOK_NONRES:
+                    iss.append({"code": "floor", "level": "warn", "msg": f"층을 '{r['floor_label']}층'으로만 표시 — 상가·사무실 등은 정확한 층을 밝혀야 해요(고·중·저는 주택만)"})
+                elif r.get("floor_label") in ("고", "중", "저"):
                     iss.append({"code": "floor_vague", "level": "info", "msg": f"층을 '{r['floor_label']}층'으로만 표시 — 매매는 해당 층을 밝히는 게 원칙, 임대차는 임대인 요청 시 고·중·저 가능"})
                 else:
                     iss.append({"code": "floor", "level": "warn", "msg": "층이 없어요 — 표시·광고 의무 항목"})
-            if pt in _KOK_HOUSING and not r["direction"]:
-                iss.append({"code": "direction", "level": "warn", "msg": "방향이 없어요 — 표시·광고 의무 항목"})
+            if (pt in _KOK_HOUSING or pt in _KOK_NONRES) and not r["direction"]:
+                iss.append({"code": "direction", "level": "warn", "msg": "방향이 없어요 — 표시·광고 의무 항목" + ("(주출입구 기준)" if pt in _KOK_NONRES else "")})
             if pt in _KOK_HOUSING and not r["move_in"]:
                 iss.append({"code": "move_in", "level": "warn", "msg": "입주 가능일이 없어요 — 표시·광고 의무 항목"})
-            if pt in _KOK_FLOORED and pt not in _KOK_PRESALE and r["mgmt"] is None:
+            if pt in _KOK_HOUSING and pt not in _KOK_PRESALE and r["mgmt"] is None and r.get("mgmt_type") != "none":
                 if r["source"] == "converted" and pt == "APT":
                     iss.append({"code": "mgmt_soft", "level": "info", "msg": "중개사 표시 관리비가 없어요 — 공개자료(K-apt) 실제 관리비로 보이고 있어요"})
                 else:
@@ -12348,7 +12360,7 @@ def lounge_kok_audit(user: dict = Depends(current_user)):
                     iss.append({"code": "land_use", "level": "fail", "msg": "토지는 지목을 표시해야 해요"})
                 if pt in ("VL", "OR", "SG", "SMS") and (r["mgmt"] or 0) >= 100000 and not r.get("mgmt_items"):
                     iss.append({"code": "mgmt_items", "level": "info", "msg": "관리비 10만원 이상 — 의뢰인이 비목 내역을 줬다면 비목별 금액도 적어 주세요"})
-            if pt in _KOK_HOUSING | {"SG", "SMS"} and r["direction"] and not r.get("direction_base"):
+            if pt in _KOK_HOUSING and r["direction"] and not r.get("direction_base"):
                 iss.append({"code": "direction_base", "level": "info", "msg": "방향의 기준(거실·안방·주출입구)이 없어요"})
             if r["complex_no"] and r["excl"] and areas.get(r["complex_no"]) and not any(abs(a - float(r["excl"])) <= 1.5 for a in areas[r["complex_no"]]):
                 iss.append({"code": "area_mismatch", "level": "warn", "msg": f"전용 {float(r['excl']):.1f}㎡가 이 단지 평형표와 맞지 않아요"})

@@ -13,8 +13,11 @@ const API = import.meta.env.VITE_API_BASE;
 const TRADE_L: Record<string, string> = { A1: "매매", B1: "전세", B2: "월세" };
 const DIRS = ["남향", "남동향", "남서향", "동향", "서향", "북향", "북동향", "북서향"];
 const COMPLEX_TYPES = new Set(["APT", "OPST", "ABYG", "OBYG", "JGC"]);
-const FLOORED = new Set(["APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG"]);
+const FLOORED = new Set(["APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "OR", "SG", "SMS", "GM", "GJCG", "APTHGJ"]);
 const HOUSING = new Set(["APT", "OPST", "ABYG", "OBYG", "JGC", "VL", "DDDGG", "OR"]);
+// 그 밖의 건축물 — 방향은 주출입구 기준(기준은 정해져 있어 따로 묻지 않음), 관리비는 선택
+const NONRES = new Set(["SG", "SMS", "GM", "GJCG", "APTHGJ"]);
+const MGMT_REQ = new Set(["APT", "OPST", "JGC", "VL", "OR", "DDDGG"]);
 type TabKey = "convert" | "direct" | "manage" | "audit";
 
 type Overview = { opted: boolean; agreed_at: string | null; needs_reagree: boolean; converted: { active: number; closed: number; sold?: number; hold: number; with_extras: number };
@@ -22,7 +25,7 @@ type Overview = { opted: boolean; agreed_at: string | null; needs_reagree: boole
 export type DirectItem = { id: string; source: "direct"; ptype: string; ptype_name: string; complex_no: string; name: string; address: string; trade: string; price: number | null; rent: number | null;
   price_text: string; area_name: string; supply_m2: number | null; excl_m2: number | null; land_m2: number | null; floor: number | null; total_floor: number | null; floor_text: string;
   direction: string; direction_base?: string; dong: string; move_in: string; mgmt_fee: number | null; rooms: string | null; baths: string | null; kok_since: string; status: string; photos: string[]; keywords: string[]; description: string;
-  approve_ymd?: string; parking?: string; land_use?: string; mgmt_declared?: { fee: number | null; items: { name: string; amount: number | null }[] } | null;
+  approve_ymd?: string; parking?: string; land_use?: string; mgmt_declared?: { fee: number | null; type?: string; items: { name: string; amount: number | null }[] } | null;
   publish_state?: string; hold_reasons?: string[]; expires_at?: string; expired?: boolean };
 type ConvItem = { id: string; complex_no: string; name: string; dong?: string; trade: string; area_name: string; excl_m2: number | null; floor_text: string; direction: string; price_text: string;
   kok_since?: string; photos: string[]; keywords: string[]; description: string; status: string; publish_state?: string; hold_reasons?: string[] };
@@ -117,16 +120,16 @@ function ConvertTab({ authH, ov, onChanged }: { authH: () => Record<string, stri
 // ── ② 콕집 전용 등록 ────────────────────────────────────────────────────
 type MgmtItem = { name: string; amount: string };
 type Draft = { ptype: string; trade: string; priceEok: string; rentMan: string; complex_no: string; complex_name: string; address: string; dong: string; ho: string;
-  area_name: string; supply_m2: string; excl_m2: string; land_m2: string; floor: string; total_floor: string; direction: string; direction_base: string; move_in: string; mgmt_fee: string;
+  area_name: string; supply_m2: string; excl_m2: string; land_m2: string; floor: string; total_floor: string; direction: string; direction_base: string; move_in: string; mgmt_fee: string; mgmt_none: boolean;
   rooms: string; baths: string; approve_ymd: string; parking: string; land_use: string; items: MgmtItem[]; photos: string[]; description: string; keywords: string };
 const EMPTY: Draft = { ptype: "APT", trade: "A1", priceEok: "", rentMan: "", complex_no: "", complex_name: "", address: "", dong: "", ho: "", area_name: "", supply_m2: "", excl_m2: "", land_m2: "",
-  floor: "", total_floor: "", direction: "", direction_base: "", move_in: "협의", mgmt_fee: "", rooms: "", baths: "", approve_ymd: "", parking: "", land_use: "", items: [], photos: [], description: "", keywords: "" };
+  floor: "", total_floor: "", direction: "", direction_base: "", move_in: "협의", mgmt_fee: "", mgmt_none: false, rooms: "", baths: "", approve_ymd: "", parking: "", land_use: "", items: [], photos: [], description: "", keywords: "" };
 const ymdDot = (s: string) => (s.length >= 6 ? `${s.slice(0, 4)}.${s.slice(4, 6)}${s.length >= 8 ? `.${s.slice(6, 8)}` : ""}` : s);
 const toDraft = (it: DirectItem): Draft => ({ ptype: it.ptype, trade: it.trade, priceEok: it.price ? String(it.price / 1e8) : "", rentMan: it.rent ? String(Math.round(it.rent / 1e4)) : "",
   complex_no: it.complex_no || "", complex_name: it.complex_no ? it.name : "", address: it.address || "", dong: it.dong || "", ho: "", area_name: it.area_name || "",
   supply_m2: it.supply_m2 ? String(it.supply_m2) : "", excl_m2: it.excl_m2 ? String(it.excl_m2) : "", land_m2: it.land_m2 ? String(it.land_m2) : "", floor: it.floor ? String(it.floor) : "",
   total_floor: it.total_floor ? String(it.total_floor) : "", direction: it.direction || "", direction_base: it.direction_base || "", move_in: it.move_in || "협의", mgmt_fee: it.mgmt_fee ? String(Math.round(it.mgmt_fee / 1e4)) : "",
-  rooms: it.rooms || "", baths: it.baths || "", approve_ymd: ymdDot(it.approve_ymd || ""), parking: it.parking || "", land_use: it.land_use || "",
+  mgmt_none: it.mgmt_declared?.type === "none", rooms: it.rooms || "", baths: it.baths || "", approve_ymd: ymdDot(it.approve_ymd || ""), parking: it.parking || "", land_use: it.land_use || "",
   items: (it.mgmt_declared?.items || []).map((x) => ({ name: x.name, amount: x.amount != null ? String(Math.round(x.amount / 1e4)) : "" })),
   photos: it.photos.map((u) => u.replace(/^.*\/kok\/photo\//, "")), description: it.description || "", keywords: it.keywords.join(", ") });
 
@@ -140,11 +143,12 @@ const REQ: Record<string, string[]> = {
   JGC: ["complex_no", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee"],
   VL: ["address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee", "approve_ymd", "parking"],
   OR: ["address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee", "approve_ymd", "parking"],
-  DDDGG: ["address", "excl_m2", "land_m2", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "approve_ymd", "parking"],
-  SG: ["address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "move_in", "mgmt_fee", "approve_ymd", "parking"],
-  SMS: ["address", "excl_m2", "floor", "total_floor", "direction", "direction_base", "move_in", "mgmt_fee", "approve_ymd", "parking"],
-  GM: ["address", "excl_m2", "land_m2", "total_floor", "move_in", "approve_ymd", "parking"],
-  GJCG: ["address", "excl_m2", "land_m2", "total_floor", "move_in", "approve_ymd", "parking"],
+  DDDGG: ["address", "excl_m2", "land_m2", "total_floor", "direction", "direction_base", "rooms", "baths", "move_in", "mgmt_fee", "approve_ymd", "parking"],
+  SG: ["address", "excl_m2", "floor", "total_floor", "direction", "move_in", "approve_ymd", "parking"],
+  SMS: ["address", "excl_m2", "floor", "total_floor", "direction", "move_in", "approve_ymd", "parking"],
+  APTHGJ: ["address", "excl_m2", "floor", "total_floor", "direction", "move_in", "approve_ymd", "parking"],
+  GM: ["address", "excl_m2", "land_m2", "total_floor", "direction", "move_in", "approve_ymd", "parking"],
+  GJCG: ["address", "excl_m2", "land_m2", "total_floor", "direction", "move_in", "approve_ymd", "parking"],
   TJ: ["address", "land_m2", "land_use"],
   ETC: ["address"],
 };
@@ -155,7 +159,7 @@ const MGMT_NAMES = ["일반관리비", "전기료", "수도료", "가스사용�
 
 export function DirectForm({ authH, init, editId, ptypes, onSaved, onCancel }: { authH: () => Record<string, string>; init?: Draft; editId?: string; ptypes: Record<string, string>; onSaved: () => void; onCancel: () => void }) {
   const [d, setD] = useState<Draft>(init || EMPTY);
-  const set = (k: keyof Draft, v: string | string[] | MgmtItem[]) => setD((x) => ({ ...x, [k]: v }));
+  const set = (k: keyof Draft, v: string | boolean | string[] | MgmtItem[]) => setD((x) => ({ ...x, [k]: v }));
   const [q, setQ] = useState(init?.complex_name || ""); const [hits, setHits] = useState<{ complex_no: string; name: string; region?: string; households?: number }[]>([]);
   const [areas, setAreas] = useState<{ pyeong_name: string; exclusive_area: number | null; supply_area: number | null }[]>([]);
   const [up, setUp] = useState(false); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
@@ -171,7 +175,7 @@ export function DirectForm({ authH, init, editId, ptypes, onSaved, onCancel }: {
   }, [q, d.complex_no, isCx]);
   useEffect(() => { if (!d.complex_no) { setAreas([]); return; } fetch(`${API}/complex/${d.complex_no}/areas`).then((r) => r.json()).then((j) => setAreas(j.items || [])).catch(() => setAreas([])); }, [d.complex_no]);
   // 종류를 바꾸면 방향 기준 기본값(주거=거실, 비주거=주출입구)
-  useEffect(() => { if (!d.direction_base) set("direction_base", HOUSING.has(d.ptype) ? "거실" : "주출입구"); }, [d.ptype]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!d.direction_base || NONRES.has(d.ptype)) set("direction_base", HOUSING.has(d.ptype) ? "거실" : "주출입구"); }, [d.ptype]);   // eslint-disable-line react-hooks/exhaustive-deps
   const addPhoto = async (f: File) => {
     if (d.photos.length >= 10) return; setUp(true); setErr("");
     const fd = new FormData(); fd.append("document", f);
@@ -192,6 +196,7 @@ export function DirectForm({ authH, init, editId, ptypes, onSaved, onCancel }: {
     } catch (e) { setLed({ busy: false, msg: e instanceof Error ? e.message : "대장을 받지 못했어요" }); }
   };
   const missing = (REQ[d.ptype] || REQ.ETC).filter((k) => {
+    if (k === "mgmt_fee" && d.mgmt_none) return false;
     const v = (d as unknown as Record<string, string>)[k]; return !v || (k !== "address" && k !== "complex_no" && !isNaN(Number(v)) && Number(v) <= 0);
   }).concat(d.trade === "B2" && !(parseFloat(d.rentMan || "0") > 0) ? ["rent"] : []).concat(!(parseFloat(d.priceEok || "0") > 0) ? ["price"] : []);
   const save = async () => {
@@ -200,7 +205,7 @@ export function DirectForm({ authH, init, editId, ptypes, onSaved, onCancel }: {
       const body = { ptype: d.ptype, trade: d.trade, price: Math.round(parseFloat(d.priceEok || "0") * 1e8), rent: Math.round(parseFloat(d.rentMan || "0") * 1e4),
         complex_no: isCx ? d.complex_no : "", address: d.address, dong: d.dong, ho: d.ho, area_name: d.area_name, supply_m2: parseFloat(d.supply_m2 || "0"), excl_m2: parseFloat(d.excl_m2 || "0"),
         land_m2: parseFloat(d.land_m2 || "0"), floor: parseInt(d.floor || "0"), total_floor: parseInt(d.total_floor || "0"), direction: d.direction, direction_base: d.direction_base, move_in: d.move_in,
-        mgmt_fee: Math.round(parseFloat(d.mgmt_fee || "0") * 1e4), rooms: d.rooms, baths: d.baths, approve_ymd: d.approve_ymd, parking: d.parking, land_use: d.land_use,
+        mgmt_fee: d.mgmt_none ? 0 : Math.round(parseFloat(d.mgmt_fee || "0") * 1e4), mgmt_none: d.mgmt_none && MGMT_REQ.has(d.ptype), rooms: d.rooms, baths: d.baths, approve_ymd: d.approve_ymd, parking: d.parking, land_use: d.land_use,
         mgmt_items: d.items.filter((x) => x.name).map((x) => ({ name: x.name, amount: x.amount ? Math.round(parseFloat(x.amount) * 1e4) : null })),
         photos: d.photos, description: d.description, keywords: d.keywords.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 8) };
       const r = await fetch(`${API}/lounge/kok/direct${editId ? `/${editId.slice(1)}` : ""}`, { method: "POST", headers: { "Content-Type": "application/json", ...authH() }, body: JSON.stringify(body) });
@@ -250,14 +255,15 @@ export function DirectForm({ authH, init, editId, ptypes, onSaved, onCancel }: {
         {HOUSING.has(d.ptype) && <label>방 / 욕실{R("rooms")}<span className="kokm-pair"><input inputMode="numeric" value={d.rooms} onChange={(e) => set("rooms", e.target.value)} placeholder="3" /><input inputMode="numeric" value={d.baths} onChange={(e) => set("baths", e.target.value)} placeholder="2" /></span></label>}
       </div>
       <div className="kokm-row">
-        {(HOUSING.has(d.ptype) || ["SG", "SMS"].includes(d.ptype)) && <label>방향{R("direction")}<select value={d.direction} onChange={(e) => set("direction", e.target.value)}><option value="">-</option>{DIRS.map((x) => <option key={x}>{x}</option>)}</select></label>}
-        {(HOUSING.has(d.ptype) || ["SG", "SMS"].includes(d.ptype)) && <label>방향 기준{R("direction_base")}<select value={d.direction_base} onChange={(e) => set("direction_base", e.target.value)}>{(HOUSING.has(d.ptype) ? ["거실", "안방", "주출입구"] : ["주출입구", "거실", "안방"]).map((x) => <option key={x}>{x}</option>)}</select></label>}
+        {(HOUSING.has(d.ptype) || NONRES.has(d.ptype)) && <label>방향{NONRES.has(d.ptype) && <small>주출입구 기준</small>}{R("direction")}<select value={d.direction} onChange={(e) => set("direction", e.target.value)}><option value="">-</option>{DIRS.map((x) => <option key={x}>{x}</option>)}</select></label>}
+        {HOUSING.has(d.ptype) && <label>방향 기준{R("direction_base")}<select value={d.direction_base} onChange={(e) => set("direction_base", e.target.value)}>{["거실", "안방", "주출입구"].map((x) => <option key={x}>{x}</option>)}</select></label>}
         <label>입주 가능일{R("move_in")}<select value={d.move_in} onChange={(e) => set("move_in", e.target.value)}>{["협의", "즉시 입주", "1개월 내", "3개월 내", "6개월 내"].map((x) => <option key={x}>{x}</option>)}</select></label>
         {!isCx && d.ptype !== "TJ" && <label>사용승인일 <small>2015.08</small>{R("approve_ymd")}<input value={d.approve_ymd} onChange={(e) => set("approve_ymd", e.target.value)} placeholder="2015.08.21" /></label>}
         {!isCx && d.ptype !== "TJ" && <label>주차대수 <small>총 또는 세대당</small>{R("parking")}<input value={d.parking} onChange={(e) => set("parking", e.target.value)} placeholder="총 12대 / 세대당 1대" /></label>}
-        {d.ptype !== "TJ" && <label>관리비 <small>월 만원</small>{R("mgmt_fee")}<input inputMode="numeric" value={d.mgmt_fee} onChange={(e) => set("mgmt_fee", e.target.value)} placeholder="25" /></label>}
+        {d.ptype !== "TJ" && <label>관리비 <small>{NONRES.has(d.ptype) ? "월 만원 · 선택" : "월 만원"}</small>{R("mgmt_fee")}<input inputMode="numeric" value={d.mgmt_none ? "" : d.mgmt_fee} disabled={d.mgmt_none} onChange={(e) => set("mgmt_fee", e.target.value)} placeholder={d.mgmt_none ? "없음" : "25"} />
+          {MGMT_REQ.has(d.ptype) && <span className="muted" style={{ fontSize: 12 }}><input type="checkbox" checked={d.mgmt_none} onChange={(e) => set("mgmt_none", e.target.checked)} /> 관리비 없음</span>}</label>}
       </div>
-      {["VL", "OR", "SG", "SMS"].includes(d.ptype) && d.ptype !== "TJ" && (
+      {["VL", "OR", "SG", "SMS", "APTHGJ"].includes(d.ptype) && !d.mgmt_none && (
         <div className="kokm-fld"><span>관리비 비목 <small>월 10만원 이상 정액 관리비는 의뢰인이 내역을 줬다면 비목별 금액도 적어 주세요(내역을 못 받았으면 비워도 돼요) · 만원</small></span>
           <div className="kokm-items">
             {d.items.map((x, i) => <span key={i} className="it"><select value={x.name} onChange={(e) => setItem(i, "name", e.target.value)}><option value="">비목</option>{MGMT_NAMES.map((n) => <option key={n}>{n}</option>)}</select><input inputMode="numeric" value={x.amount} onChange={(e) => setItem(i, "amount", e.target.value)} placeholder="금액" /><button type="button" aria-label="지우기" onClick={() => set("items", d.items.filter((_, j) => j !== i))}>×</button></span>)}
