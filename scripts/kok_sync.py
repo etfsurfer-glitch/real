@@ -487,13 +487,19 @@ def _fetch_details(k: sqlite3.Connection, d: sqlite3.Connection, realtor_id: str
     k.commit()
     return n
 
-# ── 비단지 전환(1단계: 빌라·단독) ─────────────────────────────────────────────────────────────
+# ── 비단지 전환(1단계: 빌라·단독 / 2단계: 상가·사무실·지산·건물·공장) ─────────────────────────────────────────────────────────────
 # 지역 수집 DB(3일 롤링)를 읽기만 한다. 대상 = 동의 사무소(kok_realtor_optin.active)의 attribution='realtor' 광고.
 # 등록번호로 귀속한 광고(attribution='region')는 오귀속 0 보장이 없어 넣지 않는다.
 # 점검은 라운지 '매물 점검'과 같은 실행부(collector/audit_runner.py — 상세 + 건축물대장 대조)로 하고, '위반'이면 전환하지 않는다.
 REGION_SOURCES = {
     "villa": {"빌라/연립": "VL", "빌라단지-연립": "VL"},
     "house": {"단독/다가구": "DDDGG", "전원주택": "DDDGG"},
+    # 2단계(11-13): 그 밖의 건축물 — 방향은 주출입구 기준, 관리비 선택, 정확한 층, 소재지는 동까지 가능
+    "sangga": {"상가점포": "SG"},
+    "office": {"사무실": "SMS"},
+    "knowledge": {"지식산업센터": "APTHGJ"},
+    "building": {"빌딩/건물": "GM", "상가건물": "GM", "상가주택": "GM"},   # 기타·숙박/콘도는 뺌
+    "factory": {"공장/창고": "GJCG"},
 }
 REGION_STALE_DAYS = 2      # 지역 DB 최신 수집분이 이보다 오래되면 '안 보인 매물 닫기'를 하지 않는다(수집이 멈춘 것)
 
@@ -635,7 +641,7 @@ def _fetch_region_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
             "approve_ymd=?, parking=?, violation=?, mgmt_fee=?, mgmt_type=?, address=?, address_mode=?, pnu=?, bld_use=?, audit_viol=?, "
             "audit_at=datetime('now','+9 hours'), detail_fetched_at=datetime('now','+9 hours'), updated_at=datetime('now','+9 hours') WHERE article_no=?",
             (None if f.get("room_count") is None else str(f["room_count"]), None if f.get("bathroom_count") is None else str(f["bathroom_count"]),
-             _move_in_text(f), f.get("direction") or "", f.get("direction_base"), _int_or_none(f.get("total_floor")),
+             _move_in_text(f), f.get("direction") or "", "주출입구" if x["ptype"] in NONRES else f.get("direction_base"), _int_or_none(f.get("total_floor")),
              str(f.get("use_approve_ymd") or "") or None, parking, f.get("violation_building") or "",
              _int_or_none(f.get("monthly_management_cost")), str(aci.get("chargeCodeType") or "") or None,
              addr or None, mode, f.get("led_pnu"), f.get("led_main_purps"),
