@@ -12587,6 +12587,143 @@ def kok_report(lid: str, body: dict, request: Request, user: dict | None = Depen
     return {"ok": True}
 
 
+# ── 실거래 추가 매칭(관리자) ─────────────────────────────────────────────
+# 단지에 못 붙은 거래를 국토부 단지 번호(aptSeq)로 묶은 큐(scripts/build_tx_unmatched.py, daily 10c).
+# 관리자가 단지를 고르면 tx_seq_map 에 사람이 확정한 규칙(source='rule')으로 넣고, 그 번호의 미매칭
+# 거래를 바로 붙인다. 이후 새 거래도 재매칭 첫 단계(R)에서 같은 단지로 간다. 원천 값은 손대지 않음.
+# 미매칭이면 수작업 잠금(manual_override=1, 6월 동 불일치 일괄 해제분)이어도 붙인다 — 관리자가 고른 것도 사람 확정.
+# 되돌리기는 규칙만 지운다(합의는 다음 새벽 build_tx_seq_map 이 다시 만든다).
+_TXU_PATH = DB_PATH.parent / "tx_unmatched.sqlite"
+
+
+def _txu_db() -> sqlite3.Connection:
+    c = sqlite3.connect(_TXU_PATH, timeout=10)
+    c.row_factory = sqlite3.Row
+    c.execute("CREATE TABLE IF NOT EXISTS review (apt_seq TEXT PRIMARY KEY, status TEXT NOT NULL, complex_no TEXT, "
+              "note TEXT, n_applied INTEGER, by_user TEXT, at TEXT)")
+    return c
+
+
+@app.get("/admin/tx-unmatched")
+def admin_tx_unmatched(sido: str = "", sgg: str = "", q: str = "", status: str = "open",
+                       has_cand: int = 0, offset: int = 0, limit: int = 100,
+                       _admin: dict = Depends(admin_user)):
+    """미매칭 거래 묶음(aptSeq) — 거래 많은 순. status=open(미처리)|matched|none|all."""
+    if not _TXU_PATH.exists():
+        return {"total": 0, "items": [], "built_at": None}
+    limit = max(1, min(limit, 300))
+    w, p = [], []
+    if sgg:
+        w.append("g.sgg_cd=?"); p.append(sgg)
+    elif sido:
+        w.append("g.sgg_cd LIKE ?"); p.append(sido[:2] + "%")
+    if q:
+        w.append("(g.names LIKE ? OR g.umd_nm LIKE ? OR g.apt_seq=?)"); p += [f"%{q}%", f"%{q}%", q]
+    if has_cand:
+        w.append("g.cands<>'[]'")
+    if status == "open":
+        w.append("r.apt_seq IS NULL")
+    elif status in ("matched", "none"):
+        w.append("r.status=?"); p.append(status)
+    where = (" WHERE " + " AND ".join(w)) if w else ""
+    with _txu_db() as c:
+        total = c.execute(f"SELECT COUNT(*), SUM(n_sale), SUM(n_rent) FROM groups g LEFT JOIN review r USING(apt_seq){where}", p).fetchone()
+        rows = c.execute(f"SELECT g.*, r.status, r.complex_no AS r_cno, r.note, r.n_applied, r.at FROM groups g "
+                         f"LEFT JOIN review r USING(apt_seq){where} ORDER BY g.n_sale*3+g.n_rent DESC LIMIT ? OFFSET ?",
+                         p + [limit, offset]).fetchall()
+        built = c.execute("SELECT MAX(built_at) FROM groups").fetchone()[0]
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("names", "jibuns", "areas", "cands"):
+            d[k] = _json.loads(d[k] or "[]")
+        d["sido"] = SIDO_NAMES.get((d["sgg_cd"] or "")[:2])
+        items.append(d)
+    return {"total": total[0], "n_sale": total[1] or 0, "n_rent": total[2] or 0, "built_at": built, "items": items}
+
+
+@app.get("/admin/tx-unmatched/search")
+def admin_tx_unmatched_search(sgg: str, q: str = "", _admin: dict = Depends(admin_user)):
+    """후보에 없을 때 단지 직접 찾기 — 같은 시군구(인천 옛 구는 신 구까지) 단지 이름 검색."""
+    from collector.realprice import matching as _rpm
+    with _open_db() as c:
+        cs = _rpm.load_complexes(c, cortar_prefix=sgg[:5])
+    core = _rpm.base_normalize(q)
+    hits = [x for x in cs if not core or core in _rpm.base_normalize(x["complex_name"]) or q in (x["dong_name"] or "")]
+    return {"items": [{"complex_no": x["complex_no"], "complex_name": x["complex_name"], "dong": x["dong_name"],
+                       "jibun": x["detail_address"]} for x in hits[:60]]}
+
+
+class TxuApplyBody(BaseModel):
+    apt_seq: str
+    complex_no: str | None = None     # None = 단지 목록에 없음(공공임대·나홀로 등) 확인
+    note: str | None = None
+
+
+@app.post("/admin/tx-unmatched/apply")
+def admin_tx_unmatched_apply(body: TxuApplyBody, admin: dict = Depends(admin_user)):
+    seq = (body.apt_seq or "").strip()
+    with _txu_db() as u:
+        g = u.execute("SELECT sgg_cd FROM groups WHERE apt_seq=?", (seq,)).fetchone()
+    if not g:
+        raise HTTPException(404, "apt_seq not in queue")
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    who = str(admin.get("nickname") or admin.get("id") or "")
+    n = 0
+    cno = (body.complex_no or "").strip() or None
+    if cno:
+        with _open_db() as c:
+            cx = c.execute("SELECT complex_name FROM complexes WHERE complex_no=?", (cno,)).fetchone()
+            if not cx:
+                raise HTTPException(400, "complex not found")
+            c.execute("INSERT INTO tx_seq_map(apt_seq, complex_no, source, votes, share, note, updated_at) "
+                      "VALUES (?,?,'rule',NULL,NULL,?,?) ON CONFLICT(apt_seq) DO UPDATE SET complex_no=excluded.complex_no, "
+                      "source='rule', note=excluded.note, updated_at=excluded.updated_at",
+                      (seq, cno, f"관리자 추가 매칭 {who} {body.note or ''}".strip(), now))
+            det = _json.dumps({"chosen": {"complex_no": cno, "method": "seq_rule", "score": 1.0},
+                               "reason": f"aptSeq={seq} (관리자 확정)"}, ensure_ascii=False)
+            n += c.execute("UPDATE transactions SET matched_complex_no=?, matched_method='seq_rule', matched_score=1.0, "
+                           "match_details=?, matched_at=? WHERE apt_seq=? AND matched_complex_no IS NULL",
+                           (cno, det, now, seq)).rowcount
+            n += c.execute("UPDATE rentals SET matched_complex_no=?, matched_method='seq_rule', matched_score=1.0, "
+                           "match_details=?, matched_at=? WHERE sgg_cd=? AND matched_complex_no IS NULL "
+                           "AND json_extract(raw,'$.aptSeq')=?", (cno, det, now, g["sgg_cd"], seq)).rowcount
+            c.commit()
+    with _txu_db() as u:
+        u.execute("INSERT OR REPLACE INTO review VALUES (?,?,?,?,?,?,?)",
+                  (seq, "matched" if cno else "none", cno, body.note, n, who, now))
+        u.commit()
+    return {"ok": True, "apt_seq": seq, "complex_no": cno, "applied": n}
+
+
+@app.post("/admin/tx-unmatched/undo")
+def admin_tx_unmatched_undo(body: TxuApplyBody, _admin: dict = Depends(admin_user)):
+    """되돌리기 — 규칙을 지우고 이 규칙으로 붙인 거래만 미매칭으로."""
+    seq = (body.apt_seq or "").strip()
+    n = 0
+    with _txu_db() as u:
+        r = u.execute("SELECT status, complex_no FROM review WHERE apt_seq=?", (seq,)).fetchone()
+        g = u.execute("SELECT sgg_cd FROM groups WHERE apt_seq=?", (seq,)).fetchone()
+    if not r:
+        raise HTTPException(404, "not reviewed")
+    if r["status"] == "matched" and r["complex_no"]:
+        with _open_db() as c:
+            c.execute("DELETE FROM tx_seq_map WHERE apt_seq=? AND source='rule'", (seq,))
+            n += c.execute("UPDATE transactions SET matched_complex_no=NULL, matched_method='unmatched', matched_score=NULL "
+                           "WHERE apt_seq=? AND matched_method='seq_rule' AND matched_complex_no=?",
+                           (seq, r["complex_no"])).rowcount
+            if g:
+                n += c.execute("UPDATE rentals SET matched_complex_no=NULL, matched_method='unmatched', matched_score=NULL "
+                               "WHERE sgg_cd=? AND matched_method='seq_rule' AND matched_complex_no=? "
+                               "AND json_extract(raw,'$.aptSeq')=?", (g["sgg_cd"], r["complex_no"], seq)).rowcount
+            c.commit()
+    with _txu_db() as u:
+        u.execute("DELETE FROM review WHERE apt_seq=?", (seq,))
+        u.commit()
+    return {"ok": True, "reverted": n}
+
+
 @app.get("/admin/kok/reports")
 def admin_kok_reports(status: str = "open", _admin: dict = Depends(admin_user)):
     with _kok_db() as k:

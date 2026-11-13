@@ -120,6 +120,8 @@ step "step 10-0: build_tx_seq_map (aptSeq 지도)" $PY -u scripts/build_tx_seq_m
 step "step 10: rematch_all_realprice"      $PY -u scripts/rematch_all_realprice.py --tables apt rent offi offi_rent --concurrency 4; rematch_exit=$?
 # 10a) 감시: 동이 다른데 지번만으로 붙은 거래가 다시 생기면 텔레그램(2026-11-12 사고 — 매매 7,355·전월세 4.9만 건)
 step "step 10a: check_tx_crossdong (동 불일치 감시)" $PY -u scripts/check_tx_crossdong.py; crossdong_exit=$?
+# 10c) 관리자 '실거래 추가 매칭' 큐 — 재매칭 뒤 남은 미매칭을 단지 번호별로 묶고 후보 단지를 붙임(data/tx_unmatched.sqlite)
+step "step 10c: build_tx_unmatched (추가 매칭 큐)" nice -n 10 $PY -u scripts/build_tx_unmatched.py; txu_exit=$?
 
 # 10b) 등기 전 거래 동(棟) 추정 — 매칭(step 10) 뒤. 메인 DB 는 읽기만, 결과는 data/dong_estimates.sqlite.
 #      새 거래 예비 추정 → 계약 +45일 최종 고정 → 등기 올라오면 정답 대조(로그) → 일요일 재학습(개선 시 승격).

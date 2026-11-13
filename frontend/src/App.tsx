@@ -6,7 +6,7 @@ import {
   Sparkles, LayoutDashboard, BadgePercent,
   BarChart3, Award, Users, Wrench, ShieldAlert, ShieldCheck, ShieldX,
   ClipboardCheck, ClipboardList, Target, ScrollText, Menu as MenuIcon, X as XIcon,
-  ChevronDown, Home as HomeIcon, Building2, Database, Bell, Activity, Calculator, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Megaphone, Coins, Settings as SettingsIcon, Gift, MapPin as MapPinIcon } from "lucide-react";
+  ChevronDown, Home as HomeIcon, Building2, Database, Bell, Activity, Calculator, type LucideIcon, Heart as HeartIcon, Image as ImageIcon , Radar as RadarIcon, Megaphone, Coins, Settings as SettingsIcon, Gift, MapPin as MapPinIcon, Link2 } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PerfBadge } from "./components/PerfBadge";
 import { AuthProvider, useAuth, logout, loginGoogle, isInAppBrowser, authClient } from "./auth";
@@ -33,6 +33,7 @@ import AuditRealtor from "./pages/AuditRealtor";
 import BuyWizard from "./pages/BuyWizard";
 import AdminReviews from "./pages/AdminReviews";
 import AdminRealtorMatch from "./pages/AdminRealtorMatch";
+import AdminTxMatch from "./pages/AdminTxMatch";
 import AdminUsers from "./pages/AdminUsers";
 import AdminLogs from "./pages/AdminLogs";
 import CardNews from "./pages/CardNews";
@@ -520,6 +521,7 @@ function AppShell() {
         <Route path="/suspicious" element={<Navigate to="/admin/suspicious" replace />} />
         <Route path="/admin/reviews" element={<RequireAdmin><AdminReviews /></RequireAdmin>} />
         <Route path="/admin/realtor-match" element={<RequireAdmin><AdminRealtorMatch /></RequireAdmin>} />
+        <Route path="/admin/tx-match" element={<RequireAdmin><AdminTxMatch /></RequireAdmin>} />
         <Route path="/admin/hidden-realtors" element={<RequireAdmin><AdminHiddenRealtors /></RequireAdmin>} />
         <Route path="/admin/kok-logs" element={<RequireAdmin><AdminKokLogs /></RequireAdmin>} />
         <Route path="/admin/academy" element={<RequireAdmin><AcademyLocation /></RequireAdmin>} />
@@ -623,6 +625,7 @@ const ADMIN_NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[
   { to: "/admin/data-sources", label: "수집 현황", icon: Database },
   { to: "/admin/push", label: "알림 발송", icon: Bell },
   { to: "/admin/realtor-match", label: "중개사 매칭", icon: Wrench },
+  { to: "/admin/tx-match", label: "실거래 추가 매칭", icon: Link2 },
   { to: "/admin/suspicious", label: "의심 중개사", icon: ShieldAlert },
   { to: "/admin/reviews", label: "리뷰 검수", icon: ClipboardCheck },
   { to: "/admin/resident", label: "입주민 인증", icon: HomeIcon },
