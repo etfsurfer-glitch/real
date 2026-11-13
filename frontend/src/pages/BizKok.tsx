@@ -60,7 +60,7 @@ export function KokScreen({ authH, office }: { authH: () => Record<string, strin
         <div><h1>콕집매물</h1><p>광고와 별개로 콕집이 직접 보여 주는 우리 사무소 매물. 전환하거나 콕집에만 올리고, 한 표에서 관리하고, 점검까지.</p></div>
         <div className="kokm-kpi">
           <div><b>{ov ? total.toLocaleString() : "-"}</b><span>게시 중<small>전환 {ov?.converted.active ?? 0} · 전용 {ov?.direct.active ?? 0}</small></span></div>
-          <div className={ov && ov.converted.hold + ov.direct.hold ? "warn" : ""}><b>{ov ? (ov.converted.hold + ov.direct.hold).toLocaleString() : "-"}</b><span>게시 전<small>필수 항목이 빠진 매물</small></span></div>
+          <div className={ov && ov.converted.hold + ov.direct.hold ? "warn" : ""}><b>{ov ? (ov.converted.hold + ov.direct.hold).toLocaleString() : "-"}</b><span>게시 전<small>필수 항목 누락·광고 점검 위반</small></span></div>
           <div><b>{ov ? ov.converted.with_extras.toLocaleString() : "-"}</b><span>사진·설명 채움<small>전환분 기준</small></span></div>
           <div><b>{ov?.synced_at ? ov.synced_at.slice(5, 16) : "-"}</b><span>마지막 반영<small>매일 새벽 + 동의 직후</small></span></div>
           <div className={ov && ov.direct.expired ? "warn" : ""}><b>{ov ? (ov.direct.expired || 0).toLocaleString() : "-"}</b><span>기간 끝난 전용 매물<small>30일 게시 · 다시 올리기 한 번이면 재게시{ov?.direct.expiring ? ` · 곧 끝남 ${ov.direct.expiring}` : ""}</small></span></div>
@@ -103,7 +103,7 @@ function ConvertTab({ authH, ov, onChanged }: { authH: () => Record<string, stri
       ) : (
         <>
           <dl className="kokm-dl">
-            <div><dt>상태</dt><dd><b>전환 중</b> · 게시 {ov?.converted.active ?? st.listings.total}건{ov?.converted.hold ? <> · <span className="kokm-bad">게시 전 {ov.converted.hold}건</span>(광고에 빠진 필수 항목이 있어요 — 전체 관리에서 확인)</> : null} {ov?.converted.sold ? ` · 거래완료 ${ov.converted.sold}건(최근 14일)` : ""}</dd></div>
+            <div><dt>상태</dt><dd><b>전환 중</b> · 게시 {ov?.converted.active ?? st.listings.total}건{ov?.converted.hold ? <> · <span className="kokm-bad">게시 전 {ov.converted.hold}건</span>(광고에 빠진 필수 항목이 있거나, 원 광고가 매물 점검 기준 위반이라 전환하지 않았어요 — 원 광고를 고치면 다음 날 다시 점검해요. 전체 관리에서 확인)</> : null} {ov?.converted.sold ? ` · 거래완료 ${ov.converted.sold}건(최근 14일)` : ""}</dd></div>
             <div><dt>반영</dt><dd>{st.synced_at ? `${dt(st.synced_at)} 마지막 반영` : "첫 반영 대기 중(몇 분)"} · 매일 새벽 자동, 광고가 내려가면 다음 반영 때 제외</dd></div>
             <div><dt>동의</dt><dd>{st.agreed_at?.slice(0, 10)} · 약관 {st.terms_version}{st.needs_reagree && <> · <button className="kokm-lnk" onClick={() => setOpen(true)}>바뀐 약관 동의하기</button></>}</dd></div>
             <div><dt>해제</dt><dd><button className="kokm-lnk mut" disabled={busy} onClick={off}>전환 해제</button> · 해제하면 전환분 표시가 바로 멈추고 자료는 표시 중단 상태로 남아요</dd></div>

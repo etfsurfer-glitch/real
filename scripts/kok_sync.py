@@ -110,7 +110,8 @@ def kok_db() -> sqlite3.Connection:
                           ("kok_direct_listings", "publish_state", "TEXT"), ("kok_direct_listings", "hold_reasons", "TEXT"),
                           ("kok_direct_listings", "mgmt_type", "TEXT"),
                           ("kok_listings", "admin_hold", "TEXT"), ("kok_direct_listings", "admin_hold", "TEXT"),
-                          ("kok_direct_listings", "violation", "TEXT")):
+                          ("kok_direct_listings", "violation", "TEXT"),
+                          ("kok_listings", "audit_viol", "TEXT"), ("kok_listings", "audit_at", "TEXT")):
         if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
             c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
     c.commit()
@@ -162,12 +163,56 @@ MGMT_REQUIRED = HOUSING - PRESALE          # 관리비 표시 의무: 주택·�
 HOLD_LABEL = {"price": "가격", "rent": "월세", "area": "면적", "floor": "층", "total_floor": "총 층수", "direction": "방향", "rooms": "방 수", "baths": "욕실 수",
               "move_in": "입주 가능일", "mgmt": "관리비", "approve": "사용승인일", "parking": "주차대수", "land_use": "지목", "address": "소재지",
               "dong": "동(건물 번호)", "report": "신고 확인 중(콕집 운영자 보류)"}
+AUDIT_PREFIX = "audit:"   # hold_reasons 에 'audit:항목 — 사유' 로 들어간다. 라벨은 hold_label() 이 붙인다
+
+
+def hold_label(code: str) -> str:
+    if code.startswith(AUDIT_PREFIX):
+        return "광고 점검 위반(원 광고를 고쳐야 전환) — " + code[len(AUDIT_PREFIX):]
+    return HOLD_LABEL.get(code, code)
+
+
+# ── 전환 차단: 원 광고가 우리 매물 점검(collector/listing_audit.py) 기준으로 '위반'이면 전환하지 않는다 ──
+# 주의(권장·조건부)는 막지 않는다 — 명백한 위반만. 판정은 원 광고 값으로만 하고, 등록자가 콕집에서 고친 값으로는 풀리지 않는다
+# (원 광고를 고치면 다음 동기화에서 다시 점검해 풀린다. 위반 매물은 상세를 매일 다시 받는다).
+def audit_source_ad(raw: dict, lrow: dict | None, complex_name: str | None) -> list[str]:
+    from collector.article_detail import extract_checklist_fields
+    from collector.listing_audit import audit_listing, is_saengsuk
+    det = extract_checklist_fields(raw)
+    r = lrow or {}
+    f = {
+        "article_no": r.get("article_no"), "real_estate_type": r.get("real_estate_type"),
+        "realestate_type_name": det.get("realestate_type") or r.get("real_estate_type_name"),
+        "trade_type": det.get("trade_type") or r.get("trade_type"), "floor_info": det.get("floor_info") or r.get("floor_info"),
+        "area_exclusive": r.get("area2_m2"), "price": r.get("deal_or_warrant_price"), "rent_price": r.get("rent_price"),
+        "building_name": det.get("building_name") or r.get("building_name"), "dong_name": r.get("dong_name"), "detail_address": r.get("detail_address"),
+        "is_saengsuk": is_saengsuk(complex_name), "total_floor": det.get("total_floor"),
+        "movein_type": det.get("movein_type"), "movein_negotiable": det.get("movein_negotiable"), "movein_ymd": det.get("movein_ymd"),
+        "finance_price": det.get("finance_price"), "room_count": det.get("room_count"), "bathroom_count": det.get("bathroom_count"),
+        "use_approve_ymd": det.get("use_approve_ymd"), "parking_count": det.get("parking_count"), "parking_possible": det.get("parking_possible"),
+        "monthly_management_cost": det.get("monthly_management_cost"), "admin_cost_info": det.get("admin_cost_info"),
+        "violation_building": det.get("violation_building"), "unregistered_building": det.get("unregistered_building"),
+        "direction": det.get("direction") or r.get("direction"), "direction_base": det.get("direction_base"),
+        "corresponding_floor": det.get("corresponding_floor"),
+    }
+    res = audit_listing(f, cp_autofilled=True)   # 전환 대상은 단지형뿐 — 면적·총층·사용승인·주차는 단지 정보 자동입력
+    out = []
+    for x in res["findings"]:
+        if x["status"] != "위반":
+            continue
+        why = str(x.get("reason") or "").split(" — ")[0].split(". ")[0].strip()
+        out.append(f"{x['item']}" + (f": {why[:60]}" if why else ""))
+    return out
 
 
 def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "converted", n_buildings: int | None = None,
                   cx_facts: dict | None = None) -> list[str]:
     """빠진 필수 항목 코드 목록. 비면 게시 가능. 전환분 아파트는 K-apt 실제 관리비가 있으면 관리비 표시로 본다."""
     miss: list[str] = []
+    try:
+        miss += [AUDIT_PREFIX + v for v in json.loads(r.get("audit_viol") or "[]")]
+    except (TypeError, ValueError):
+        pass
     if r.get("admin_hold"):   # 허위매물 신고를 운영자가 보류한 매물 — 다시 계산해도 풀리지 않는다(관리자가 '보류 풀기'로만)
         miss.append("report")
     if not r.get("price"):
@@ -343,7 +388,7 @@ def sync(realtor_id: str | None = None, fetch_details: bool = True) -> dict:
         k.commit()
         # ④ 상세 — 아직 안 받았거나 오래된 것부터, 한 번에 DETAIL_PER_RUN 건
         if fetch_details and active:
-            det_n = _fetch_details(k, realtor_id)
+            det_n = _fetch_details(k, d, realtor_id)
         live, hold = recompute_publish(k, d, realtor_id)
         k.execute("INSERT INTO kok_sync_log(scope, realtors, upserted, closed, details, seconds, note) VALUES(?,?,?,?,?,?,?)",
                   (realtor_id or "all", len(active), up, closed, det_n, round(time.time() - t0, 1), f"live {live} hold {hold}"))
@@ -351,15 +396,17 @@ def sync(realtor_id: str | None = None, fetch_details: bool = True) -> dict:
     return {"realtors": len(active), "upserted": up, "closed": closed, "details": det_n, "live": live, "hold": hold, "seconds": round(time.time() - t0, 1)}
 
 
-def _fetch_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
+def _fetch_details(k: sqlite3.Connection, d: sqlite3.Connection, realtor_id: str | None) -> int:
     try:
         from collector.article_detail import fetch_article_detail
         from collector.creds import ensure_creds
         creds = ensure_creds()
     except Exception as e:  # noqa: BLE001
         print("detail: creds 실패 —", str(e)[:120]); return 0
-    q = ("SELECT article_no, complex_no FROM kok_listings WHERE status='active' AND (detail_fetched_at IS NULL OR detail_fetched_at<datetime('now','+9 hours',?))"
-         + (" AND realtor_id=?" if realtor_id else "") + " ORDER BY detail_fetched_at IS NOT NULL, kok_since DESC LIMIT ?")
+    # 아직 점검 안 한 것(audit_at NULL)·위반으로 막힌 것(하루 지나면 다시 — 원 광고를 고쳤을 수 있다)도 다시 받는다
+    q = ("SELECT article_no, complex_no, complex_name FROM kok_listings WHERE status='active' AND (detail_fetched_at IS NULL OR detail_fetched_at<datetime('now','+9 hours',?) "
+         "OR audit_at IS NULL OR (audit_viol IS NOT NULL AND detail_fetched_at<datetime('now','+9 hours','-20 hours')))"
+         + (" AND realtor_id=?" if realtor_id else "") + " ORDER BY detail_fetched_at IS NOT NULL, audit_at IS NOT NULL, kok_since DESC LIMIT ?")
     args: list = [f"-{DETAIL_TTL_DAYS} days"] + ([realtor_id] if realtor_id else []) + [DETAIL_PER_RUN]
     todo = k.execute(q, args).fetchall()
     n = fails = 0
@@ -375,6 +422,17 @@ def _fetch_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
                 print("detail: 연속 실패 — 이번엔 멈춤"); break
             time.sleep(1.0); continue
         ad = det.get("articleDetail") or {}
+        if not ad.get("articleNo"):      # 광고가 내려감 — 빈 값으로 점검하면 전 항목 위반 오탐. 동기화가 closed 로 돌린다
+            continue
+        try:
+            lrow = d.execute("SELECT l.article_no, l.real_estate_type, l.trade_type, l.floor_info, l.area2_m2, l.deal_or_warrant_price, l.rent_price, "
+                             "l.building_name, l.direction, cx.dong_name, cx.detail_address FROM listings_current l "
+                             "JOIN complexes cx ON cx.complex_no=l.complex_no WHERE l.article_no=?", (r["article_no"],)).fetchone()
+            viol = audit_source_ad(det, dict(lrow) if lrow else None, r["complex_name"])
+            k.execute("UPDATE kok_listings SET audit_viol=?, audit_at=datetime('now','+9 hours') WHERE article_no=?",
+                      (json.dumps(viol, ensure_ascii=False) if viol else None, r["article_no"]))
+        except Exception as e:  # noqa: BLE001 — 점검 실패는 판정 보류(audit_at 그대로라 다음에 다시)
+            print("audit err", r["article_no"], str(e)[:100])
         fac = det.get("articleFacility") or {}
         sp = det.get("articleSpace") or {}
         pr = det.get("articlePrice") or {}

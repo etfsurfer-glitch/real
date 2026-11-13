@@ -10833,8 +10833,8 @@ def _kok_public_ok(realtor_id: str) -> bool:
 
 
 def _kok_hold_labels(v) -> list[str]:
-    from scripts.kok_sync import HOLD_LABEL
-    return [HOLD_LABEL.get(x, x) for x in _kok_loads(v, [])]
+    from scripts.kok_sync import hold_label
+    return [hold_label(x) for x in _kok_loads(v, [])]
 
 
 def _kok_loads(v, default):
