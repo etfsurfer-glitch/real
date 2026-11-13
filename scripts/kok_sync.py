@@ -73,6 +73,17 @@ CREATE TABLE IF NOT EXISTS kok_direct_listings(
 CREATE INDEX IF NOT EXISTS kok_direct_rt ON kok_direct_listings(realtor_id, status);
 CREATE INDEX IF NOT EXISTS kok_direct_geo ON kok_direct_listings(status, lat, lng);
 CREATE INDEX IF NOT EXISTS kok_direct_cx ON kok_direct_listings(complex_no, status);
+-- 비단지 전환분(1단계: 빌라·단독). 지역 수집 DB(listings_{villa,house}.sqlite, 읽기만)에서 동의 사무소 광고만.
+-- 단지형 kok_listings 와 따로 둔다 — 공개 화면 쿼리(단지·지도)에 섞이지 않게. 오픈 전이라 어떤 공개 API 도 이 표를 읽지 않는다.
+CREATE TABLE IF NOT EXISTS kok_region_listings(
+  article_no TEXT PRIMARY KEY, realtor_id TEXT NOT NULL, realtor_name TEXT, src TEXT NOT NULL, ptype TEXT NOT NULL, type_name TEXT,
+  cortar_no TEXT, lat REAL, lng REAL, building_name TEXT, address TEXT, address_mode TEXT, pnu TEXT, bld_use TEXT,
+  trade TEXT NOT NULL, price INTEGER, rent INTEGER, supply_m2 REAL, excl_m2 REAL, floor INTEGER, floor_label TEXT, total_floor INTEGER,
+  direction TEXT, direction_base TEXT, rooms TEXT, baths TEXT, move_in TEXT, mgmt_fee INTEGER, mgmt_type TEXT,
+  approve_ymd TEXT, parking TEXT, violation TEXT, first_seen TEXT, kok_since TEXT, status TEXT DEFAULT 'active', closed_at TEXT,
+  detail_fetched_at TEXT, audit_viol TEXT, audit_at TEXT, admin_hold TEXT, publish_state TEXT, hold_reasons TEXT, synced_at TEXT,
+  created_at TEXT DEFAULT (datetime('now','+9 hours')), updated_at TEXT DEFAULT (datetime('now','+9 hours')));
+CREATE INDEX IF NOT EXISTS kok_region_rt ON kok_region_listings(realtor_id, status);
 CREATE TABLE IF NOT EXISTS kok_reports(
   id INTEGER PRIMARY KEY AUTOINCREMENT, lid TEXT NOT NULL, reason TEXT NOT NULL, detail TEXT, user_id TEXT, ip_hash TEXT,
   status TEXT DEFAULT 'open', created_at TEXT DEFAULT (datetime('now','+9 hours')));
@@ -162,7 +173,9 @@ PRESALE = {"ABYG", "OBYG"}
 MGMT_REQUIRED = HOUSING - PRESALE          # 관리비 표시 의무: 주택·준주택(분양권 제외). '관리비 없음'(mgmt_type none)도 표시로 본다
 HOLD_LABEL = {"price": "가격", "rent": "월세", "area": "면적", "floor": "층", "total_floor": "총 층수", "direction": "방향", "rooms": "방 수", "baths": "욕실 수",
               "move_in": "입주 가능일", "mgmt": "관리비", "approve": "사용승인일", "parking": "주차대수", "land_use": "지목", "address": "소재지",
-              "dong": "동(건물 번호)", "report": "신고 확인 중(콕집 운영자 보류)"}
+              "dong": "동(건물 번호)", "report": "신고 확인 중(콕집 운영자 보류)",
+              "audit_pending": "광고 점검 전(다음 동기화에서 점검)",
+              "jibun": "지번(공동주택은 지번까지 표시해야 해요 — 원 광고에서 지번을 숨김)"}
 AUDIT_PREFIX = "audit:"   # hold_reasons 에 'audit:항목 — 사유' 로 들어간다. 라벨은 hold_label() 이 붙인다
 
 
@@ -195,10 +208,14 @@ def audit_source_ad(raw: dict, lrow: dict | None, complex_name: str | None) -> l
         "direction": det.get("direction") or r.get("direction"), "direction_base": det.get("direction_base"),
         "corresponding_floor": det.get("corresponding_floor"),
     }
-    res = audit_listing(f, cp_autofilled=True)   # 전환 대상은 단지형뿐 — 면적·총층·사용승인·주차는 단지 정보 자동입력
+    return violations(audit_listing(f, cp_autofilled=True))   # 단지형 — 면적·총층·사용승인·주차는 단지 정보 자동입력
+
+
+def violations(res: dict) -> list[str]:
+    """점검 결과에서 '위반'만 → ['항목: 짧은 사유', ...]. '주의'는 전환을 막지 않는다."""
     out = []
-    for x in res["findings"]:
-        if x["status"] != "위반":
+    for x in res.get("findings") or []:
+        if x.get("status") != "위반":
             continue
         why = str(x.get("reason") or "").split(" — ")[0].split(". ")[0].strip()
         out.append(f"{x['item']}" + (f": {why[:60]}" if why else ""))
@@ -240,7 +257,8 @@ def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "
         miss.append("baths")
     if not r.get("move_in"):
         miss.append("move_in")
-    if (ptype in MGMT_REQUIRED and not r.get("mgmt_fee") and str(r.get("mgmt_type") or "") != "none"
+    mgmt_declared = str(r.get("mgmt_type") or "") == "none" or (source == "region" and bool(r.get("mgmt_type")))
+    if (ptype in MGMT_REQUIRED and not r.get("mgmt_fee") and not mgmt_declared
             and not (ptype == "APT" and kapt_ok)):
         miss.append("mgmt")
     # 공동주택·준주택 소재지 = 지번 + 동 + 층. 동이 둘 이상인 단지에서 동 번호가 비면 소재지를 특정할 수 없다.
@@ -252,7 +270,10 @@ def publish_check(r: dict, ptype: str, *, kapt_ok: bool = False, source: str = "
             miss.append("approve")
         if not (cx_facts.get("parking_total") or cx_facts.get("parking_per")):
             miss.append("parking")
-    if source == "direct" and ptype not in COMPLEX_PTYPES:
+    # 공동주택(빌라)은 지번까지 표시해야 한다. 단독은 의뢰인이 원하면 동까지(원 광고가 지번을 숨겼으면 그 뜻으로 본다)
+    if source == "region" and ptype in ("VL", "OR") and r.get("address_mode") != "jibun":
+        miss.append("jibun")
+    if source in ("direct", "region") and ptype not in COMPLEX_PTYPES:
         if not r.get("address"):
             miss.append("address")
         if not r.get("approve_ymd"):
@@ -390,10 +411,16 @@ def sync(realtor_id: str | None = None, fetch_details: bool = True) -> dict:
         if fetch_details and active:
             det_n = _fetch_details(k, d, realtor_id)
         live, hold = recompute_publish(k, d, realtor_id)
+        # 비단지(빌라·단독) — 동의 사무소만. 오픈 전: 공개 API 는 이 표를 읽지 않는다
+        g_up, g_closed = sync_region(k, active, inactive, now)
+        g_det = _fetch_region_details(k, realtor_id) if (fetch_details and active) else 0
+        g_live, g_hold = recompute_region(k, realtor_id)
         k.execute("INSERT INTO kok_sync_log(scope, realtors, upserted, closed, details, seconds, note) VALUES(?,?,?,?,?,?,?)",
-                  (realtor_id or "all", len(active), up, closed, det_n, round(time.time() - t0, 1), f"live {live} hold {hold}"))
+                  (realtor_id or "all", len(active), up, closed, det_n, round(time.time() - t0, 1),
+                   f"live {live} hold {hold} | region up {g_up} closed {g_closed} det {g_det} live {g_live} hold {g_hold}"))
         k.commit()
-    return {"realtors": len(active), "upserted": up, "closed": closed, "details": det_n, "live": live, "hold": hold, "seconds": round(time.time() - t0, 1)}
+    return {"realtors": len(active), "upserted": up, "closed": closed, "details": det_n, "live": live, "hold": hold,
+            "region": {"upserted": g_up, "closed": g_closed, "details": g_det, "live": g_live, "hold": g_hold}, "seconds": round(time.time() - t0, 1)}
 
 
 def _fetch_details(k: sqlite3.Connection, d: sqlite3.Connection, realtor_id: str | None) -> int:
@@ -460,6 +487,178 @@ def _fetch_details(k: sqlite3.Connection, d: sqlite3.Connection, realtor_id: str
     k.commit()
     return n
 
+# ── 비단지 전환(1단계: 빌라·단독) ─────────────────────────────────────────────────────────────
+# 지역 수집 DB(3일 롤링)를 읽기만 한다. 대상 = 동의 사무소(kok_realtor_optin.active)의 attribution='realtor' 광고.
+# 등록번호로 귀속한 광고(attribution='region')는 오귀속 0 보장이 없어 넣지 않는다.
+# 점검은 라운지 '매물 점검'과 같은 실행부(collector/audit_runner.py — 상세 + 건축물대장 대조)로 하고, '위반'이면 전환하지 않는다.
+REGION_SOURCES = {
+    "villa": {"빌라/연립": "VL", "빌라단지-연립": "VL"},
+    "house": {"단독/다가구": "DDDGG", "전원주택": "DDDGG"},
+}
+REGION_STALE_DAYS = 2      # 지역 DB 최신 수집분이 이보다 오래되면 '안 보인 매물 닫기'를 하지 않는다(수집이 멈춘 것)
+
+
+def region_db(cat: str) -> sqlite3.Connection | None:
+    p = DB_PATH.parent / f"listings_{cat}.sqlite"
+    if not p.exists():
+        return None
+    c = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=60)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def _floor_parse(floor_info) -> tuple[int | None, str | None, int | None]:
+    """'3/5' → (3,'3',5), 'B1/2' → (-1,'B1',2), '중/15' → (None,'중',15)."""
+    a, _, b = str(floor_info or "").partition("/")
+    a = a.strip()
+    fl = int(a) if a.isdigit() else (-int(a[1:]) if a[:1] == "B" and a[1:].isdigit() else None)
+    return fl, (a or None), _int_or_none(b)
+
+
+def _tg(msg: str) -> None:
+    try:
+        from scripts.tg_notify import tg_send
+        tg_send(msg)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def sync_region(k: sqlite3.Connection, active: dict, inactive: list, now: str) -> tuple[int, int]:
+    up = closed = 0
+    for rid in inactive:
+        closed += k.execute("UPDATE kok_region_listings SET status='closed', closed_at=?, updated_at=? WHERE realtor_id=? AND status='active'",
+                            (now, now, rid)).rowcount
+    if not active:
+        return up, closed
+    ph = ",".join("?" * len(active))
+    for cat, tmap in REGION_SOURCES.items():
+        rd = region_db(cat)
+        if rd is None:
+            print(f"region {cat}: DB 없음"); continue
+        with rd:
+            snap = rd.execute("SELECT MAX(snapshot_date) FROM listings").fetchone()[0]
+            fresh = bool(snap) and snap >= time.strftime("%Y-%m-%d", time.gmtime(time.time() + 9 * 3600 - REGION_STALE_DAYS * 86400))
+            if not fresh:
+                print(f"region {cat}: 최신 수집분 {snap} — 오래돼 닫기 생략")
+                _tg(f"[콕집매물] 비단지 전환 원천 {cat} 최신 수집분이 {snap} — 수집이 멈췄는지 확인")
+            rows = rd.execute(
+                "SELECT article_no, realtor_id, realtor_name, real_estate_type_name, trade_type, deal_or_warrant_price, rent_price, area1_m2, area2_m2, "
+                f"floor_info, direction, building_name, latitude, longitude, cortar_no, first_seen_date FROM listings WHERE realtor_id IN ({ph}) "
+                "AND attribution='realtor' AND snapshot_date=?", [*active, snap]).fetchall()
+        seen: dict[str, set] = {}
+        for r in rows:
+            pt = tmap.get(r["real_estate_type_name"] or "")
+            if not pt:
+                continue
+            rid = r["realtor_id"]
+            seen.setdefault(rid, set()).add(r["article_no"])
+            pv = k.execute("SELECT trade, price, rent, status FROM kok_region_listings WHERE article_no=?", (r["article_no"],)).fetchone()
+            if pv is not None and pv["status"] == "active" and price_key(pv["trade"], pv["price"], pv["rent"]) != price_key(r["trade_type"], r["deal_or_warrant_price"], r["rent_price"]):
+                log_change(k, "G" + r["article_no"], "price", price_key(pv["trade"], pv["price"], pv["rent"]),
+                           price_key(r["trade_type"], r["deal_or_warrant_price"], r["rent_price"]))
+            fl, flabel, tf = _floor_parse(r["floor_info"])
+            k.execute(
+                "INSERT INTO kok_region_listings(article_no, realtor_id, realtor_name, src, ptype, type_name, cortar_no, lat, lng, building_name, trade, price, rent, "
+                "supply_m2, excl_m2, floor, floor_label, total_floor, direction, first_seen, kok_since, status, synced_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?) "
+                "ON CONFLICT(article_no) DO UPDATE SET realtor_name=excluded.realtor_name, type_name=excluded.type_name, lat=excluded.lat, lng=excluded.lng, "
+                "building_name=excluded.building_name, trade=excluded.trade, price=excluded.price, rent=excluded.rent, supply_m2=excluded.supply_m2, excl_m2=excluded.excl_m2, "
+                "floor=excluded.floor, floor_label=excluded.floor_label, total_floor=COALESCE(kok_region_listings.total_floor, excluded.total_floor), "
+                "direction=COALESCE(NULLIF(kok_region_listings.direction,''), excluded.direction), first_seen=COALESCE(kok_region_listings.first_seen, excluded.first_seen), "
+                "kok_since=excluded.kok_since, status=CASE WHEN kok_region_listings.status='sold' THEN 'sold' ELSE 'active' END, "
+                "closed_at=CASE WHEN kok_region_listings.status='sold' THEN kok_region_listings.closed_at ELSE NULL END, synced_at=excluded.synced_at, updated_at=excluded.synced_at",
+                (r["article_no"], rid, r["realtor_name"], cat, pt, r["real_estate_type_name"], r["cortar_no"], r["latitude"], r["longitude"], r["building_name"],
+                 r["trade_type"], r["deal_or_warrant_price"], r["rent_price"], r["area1_m2"], r["area2_m2"], fl, flabel, tf, r["direction"] or "",
+                 r["first_seen_date"], _kok_since(active[rid], r["first_seen_date"]), now))
+            up += 1
+        if fresh:
+            for rid in active:
+                cur = seen.get(rid, set())
+                for (a,) in k.execute("SELECT article_no FROM kok_region_listings WHERE realtor_id=? AND src=? AND status='active'", (rid, cat)).fetchall():
+                    if a not in cur:
+                        k.execute("UPDATE kok_region_listings SET status='closed', closed_at=?, updated_at=? WHERE article_no=?", (now, now, a))
+                        closed += 1
+    k.commit()
+    return up, closed
+
+
+def _move_in_text(f: dict) -> str | None:
+    """원 광고에 찍히는 입주 가능일 문구(점검 엔진 ⑦과 같은 해석): 8자리 날짜면 그 날짜, NOW 면 즉시 입주, 그 밖엔 'YYYY년 M월 초·중·하순'."""
+    ymd = str(f.get("movein_ymd") or "").strip()
+    t = str(f.get("movein_type") or "").strip()
+    nego = str(f.get("movein_negotiable") or "").strip() in ("Y", "협의가능")
+    if len(ymd) == 8 and ymd.isdigit():
+        return f"{ymd[:4]}.{ymd[4:6]}.{ymd[6:]}"
+    if "즉시" in t or ymd == "NOW":
+        return "즉시 입주" + (" (협의 가능)" if nego else "")
+    if t:
+        return t + (", 협의 가능" if nego and any(x in t for x in ("초순", "중순", "하순")) else "")
+    return None
+
+
+def _fetch_region_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
+    try:
+        from collector.audit_runner import _audit_keys, _audit_nonresi_one
+        from collector.creds import ensure_creds
+        creds = ensure_creds()
+        vw, dks = _audit_keys()
+    except Exception as e:  # noqa: BLE001
+        print("region detail: 준비 실패 —", str(e)[:120]); return 0
+    q = ("SELECT * FROM kok_region_listings WHERE status='active' AND (detail_fetched_at IS NULL OR detail_fetched_at<datetime('now','+9 hours',?) "
+         "OR audit_at IS NULL OR (audit_viol IS NOT NULL AND detail_fetched_at<datetime('now','+9 hours','-20 hours')))"
+         + (" AND realtor_id=?" if realtor_id else "") + " ORDER BY audit_at IS NOT NULL, kok_since DESC LIMIT ?")
+    todo = k.execute(q, [f"-{DETAIL_TTL_DAYS} days"] + ([realtor_id] if realtor_id else []) + [DETAIL_PER_RUN]).fetchall()
+    n = fails = 0
+    for x in todo:
+        r = {"article_no": x["article_no"], "real_estate_type_name": x["type_name"], "trade_type": x["trade"], "floor_info": None,
+             "area2_m2": x["excl_m2"], "deal_or_warrant_price": x["price"], "rent_price": x["rent"], "building_name": x["building_name"],
+             "direction": x["direction"], "latitude": x["lat"], "longitude": x["lng"], "cortar_no": x["cortar_no"]}
+        if x["floor_label"]:
+            r["floor_info"] = f"{x['floor_label']}/{x['total_floor'] or ''}".rstrip("/")
+        try:
+            res = _audit_nonresi_one(r, x["src"], creds, vw, dks)
+        except Exception as e:  # noqa: BLE001
+            print("region audit err", x["article_no"], str(e)[:100]); fails += 1
+            if fails >= 5 and n == 0:
+                print("region detail: 연속 실패 — 이번엔 멈춤"); break
+            continue
+        f = res.get("_audit_input")
+        if not f:          # 광고가 내려갔거나 상세 일시 실패 — 판정 보류(내려간 건 다음 동기화가 닫는다)
+            continue
+        aci = f.get("admin_cost_info") or {}
+        pk = f.get("parking_count")
+        parking = "불가" if f.get("parking_possible") == "N" else (str(pk) if pk is not None else None)
+        addr = (f.get("exposure_address") or "").strip()
+        mode = "jibun" if addr and any(ch.isdigit() for ch in addr.split()[-1]) else ("dong" if addr else None)
+        viol = violations(res)
+        k.execute(
+            "UPDATE kok_region_listings SET rooms=?, baths=?, move_in=?, direction=COALESCE(NULLIF(?,''), direction), direction_base=?, total_floor=COALESCE(?, total_floor), "
+            "approve_ymd=?, parking=?, violation=?, mgmt_fee=?, mgmt_type=?, address=?, address_mode=?, pnu=?, bld_use=?, audit_viol=?, "
+            "audit_at=datetime('now','+9 hours'), detail_fetched_at=datetime('now','+9 hours'), updated_at=datetime('now','+9 hours') WHERE article_no=?",
+            (None if f.get("room_count") is None else str(f["room_count"]), None if f.get("bathroom_count") is None else str(f["bathroom_count"]),
+             _move_in_text(f), f.get("direction") or "", f.get("direction_base"), _int_or_none(f.get("total_floor")),
+             str(f.get("use_approve_ymd") or "") or None, parking, f.get("violation_building") or "",
+             _int_or_none(f.get("monthly_management_cost")), str(aci.get("chargeCodeType") or "") or None,
+             addr or None, mode, f.get("led_pnu"), f.get("led_main_purps"),
+             json.dumps(viol, ensure_ascii=False) if viol else None, x["article_no"]))
+        n += 1
+        if n % 20 == 0:
+            k.commit()
+        time.sleep(0.4)
+    k.commit()
+    return n
+
+
+def recompute_region(k: sqlite3.Connection, realtor_id: str | None = None) -> tuple[int, int]:
+    q = "SELECT * FROM kok_region_listings WHERE status='active'" + (" AND realtor_id=?" if realtor_id else "")
+    live = hold = 0
+    for r in k.execute(q, (realtor_id,) if realtor_id else ()).fetchall():
+        miss = publish_check(dict(r), r["ptype"], source="region") if r["audit_at"] else ["audit_pending"]
+        st = "hold" if miss else "live"
+        live += st == "live"; hold += st == "hold"
+        k.execute("UPDATE kok_region_listings SET publish_state=?, hold_reasons=? WHERE article_no=?", (st, json.dumps(miss) if miss else None, r["article_no"]))
+    k.commit()
+    return live, hold
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -474,8 +673,8 @@ def main() -> int:
         k, d = kok_db(), main_db()
         before = {t: dict(k.execute(f"SELECT COALESCE(publish_state,'live'), COUNT(*) FROM {t} WHERE status='active' GROUP BY 1").fetchall())
                   for t in ("kok_listings", "kok_direct_listings")}
-        conv, direct = recompute_publish(k, d), recompute_direct(k, d)
-        print("recompute", json.dumps({"before": before, "converted(live,hold)": conv, "direct(live,hold)": direct}, ensure_ascii=False))
+        conv, direct, region = recompute_publish(k, d), recompute_direct(k, d), recompute_region(k)
+        print("recompute", json.dumps({"before": before, "converted(live,hold)": conv, "direct(live,hold)": direct, "region(live,hold)": region}, ensure_ascii=False))
         return 0
     res = sync(a.realtor, fetch_details=not a.no_details)
     print("kok_sync", json.dumps(res, ensure_ascii=False))
