@@ -11919,6 +11919,7 @@ def _kok_direct_item(r) -> dict:
             "area_name": r["area_name"] or "", "supply_m2": r["supply_m2"], "excl_m2": r["excl_m2"], "land_m2": r["land_m2"],
             "floor_text": (f"{r['floor']}층" if r["floor"] else ""), "floor": r["floor"], "total_floor": r["total_floor"], "direction": r["direction"] or "", "dong": r["dong"] or "",
             "move_in": r["move_in"] or "", "mgmt_fee": r["mgmt_fee"], "rooms": r["rooms"], "baths": r["baths"],
+            "violation": (r["violation"] or "") if "violation" in r.keys() else "",
             "direction_base": (r["direction_base"] or "") if "direction_base" in r.keys() else "",
             "approve_ymd": (r["approve_ymd"] or "") if "approve_ymd" in r.keys() else "", "parking": (r["parking"] or "") if "parking" in r.keys() else "",
             "land_use": (r["land_use"] or "") if "land_use" in r.keys() else "",
@@ -12038,6 +12039,9 @@ def lounge_kok_ledger(address: str, user: dict = Depends(current_user)):
             "hhld_cnt": led.get("hhld_cnt"), "elvt": led.get("elvt")}
 
 
+_KOK_MOVEIN_RE = __import__("re").compile(r"^(즉시 ?입주|\d{4}[.-]\d{1,2}[.-]\d{1,2}|\d{4}년 \d{1,2}월 (초순|중순|하순)(, 협의 가능)?)$")
+
+
 def _kok_direct_fields(body: dict, d) -> dict:
     """직접 등록 입력 → 저장 필드. 단지형은 단지에서 이름·좌표·법정동을, 비단지는 주소를 지오코딩. 종류별 필수 항목이 비면 422."""
     pt = str(body.get("ptype") or "")
@@ -12062,6 +12066,7 @@ def _kok_direct_fields(body: dict, d) -> dict:
          "approve_ymd": _re.sub(r"[^0-9]", "", str(body.get("approve_ymd") or ""))[:8] or None,
          "parking": str(body.get("parking") or "").strip()[:30] or None, "land_use": str(body.get("land_use") or "").strip()[:10] or None,
          "mgmt_items": None, "mgmt_type": "none" if body.get("mgmt_none") else None,
+         "violation": "Y" if body.get("violation") else None,
          "photos": _authjson.dumps(_kok_photo_names(body.get("photos"))), "description": str(body.get("description") or "").strip()[:1000],
          "keywords": _authjson.dumps(_kok_keywords(body.get("keywords")), ensure_ascii=False)}
     items = []
@@ -12076,6 +12081,9 @@ def _kok_direct_fields(body: dict, d) -> dict:
         f["mgmt_items"] = _authjson.dumps(items, ensure_ascii=False)
     if f["mgmt_type"] == "none":
         f["mgmt_fee"], f["mgmt_items"] = None, None
+    # 입주가능일(고시 6조 7호): 세부 날짜 · '즉시 입주' · 합의로 조정 가능하면 '○월 초순/중순/하순'. '협의'·'N개월 내'는 안 됨
+    if pt != "TJ" and f["move_in"] and not _KOK_MOVEIN_RE.match(f["move_in"]):
+        raise HTTPException(422, "입주 가능일은 '즉시 입주', 날짜(2026.12.15), 또는 '2026년 12월 중순' 꼴로 적어 주세요")
     if pt in _KOK_NONRES:   # 그 밖의 건축물 방향 기준은 주출입구로 정해져 있다
         f["direction_base"] = "주출입구" if f["direction"] else None
     if f["approve_ymd"] and len(f["approve_ymd"]) not in (6, 8):
