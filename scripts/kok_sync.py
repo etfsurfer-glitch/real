@@ -123,7 +123,7 @@ def kok_db() -> sqlite3.Connection:
                           ("kok_listings", "admin_hold", "TEXT"), ("kok_direct_listings", "admin_hold", "TEXT"),
                           ("kok_direct_listings", "violation", "TEXT"),
                           ("kok_listings", "audit_viol", "TEXT"), ("kok_listings", "audit_at", "TEXT"),
-                          ("kok_region_listings", "land_m2", "REAL"), ("kok_region_listings", "land_use", "TEXT"), ("kok_region_listings", "land_use_ledger", "TEXT"),
+                          ("kok_region_listings", "land_m2", "REAL"), ("kok_region_listings", "land_use", "TEXT"), ("kok_region_listings", "land_use_ledger", "TEXT"), ("kok_region_listings", "land_m2_ledger", "REAL"),
                           ("kok_region_listings", "land_price", "INTEGER")):
         if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
             c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
@@ -606,6 +606,13 @@ def _move_in_text(f: dict) -> str | None:
     return None
 
 
+def _to_f(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _land_facts(lat, lng, land_m2, vw: str, pnu: str | None = None) -> dict | None:
     """필지 → 토지특성(대장 지목·면적·공시지가). 지목 자체는 광고 값을 쓰고, 이건 공시지가·대조용.
     광고가 준 필지 번호(pnu)가 있으면 그 필지를 그대로 쓴다. 없으면 좌표가 놓인 필지를 찾되,
@@ -634,13 +641,14 @@ def _land_facts(lat, lng, land_m2, vw: str, pnu: str | None = None) -> dict | No
         fl = fl if isinstance(fl, list) else [fl]
         if not fl:
             return None
-        last = sorted(fl, key=lambda x: str(x.get("stdrYear") or ""))[-1]
+        last = sorted(fl, key=lambda x: (str(x.get("stdrYear") or ""), str(x.get("lastUpdtDt") or "")))[-1]   # 같은 해 여러 줄(분할 등) → 마지막 갱신
         area = float(last.get("lndpclAr") or 0)
     except Exception as e:  # noqa: BLE001
         print("land facts err", str(e)[:80]); return None
     if not given and (not area or abs(area - float(land_m2)) > max(1.0, float(land_m2) * 0.01)):
         return {"pnu": pnu, "matched": False}
-    return {"pnu": pnu, "matched": True, "land_use": last.get("lndcgrCodeNm"), "land_price": _int_or_none(last.get("pblntfPclnd"))}
+    return {"pnu": pnu, "matched": True, "land_use": last.get("lndcgrCodeNm"), "land_price": _int_or_none(last.get("pblntfPclnd")),
+            "area": area or None}
 
 
 def _fetch_region_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
@@ -692,12 +700,20 @@ def _fetch_region_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
             # 지목 = 원 광고 값(광고에 표시된 그대로). 필지 대장 지목은 대조용으로 따로 둔다.
             ad_pnu = str(f.get("ad_pnu") or "").strip()
             lf = _land_facts(x["lat"], x["lng"], x["land_m2"], vw, pnu=ad_pnu if len(ad_pnu) == 19 else None) or {}
-            k.execute("UPDATE kok_region_listings SET land_use=?, land_use_ledger=?, land_price=?, pnu=COALESCE(?, pnu) WHERE article_no=?",
-                      ((f.get("land_category") or "").strip() or None, lf.get("land_use"), lf.get("land_price"),
+            k.execute("UPDATE kok_region_listings SET land_use=?, land_use_ledger=?, land_m2_ledger=?, land_price=?, pnu=COALESCE(?, pnu) WHERE article_no=?",
+                      ((f.get("land_category") or "").strip() or None, lf.get("land_use"), lf.get("area"), lf.get("land_price"),
                        lf.get("pnu") if lf.get("matched") else None, x["article_no"]))
             ad_lu = (f.get("land_category") or "").strip()
-            if ad_lu and lf.get("land_use") and ad_lu != lf["land_use"]:   # 지목이 토지대장과 다르면 위반(사용자 결정 11-14)
+            la, ll = _to_f(x["land_m2"]), _to_f(lf.get("area"))
+            single = bool(la and ll and la <= ll + 1.0)   # 광고 면적이 대표 필지를 넘지 않음 = 한 필지 광고로 볼 수 있음
+            # 지목이 토지대장과 다르면 위반(사용자 결정 11-14) — 한 필지 광고일 때만. 여러 필지 합계 광고면 다른 필지의 지목일 수 있다.
+            if single and ad_lu and lf.get("land_use") and ad_lu != lf["land_use"]:
                 viol.append(f"지목: 광고({ad_lu}) ≠ 토지대장 기준 {lf['land_use']}")
+            # 토지 면적이 대장과 다르면 위반(사용자 결정 11-14). 1㎡ 이하는 반올림 차이. 광고가 대표 필지보다 '넓은' 건
+            # 여러 필지를 묶은 합계일 수 있어(광고엔 대표 필지 번호만 온다) 단정 못 함 → 막지 않는다(land_m2_ledger 로 남김).
+            if la and ll and la < ll - 1.0:
+                viol.append(f"토지면적: 광고({la:g}㎡) ≠ 토지대장 기준 {ll:g}㎡")
+            if viol and any(v.startswith(("지목:", "토지면적:")) for v in viol):
                 k.execute("UPDATE kok_region_listings SET audit_viol=? WHERE article_no=?", (json.dumps(viol, ensure_ascii=False), x["article_no"]))
         n += 1
         if n % 20 == 0:
