@@ -238,6 +238,8 @@ def _audit_nonresi_one(r: dict, cat: str, creds, vw, dks) -> dict:
     # 콕집 전환용(응답에는 안 나감 — _audit_input 은 응답 직전에 뗀다): 노출 주소·PNU·관리비 부과 방식
     _mf["exposure_address"] = det.get("exposure_address")
     _mf["led_pnu"] = (led or {}).get("pnu")
+    _mf["land_category"] = det.get("land_category")
+    _mf["ad_pnu"] = det.get("ad_pnu")
     res["_audit_input"] = _mf                            # 로그용 — 응답 직전에 뗀다
     res["kind"] = NONRESI_LABEL.get(cat, cat)
     res["building"] = r.get("building_name")

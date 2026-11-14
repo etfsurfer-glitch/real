@@ -54,6 +54,9 @@ def extract_checklist_fields(detail: dict) -> dict[str, Any]:
         "realestate_type": ad.get("realestateTypeName"),
         "principal_use": ad.get("principalUse"),             # 주용도(업무/숙박 등, 생숙 보조신호)
         "violation_building": ad.get("violationBuildingYN"), # 위반건축물
+        # 토지: 지목은 광고가 매물명·건물유형명 자리에 싣는다(대·전·답·임야…), 필지 번호(pnu)도 함께 준다
+        "land_category": (ad.get("buildingTypeName") or ad.get("articleName")) if ad.get("realestateTypeCode") == "TJ" else None,
+        "ad_pnu": ad.get("pnu"),
         "unregistered_building": ad.get("unregisteredBuildingYN"),  # 미등기
         # ⑤ 거래형태
         "trade_type": ad.get("tradeTypeName"),

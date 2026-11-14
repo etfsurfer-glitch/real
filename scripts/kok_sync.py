@@ -123,7 +123,7 @@ def kok_db() -> sqlite3.Connection:
                           ("kok_listings", "admin_hold", "TEXT"), ("kok_direct_listings", "admin_hold", "TEXT"),
                           ("kok_direct_listings", "violation", "TEXT"),
                           ("kok_listings", "audit_viol", "TEXT"), ("kok_listings", "audit_at", "TEXT"),
-                          ("kok_region_listings", "land_m2", "REAL"), ("kok_region_listings", "land_use", "TEXT"),
+                          ("kok_region_listings", "land_m2", "REAL"), ("kok_region_listings", "land_use", "TEXT"), ("kok_region_listings", "land_use_ledger", "TEXT"),
                           ("kok_region_listings", "land_price", "INTEGER")):
         if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
             c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
@@ -606,25 +606,28 @@ def _move_in_text(f: dict) -> str | None:
     return None
 
 
-def _land_facts(lat, lng, land_m2, vw: str) -> dict | None:
-    """좌표가 놓인 필지(VWorld 연속지적) → 토지특성(지목·대장 면적·공시지가). 대장 면적이 광고 면적과 1%(최소 1㎡) 안에서
-    맞을 때만 돌려준다 — 좌표가 필지 대표점이 아니거나 여러 필지를 묶은 광고면 엉뚱한 필지의 지목을 붙이게 되므로."""
+def _land_facts(lat, lng, land_m2, vw: str, pnu: str | None = None) -> dict | None:
+    """필지 → 토지특성(대장 지목·면적·공시지가). 지목 자체는 광고 값을 쓰고, 이건 공시지가·대조용.
+    광고가 준 필지 번호(pnu)가 있으면 그 필지를 그대로 쓴다. 없으면 좌표가 놓인 필지를 찾되,
+    대장 면적이 광고 면적과 1%(최소 1㎡) 안에서 맞을 때만 — 엉뚱한 필지를 붙이지 않게."""
     import urllib.parse
     import urllib.request
-    if not (vw and lat and lng and land_m2):
+    if not vw or not (pnu or (lat and lng and land_m2)):
         return None
+    given = bool(pnu)
 
     def get(u: str) -> dict:
         req = urllib.request.Request(u, headers={"User-Agent": "koczip/1.0"})
         with urllib.request.urlopen(req, timeout=10) as r:
             return json.loads(r.read().decode("utf-8"))
     try:
-        q = urllib.parse.urlencode({"service": "data", "request": "GetFeature", "data": "LP_PA_CBND_BUBUN", "key": vw, "domain": "koczip.com",
-                                    "geomFilter": f"POINT({lng} {lat})", "size": "1", "format": "json"})
-        feats = get("https://api.vworld.kr/req/data?" + q)["response"].get("result", {}).get("featureCollection", {}).get("features", [])
-        if not feats:
-            return None
-        pnu = feats[0]["properties"]["pnu"]
+        if not pnu:
+            q = urllib.parse.urlencode({"service": "data", "request": "GetFeature", "data": "LP_PA_CBND_BUBUN", "key": vw, "domain": "koczip.com",
+                                        "geomFilter": f"POINT({lng} {lat})", "size": "1", "format": "json"})
+            feats = get("https://api.vworld.kr/req/data?" + q)["response"].get("result", {}).get("featureCollection", {}).get("features", [])
+            if not feats:
+                return None
+            pnu = feats[0]["properties"]["pnu"]
         q = urllib.parse.urlencode({"key": vw, "domain": "koczip.com", "pnu": pnu, "format": "json", "numOfRows": "20", "pageNo": "1"})
         root = next(iter(get("https://api.vworld.kr/ned/data/getLandCharacteristics?" + q).values()), {})
         fl = root.get("field", []) if isinstance(root, dict) else []
@@ -635,7 +638,7 @@ def _land_facts(lat, lng, land_m2, vw: str) -> dict | None:
         area = float(last.get("lndpclAr") or 0)
     except Exception as e:  # noqa: BLE001
         print("land facts err", str(e)[:80]); return None
-    if not area or abs(area - float(land_m2)) > max(1.0, float(land_m2) * 0.01):
+    if not given and (not area or abs(area - float(land_m2)) > max(1.0, float(land_m2) * 0.01)):
         return {"pnu": pnu, "matched": False}
     return {"pnu": pnu, "matched": True, "land_use": last.get("lndcgrCodeNm"), "land_price": _int_or_none(last.get("pblntfPclnd"))}
 
@@ -686,9 +689,12 @@ def _fetch_region_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
              addr or None, mode, f.get("led_pnu"), f.get("led_main_purps"),
              json.dumps(viol, ensure_ascii=False) if viol else None, x["article_no"]))
         if x["ptype"] == "TJ":
-            lf = _land_facts(x["lat"], x["lng"], x["land_m2"], vw)
-            k.execute("UPDATE kok_region_listings SET land_use=?, land_price=?, pnu=COALESCE(?, pnu) WHERE article_no=?",
-                      ((lf or {}).get("land_use"), (lf or {}).get("land_price"), (lf or {}).get("pnu") if (lf or {}).get("matched") else None, x["article_no"]))
+            # 지목 = 원 광고 값(광고에 표시된 그대로). 필지 대장 지목은 대조용으로 따로 둔다.
+            ad_pnu = str(f.get("ad_pnu") or "").strip()
+            lf = _land_facts(x["lat"], x["lng"], x["land_m2"], vw, pnu=ad_pnu if len(ad_pnu) == 19 else None) or {}
+            k.execute("UPDATE kok_region_listings SET land_use=?, land_use_ledger=?, land_price=?, pnu=COALESCE(?, pnu) WHERE article_no=?",
+                      ((f.get("land_category") or "").strip() or None, lf.get("land_use"), lf.get("land_price"),
+                       lf.get("pnu") if lf.get("matched") else None, x["article_no"]))
         n += 1
         if n % 20 == 0:
             k.commit()
@@ -702,7 +708,6 @@ def recompute_region(k: sqlite3.Connection, realtor_id: str | None = None) -> tu
     live = hold = 0
     for r in k.execute(q, (realtor_id,) if realtor_id else ()).fetchall():
         miss = publish_check(dict(r), r["ptype"], source="region") if r["audit_at"] else ["audit_pending"]
-        miss = ["land_unverified" if m == "land_use" else m for m in miss]   # 토지 지목은 우리가 필지로 채운다 — 못 채우면 그 사유
         st = "hold" if miss else "live"
         live += st == "live"; hold += st == "hold"
         k.execute("UPDATE kok_region_listings SET publish_state=?, hold_reasons=? WHERE article_no=?", (st, json.dumps(miss) if miss else None, r["article_no"]))
