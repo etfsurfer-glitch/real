@@ -695,6 +695,10 @@ def _fetch_region_details(k: sqlite3.Connection, realtor_id: str | None) -> int:
             k.execute("UPDATE kok_region_listings SET land_use=?, land_use_ledger=?, land_price=?, pnu=COALESCE(?, pnu) WHERE article_no=?",
                       ((f.get("land_category") or "").strip() or None, lf.get("land_use"), lf.get("land_price"),
                        lf.get("pnu") if lf.get("matched") else None, x["article_no"]))
+            ad_lu = (f.get("land_category") or "").strip()
+            if ad_lu and lf.get("land_use") and ad_lu != lf["land_use"]:   # 지목이 토지대장과 다르면 위반(사용자 결정 11-14)
+                viol.append(f"지목: 광고({ad_lu}) ≠ 토지대장 기준 {lf['land_use']}")
+                k.execute("UPDATE kok_region_listings SET audit_viol=? WHERE article_no=?", (json.dumps(viol, ensure_ascii=False), x["article_no"]))
         n += 1
         if n % 20 == 0:
             k.commit()
